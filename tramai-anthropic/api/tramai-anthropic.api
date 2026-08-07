@@ -1,7 +1,14 @@
 public final class dev/tramai/anthropic/AnthropicProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/core/provider/StreamCapable {
 	public static final field ANTHROPIC_API_VERSION Ljava/lang/String;
+	public static final field PROVIDER_ID Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun providerId ()Ljava/lang/String;
 	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;

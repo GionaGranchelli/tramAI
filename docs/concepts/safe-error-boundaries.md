@@ -1,6 +1,6 @@
 # Safe Error Boundaries
 
-> **Status:** implemented for the tool-execution slice (PR #219). Provider HTTP failures, workflow steps, persistence, MCP, shell, and public structured-output exceptions remain future slices of Epic 1.2.
+> **Status:** implemented for tool execution (PR #219) and provider HTTP/transport failures (PR #222). Workflow steps, persistence, MCP, shell, and public structured-output exceptions remain future slices of Epic 1.2.
 
 ## The rule
 
@@ -25,7 +25,7 @@ Tool failures are classified with stable machine-readable codes — never by par
 | `EXECUTION_FAILED` | `tool.execution.failed` | Tool execution failed |
 | `RETRY_EXHAUSTED` | `tool.execution.retry_exhausted` | Tool execution failed |
 
-Codes are domain-specific (`ToolFailureCode` covers tools only). They classify diagnostic events and select fixed model-visible defaults. They do not drive retry or policy: retry remains determined by `ToolResult.TransientFailure` and tool idempotency, and policy does not consume these codes. Caller-visible failure mapping is pending a later Epic 1.2 slice. Provider, workflow, approval, persistence, and policy failures get their own code families later; they can implement a shared marker interface without a repository-wide "god enum".
+Codes are domain-specific. `ToolFailureCode` covers tools, while `ProviderFailureCode` covers provider HTTP rejection, timeout, connection, transport, and unexpected failures. They classify diagnostic events and select fixed safe defaults; retry remains represented by the relevant domain contract rather than inferred from message text. Workflow, approval, persistence, and policy failures can gain their own code families without introducing a repository-wide "god enum".
 
 ## Tool results
 
@@ -72,6 +72,24 @@ Original causes remain available — but only through an explicitly configured, 
 - `tramai-engine`: `TramaiEngine(toolFailureDiagnosticObserver = ...)` records one `EXECUTION_FAILED` diagnostic per failed attempt — whether the tool threw or directly returned `ToolResult.TransientFailure` — and, for an idempotent tool, one terminal `RETRY_EXHAUSTED` event after the final permitted attempt. A non-idempotent tool's transient failure yields a single `EXECUTION_FAILED` event with `retryClassified = false` and the fixed `EXECUTION_FAILED` model message; it is never labelled `RETRY_EXHAUSTED` because no retry was attempted.
 - `tramai-standalone`: `Tramai.Builder.toolFailureDiagnosticObserver(...)` configures both the engine and the `TramaiTool` adapter. Tools are resolved at `build()` against a frozen observer snapshot, so mutating the builder after `build()` can never redirect diagnostics of the built runtime.
 
-## Scope and non-claims (PR #219)
+## Provider failures
 
-PR #219 starts Epic 1.2; it does not complete it. It does not: sanitise provider HTTP response bodies, change structured-output exception fields, migrate shell/HTTP/MCP/Codex failures, add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.
+Provider adapters use shared safe boundaries for HTTP and transport failures:
+
+- non-2xx responses produce the fixed public message `Provider request failed with HTTP {status}`;
+- transport categories use fixed messages such as `Provider request timed out`, `Provider connection failed`, and `Provider transport failed`;
+- public `ProviderException` instances retain neither response bodies nor original causes, so ordinary stack traces and OpenTelemetry exception events cannot expose provider-controlled detail;
+- `ProviderFailureDiagnosticObserver` is the only channel for the original transport throwable or an HTTP body preview. The default observer is a no-op, and observer failures are fail-open;
+- HTTP error bodies are acquired as `InputStream` values and read through one byte-bounded path. At most 8 KiB plus one sentinel byte is consumed, only the retained 8 KiB is decoded as UTF-8, and truncation is reported. A multibyte code point split at the boundary may be replaced or omitted from the diagnostic suffix;
+- streaming adapters protect request construction, serialization, `HttpClient.send()`, bounded error-body acquisition, and SSE parsing. Transport or body-read failures therefore become one safe terminal error chunk instead of escaping the flow;
+- provider debug logs contain only the failure code, HTTP status, and retryability. Provider ids and aliases, bodies, headers, credentials, and cause messages are excluded;
+- diagnostic events use stable lowercase registry ids. A caller-configured display name can be carried separately as diagnostic-only `providerAlias`, but never enters public messages or logs;
+- `ProviderException.failureCode` is a class-body property with an internal setter. The exact 0.5.0 five-argument constructor and Kotlin default-argument constructor descriptors remain intact and are exercised by a fixture compiled against the 0.5.0 jar;
+- `safeProviderFailure(message, code, ...)` is the explicit trusted-message escape hatch. Its message is emitted verbatim, so only caller-controlled text belongs there. Built-in adapter parse errors use it for informative fixed text;
+- arbitrary caller-constructed `ProviderException` values are not trusted. The transport boundary emits the original only to diagnostics and returns a fresh cause-free exception preserving status/retry metadata. Only built-in safe factories pass through unchanged.
+
+Retry behavior remains structural: `statusCode`, `retryable`, and `retryAfterMillis` survive HTTP mapping, while transport categories select their established retryability. Cancellation input is rethrown before classification. Observer-thrown cancellation is swallowed only while the current coroutine remains active; cancellation of the enclosing job remains primary.
+
+## Scope and non-claims (PRs #219 and #222)
+
+These slices do not complete Epic 1.2. They do not change structured-output exception fields, migrate workflow-step/persistence/shell/generic-HTTP/MCP/Codex failures, add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.

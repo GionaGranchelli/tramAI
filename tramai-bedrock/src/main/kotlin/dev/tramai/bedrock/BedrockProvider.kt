@@ -3,7 +3,6 @@ package dev.tramai.bedrock
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.MessageRole
@@ -12,10 +11,12 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
-import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.provider.providerTransportFailureObserved
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -55,6 +56,8 @@ class BedrockProvider @JvmOverloads constructor(
     private val credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.builder().build(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = PROVIDER_ID
@@ -83,7 +86,7 @@ class BedrockProvider @JvmOverloads constructor(
             mapClaudeResponse(body, effectiveModel)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure(PROVIDER_ID, error)
+            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -112,7 +115,7 @@ class BedrockProvider @JvmOverloads constructor(
             ))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
+            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
         }
     }
 

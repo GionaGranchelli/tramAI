@@ -3,7 +3,7 @@ package dev.tramai.openai
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ConfigurationException
-import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
@@ -11,20 +11,25 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailure
-import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.provider.providerHttpFailureObserved
+import dev.tramai.core.provider.providerTransportFailureObserved
+import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.safeProviderFailure
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
+import java.io.InputStream
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -32,7 +37,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Base64
-import java.util.stream.Stream
+import java.nio.charset.StandardCharsets.UTF_8
 
 /**
  * Source for bearer tokens used by OpenAI-compatible providers.
@@ -94,7 +99,7 @@ class CodexAuthFileTokenSource(
 /**
  * Provider for any OpenAI-compatible `/chat/completions` endpoint.
  */
-open class OpenAiCompatibleProvider(
+open class OpenAiCompatibleProvider @JvmOverloads constructor(
     private val accessTokenSource: OpenAiAccessTokenSource,
     private val providerName: String = PROVIDER_LABEL,
     private val baseUrl: String,
@@ -103,6 +108,9 @@ open class OpenAiCompatibleProvider(
     private val organization: String? = null,
     private val project: String? = null,
     private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
+    private val diagnosticProviderId: String = PROVIDER_DIAGNOSTIC_ID,
 ) : ModelProvider, StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
@@ -141,25 +149,32 @@ open class OpenAiCompatibleProvider(
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
+                val errorBody = readErrorBodyPreview(response.body())
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = providerName,
+                    providerName = diagnosticProviderId,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
                 )
-                throw providerHttpFailure(
-                    providerName = providerName,
+                throw providerHttpFailureObserved(
+                    providerId = diagnosticProviderId,
+                    providerAlias = providerName,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
+                    bodyTruncated = errorBody.truncated,
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
-            val body = objectMapper.readTree(response.body())
+            val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
             val firstChoice = body.path("choices").firstOrNull()
-                ?: throw ProviderException("$providerName response did not contain any completion choices")
+                ?: throw safeProviderFailure(
+                    "Provider response did not contain any completion choices",
+                    ProviderFailureCode.UNEXPECTED_FAILURE,
+                )
             val message = firstChoice.path("message")
 
             val toolCalls = message.path("tool_calls").takeIf { it.isArray }?.map { tc ->
@@ -187,7 +202,12 @@ open class OpenAiCompatibleProvider(
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure(providerName, error)
+            throw providerTransportFailureObserved(
+                diagnosticProviderId,
+                providerName,
+                error,
+                providerFailureDiagnosticObserver,
+            )
         }
     }
 
@@ -201,66 +221,129 @@ open class OpenAiCompatibleProvider(
     }
 
     override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
-        val payload = linkedMapOf<String, Any?>(
-            "model" to request.model,
-            "stream" to true,
-            "messages" to request.messages.map { message -> messageToMap(message, request.imageDetail) },
-        )
+        val response = try {
+            withContext(ioDispatcher) {
+                val payload = linkedMapOf<String, Any?>(
+                    "model" to request.model,
+                    "stream" to true,
+                    "messages" to request.messages.map { message -> messageToMap(message, request.imageDetail) },
+                )
+                request.maxTokens?.let { payload["max_tokens"] = it }
+                request.temperature?.let { payload["temperature"] = it }
 
-        request.maxTokens?.let { payload["max_tokens"] = it }
-        request.temperature?.let { payload["temperature"] = it }
+                val httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
+                    .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
+                    .header("Content-Type", "application/json")
+                    .apply {
+                        organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
+                        project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+                    }
+                    .applyTramaiTimeout(request)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
 
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
-            .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
-            .header("Content-Type", "application/json")
-            .apply {
-                organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
-                project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+                httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             }
-            .applyTramaiTimeout(request)
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
-
-        val response = withContext(ioDispatcher) {
-            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            emit(
+                StreamChunk.Error(
+                    providerTransportFailureObserved(
+                        diagnosticProviderId,
+                        providerName,
+                        error,
+                        providerFailureDiagnosticObserver,
+                    ),
+                ),
+            )
+            return@flow
         }
 
         if (handleHttpResponseError(response)) return@flow
 
         try {
-            val (text, usage) = parseSseLines(response.body())
-            emit(StreamChunk.Complete(text, usage))
+            response.body().bufferedReader(UTF_8).use { reader ->
+                val fullText = StringBuilder()
+                var lastUsage: UsageMetrics? = null
+
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (!line.startsWith("data: ")) continue
+
+                    val data = line.substring(6).trim()
+                    val result = parseSseData(data)
+                    if (result.isDone) break
+                    if (result.tokenText.isNotEmpty()) {
+                        fullText.append(result.tokenText)
+                        emit(StreamChunk.Token(result.tokenText))
+                    }
+                    if (result.usage != null) {
+                        lastUsage = result.usage
+                    }
+                }
+
+                emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
+            }
         } catch (e: Exception) {
-            emit(StreamChunk.Error(providerTransportFailure(providerName, e)))
+            e.rethrowIfCancellation()
+            emit(
+                StreamChunk.Error(
+                    providerTransportFailureObserved(
+                        diagnosticProviderId,
+                        providerName,
+                        e,
+                        providerFailureDiagnosticObserver,
+                    ),
+                ),
+            )
         }
     }
 
     /**
      * Handles HTTP error responses (non-2xx status codes) from the OpenAI-compatible API.
-     * Reads the error body, logs it, and emits a [StreamChunk.Error].
+     * Reads a bounded preview of the error body, logs metadata only, and emits a
+     * [StreamChunk.Error].
      *
      * @return `true` if the response was an error (non-2xx), `false` if the response is OK.
      */
     private suspend fun FlowCollector<StreamChunk>.handleHttpResponseError(
-        response: HttpResponse<Stream<String>>,
+        response: HttpResponse<InputStream>,
     ): Boolean {
         if (response.statusCode() in 200..299) return false
 
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = try {
+            readErrorBodyPreview(response.body())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            emit(
+                StreamChunk.Error(
+                    providerTransportFailureObserved(
+                        diagnosticProviderId,
+                        providerName,
+                        error,
+                        providerFailureDiagnosticObserver,
+                    ),
+                ),
+            )
+            return true
+        }
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = providerName,
+            providerName = diagnosticProviderId,
             statusCode = response.statusCode(),
-            body = errorBody,
+            body = errorBody.text,
         )
         emit(
             StreamChunk.Error(
-                providerHttpFailure(
-                    providerName = providerName,
+                providerHttpFailureObserved(
+                    providerId = diagnosticProviderId,
+                    providerAlias = providerName,
                     statusCode = response.statusCode(),
-                    body = errorBody,
+                    body = errorBody.text,
+                    bodyTruncated = errorBody.truncated,
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 ),
             ),
         )
@@ -300,39 +383,6 @@ open class OpenAiCompatibleProvider(
         } else null
 
         return SseData(tokenText = content, usage = usage)
-    }
-
-    /**
-     * Parses an OpenAI-compatible SSE (Server-Sent Events) stream response.
-     * Handles `data: ` prefix stripping, `[DONE]` delimiter detection,
-     * delta/content extraction, and usage metrics tracking.
-     *
-     * @return A [Pair] of the accumulated full response text and final [UsageMetrics].
-     */
-    private suspend fun FlowCollector<StreamChunk>.parseSseLines(
-        lines: Stream<String>,
-    ): Pair<String, UsageMetrics> {
-        val fullText = StringBuilder()
-        var lastUsage: UsageMetrics? = null
-
-        lines.use { lineStream ->
-            for (line in lineStream) {
-                if (!line.startsWith("data: ")) continue
-
-                val data = line.substring(6).trim()
-                val result = parseSseData(data)
-                if (result.isDone) break
-                if (result.tokenText.isNotEmpty()) {
-                    fullText.append(result.tokenText)
-                    emit(StreamChunk.Token(result.tokenText))
-                }
-                if (result.usage != null) {
-                    lastUsage = result.usage
-                }
-            }
-        }
-
-        return Pair(fullText.toString(), lastUsage ?: UsageMetrics())
     }
 
     private fun extractContent(contentNode: JsonNode): String {
@@ -439,12 +489,15 @@ open class OpenAiCompatibleProvider(
             providerName: String = PROVIDER_LABEL,
             httpClient: HttpClient = HttpClient.newHttpClient(),
             objectMapper: ObjectMapper = ObjectMapper(),
+            providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+                NoOpProviderFailureDiagnosticObserver,
         ): OpenAiCompatibleProvider = OpenAiCompatibleProvider(
             accessTokenSource = StaticOpenAiAccessTokenSource(bearerToken),
             providerName = providerName,
             baseUrl = baseUrl,
             httpClient = httpClient,
             objectMapper = objectMapper,
+            providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
         )
 
         /**
@@ -460,41 +513,50 @@ open class OpenAiCompatibleProvider(
             authFile: Path = CodexAuthFileTokenSource.defaultAuthFile(),
             httpClient: HttpClient = HttpClient.newHttpClient(),
             objectMapper: ObjectMapper = ObjectMapper(),
+            providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+                NoOpProviderFailureDiagnosticObserver,
         ): OpenAiCompatibleProvider = OpenAiCompatibleProvider(
             accessTokenSource = CodexAuthFileTokenSource(authFile = authFile, objectMapper = objectMapper),
             providerName = providerName,
             baseUrl = baseUrl,
             httpClient = httpClient,
             objectMapper = objectMapper,
+            providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
         )
     }
 }
 
 /** @see OpenAiCompatibleProvider */
 private const val PROVIDER_LABEL = "openai-compatible"
+private const val PROVIDER_DIAGNOSTIC_ID = PROVIDER_LABEL
 
 /**
  * Provider for OpenAI's public API.
  */
-class OpenAiProvider(
+class OpenAiProvider @JvmOverloads constructor(
     accessTokenSource: OpenAiAccessTokenSource,
     baseUrl: String = DEFAULT_BASE_URL,
     httpClient: HttpClient = HttpClient.newHttpClient(),
     objectMapper: ObjectMapper = ObjectMapper(),
     organization: String? = null,
     project: String? = null,
+    providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : OpenAiCompatibleProvider(
     accessTokenSource = accessTokenSource,
     providerName = "openai",
+    diagnosticProviderId = "openai",
     baseUrl = baseUrl,
     httpClient = httpClient,
     objectMapper = objectMapper,
     organization = organization,
     project = project,
+    providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
 ) {
     /**
      * Creates an OpenAI provider using a standard API key.
      */
+    @JvmOverloads
     constructor(
         apiKey: String,
         baseUrl: String = DEFAULT_BASE_URL,
@@ -502,6 +564,8 @@ class OpenAiProvider(
         objectMapper: ObjectMapper = ObjectMapper(),
         organization: String? = null,
         project: String? = null,
+        providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+            NoOpProviderFailureDiagnosticObserver,
     ) : this(
         accessTokenSource = StaticOpenAiAccessTokenSource(apiKey),
         baseUrl = baseUrl,
@@ -509,6 +573,7 @@ class OpenAiProvider(
         objectMapper = objectMapper,
         organization = organization,
         project = project,
+        providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
     )
 
     companion object {
@@ -525,6 +590,8 @@ class OpenAiProvider(
             objectMapper: ObjectMapper = ObjectMapper(),
             organization: String? = null,
             project: String? = null,
+            providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+                NoOpProviderFailureDiagnosticObserver,
         ): OpenAiProvider = OpenAiProvider(
             accessTokenSource = StaticOpenAiAccessTokenSource(bearerToken),
             baseUrl = baseUrl,
@@ -532,6 +599,7 @@ class OpenAiProvider(
             objectMapper = objectMapper,
             organization = organization,
             project = project,
+            providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
         )
 
         /**
@@ -548,6 +616,8 @@ class OpenAiProvider(
             objectMapper: ObjectMapper = ObjectMapper(),
             organization: String? = null,
             project: String? = null,
+            providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+                NoOpProviderFailureDiagnosticObserver,
         ): OpenAiProvider = OpenAiProvider(
             accessTokenSource = CodexAuthFileTokenSource(authFile = authFile, objectMapper = objectMapper),
             baseUrl = baseUrl,
@@ -555,6 +625,7 @@ class OpenAiProvider(
             objectMapper = objectMapper,
             organization = organization,
             project = project,
+            providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
         )
     }
 }

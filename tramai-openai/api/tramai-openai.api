@@ -20,10 +20,18 @@ public abstract interface class dev/tramai/openai/OpenAiAccessTokenSource {
 
 public class dev/tramai/openai/OpenAiCompatibleProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/core/provider/StreamCapable {
 	public static final field Companion Ldev/tramai/openai/OpenAiCompatibleProvider$Companion;
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)V
 	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/CoroutineContext;)V
-	public synthetic fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public static final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/openai/OpenAiCompatibleProvider;
-	public static final fun codexAuth (Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/String;)V
+	public synthetic fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public static final fun codexAuth (Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiCompatibleProvider;
 	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun providerId ()Ljava/lang/String;
 	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
@@ -31,29 +39,41 @@ public class dev/tramai/openai/OpenAiCompatibleProvider : dev/tramai/core/provid
 }
 
 public final class dev/tramai/openai/OpenAiCompatibleProvider$Companion {
-	public final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/openai/OpenAiCompatibleProvider;
-	public static synthetic fun bearerToken$default (Ldev/tramai/openai/OpenAiCompatibleProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiCompatibleProvider;
-	public final fun codexAuth (Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/openai/OpenAiCompatibleProvider;
-	public static synthetic fun codexAuth$default (Ldev/tramai/openai/OpenAiCompatibleProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public static synthetic fun bearerToken$default (Ldev/tramai/openai/OpenAiCompatibleProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public final fun codexAuth (Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+	public static synthetic fun codexAuth$default (Ldev/tramai/openai/OpenAiCompatibleProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/nio/file/Path;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiCompatibleProvider;
 	public final fun getSUPPORTED_IMAGE_TYPES ()Ljava/util/Set;
 }
 
 public final class dev/tramai/openai/OpenAiProvider : dev/tramai/openai/OpenAiCompatibleProvider {
 	public static final field Companion Ldev/tramai/openai/OpenAiProvider$Companion;
 	public static final field DEFAULT_BASE_URL Ljava/lang/String;
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;)V
 	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public synthetic fun <init> (Ldev/tramai/openai/OpenAiAccessTokenSource;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public static final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/openai/OpenAiProvider;
-	public static final fun codexAuth (Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/openai/OpenAiProvider;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiProvider;
+	public static final fun codexAuth (Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiProvider;
 }
 
 public final class dev/tramai/openai/OpenAiProvider$Companion {
-	public final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/openai/OpenAiProvider;
-	public static synthetic fun bearerToken$default (Ldev/tramai/openai/OpenAiProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiProvider;
-	public final fun codexAuth (Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/openai/OpenAiProvider;
-	public static synthetic fun codexAuth$default (Ldev/tramai/openai/OpenAiProvider$Companion;Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiProvider;
+	public final fun bearerToken (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiProvider;
+	public static synthetic fun bearerToken$default (Ldev/tramai/openai/OpenAiProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiProvider;
+	public final fun codexAuth (Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)Ldev/tramai/openai/OpenAiProvider;
+	public static synthetic fun codexAuth$default (Ldev/tramai/openai/OpenAiProvider$Companion;Ljava/nio/file/Path;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILjava/lang/Object;)Ldev/tramai/openai/OpenAiProvider;
 }
 
 public final class dev/tramai/openai/StaticOpenAiAccessTokenSource : dev/tramai/openai/OpenAiAccessTokenSource {

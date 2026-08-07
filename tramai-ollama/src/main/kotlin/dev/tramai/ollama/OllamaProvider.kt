@@ -1,7 +1,7 @@
 package dev.tramai.ollama
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.MessageRole
@@ -9,12 +9,16 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailure
-import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.provider.providerHttpFailureObserved
+import dev.tramai.core.provider.providerTransportFailureObserved
+import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -23,20 +27,23 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
+import java.io.InputStream
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
-import java.util.stream.Stream
+import java.nio.charset.StandardCharsets.UTF_8
 
 /**
  * [ModelProvider] implementation for Ollama's chat API.
  */
-class OllamaProvider(
+class OllamaProvider @JvmOverloads constructor(
     private val baseUrl: String = "http://localhost:11434",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, dev.tramai.core.provider.StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
@@ -54,27 +61,33 @@ class OllamaProvider(
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
+                val errorBody = readErrorBodyPreview(response.body())
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = "Ollama",
+                    providerName = PROVIDER_ID,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
                 )
-                throw providerHttpFailure(
-                    providerName = "Ollama",
+                throw providerHttpFailureObserved(
+                    providerId = PROVIDER_ID,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
+                    bodyTruncated = errorBody.truncated,
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
-            val body = objectMapper.readTree(response.body())
+            val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
             val message = body.path("message")
             val role = message.path("role").asText("").lowercase()
             if (role.isNotBlank() && role != MessageRole.ASSISTANT.name.lowercase()) {
-                throw ProviderException("Unexpected Ollama response role '$role'")
+                throw safeProviderFailure(
+                    "Unexpected Ollama response role",
+                    ProviderFailureCode.UNEXPECTED_FAILURE,
+                )
             }
 
             ModelResponse(
@@ -90,14 +103,14 @@ class OllamaProvider(
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Ollama", error)
+            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
     /**
      * Returns the stable provider id used by the registry.
      */
-    override fun providerId(): String = "ollama"
+    override fun providerId(): String = PROVIDER_ID
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
         ProviderCapability.VISION -> true
@@ -105,21 +118,29 @@ class OllamaProvider(
     }
 
     override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
-        val payload = mapOf(
-            "model" to request.model,
-            "stream" to true,
-            "messages" to request.messages.map { message -> messageToMap(message) },
-        )
-
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/api/chat"))
-            .header("Content-Type", "application/json")
-            .applyTramaiTimeout(request)
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
-
-        val response = withContext(ioDispatcher) {
-            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        val response = try {
+            withContext(ioDispatcher) {
+                val payload = mapOf(
+                    "model" to request.model,
+                    "stream" to true,
+                    "messages" to request.messages.map { message -> messageToMap(message) },
+                )
+                val httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("${baseUrl.trimEnd('/')}/api/chat"))
+                    .header("Content-Type", "application/json")
+                    .applyTramaiTimeout(request)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
+                httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            emit(
+                dev.tramai.core.model.StreamChunk.Error(
+                    providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
+                ),
+            )
+            return@flow
         }
 
         val errorChunk = handleHttpError(response)
@@ -135,21 +156,32 @@ class OllamaProvider(
      * Handles non-2xx HTTP responses by logging the error and returning a [StreamChunk.Error].
      * Returns `null` for successful (2xx) responses.
      */
-    private fun handleHttpError(response: HttpResponse<Stream<String>>): dev.tramai.core.model.StreamChunk.Error? {
+    private suspend fun handleHttpError(
+        response: HttpResponse<InputStream>,
+    ): dev.tramai.core.model.StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = try {
+            readErrorBodyPreview(response.body())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            return dev.tramai.core.model.StreamChunk.Error(
+                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
+            )
+        }
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = "Ollama",
+            providerName = PROVIDER_ID,
             statusCode = response.statusCode(),
-            body = errorBody,
+            body = errorBody.text,
         )
         return dev.tramai.core.model.StreamChunk.Error(
-            providerHttpFailure(
-                providerName = "Ollama",
+            providerHttpFailureObserved(
+                providerId = PROVIDER_ID,
                 statusCode = response.statusCode(),
-                body = errorBody,
+                body = errorBody.text,
+                bodyTruncated = errorBody.truncated,
                 retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                observer = providerFailureDiagnosticObserver,
             ),
         )
     }
@@ -159,14 +191,15 @@ class OllamaProvider(
      * content JSON line and a final [StreamChunk.Complete] when done.
      */
     private suspend fun FlowCollector<dev.tramai.core.model.StreamChunk>.parseOllamaStreamResponse(
-        response: HttpResponse<Stream<String>>,
+        response: HttpResponse<InputStream>,
     ) {
         val fullText = StringBuilder()
         var lastUsage: dev.tramai.core.model.UsageMetrics? = null
 
         try {
-            response.body().use { lines ->
-                for (line in lines) {
+            response.body().bufferedReader(UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
                     if (line.isBlank()) continue
 
                     val node = objectMapper.readTree(line)
@@ -188,7 +221,11 @@ class OllamaProvider(
             emit(dev.tramai.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e)))
+            emit(
+                dev.tramai.core.model.StreamChunk.Error(
+                    providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver),
+                ),
+            )
         }
     }
 
@@ -239,5 +276,6 @@ class OllamaProvider(
 
     private companion object {
         private val providerLogger: System.Logger = System.getLogger(OllamaProvider::class.java.name)
+        const val PROVIDER_ID: String = "ollama"
     }
 }

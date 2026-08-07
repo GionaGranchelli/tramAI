@@ -6,6 +6,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.providerTransportFailure
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.create
 import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.ATTEMPTS
@@ -29,6 +30,7 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.`export`.SimpleSpanProcessor
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -153,6 +155,41 @@ class OpenTelemetryOperationObserverTest {
         // No error type attribute should be present
         assertThat(attemptMetric.attributes.asMap().keys.map { it.key })
             .doesNotContain("tramai.error.type")
+    }
+
+    @Test
+    fun `provider failure telemetry excludes transport diagnostics`() {
+        val secretFixture = "sk-secret-222 /path/customer/alice"
+        val error = providerTransportFailure(
+            "openai",
+            IOException("connection to $secretFixture refused"),
+        )
+        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+            OperationCallContext(
+                serviceInterface = "test.Service",
+                methodName = "respond",
+                providerId = "openai",
+                requestedModel = "gpt-5.1-chat-latest",
+                attempt = 0,
+            ),
+        )
+
+        observation.onProviderFailure(error)
+        observation.onCallCompleted(parseSuccess = null)
+
+        val span = exporter.finishedSpanItems.single()
+        val exportedAttributeValues = span.attributes.asMap().values +
+            span.events.flatMap { event -> event.attributes.asMap().values }
+        assertThat(exportedAttributeValues.map { it.toString() }).allSatisfy { value ->
+            assertThat(value).doesNotContain(secretFixture)
+        }
+
+        val exceptionEvent = span.events.single { it.name == "exception" }
+        val exceptionMessage = exceptionEvent.attributes.get(AttributeKey.stringKey("exception.message"))
+        assertThat(exceptionMessage).isEqualTo("Provider transport failed")
+        assertThat(exceptionMessage).doesNotContain(secretFixture)
+        assertThat(span.status.description).isEqualTo("Provider transport failed")
+        assertThat(span.status.description).doesNotContain(secretFixture)
     }
 
     @Test

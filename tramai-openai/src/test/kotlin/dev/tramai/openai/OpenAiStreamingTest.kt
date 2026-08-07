@@ -1,17 +1,25 @@
 package dev.tramai.openai
 
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
+import dev.tramai.core.provider.PROVIDER_ERROR_BODY_LIMIT_BYTES
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.CookieHandler
 import java.net.InetSocketAddress
 import java.net.ProxySelector
@@ -28,6 +36,7 @@ import java.util.stream.Stream
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLParameters
 import javax.net.ssl.SSLSession
+import kotlin.coroutines.EmptyCoroutineContext
 
 class OpenAiStreamingTest {
 
@@ -111,13 +120,66 @@ class OpenAiStreamingTest {
 
         val chunk = runBlocking { provider.stream(request()).toList().single() }
 
-        assertTrue(
-            assertInstanceOf(StreamChunk.Error::class.java, chunk)
-                .cause
-                .message
-                .orEmpty()
-                .contains("Unexpected character"),
+        val error = assertInstanceOf(StreamChunk.Error::class.java, chunk).cause as ProviderException
+        // The parse error text is untrusted provider data: only the fixed
+        // safe message is visible, and the original throwable is not retained.
+        assertEquals("Provider transport failed", error.message)
+        assertTrue(error.cause == null)
+    }
+
+    @Test
+    fun `streaming send failure is sanitized and delivered only to diagnostics`() {
+        val secretFixture = "token-stream-openai /customer/alice"
+        val original = IOException("failed at $secretFixture")
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val provider = OpenAiCompatibleProvider(
+            accessTokenSource = StaticOpenAiAccessTokenSource("test-key"),
+            providerName = "mock-openai",
+            baseUrl = "https://example.invalid/v1",
+            httpClient = FakeHttpClient(failure = original),
+            ioDispatcher = EmptyCoroutineContext,
+            providerFailureDiagnosticObserver = ProviderFailureDiagnosticObserver(events::add),
         )
+
+        val chunks = runBlocking { provider.stream(request()).toList() }
+
+        assertEquals(1, chunks.size)
+        val error = assertInstanceOf(StreamChunk.Error::class.java, chunks.single()).cause as ProviderException
+        assertEquals("Provider transport failed", error.message)
+        assertTrue(error.cause == null)
+        assertTrue(!error.message!!.contains(secretFixture))
+        assertTrue(events.single().failure is IOException)
+        assertTrue(events.single().failure!!.message!!.contains(secretFixture))
+        assertEquals("openai-compatible", events.single().providerId)
+        assertEquals("mock-openai", events.single().providerAlias)
+    }
+
+    @Test
+    fun `streaming http failure keeps the body out of the public exception and bounds diagnostics`() {
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val secretFixture = "sk-secret-streaming /path/customer/alice"
+        val provider = providerWithResponse(
+            statusCode = 500,
+            body = Stream.of(
+                """{"error":{"message":"$secretFixture"}}""",
+                "x".repeat(50_000),
+            ),
+            observer = ProviderFailureDiagnosticObserver { events.add(it) },
+        )
+
+        val chunk = runBlocking { provider.stream(request()).toList().single() }
+
+        val error = assertInstanceOf(StreamChunk.Error::class.java, chunk).cause as ProviderException
+        assertEquals("Provider request failed with HTTP 500", error.message)
+        assertTrue(!error.message!!.contains(secretFixture))
+        assertTrue(error.cause == null)
+
+        val event = events.single()
+        assertEquals(ProviderFailureCode.HTTP_REJECTED, event.code)
+        assertEquals(500, event.statusCode)
+        assertTrue(event.httpBodyPreview != null)
+        assertTrue(event.httpBodyPreview!!.length <= PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        assertTrue(event.httpBodyPreviewTruncated)
     }
 
     @Test
@@ -178,6 +240,7 @@ class OpenAiStreamingTest {
     private fun providerWithResponse(
         statusCode: Int,
         body: Stream<String>,
+        observer: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver,
     ): OpenAiCompatibleProvider = OpenAiCompatibleProvider(
         accessTokenSource = StaticOpenAiAccessTokenSource("test-key"),
         providerName = "mock-openai",
@@ -185,9 +248,10 @@ class OpenAiStreamingTest {
         httpClient = FakeHttpClient(
             FakeHttpResponse(
                 statusCode = statusCode,
-                body = body,
+                body = body.use { ByteArrayInputStream(it.toList().joinToString("\n").toByteArray()) },
             ),
         ),
+        providerFailureDiagnosticObserver = observer,
     )
 
     private fun request(): ModelRequest = ModelRequest(
@@ -197,13 +261,17 @@ class OpenAiStreamingTest {
 }
 
 private class FakeHttpClient(
-    private val response: HttpResponse<Stream<String>>,
+    private val response: HttpResponse<InputStream>? = null,
+    private val failure: IOException? = null,
 ) : HttpClient() {
 
     override fun <T : Any?> send(
         request: HttpRequest,
         responseBodyHandler: HttpResponse.BodyHandler<T>,
-    ): HttpResponse<T> = response as HttpResponse<T>
+    ): HttpResponse<T> {
+        failure?.let { throw it }
+        return requireNotNull(response) as HttpResponse<T>
+    }
 
     override fun <T : Any?> sendAsync(
         request: HttpRequest,
