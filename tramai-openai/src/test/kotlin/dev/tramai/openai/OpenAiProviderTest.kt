@@ -298,7 +298,7 @@ class OpenAiProviderTest {
         assertThat(error.message!!).doesNotContain(secretFixture)
         assertThat(error.cause).isNull()
         assertThat(events.single().failure).isSameAs(original)
-        assertThat(events.single().providerId).isEqualTo("openai")
+        assertThat(events.single().providerId).isEqualTo("openai-compatible")
         assertThat(events.single().providerAlias).isEqualTo("customer-openai")
     }
 

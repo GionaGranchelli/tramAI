@@ -528,7 +528,7 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
 
 /** @see OpenAiCompatibleProvider */
 private const val PROVIDER_LABEL = "openai-compatible"
-private const val PROVIDER_DIAGNOSTIC_ID = "openai"
+private const val PROVIDER_DIAGNOSTIC_ID = PROVIDER_LABEL
 
 /**
  * Provider for OpenAI's public API.
@@ -545,6 +545,7 @@ class OpenAiProvider @JvmOverloads constructor(
 ) : OpenAiCompatibleProvider(
     accessTokenSource = accessTokenSource,
     providerName = "openai",
+    diagnosticProviderId = "openai",
     baseUrl = baseUrl,
     httpClient = httpClient,
     objectMapper = objectMapper,

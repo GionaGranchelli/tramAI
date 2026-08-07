@@ -150,7 +150,7 @@ class OpenAiStreamingTest {
         assertTrue(!error.message!!.contains(secretFixture))
         assertTrue(events.single().failure is IOException)
         assertTrue(events.single().failure!!.message!!.contains(secretFixture))
-        assertEquals("openai", events.single().providerId)
+        assertEquals("openai-compatible", events.single().providerId)
         assertEquals("mock-openai", events.single().providerAlias)
     }
 

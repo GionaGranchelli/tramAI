@@ -164,7 +164,7 @@ Wire protocol:
 
 1. A `"stream": true` flag is injected into the request payload.
 2. The SSE endpoint returns `text/event-stream` lines.
-3. Each line is consumed with `HttpResponse.BodyHandlers.ofLines()`.
+3. The response is read with `HttpResponse.BodyHandlers.ofInputStream()`; successful streams are consumed through an explicitly owned `bufferedReader(UTF_8).use { reader -> readLine() loop }` so the response body is always closed.
 
 Event processing:
 
@@ -186,22 +186,26 @@ Cancellation propagates: because the stream is a `kotlinx.coroutines.flow.Flow`,
 
 #### HTTP error responses
 
-Non-2xx status codes are handled by `providerHttpFailure()`:
+Non-2xx status codes are handled by `providerHttpFailureObserved()`:
 
 ```kotlin
 logProviderHttpFailureDebug(
     logger = providerLogger,
-    providerId = "Anthropic",
+    providerName = "anthropic",
     statusCode = response.statusCode(),
+    body = errorBody.text,
 )
-throw providerHttpFailure(
-    providerId = "Anthropic",
+throw providerHttpFailureObserved(
+    providerId = "anthropic",
     statusCode = response.statusCode(),
-    body = response.body(),
+    body = errorBody.text,
+    bodyTruncated = errorBody.truncated,
     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
     observer = providerFailureDiagnosticObserver,
 )
 ```
+
+Non-2xx bodies are read via `readErrorBodyPreview()` (at most 8 KiB plus one sentinel byte); only the retained bytes are decoded.
 
 This produces a `ProviderException` with:
 
@@ -218,7 +222,7 @@ The body is never copied into the public exception, standard logs, or telemetry.
 
 #### Transport errors
 
-Transport-layer failures are caught and mapped by `providerTransportFailure()` to fixed cause-free public exceptions. The original throwable is delivered only to `ProviderFailureDiagnosticObserver`:
+Transport-layer failures are caught and mapped by `providerTransportFailureObserved()` to fixed cause-free public exceptions. The original throwable is delivered only to `ProviderFailureDiagnosticObserver`:
 
 | Root cause | `failureCode` | Public message | `retryable` |
 |---|---|---|---|

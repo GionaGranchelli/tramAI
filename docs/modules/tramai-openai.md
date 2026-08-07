@@ -453,7 +453,7 @@ tramai-openai
 
 #### Streaming via SSE
 
-For streaming, the provider sends the same request with `"stream": true` and consumes the response as a line-based SSE stream via `HttpResponse.BodyHandlers.ofLines()`:
+For streaming, the provider sends the same request with `"stream": true` and consumes the response via `HttpResponse.BodyHandlers.ofInputStream()`. Successful streams are read through an explicitly owned `bufferedReader(UTF_8).use { reader -> readLine() loop }`, which always closes the response body; non-2xx bodies are read with the bounded `readErrorBodyPreview()` (8 KiB + sentinel byte) and surfaced as a safe `StreamChunk.Error`:
 
 ```
 1. Provider builds payload with "stream": true
@@ -504,8 +504,8 @@ The provider never stores credentials — it delegates to `OpenAiAccessTokenSour
 
 | Exception | Trigger | Retryable | Recovery |
 |-----------|---------|-----------|----------|
-| `ProviderException` (via `providerHttpFailure`) | Non-2xx HTTP status (4xx, 5xx) | Yes for 408/425/429/500/502/503/504 | Check API key, rate limits, provider health |
-| `ProviderException` (via `providerTransportFailure`) | Network timeout, connection refused, IO error | Yes — classified as transient | Verify endpoint reachability and network |
+| `ProviderException` (via `providerHttpFailureObserved`) | Non-2xx HTTP status (4xx, 5xx) | Yes for 408/425/429/500/502/503/504 | Check API key, rate limits, provider health |
+| `ProviderException` (via `providerTransportFailureObserved`) | Network timeout, connection refused, IO error | Yes — classified as transient | Verify endpoint reachability and network |
 | `ProviderException` | Empty `choices` array in response | No — malformed response | Check API version compatibility |
 | `ConfigurationException` | Blank/empty API token | N/A — construction-time | Provide a non-blank token |
 | `ConfigurationException` (CodexAuth) | Missing auth file or wrong `auth_mode` | N/A — construction-time | Run Codex CLI login or use a different token source |
@@ -515,7 +515,7 @@ The provider never stores credentials — it delegates to `OpenAiAccessTokenSour
 - The `Retry-After` header is parsed from non-2xx responses and exposed via `error.retryAfterMillis` so the engine can honor provider-side rate-limiting guidance.
 - The public exception message is fixed to `Provider request failed with HTTP {status}` and has no cause; `failureCode` is `HTTP_REJECTED`.
 - Response bodies are excluded from public exceptions, standard logs, and telemetry. An explicitly configured `ProviderFailureDiagnosticObserver` is the only diagnostic channel and receives a preview capped at 8 KiB with a truncation flag.
-- Debug logging records metadata only: provider id, failure code, status, and retryability.
+- Debug logging records metadata only: failure code, status, and retryability (no provider id or alias; the logger channel identifies the provider).
 - Transport failures likewise use fixed cause-free messages and typed codes. The original timeout, connection, I/O, or unexpected throwable is available only to the diagnostic observer.
 
 ### Testing strategy
