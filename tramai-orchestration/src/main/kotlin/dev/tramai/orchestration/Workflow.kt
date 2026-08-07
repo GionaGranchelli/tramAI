@@ -229,6 +229,7 @@ class Workflow<S, R> internal constructor(
     private val clock: Clock,
     private val externalStepExecutorResolver: ExternalStepExecutorResolver,
     private val httpClient: HttpClient = WorkflowHttpClients.default,
+    private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
         workflowName = name,
@@ -480,30 +481,35 @@ class Workflow<S, R> internal constructor(
                     context = context,
                     observer = observer,
                     httpClient = httpClient,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is ShellWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
                     observer = observer,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is HermesWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
                     observer = observer,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is CodexWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
                     observer = observer,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is McpWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
                     observer = observer,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is PluginWorkflowStep<S> -> step.execute(
                     workflowName = name,
@@ -557,8 +563,9 @@ class Workflow<S, R> internal constructor(
             }
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            observer.onStepFailed(name, step.name, error, context)
-            throw error
+            val sanitized = sanitizeStepFailure(step, name, failureDiagnosticObserver, error)
+            observer.onStepFailed(name, step.name, sanitized, context)
+            throw sanitized
         }
         observer.onStepCompleted(name, step.name, context)
         return StepExecutionResult.Completed(nextState)
@@ -570,6 +577,7 @@ class WorkflowBuilder<S> constructor(
     private val stateType: KType,
 ) : AbstractWorkflowBuilder<S>() {
     var schedule: WorkflowScheduleDefinition? = null
+    var failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver
 
     inline fun <reified R> build(
         stopPolicy: StopPolicy = StopPolicy(),
@@ -609,6 +617,7 @@ class WorkflowBuilder<S> constructor(
             stopPolicy = stopPolicy,
             clock = clock,
             externalStepExecutorResolver = externalStepExecutorResolver,
+            failureDiagnosticObserver = failureDiagnosticObserver,
         )
     }
 }

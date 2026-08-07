@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.security.StepSecurityConfig
 import dev.tramai.core.security.ValidationResult
+import dev.tramai.core.coroutines.rethrowIfCancellation
 
 data class HermesStepConfig(
     val timeoutSeconds: Long = 180,
@@ -21,11 +22,15 @@ data class HermesStepConfig(
     }
 }
 
-class WorkflowHermesException(
-    val stepName: String,
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException("Workflow Hermes step '$stepName' $message", cause)
+class WorkflowHermesException : RuntimeException {
+    val stepName: String
+    constructor(stepName: String, message: String, cause: Throwable? = null) :
+        super("Workflow Hermes step '$stepName' $message", cause) { this.stepName = stepName }
+    var failureCode: WorkflowStepFailureCode? = null
+        internal set
+    internal var safeFactoryTrusted: Boolean = false
+    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) { this.stepName = stepName }
+}
 
 internal data class HermesWorkflowStep<S>(
     override val name: String,
@@ -38,12 +43,13 @@ internal data class HermesWorkflowStep<S>(
         state: S,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val prompt = try {
             promptBuilder(state, context)
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
-            throw wrapHermesError(error)
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, failureDiagnosticObserver)
         }
         val resolvedSecurity = resolveStepSecurity(prompt, config.security)
         observer.onWorkflowEvent(
@@ -79,23 +85,20 @@ internal data class HermesWorkflowStep<S>(
                 ),
             )
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
-            throw wrapHermesError(error)
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, codeForCliFailure(error), failureDiagnosticObserver)
         }
 
         if (result.exitCode != 0) {
-            throw WorkflowHermesException(
-                stepName = name,
-                message = result.describeNonZeroExit(),
-            )
+            throw failure(workflowName, IllegalStateException("non-zero exit"), WorkflowStepFailureCode.NON_ZERO_EXIT, failureDiagnosticObserver, result)
         }
 
-        handleOutputValidation(workflowName, result, resolvedSecurity, observer, context)
+        handleOutputValidation(workflowName, result, resolvedSecurity, observer, context, failureDiagnosticObserver)
 
         return try {
             merge(state, result.output, context)
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
+            error.rethrowIfCancellation()
             if (resolvedSecurity.defenseActive) {
                 observer.onWorkflowEvent(
                     workflowName = workflowName,
@@ -107,7 +110,7 @@ internal data class HermesWorkflowStep<S>(
                     context = context,
                 )
             }
-            throw wrapHermesError(error)
+            throw failure(workflowName, error, WorkflowStepFailureCode.RESULT_HANDLING_FAILED, failureDiagnosticObserver)
         }
     }
 
@@ -142,12 +145,13 @@ internal data class HermesWorkflowStep<S>(
         }
     }
 
-    private fun handleOutputValidation(
+    private suspend fun handleOutputValidation(
         workflowName: String,
         result: AgentCliExecution,
         resolvedSecurity: ResolvedStepSecurity,
         observer: WorkflowObserver,
         context: WorkflowContext,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ) {
         if (!resolvedSecurity.defenseActive) return
         when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
@@ -157,31 +161,40 @@ internal data class HermesWorkflowStep<S>(
                     name = SecurityEvents.OUTPUT_REJECTED,
                     attributes = mapOf(
                         "step_name" to name,
-                        "reason" to validation.reason,
-                        "rule_id" to validation.ruleId,
+                        "rule_id" to validation.ruleId.takeIf {
+                            resolvedSecurity.validator is DefaultOutputValidator && isBuiltInValidationRule(it)
+                        },
                     ),
                     context = context,
                 )
-                throw WorkflowHermesException(
-                    stepName = name,
-                    message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
+                throw failure(
+                    workflowName, OutputValidationRejectedException(validation.reason, validation.ruleId),
+                    WorkflowStepFailureCode.OUTPUT_REJECTED, failureDiagnosticObserver, result,
                 )
             }
             is ValidationResult.Valid -> Unit
         }
     }
 
-    private fun wrapHermesError(error: Throwable): WorkflowHermesException = when (error) {
-        is WorkflowHermesException -> error
-        is AgentCliTimeoutException -> WorkflowHermesException(
-            stepName = name,
-            message = error.message ?: "timed out after ${config.timeoutSeconds}s",
-            cause = error,
-        )
-        else -> WorkflowHermesException(
-            stepName = name,
-            message = "failed: ${error.message ?: error::class.java.simpleName}",
-            cause = error,
-        )
+    private suspend fun failure(
+        workflowName: String, error: Throwable, code: WorkflowStepFailureCode,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver, result: AgentCliExecution? = null,
+    ): RuntimeException {
+        val detail = if (error is OutputValidationRejectedException) {
+            boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        } else {
+            boundedWorkflowDetailPreview(error::class.java.name)
+        }
+        deliverWorkflowStepFailure(failureDiagnosticObserver, WorkflowStepFailureDiagnosticEvent(
+            workflowName, name, WorkflowStepKind.HERMES, code, 1, false, error, detail.text, detail.truncated,
+            result?.let { mapOf("exitCode" to it.exitCode.toLong()) } ?: emptyMap(),
+        ))
+        return safeWorkflowStepFailure(WorkflowStepKind.HERMES, code, fixedWorkflowStepMessage(WorkflowStepKind.HERMES, code), name, 1)
+    }
+
+    private fun codeForCliFailure(error: Throwable): WorkflowStepFailureCode = when (error) {
+        is AgentCliTimeoutException -> WorkflowStepFailureCode.TIMEOUT
+        is ProcessCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
+        else -> WorkflowStepFailureCode.START_FAILED
     }
 }

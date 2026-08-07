@@ -32,6 +32,19 @@ public abstract class dev/tramai/orchestration/AbstractWorkflowBuilder {
 	public static synthetic fun shellStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/ShellStepConfig;Ldev/tramai/orchestration/ShellCommandDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 }
 
+public final class dev/tramai/orchestration/BoundedWorkflowDetail {
+	public fun <init> (Ljava/lang/String;Z)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun copy (Ljava/lang/String;Z)Ldev/tramai/orchestration/BoundedWorkflowDetail;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/BoundedWorkflowDetail;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/orchestration/BoundedWorkflowDetail;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public final fun getTruncated ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/orchestration/BranchBuilder {
 	public fun <init> ()V
 	public final fun branch (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
@@ -650,6 +663,11 @@ public final class dev/tramai/orchestration/NoOpWorkflowObserver : dev/tramai/or
 	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 }
 
+public final class dev/tramai/orchestration/NoOpWorkflowStepFailureDiagnosticObserver : dev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver {
+	public static final field INSTANCE Ldev/tramai/orchestration/NoOpWorkflowStepFailureDiagnosticObserver;
+	public fun onFailure (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/orchestration/NonReplayableStepStateUnknownException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -983,7 +1001,9 @@ public final class dev/tramai/orchestration/WorkflowBranchSelectionException : j
 public final class dev/tramai/orchestration/WorkflowBuilder : dev/tramai/orchestration/AbstractWorkflowBuilder {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/reflect/KType;)V
 	public final fun buildTyped (Ldev/tramai/orchestration/StopPolicy;Ljava/time/Clock;Ldev/tramai/orchestration/ExternalStepExecutorResolver;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/Workflow;
+	public final fun getFailureDiagnosticObserver ()Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;
 	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
+	public final fun setFailureDiagnosticObserver (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;)V
 	public final fun setSchedule (Ldev/tramai/orchestration/WorkflowScheduleDefinition;)V
 }
 
@@ -1055,6 +1075,7 @@ public final class dev/tramai/orchestration/WorkflowCheckpointStore$DefaultImpls
 public final class dev/tramai/orchestration/WorkflowCodexException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getFailureCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public final fun getStepName ()Ljava/lang/String;
 }
 
@@ -1084,12 +1105,14 @@ public final class dev/tramai/orchestration/WorkflowGateRejectedException : java
 public final class dev/tramai/orchestration/WorkflowHermesException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getFailureCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public final fun getStepName ()Ljava/lang/String;
 }
 
 public final class dev/tramai/orchestration/WorkflowHttpException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/Throwable;)V
 	public final fun getAttempt ()I
+	public final fun getFailureCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public final fun getRedactedUrl ()Ljava/lang/String;
 	public final fun getStepName ()Ljava/lang/String;
 }
@@ -1158,6 +1181,7 @@ public final class dev/tramai/orchestration/WorkflowLimitExceededException : jav
 public final class dev/tramai/orchestration/WorkflowMcpException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getFailureCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public final fun getStepName ()Ljava/lang/String;
 }
 
@@ -1294,12 +1318,84 @@ public final class dev/tramai/orchestration/WorkflowScheduleDefinition$DefaultIm
 public final class dev/tramai/orchestration/WorkflowShellException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getFailureCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
 	public final fun getStepName ()Ljava/lang/String;
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowStateCodec {
 	public abstract fun decode (Ljava/lang/String;)Ljava/lang/Object;
 	public abstract fun encode (Ljava/lang/Object;)Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowStepFailureCode : java/lang/Enum {
+	public static final field CLEANUP_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field EXECUTION_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field NON_ZERO_EXIT Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field OUTPUT_REJECTED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field POLICY_REJECTED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field PREPARATION_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field RESULT_HANDLING_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field START_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field TIMEOUT Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field TRANSPORT_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static final field VALIDATION_FAILED Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public static fun values ()[Ldev/tramai/orchestration/WorkflowStepFailureCode;
+}
+
+public final class dev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;IZLjava/lang/Throwable;Ljava/lang/String;ZLjava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;IZLjava/lang/Throwable;Ljava/lang/String;ZLjava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/util/Map;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/orchestration/WorkflowStepKind;
+	public final fun component4 ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public final fun component5 ()I
+	public final fun component6 ()Z
+	public final fun component7 ()Ljava/lang/Throwable;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;IZLjava/lang/Throwable;Ljava/lang/String;ZLjava/util/Map;)Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;IZLjava/lang/Throwable;Ljava/lang/String;ZLjava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getCode ()Ldev/tramai/orchestration/WorkflowStepFailureCode;
+	public final fun getDetailPreview ()Ljava/lang/String;
+	public final fun getDetailTruncated ()Z
+	public final fun getFailure ()Ljava/lang/Throwable;
+	public final fun getKind ()Ldev/tramai/orchestration/WorkflowStepKind;
+	public final fun getNumericMetadata ()Ljava/util/Map;
+	public final fun getStepName ()Ljava/lang/String;
+	public final fun getWillRetryOrReconnect ()Z
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver {
+	public abstract fun onFailure (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowStepFailuresKt {
+	public static final fun boundedWorkflowDetailPreview (Ljava/io/InputStream;I)Ldev/tramai/orchestration/BoundedWorkflowDetail;
+	public static final fun boundedWorkflowDetailPreview (Ljava/lang/String;)Ldev/tramai/orchestration/BoundedWorkflowDetail;
+	public static synthetic fun boundedWorkflowDetailPreview$default (Ljava/io/InputStream;IILjava/lang/Object;)Ldev/tramai/orchestration/BoundedWorkflowDetail;
+	public static final fun safeWorkflowStepFailure (Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Integer;Ljava/lang/Long;)Ljava/lang/RuntimeException;
+	public static synthetic fun safeWorkflowStepFailure$default (Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Integer;Ljava/lang/Long;ILjava/lang/Object;)Ljava/lang/RuntimeException;
+}
+
+public final class dev/tramai/orchestration/WorkflowStepKind : java/lang/Enum {
+	public static final field CODEX Ldev/tramai/orchestration/WorkflowStepKind;
+	public static final field HERMES Ldev/tramai/orchestration/WorkflowStepKind;
+	public static final field HTTP Ldev/tramai/orchestration/WorkflowStepKind;
+	public static final field MCP Ldev/tramai/orchestration/WorkflowStepKind;
+	public static final field SHELL Ldev/tramai/orchestration/WorkflowStepKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowStepKind;
+	public static fun values ()[Ldev/tramai/orchestration/WorkflowStepKind;
 }
 
 public final class dev/tramai/orchestration/WorkflowSuspendedException : java/lang/RuntimeException {

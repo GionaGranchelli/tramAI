@@ -103,11 +103,15 @@ data class McpStepConfig(
     }
 }
 
-class WorkflowMcpException(
-    val stepName: String,
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException("Workflow MCP step '$stepName' $message", cause)
+class WorkflowMcpException : RuntimeException {
+    val stepName: String
+    constructor(stepName: String, message: String, cause: Throwable? = null) :
+        super("Workflow MCP step '$stepName' $message", cause) { this.stepName = stepName }
+    var failureCode: WorkflowStepFailureCode? = null
+        internal set
+    internal var safeFactoryTrusted: Boolean = false
+    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) { this.stepName = stepName }
+}
 
 /**
  * Pluggable transport provider for MCP steps.
@@ -210,16 +214,22 @@ internal data class McpWorkflowStep<S>(
         state: S,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val toolCall = try {
             toolCallBuilder(state, context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapMcpError(error)
+            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, 1, false, failureDiagnosticObserver)
         }
 
         try {
             validateDefinition(toolCall)
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, WorkflowStepFailureCode.VALIDATION_FAILED, 1, false, failureDiagnosticObserver)
+        }
+        try {
             validateToolAllowlist(toolCall.toolName)
             try {
                 validateCommandPolicy(toolCall)
@@ -240,7 +250,7 @@ internal data class McpWorkflowStep<S>(
             }
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapMcpError(error, toolCall)
+            throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, 1, false, failureDiagnosticObserver)
         }
 
         observer.onWorkflowEvent(
@@ -248,7 +258,7 @@ internal data class McpWorkflowStep<S>(
             name = "tramai.workflow.mcp.started",
             attributes = mapOf(
                 "step_name" to name,
-                "tool_name" to toolCall.toolName,
+                "tool_name_digest" to toolCall.toolName.sha256Digest(),
             ),
             context = context,
         )
@@ -258,6 +268,7 @@ internal data class McpWorkflowStep<S>(
             workflowName = workflowName,
             context = context,
             observer = observer,
+            failureDiagnosticObserver = failureDiagnosticObserver,
         )
 
         observer.onWorkflowEvent(
@@ -265,7 +276,7 @@ internal data class McpWorkflowStep<S>(
             name = "tramai.workflow.mcp.completed",
             attributes = mapOf(
                 "step_name" to name,
-                "tool_name" to toolCall.toolName,
+                "tool_name_digest" to toolCall.toolName.sha256Digest(),
                 "is_error" to result.isError,
                 "content_size_bytes" to (result.content?.length ?: 0),
             ),
@@ -276,7 +287,7 @@ internal data class McpWorkflowStep<S>(
             merge(state, result, context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapMcpError(error, toolCall)
+            throw failure(workflowName, error, WorkflowStepFailureCode.RESULT_HANDLING_FAILED, 1, false, failureDiagnosticObserver)
         }
     }
 
@@ -285,6 +296,7 @@ internal data class McpWorkflowStep<S>(
         workflowName: String,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ): McpToolResult {
         var lastError: Throwable? = null
         val maxAttempts = if (config.reconnect) 2 else 1
@@ -295,25 +307,29 @@ internal data class McpWorkflowStep<S>(
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 lastError = error
-                if (attempt < maxAttempts && error.isTransientForReconnect()) {
+                val code = mcpFailureCode(error)
+                val willReconnect = attempt < maxAttempts && error.isTransientForReconnect()
+                val safeFailure = failure(
+                    workflowName, error, code, attempt, willReconnect, failureDiagnosticObserver,
+                )
+                if (willReconnect) {
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
                         name = "tramai.workflow.mcp.reconnecting",
                         attributes = mapOf(
                             "step_name" to name,
-                            "tool_name" to toolCall.toolName,
                             "attempt" to attempt,
-                            "reason" to (error.message ?: error::class.java.simpleName),
+                            "failure_code" to code.value,
                         ),
                         context = context,
                     )
                 } else {
-                    throw wrapMcpError(error, toolCall)
+                    throw safeFailure
                 }
             }
         }
 
-        throw wrapMcpError(lastError!!, toolCall)
+        throw checkNotNull(lastError)
     }
 
     private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult {
@@ -390,12 +406,7 @@ internal data class McpWorkflowStep<S>(
             }
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            val mcpException = WorkflowMcpException(
-                stepName = name,
-                message = "timed out after ${config.timeoutSeconds}s",
-            )
-            error.suppressedExceptions.forEach { mcpException.addSuppressed(it) }
-            throw mcpException
+            throw McpTimeoutException(error)
         }
     }
 
@@ -534,48 +545,15 @@ internal data class McpWorkflowStep<S>(
         }
     }
 
-    private fun wrapMcpError(
-        error: Throwable,
-        toolCall: McpToolCall? = null,
-    ): WorkflowMcpException = when (error) {
-        is WorkflowMcpException -> {
-            if (toolCall == null) {
-                error
-            } else {
-                WorkflowMcpException(
-                    stepName = name,
-                    message = sanitizeMcpErrorMessage(error.detailMessage(), toolCall),
-                    cause = error.cause,
-                )
-            }
-        }
-        else -> WorkflowMcpException(
-            stepName = name,
-            message = "failed: ${sanitizeMcpErrorMessage(error.message ?: error::class.java.simpleName, toolCall)}",
-            cause = error,
-        )
-    }
-
-    private fun sanitizeMcpErrorMessage(
-        message: String,
-        toolCall: McpToolCall?,
-    ): String {
-        if (toolCall == null) {
-            return message
-        }
-        var sanitized = message
-        toolCall.serverCommand.forEach { part ->
-            val identifier = File(part).name
-            if (identifier.isNotEmpty() && identifier.length > 2) {
-                sanitized = sanitized.replace(identifier, "[command]")
-            }
-        }
-        return sanitized
-    }
-
-    private fun WorkflowMcpException.detailMessage(): String {
-        val prefix = "Workflow MCP step '$stepName' "
-        return message?.removePrefix(prefix) ?: this::class.java.simpleName
+    private suspend fun failure(
+        workflowName: String, error: Throwable, code: WorkflowStepFailureCode, attempt: Int, willReconnect: Boolean,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    ): RuntimeException {
+        val detail = boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        deliverWorkflowStepFailure(failureDiagnosticObserver, WorkflowStepFailureDiagnosticEvent(
+            workflowName, name, WorkflowStepKind.MCP, code, attempt, willReconnect, error, detail.text, detail.truncated,
+        ))
+        return safeWorkflowStepFailure(WorkflowStepKind.MCP, code, fixedWorkflowStepMessage(WorkflowStepKind.MCP, code), name, attempt)
     }
 }
 
@@ -587,16 +565,29 @@ internal data class McpWorkflowStep<S>(
 private class McpPostCallCleanupException(cause: Throwable) :
     RuntimeException("MCP cleanup failed after tool completion", cause)
 
+private class McpTimeoutException(cause: Throwable) : RuntimeException("MCP call timed out", cause)
+
 /**
  * Only retry on transport/setup failures, not timeouts or tool-level errors.
  * A non-idempotent MCP tool must not run twice after partial completion.
  */
 private fun Throwable.isTransientForReconnect(): Boolean = when (this) {
     is TimeoutCancellationException -> false
-    is WorkflowMcpException -> !message.orEmpty().contains("timed out")
-    is McpPostCallCleanupException -> false
-    else -> true
+    is CancellationException -> false
+    is McpTimeoutException, is McpPostCallCleanupException -> false
+    is WorkflowMcpException -> failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED
+    else -> mcpFailureCode(this) == WorkflowStepFailureCode.TRANSPORT_FAILED
 }
+
+private fun mcpFailureCode(error: Throwable): WorkflowStepFailureCode = when (error) {
+    is McpTimeoutException, is TimeoutCancellationException -> WorkflowStepFailureCode.TIMEOUT
+    is McpPostCallCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
+    is WorkflowMcpException -> error.failureCode ?: WorkflowStepFailureCode.TRANSPORT_FAILED
+    else -> WorkflowStepFailureCode.TRANSPORT_FAILED
+}
+
+private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
 private fun List<String>.commandIdentifiers(): Set<String> {
     val executable = first()

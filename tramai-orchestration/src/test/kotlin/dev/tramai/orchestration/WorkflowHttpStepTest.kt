@@ -145,7 +145,8 @@ class WorkflowHttpStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(HttpState()) }
         }.isInstanceOf(WorkflowHttpException::class.java)
-            .hasCauseInstanceOf(HttpTimeoutException::class.java)
+            .hasMessage("Workflow http step timed out")
+            .hasNoCause()
         }
     }
 
@@ -185,7 +186,8 @@ class WorkflowHttpStepTest {
             assertThat(renderedAttributes).doesNotContain("request-secret")
             assertThat(renderedAttributes).doesNotContain("server-secret")
             assertThat(renderedAttributes).doesNotContain("query-secret")
-            assertThat(renderedAttributes).contains("/secret")
+            // URL path/fragment never reach workflow events.
+            assertThat(renderedAttributes).doesNotContain("/secret")
         }
     }
 
@@ -208,10 +210,8 @@ class WorkflowHttpStepTest {
                 )
             }
         }.isInstanceOf(WorkflowHttpException::class.java)
-            .hasMessageContaining("step 'fetch'")
-            .hasMessageContaining("/tmp/secret.txt")
-            .cause()
-            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("Workflow http step validation failed")
+            .hasNoCause()
 
         assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
     }
@@ -240,10 +240,8 @@ class WorkflowHttpStepTest {
                     )
                 }
             }.isInstanceOf(WorkflowHttpException::class.java)
-                .hasMessageContaining("step 'fetch'")
-                .hasMessageContaining("127.0.0.1")
-                .cause()
-                .isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessage("Workflow http step validation failed")
+                .hasNoCause()
 
             assertThat(requests.get()).isZero()
             assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
@@ -301,8 +299,8 @@ class WorkflowHttpStepTest {
                 )
             }
         }.isInstanceOf(WorkflowHttpException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("TRACE")
+            .hasMessage("Workflow http step validation failed")
+            .hasNoCause()
 
         assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
     }
@@ -326,8 +324,8 @@ class WorkflowHttpStepTest {
                 )
             }
         }.isInstanceOf(WorkflowHttpException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("missing-host")
+            .hasMessage("Workflow http step validation failed")
+            .hasNoCause()
 
         assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
     }
@@ -401,13 +399,16 @@ class WorkflowHttpStepTest {
                 )
             }
         }.isInstanceOf(WorkflowHttpException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("Workflow http step validation failed")
+            .hasNoCause()
 
         val validationEvent = observer.events.single { (eventName, _) ->
             eventName == "tramai.workflow.http.request.validation.failed"
         }
-        assertThat(validationEvent.second["url"]).isEqualTo("http://exa mple.com/path")
-        assertThat(validationEvent.second["url"].toString()).doesNotContain("token=secret")
+        // URL, host, path, query, and fragment never reach workflow events.
+        assertThat(validationEvent.second.containsKey("url")).isFalse()
+        assertThat(validationEvent.second.toString()).doesNotContain("token=secret")
+        assertThat(validationEvent.second["failure_code"]).isEqualTo("workflow.step.validation_failed")
     }
 
     @Test

@@ -313,7 +313,7 @@ class WorkflowMcpStepTest {
         )
         val startedEvent = observer.events.first { it.first == "tramai.workflow.mcp.started" }
         assertThat(startedEvent.second["step_name"]).isEqualTo("echo")
-        assertThat(startedEvent.second["tool_name"]).isEqualTo("echo")
+        assertThat(startedEvent.second["tool_name_digest"]).isEqualTo(sha256("echo"))
     }
 
     @Test
@@ -337,15 +337,18 @@ class WorkflowMcpStepTest {
             transportProvider = transportProvider,
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         val error = runCatching {
             runBlocking { workflow.run(McpState()) }
         }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
-        assertThat(error).hasMessageContaining("not in the allowlist")
+        assertThat(error).hasMessage("Workflow mcp step was rejected by policy")
         assertThat(error?.cause).isNull()
+        assertThat(workflowFailureCode(error!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(diagnostics.single().detailPreview).contains("not in the allowlist")
     }
 
     @Test
@@ -407,32 +410,40 @@ class WorkflowMcpStepTest {
     @Test
     fun `mcp typed overload wraps decode failures as workflow mcp exceptions`() {
         val (transportProvider, _) = createEchoServer()
+        val diagnostics = RecordingDiagnosticObserver()
 
-        val workflow = workflow<McpState>("typed-mcp-failure") {
-            mcpStep(
-                name = "echo",
-                config = McpStepConfig.unrestricted(),
-                definition = McpToolCallDefinition(
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+                argumentKeys = setOf("message"),
+            ),
+            config = McpStepConfig.unrestricted(),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(
                     serverCommand = listOf("unused"),
                     toolName = "echo",
-                    argumentKeys = setOf("message"),
-                ),
-                toolCall = { _, _ ->
-                    McpToolCall(
-                        serverCommand = listOf("unused"),
-                        toolName = "echo",
-                        arguments = mapOf("message" to "typed"),
-                    )
-                },
-                decode = { result -> error("decode failed for '${result.content}'") },
-                merge = { state, result, _ -> state.copy(decoded = result) },
-            )
-        }.build { it }.withFirstMcpTransport(transportProvider)
+                    arguments = mapOf("message" to "typed"),
+                )
+            },
+            merge = { state, result, _ ->
+                error("decode failed for '${result.content}'")
+            },
+            transportProvider = transportProvider,
+        )
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         assertThatThrownBy {
             runBlocking { workflow.run(McpState()) }
         }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("decode failed for 'echo: typed'")
+            .hasMessage("Workflow mcp step result handling failed")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.kind).isEqualTo(WorkflowStepKind.MCP)
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
+        assertThat(event.detailPreview).contains("decode failed for 'echo: typed'")
     }
 
     @Test
@@ -453,15 +464,18 @@ class WorkflowMcpStepTest {
             transportProvider = transportProvider,
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         val error = runCatching {
             runBlocking { workflow.run(McpState()) }
         }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
-        assertThat(error).hasMessageContaining("does not match the canonical definition")
+        assertThat(error).hasMessage("Workflow mcp step validation failed")
         assertThat(error?.cause).isNull()
+        assertThat(workflowFailureCode(error!!)).isEqualTo(WorkflowStepFailureCode.VALIDATION_FAILED)
+        assertThat(diagnostics.single().detailPreview).contains("does not match the canonical definition")
     }
 
     @Test
@@ -486,15 +500,18 @@ class WorkflowMcpStepTest {
             transportProvider = transportProvider,
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         val error = runCatching {
             runBlocking { workflow.run(McpState()) }
         }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
-        assertThat(error).hasMessageContaining("blocked by the denylist")
+        assertThat(error).hasMessage("Workflow mcp step was rejected by policy")
         assertThat(error?.cause).isNull()
+        assertThat(workflowFailureCode(error!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(diagnostics.single().detailPreview).contains("blocked by the denylist")
     }
 
     @Test
@@ -589,12 +606,18 @@ class WorkflowMcpStepTest {
             transportProvider = transportProvider,
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         assertThatThrownBy {
             runBlocking { workflow.run(McpState()) }
         }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("not in allowlist")
+            .hasMessage("Workflow mcp step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("not in allowlist")
     }
 
     @Test
@@ -614,13 +637,20 @@ class WorkflowMcpStepTest {
             transportProvider = SubprocessMcpTransportProvider(),
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         assertThatThrownBy {
             runBlocking { workflow.run(McpState()) }
         }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("[command]")
+            .hasMessage("Workflow mcp step transport failed")
+            .hasNoCause()
             .hasMessageNotContaining(secretExecutable)
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.TRANSPORT_FAILED)
+        // The raw command identifier is only visible through the diagnostic channel.
+        assertThat(event.detailPreview).contains(secretExecutable)
     }
 
     @Test
@@ -641,12 +671,18 @@ class WorkflowMcpStepTest {
             transportProvider = transportProvider,
         )
 
-        val workflow = buildWorkflow(listOf(step))
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = buildWorkflow(listOf(step), diagnostics)
 
         assertThatThrownBy {
             runBlocking { workflow.run(McpState()) }
         }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("not in allowlist")
+            .hasMessage("Workflow mcp step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("not in allowlist")
     }
 
     @Test
@@ -682,6 +718,7 @@ class WorkflowMcpStepTest {
 
     private fun buildWorkflow(
         steps: List<InternalWorkflowStep<McpState>>,
+        diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): Workflow<McpState, McpState> = Workflow(
         name = "test-mcp-workflow",
         definitionVersion = "1",
@@ -693,7 +730,11 @@ class WorkflowMcpStepTest {
         stopPolicy = StopPolicy(),
         clock = Clock.systemUTC(),
         externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
+        failureDiagnosticObserver = diagnosticObserver,
     )
+
+    private fun sha256(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     @Suppress("UNCHECKED_CAST")
     private fun Workflow<McpState, McpState>.withFirstMcpTransport(

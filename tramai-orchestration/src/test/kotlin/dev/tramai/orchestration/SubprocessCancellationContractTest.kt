@@ -724,13 +724,10 @@ class SubprocessCancellationContractTest {
 
                     assertThat(failure).isNotNull()
                     assertThat(failure).isInstanceOf(WorkflowMcpException::class.java)
-                    // The cleanup failure is surfaced wrapped in the non-reconnectable
-                    // McpPostCallCleanupException (file-private; asserted by message+cause).
-                    val cleanupException = failure!!.cause
-                    assertThat(cleanupException).isNotNull()
-                    assertThat(cleanupException!!.message)
-                        .isEqualTo("MCP cleanup failed after tool completion")
-                    assertThat(cleanupException!!.cause).hasMessage("simulated cleanup failure")
+                    // The cleanup failure is surfaced as the typed CLEANUP_FAILED code;
+                    // the raw close error reaches only the diagnostic observer.
+                    assertThat(workflowFailureCode(failure!!)).isEqualTo(WorkflowStepFailureCode.CLEANUP_FAILED)
+                    assertThat(failure.cause).isNull()
                     // Exactly-once execution: the cleanup failure must never trigger a
                     // second connect + tool execution.
                     assertThat(toolExecutions.get()).isEqualTo(1)

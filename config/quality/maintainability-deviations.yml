@@ -40,8 +40,8 @@ deviations:
     metric: fileSize
     scope: ":tramai-orchestration"
     baseline: 1858
-    allowed: 1875
-    reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
+    allowed: 1883
+    reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4). Allowed raised 1875→1883 for PR #223 structural observer threading (constructor parameter, five step-execute threads, build-time snapshot) after extracting the step-failure sanitization helper into WorkflowStepFailures.kt."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
