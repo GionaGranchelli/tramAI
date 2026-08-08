@@ -12,9 +12,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.typeOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -173,11 +175,49 @@ class WorkflowStepFailureBoundaryTest {
 
         runBlocking {
             val outer = Job()
-            val job = launch(outer) { workflow.run(BoundaryState()) }
-            job.join()
-            assertThat(job.isCancelled).isTrue()
+            val terminal = terminalThrowable(outer) { workflow.run(BoundaryState()) }
+            assertThat(terminal).isInstanceOf(CancellationException::class.java)
+            assertThat(terminal).isNotInstanceOf(WorkflowHttpException::class.java)
         }
     }
+
+    @Test
+    fun `observer cancelling parent then throwing ordinary exception still lets cancellation win`() {
+        val workflow = workflow<BoundaryState>("http-observer-cancel-then-throw") {
+            failureDiagnosticObserver = WorkflowStepFailureDiagnosticObserver {
+                currentCoroutineContext().job.parent?.cancel()
+                throw IllegalStateException("observer failed after cancelling parent")
+            }
+            httpStep(
+                name = "fetch",
+                config = HttpStepConfig(),
+                request = { _, _ -> throw IOException("boom") },
+                merge = { state, response, _ -> state.copy(status = response.status) },
+            )
+        }.build { it }
+
+        runBlocking {
+            val outer = Job()
+            val terminal = terminalThrowable(outer) { workflow.run(BoundaryState()) }
+            assertThat(terminal).isInstanceOf(CancellationException::class.java)
+            assertThat(terminal).isNotInstanceOf(WorkflowHttpException::class.java)
+        }
+    }
+
+    private suspend fun terminalThrowable(outer: Job, block: suspend () -> Unit): Throwable? =
+        coroutineScope {
+            val outcome = CompletableDeferred<Throwable?>()
+            val job = launch(outer) {
+                try {
+                    block()
+                    outcome.complete(null)
+                } catch (t: Throwable) {
+                    outcome.complete(t)
+                }
+            }
+            job.join()
+            outcome.await()
+        }
 
     @Test
     fun `http transport failures emit a single event and never retry`() {
@@ -571,12 +611,16 @@ class WorkflowStepFailureBoundaryTest {
     fun `parent timeout stays a cancellation and never becomes a shell timeout diagnostic`() {
         val diagnostics = BoundaryDiagnosticObserver()
         val script = Files.createTempFile("hang-parent", ".sh")
-        Files.writeString(script, "#!/bin/sh\nsleep 30\n")
+        val marker = Files.createTempFile("hang-parent-started", ".pid")
+        Files.writeString(script, "#!/bin/sh\ntouch $marker\nsleep 30\n")
         script.toFile().setExecutable(true)
         try {
             val thrown = catchThrowable {
                 runBlocking {
-                    withTimeout(200) {
+                    // 500 ms is well beyond subprocess start (marker proves the
+                    // script ran) yet far below the 30 s step timeout, so the
+                    // parent timeout fires while lifecycle.awaitExit() is running.
+                    withTimeout(500) {
                         workflow<BoundaryState>("parent-timeout") {
                             failureDiagnosticObserver = diagnostics
                             shellStep(
@@ -593,10 +637,12 @@ class WorkflowStepFailureBoundaryTest {
                     }
                 }
             }
+            assertThat(Files.exists(marker)).isTrue()
             assertThat(thrown).isInstanceOf(TimeoutCancellationException::class.java)
             assertThat(diagnostics.events).isEmpty()
         } finally {
             Files.deleteIfExists(script)
+            Files.deleteIfExists(marker)
         }
     }
 

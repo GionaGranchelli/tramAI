@@ -93,10 +93,16 @@ internal suspend fun deliverWorkflowStepFailure(
     try {
         observer.onFailure(event)
     } catch (e: CancellationException) {
+        // Synthetic observer cancellation is fail-open while our job is active.
         currentCoroutineContext().ensureActive()
     } catch (e: Throwable) {
         e.rethrowIfCancellation()
     }
+    // Cancellation can arrive while the observer returns normally or after an
+    // ordinary observer exception is swallowed; parent cancellation must win
+    // over the sanitized workflow failure, so re-check the enclosing coroutine
+    // after the fail-open callback.
+    currentCoroutineContext().ensureActive()
 }
 
 internal suspend fun sanitizeStepFailure(
