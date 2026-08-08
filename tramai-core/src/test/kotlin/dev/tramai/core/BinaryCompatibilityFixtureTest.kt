@@ -40,6 +40,34 @@ class BinaryCompatibilityFixtureTest {
         assertThat(text).doesNotContain("FIXTURE_FAIL")
     }
 
+    @Test
+    fun `structured output fixture compiled against 0_5_0 runs against current core classes`() {
+        val fixtureUrl = requireNotNull(
+            javaClass.classLoader.getResource("binary-compat/fixture-v0.5.0.jar"),
+        )
+        val currentCoreUrl = requireNotNull(ProviderException::class.java.protectionDomain.codeSource.location)
+        val output = ByteArrayOutputStream()
+        val originalOut = System.out
+
+        val text = ChildFirstCoreClassLoader(
+            arrayOf(fixtureUrl, currentCoreUrl),
+            javaClass.classLoader,
+        ).use { loader ->
+            try {
+                System.setOut(PrintStream(output, true, Charsets.UTF_8))
+                loader.loadClass("dev.tramai.core.binarycompat.StructuredOutputBinaryCompatFixture")
+                    .getMethod("main")
+                    .invoke(null)
+            } finally {
+                System.setOut(originalOut)
+            }
+            output.toString(Charsets.UTF_8)
+        }
+
+        assertThat(text).contains("FIXTURE_OK_STRUCTURED_1")
+        assertThat(text).doesNotContain("FIXTURE_FAIL")
+    }
+
     private class ChildFirstCoreClassLoader(
         urls: Array<URL>,
         parent: ClassLoader,

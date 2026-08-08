@@ -54,8 +54,8 @@ class JacksonStructuredOutputHandler(
                 rawResponse = rawResponse,
                 errorSummary = "Could not extract JSON content from the model response",
                 feedbackMessage = "Your previous response did not contain valid JSON. Return only valid JSON that matches the requested schema.",
-                failure = error,
             )
+                .also { it.failure = error }
         }
 
         val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
@@ -70,8 +70,8 @@ class JacksonStructuredOutputHandler(
                 rawResponse = rawResponse,
                 errorSummary = "Could not parse the JSON payload",
                 feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
-                failure = error,
             )
+                .also { it.failure = error }
         }
 
         validateJsonShape(jsonNode, targetType, "")?.let { error ->
@@ -89,8 +89,8 @@ class JacksonStructuredOutputHandler(
                 rawResponse = rawResponse,
                 errorSummary = "Could not deserialize the JSON payload",
                 feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
-                failure = error,
             )
+                .also { it.failure = error }
         }
 
         val validationError = validateValue(value, targetType)

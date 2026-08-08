@@ -15,8 +15,10 @@ import dev.tramai.core.structured.StructuredOutputFailureDiagnosticEvent
 import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.catchThrowable
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.reflect.KType
 import kotlin.test.Test
@@ -99,6 +101,20 @@ class StructuredOutputFailureBoundaryTest {
     }
 
     @Test
+    fun `observer throwing fake cancellation while the job is active is swallowed`() {
+        val diagnostics = RecordingDiagnostics(throwFakeCancellation = true)
+        val service = engine(FailingHandler(), diagnostics = diagnostics).create<BoundaryService>()
+
+        val thrown = catchThrowable { runBlocking { service.answer(SO_FIXTURE) } }
+        assertThat(thrown).isInstanceOf(StructuredOutputException::class.java)
+        assertThat((thrown as StructuredOutputException).failureCode)
+            .isEqualTo(StructuredOutputFailureCode.REPAIR_EXHAUSTED)
+        // The fake cancellation must not replace the real structured failure
+        // while the coroutine is active.
+        assertThat(diagnostics.events).hasSize(3)
+    }
+
+    @Test
     fun `diagnostic raw preview is byte bounded`() {
         val diagnostics = RecordingDiagnostics()
         val service = engine(FailingHandler(), diagnostics = diagnostics, response = "a".repeat(8193) + SO_FIXTURE).create<BoundaryService>()
@@ -123,7 +139,9 @@ class StructuredOutputFailureBoundaryTest {
 
     private open class FailingHandler : StructuredOutputHandler {
         override fun createContract(targetType: KType) = StructuredOutputContract(targetType, "{}")
-        override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = StructuredOutputResult.Failure(rawResponse, "detail $SO_FIXTURE", "repair", IllegalStateException("handler $SO_FIXTURE"))
+        override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult =
+            StructuredOutputResult.Failure(rawResponse, "detail $SO_FIXTURE", "repair")
+                .also { it.failure = IllegalStateException("handler $SO_FIXTURE") }
         override fun generateSchema(type: KType) = "{}"
         override fun deserialize(input: Any, targetType: KType): Any = error("unused")
         override fun serialize(value: Any): Any = value
@@ -137,9 +155,16 @@ class StructuredOutputFailureBoundaryTest {
         override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = if (failuresBeforeSuccess-- > 0) super.analyze(rawResponse, targetType) else StructuredOutputResult.Success(BoundaryValue("ok"), rawResponse)
     }
 
-    private class RecordingDiagnostics(private val throwAfterRecording: Boolean = false) : StructuredOutputFailureDiagnosticObserver {
+    private class RecordingDiagnostics(
+        private val throwAfterRecording: Boolean = false,
+        private val throwFakeCancellation: Boolean = false,
+    ) : StructuredOutputFailureDiagnosticObserver {
         val events = mutableListOf<StructuredOutputFailureDiagnosticEvent>()
-        override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) { events += event; if (throwAfterRecording) throw IllegalStateException("observer boom") }
+        override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) {
+            events += event
+            if (throwAfterRecording) throw IllegalStateException("observer boom")
+            if (throwFakeCancellation) throw CancellationException("fake observer cancellation")
+        }
     }
 
     private class RecordingOperationObserver : OperationObserver {
