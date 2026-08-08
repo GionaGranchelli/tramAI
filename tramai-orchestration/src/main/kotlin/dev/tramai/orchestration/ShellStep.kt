@@ -238,7 +238,7 @@ internal data class ShellWorkflowStep<S>(
                     // the reader coroutines finish, and an observer failure can never
                     // skip the termination request. The bounded graceful→forced cleanup
                     // happens exactly once in the outer finally and attaches its
-                    // diagnostics to this raw exception; the public safe failure is
+                    // diagnostics to this internal marker; the public safe failure is
                     // constructed only after cleanup below, so raw cleanup diagnostics
                     // never reach the public exception chain.
                     lifecycle.requestTermination()
@@ -250,7 +250,10 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    throw error
+                    // Owned timeout becomes a non-cancellation internal marker: a
+                    // genuine parent cancellation was already rethrown by ensureActive
+                    // above and must stay a CancellationException all the way out.
+                    throw ShellStepTimeoutException(error)
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -278,12 +281,6 @@ internal data class ShellWorkflowStep<S>(
                     charset = config.charset,
                 )
             }
-        } catch (error: TimeoutCancellationException) {
-            // The inner scope already ran ensureActive() + requestTermination + the
-            // timeout event; a step timeout is a typed step failure, not a parent
-            // cancellation, so it is captured as the primary failure and wrapped
-            // after cleanup below.
-            primaryFailure = error
         } catch (error: CancellationException) {
             primaryFailure = error
             throw error
@@ -311,7 +308,7 @@ internal data class ShellWorkflowStep<S>(
         // completed: cleanup diagnostics stay suppressed on the raw internal
         // primary (observer-only) and never reach the public exception chain.
         if (primaryFailure != null) {
-            val code = if (primaryFailure is TimeoutCancellationException) {
+            val code = if (primaryFailure is ShellStepTimeoutException) {
                 WorkflowStepFailureCode.TIMEOUT
             } else {
                 WorkflowStepFailureCode.EXECUTION_FAILED
@@ -479,6 +476,11 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
         add(fileName)
     }
 }
+
+/** Internal marker: the Shell step's own timeout (never a parent cancellation). */
+private class ShellStepTimeoutException(
+    cause: TimeoutCancellationException,
+) : RuntimeException("shell step timed out", cause)
 
 private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")
     .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

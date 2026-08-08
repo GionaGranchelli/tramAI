@@ -13,11 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.typeOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import kotlin.test.Test
@@ -563,6 +565,39 @@ class WorkflowStepFailureBoundaryTest {
         }
         assertThat(renderedEvents).doesNotContain(SECRET_FIXTURE)
         assertThat(diagnostics.single().detailPreview).contains(SECRET_FIXTURE)
+    }
+
+    @Test
+    fun `parent timeout stays a cancellation and never becomes a shell timeout diagnostic`() {
+        val diagnostics = BoundaryDiagnosticObserver()
+        val script = Files.createTempFile("hang-parent", ".sh")
+        Files.writeString(script, "#!/bin/sh\nsleep 30\n")
+        script.toFile().setExecutable(true)
+        try {
+            val thrown = catchThrowable {
+                runBlocking {
+                    withTimeout(200) {
+                        workflow<BoundaryState>("parent-timeout") {
+                            failureDiagnosticObserver = diagnostics
+                            shellStep(
+                                name = "hang",
+                                config = ShellStepConfig(
+                                    allowedCommands = setOf(script.toString()),
+                                    timeoutSeconds = 30,
+                                ),
+                                definition = ShellCommandDefinition(executable = script.toString()),
+                                command = { _, _ -> ShellCommand(listOf(script.toString())) },
+                                merge = { state, result, _ -> state.copy(result = result) },
+                            )
+                        }.build { it }.run(BoundaryState())
+                    }
+                }
+            }
+            assertThat(thrown).isInstanceOf(TimeoutCancellationException::class.java)
+            assertThat(diagnostics.events).isEmpty()
+        } finally {
+            Files.deleteIfExists(script)
+        }
     }
 
     @Test
