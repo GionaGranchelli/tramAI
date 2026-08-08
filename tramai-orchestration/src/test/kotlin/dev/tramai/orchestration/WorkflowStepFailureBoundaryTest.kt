@@ -660,15 +660,38 @@ class WorkflowStepFailureBoundaryTest {
         cancellation.suppressCleanupDiagnostic(IllegalStateException(SECRET_FIXTURE))
         assertThat(cancellation.suppressed).hasSize(1)
         val suppressed = cancellation.suppressed.single()
-        assertThat(suppressed).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(suppressed).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         assertThat(suppressed.message).doesNotContain(SECRET_FIXTURE)
         assertThat(suppressed.cause).isNull()
+        assertThat(suppressed.suppressed).isEmpty()
         assertThat(assertsNoFixture(suppressed.toString())).isTrue()
         // A real (non-cancellation) primary keeps raw diagnostics attached internally,
         // so the observer event still carries the raw cleanup detail.
         val primary = IllegalStateException("step failed")
         primary.suppressCleanupDiagnostic(IllegalStateException(SECRET_FIXTURE))
         assertThat(primary.suppressed.single().message).contains(SECRET_FIXTURE)
+    }
+
+    @Test
+    fun `a contaminated cleanup container is never promoted onto cancellation`() {
+        // ProcessCleanupException is an internal container that may carry raw
+        // suppressed causes; type identity is not a sanitization guarantee.
+        val rawContainer = ProcessCleanupException()
+        rawContainer.addSuppressed(IllegalStateException(SECRET_FIXTURE))
+
+        val cancellation = CancellationException("cancelled")
+        cancellation.suppressCleanupDiagnostic(rawContainer)
+
+        val rendered = buildString {
+            append(cancellation.message)
+            cancellation.suppressed.forEach {
+                append(it.message)
+                it.suppressed.forEach { nested -> append(nested.message) }
+            }
+        }
+        assertThat(rendered).doesNotContain(SECRET_FIXTURE)
+        assertThat(cancellation.suppressed).hasSize(1)
+        assertThat(cancellation.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
     }
 
     @Test
@@ -682,7 +705,7 @@ class WorkflowStepFailureBoundaryTest {
             ),
         )
         assertThat(cancellation.suppressed).hasSize(1)
-        assertThat(cancellation.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(cancellation.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         assertThat(assertsNoFixture(cancellation.suppressed.single().toString())).isTrue()
     }
 

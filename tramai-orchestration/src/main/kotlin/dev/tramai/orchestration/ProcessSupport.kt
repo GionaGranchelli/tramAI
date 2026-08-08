@@ -414,9 +414,9 @@ internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupR
     if (primary != null) {
         if (primary is CancellationException) {
             // Cancellation stays primary control flow: raw cleanup diagnostics never
-            // bypass the safe boundary through suppressed. A single cause-free,
-            // fixed-text marker records that cleanup had diagnostics.
-            if (diagnostics.isNotEmpty()) primary.addSuppressed(ProcessCleanupException())
+            // bypass the safe boundary through suppressed. A single freshly constructed,
+            // cause-free marker records that cleanup had diagnostics.
+            if (diagnostics.isNotEmpty()) primary.addSuppressed(SanitizedCleanupDiagnosticException())
         } else {
             diagnostics.forEach { primary.addSuppressedDistinct(it) }
         }
@@ -428,16 +428,30 @@ internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupR
 }
 
 /**
+ * Cause-free, fixed-text marker attached to a primary CancellationException when
+ * cleanup had diagnostics. Deliberately distinct from [ProcessCleanupException]:
+ * the latter is an internal container that MAY carry raw suppressed causes, while
+ * this marker is freshly constructed from framework-controlled data only, so it
+ * can never smuggle raw failure text onto cancellation control flow.
+ */
+internal class SanitizedCleanupDiagnosticException : RuntimeException(
+    "Process cleanup had diagnostics",
+)
+
+/**
  * Attaches a cleanup diagnostic to a primary failure without ever letting raw
  * throwable text bypass the safe failure boundary through suppressed. A primary
- * CancellationException keeps cancellation as control flow: only a cause-free,
- * fixed-text [ProcessCleanupException] marker is suppressed onto it. Raw
- * cleanup detail still rides inside the diagnostic observer event via the
- * primary's own suppressed chain only when the primary is a real step failure.
+ * CancellationException keeps cancellation as control flow: only a freshly
+ * constructed, cause-free [SanitizedCleanupDiagnosticException] marker is
+ * suppressed onto it — never the incoming throwable, even if that throwable is
+ * already a [ProcessCleanupException] container (type identity is not a
+ * sanitization guarantee). Raw cleanup detail still rides inside the diagnostic
+ * observer event via the primary's own suppressed chain only when the primary
+ * is a real step failure.
  */
 internal fun Throwable.suppressCleanupDiagnostic(error: Throwable) {
     if (this is CancellationException) {
-        addSuppressed(if (error is ProcessCleanupException) error else ProcessCleanupException())
+        addSuppressed(SanitizedCleanupDiagnosticException())
     } else {
         addSuppressedDistinct(error)
     }

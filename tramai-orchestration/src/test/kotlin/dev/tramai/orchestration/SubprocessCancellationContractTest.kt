@@ -1100,7 +1100,7 @@ class SubprocessCancellationContractTest {
         assertThat(primary).isInstanceOf(CancellationException::class.java)
         assertThat(primary.message).isEqualTo("parent cancelled")
         assertThat(primary.suppressed).hasSize(1)
-        assertThat(primary.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(primary.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         assertThat(assertsNoFixture(primary.suppressed.single().toString())).isTrue()
     }
 
@@ -1160,7 +1160,7 @@ class SubprocessCancellationContractTest {
         // The diagnostic that equals the primary is never self-suppressed; a single
         // sanitized marker records that cleanup had diagnostics.
         assertThat(primary.suppressed).hasSize(1)
-        assertThat(primary.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(primary.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         assertThat(primary.suppressed.single()).isNotSameAs(primary)
     }
 
@@ -1420,7 +1420,7 @@ class SubprocessCancellationContractTest {
                             // A sanitized cleanup marker landed on the original instance,
                             // never a copy; raw survivor/failure text never rides on it.
                             assertThat(captured.get()!!.suppressed)
-                                .anySatisfy { assertThat(it).isInstanceOf(ProcessCleanupException::class.java) }
+                                .anySatisfy { assertThat(it).isInstanceOf(SanitizedCleanupDiagnosticException::class.java) }
                         } finally {
                             process.destroyForcibly()
                             runCatching { process.waitFor(5, TimeUnit.SECONDS) }
