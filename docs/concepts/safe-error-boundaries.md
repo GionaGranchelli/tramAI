@@ -92,4 +92,4 @@ Retry behavior remains structural: `statusCode`, `retryable`, and `retryAfterMil
 
 ## Scope and non-claims (PRs #219 and #222)
 
-These slices do not complete Epic 1.2. They do not change structured-output exception fields, migrate workflow-step/persistence/shell/generic-HTTP/MCP/Codex failures, add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.
+These slices do not complete Epic 1.2. Built-in HTTP, shell, MCP, Codex, and Hermes workflow steps now use the same safe-boundary shape; persistence and structured-output exception fields remain outside this slice. The work does not add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.

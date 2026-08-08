@@ -102,12 +102,20 @@ internal class ProcessCleanupResult(
  * termination, escalates to forced termination, waits within configured bounds, and
  * reports any surviving process. It does not claim every OS process can always be killed.
  */
+/**
+ * Default lifecycle failure line: fixed framework-controlled text only. The
+ * throwable is never rendered (message or toString) — raw failure detail may
+ * only reach consumers through the step failure diagnostic observer.
+ */
+internal fun defaultLifecycleFailureLog(message: String): String =
+    "[tramai-orchestration] $message (cleanup failure; raw detail is diagnostic-observer-only)"
+
 internal class CancellableProcessLifecycle(
     private val process: Process,
     private val gracePeriodMillis: Long = processTerminationGracePeriodMillis,
     private val forceKillWaitMillis: Long = processTerminationKillWaitMillis,
-    private val onFailure: (String, Throwable) -> Unit = { message, error ->
-        System.err.println("[tramai-orchestration] $message: ${error.message ?: error}")
+    private val onFailure: (String, Throwable) -> Unit = { message, _ ->
+        System.err.println(defaultLifecycleFailureLog(message))
     },
 ) {
     private enum class State { RUNNING, TERMINATION_REQUESTED, CLEANED_UP }
@@ -404,11 +412,48 @@ internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupR
         }
     }
     if (primary != null) {
-        diagnostics.forEach { primary.addSuppressedDistinct(it) }
+        if (primary is CancellationException) {
+            // Cancellation stays primary control flow: raw cleanup diagnostics never
+            // bypass the safe boundary through suppressed. A single freshly constructed,
+            // cause-free marker records that cleanup had diagnostics.
+            if (diagnostics.isNotEmpty()) primary.addSuppressed(SanitizedCleanupDiagnosticException())
+        } else {
+            diagnostics.forEach { primary.addSuppressedDistinct(it) }
+        }
     } else {
         val cleanupException = ProcessCleanupException()
         diagnostics.forEach { cleanupException.addSuppressedDistinct(it) }
         throw cleanupException
+    }
+}
+
+/**
+ * Cause-free, fixed-text marker attached to a primary CancellationException when
+ * cleanup had diagnostics. Deliberately distinct from [ProcessCleanupException]:
+ * the latter is an internal container that MAY carry raw suppressed causes, while
+ * this marker is freshly constructed from framework-controlled data only, so it
+ * can never smuggle raw failure text onto cancellation control flow.
+ */
+internal class SanitizedCleanupDiagnosticException : RuntimeException(
+    "Process cleanup had diagnostics",
+)
+
+/**
+ * Attaches a cleanup diagnostic to a primary failure without ever letting raw
+ * throwable text bypass the safe failure boundary through suppressed. A primary
+ * CancellationException keeps cancellation as control flow: only a freshly
+ * constructed, cause-free [SanitizedCleanupDiagnosticException] marker is
+ * suppressed onto it — never the incoming throwable, even if that throwable is
+ * already a [ProcessCleanupException] container (type identity is not a
+ * sanitization guarantee). Raw cleanup detail still rides inside the diagnostic
+ * observer event via the primary's own suppressed chain only when the primary
+ * is a real step failure.
+ */
+internal fun Throwable.suppressCleanupDiagnostic(error: Throwable) {
+    if (this is CancellationException) {
+        addSuppressed(SanitizedCleanupDiagnosticException())
+    } else {
+        addSuppressedDistinct(error)
     }
 }
 

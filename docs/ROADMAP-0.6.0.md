@@ -327,10 +327,10 @@ This phase is intentionally completed before large decomposition work.
 
 ### Tasks
 
-1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode`; **PR #222:** `ProviderFailureCode`. Other domains remain later slices.
+1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode`; **PR #222:** `ProviderFailureCode`; **PR #223:** `WorkflowStepFailureCode` for built-in external workflow steps. Other domains remain later slices.
 2. Define four explicit error surfaces:
-   - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver`; **PR #222:** `ProviderFailureDiagnosticObserver` (both fail-open and diagnostic-only).
-   - public caller message; — **PR #222:** fixed provider HTTP/transport messages; other caller-visible boundaries remain.
+   - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver`; **PR #222:** `ProviderFailureDiagnosticObserver`; **PR #223:** `WorkflowStepFailureDiagnosticObserver` (all fail-open and diagnostic-only).
+   - public caller message; — **PR #222:** fixed provider HTTP/transport messages; **PR #223:** fixed built-in workflow-step messages.
    - model-visible message; — **PR #219:** `ModelVisibleToolMessage.trusted(...)`.
    - audit/telemetry metadata. — **PR #222:** provider logs and telemetry expose fixed messages and trusted metadata only; other surfaces remain.
 3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** `ToolResult` retains its four 0.5.0 variants for exhaustive-`when` compatibility; `safeInvalidInput(...)`/`safePermanentFailure(...)` factories wrap validated or fixed text in the existing variants. Built-in engine and standalone paths never derive text from `Throwable.message`.
@@ -340,7 +340,7 @@ This phase is intentionally completed before large decomposition work.
    - disabled or redacted by default;
    - never copied wholesale into public exceptions. — **PR #222:** complete for provider HTTP failures; bounded previews are available only through `ProviderFailureDiagnosticObserver`.
 5. Review debug logging of provider bodies and secret-related paths. — **PR #222:** complete for provider adapters; debug logs are metadata-only.
-6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals. — **PR #222:** shared provider HTTP/transport helpers; cross-domain centralization remains a later slice.
+6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals. — **PR #222:** provider HTTP/transport helpers; **PR #223:** built-in HTTP, shell, MCP, Codex, and Hermes workflow-step helpers. Persistence and approvals remain later slices.
 7. Add negative tests with tokens, prompts, paths, SQL fragments, command arguments, and malformed payloads. — **PR #219:** tool boundary; **PR #222:** provider HTTP, transport, adapter, and telemetry boundaries. Other surfaces remain.
 
 ### Acceptance criteria

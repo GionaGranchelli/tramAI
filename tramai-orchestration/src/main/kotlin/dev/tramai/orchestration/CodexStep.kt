@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.security.StepSecurityConfig
 import dev.tramai.core.security.ValidationResult
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.io.File
 
 data class CodexStepConfig(
@@ -22,11 +23,15 @@ data class CodexStepConfig(
     }
 }
 
-class WorkflowCodexException(
-    val stepName: String,
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException("Workflow Codex step '$stepName' $message", cause)
+class WorkflowCodexException : RuntimeException {
+    val stepName: String
+    constructor(stepName: String, message: String, cause: Throwable? = null) :
+        super("Workflow Codex step '$stepName' $message", cause) { this.stepName = stepName }
+    var failureCode: WorkflowStepFailureCode? = null
+        internal set
+    internal var safeFactoryTrusted: Boolean = false
+    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) { this.stepName = stepName }
+}
 
 internal data class CodexWorkflowStep<S>(
     override val name: String,
@@ -39,12 +44,13 @@ internal data class CodexWorkflowStep<S>(
         state: S,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val prompt = try {
             promptBuilder(state, context)
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
-            throw wrapCodexError(error)
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, failureDiagnosticObserver)
         }
         val resolvedSecurity = resolveStepSecurity(prompt, config.security)
         observer.onWorkflowEvent(
@@ -82,23 +88,20 @@ internal data class CodexWorkflowStep<S>(
                 ),
             )
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
-            throw wrapCodexError(error)
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, codeForCliFailure(error), failureDiagnosticObserver)
         }
 
         if (result.exitCode != 0) {
-            throw WorkflowCodexException(
-                stepName = name,
-                message = result.describeNonZeroExit(),
-            )
+            throw failure(workflowName, IllegalStateException("non-zero exit"), WorkflowStepFailureCode.NON_ZERO_EXIT, failureDiagnosticObserver, result)
         }
 
-        handleOutputValidation(workflowName, result, resolvedSecurity, observer, context)
+        handleOutputValidation(workflowName, result, resolvedSecurity, observer, context, failureDiagnosticObserver)
 
         return try {
             merge(state, result.output, context)
         } catch (error: Throwable) {
-            error.rethrowAgentCancellation()
+            error.rethrowIfCancellation()
             if (resolvedSecurity.defenseActive) {
                 observer.onWorkflowEvent(
                     workflowName = workflowName,
@@ -110,7 +113,7 @@ internal data class CodexWorkflowStep<S>(
                     context = context,
                 )
             }
-            throw wrapCodexError(error)
+            throw failure(workflowName, error, WorkflowStepFailureCode.RESULT_HANDLING_FAILED, failureDiagnosticObserver)
         }
     }
 
@@ -145,12 +148,13 @@ internal data class CodexWorkflowStep<S>(
         }
     }
 
-    private fun handleOutputValidation(
+    private suspend fun handleOutputValidation(
         workflowName: String,
         result: AgentCliExecution,
         resolvedSecurity: ResolvedStepSecurity,
         observer: WorkflowObserver,
         context: WorkflowContext,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ) {
         if (!resolvedSecurity.defenseActive) return
         when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
@@ -160,31 +164,50 @@ internal data class CodexWorkflowStep<S>(
                     name = SecurityEvents.OUTPUT_REJECTED,
                     attributes = mapOf(
                         "step_name" to name,
-                        "reason" to validation.reason,
-                        "rule_id" to validation.ruleId,
+                        "rule_id" to validation.ruleId.takeIf {
+                            resolvedSecurity.validator is DefaultOutputValidator && isBuiltInValidationRule(it)
+                        },
                     ),
                     context = context,
                 )
-                throw WorkflowCodexException(
-                    stepName = name,
-                    message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
+                throw failure(
+                    workflowName, OutputValidationRejectedException(validation.reason, validation.ruleId),
+                    WorkflowStepFailureCode.OUTPUT_REJECTED, failureDiagnosticObserver, result,
                 )
             }
             is ValidationResult.Valid -> Unit
         }
     }
 
-    private fun wrapCodexError(error: Throwable): WorkflowCodexException = when (error) {
-        is WorkflowCodexException -> error
-        is AgentCliTimeoutException -> WorkflowCodexException(
-            stepName = name,
-            message = error.message ?: "timed out after ${config.timeoutSeconds}s",
-            cause = error,
-        )
-        else -> WorkflowCodexException(
-            stepName = name,
-            message = "failed: ${error.message ?: error::class.java.simpleName}",
-            cause = error,
-        )
+    private suspend fun failure(
+        workflowName: String, error: Throwable, code: WorkflowStepFailureCode,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver, result: AgentCliExecution? = null,
+    ): RuntimeException {
+        val detail = if (error is OutputValidationRejectedException) {
+            boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        } else {
+            boundedWorkflowDetailPreview(error::class.java.name)
+        }
+        deliverWorkflowStepFailure(failureDiagnosticObserver, WorkflowStepFailureDiagnosticEvent(
+            workflowName, name, WorkflowStepKind.CODEX, code, 1, false, error, detail.text, detail.truncated,
+            result?.let { mapOf("exitCode" to it.exitCode.toLong()) } ?: emptyMap(),
+        ))
+        return safeWorkflowStepFailure(WorkflowStepKind.CODEX, code, fixedWorkflowStepMessage(WorkflowStepKind.CODEX, code), name, 1)
+    }
+
+    private fun codeForCliFailure(error: Throwable): WorkflowStepFailureCode = when (error) {
+        is AgentCliTimeoutException -> WorkflowStepFailureCode.TIMEOUT
+        is ProcessCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
+        is AgentCliStartException -> WorkflowStepFailureCode.START_FAILED
+        else -> WorkflowStepFailureCode.EXECUTION_FAILED
     }
 }
+
+internal class OutputValidationRejectedException(reason: String, ruleId: String?) :
+    RuntimeException("output validation rejected: $reason (rule: ${ruleId ?: "unknown"})")
+
+internal fun isBuiltInValidationRule(ruleId: String?): Boolean = ruleId in setOf(
+    DefaultOutputValidator.RULE_EXTRACTION_SYSTEM_PROMPT,
+    DefaultOutputValidator.RULE_REPEAT_ABOVE,
+    DefaultOutputValidator.RULE_BOUNDARY_PROBING,
+)

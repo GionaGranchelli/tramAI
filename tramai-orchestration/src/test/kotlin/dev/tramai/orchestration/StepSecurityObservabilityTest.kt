@@ -2,7 +2,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.security.StepSecurityConfig
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.assertj.core.api.Assertions.catchThrowable
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
@@ -141,7 +141,8 @@ class StepSecurityObservabilityTest {
     @Test
     fun `shell step emits command denied when allowlist blocks the command`() {
         val observer = TestingSecurityObserver()
-        val workflow = securityShellWorkflow("shell-command-denied") {
+        val diagnostics = SecurityDiagnosticObserver()
+        val workflow = securityShellWorkflow("shell-command-denied", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("pwd")),
@@ -151,21 +152,31 @@ class StepSecurityObservabilityTest {
             )
         }
 
-        assertThatThrownBy {
+        val thrown = catchThrowable {
             workflow.runWithObserver(observer)
-        }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("allowlist")
+        }
+
+        assertThat(thrown).isInstanceOf(WorkflowShellException::class.java)
+            .hasMessage("Workflow shell step was rejected by policy")
+            .hasNoCause()
+        assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
 
         assertThat(observer.singleEvent(SecurityEvents.COMMAND_DENIED).attributes)
             .containsEntry("step_name", "echo")
-            .containsEntry("command", "echo")
+            .containsEntry("command_digest", "echo".sha256())
+            .doesNotContainKey("command")
             .containsEntry("policy_type", "allowlist")
             .containsEntry("step_family", "shell")
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
 
     @Test
     fun `mcp step emits command denied when allowlist blocks the server command`() {
         val observer = TestingSecurityObserver()
+        val diagnostics = SecurityDiagnosticObserver()
         val step: InternalWorkflowStep<SecurityMcpState> = McpWorkflowStep(
             name = "echo",
             definition = McpToolCallDefinition(
@@ -181,18 +192,27 @@ class StepSecurityObservabilityTest {
             },
             merge = { state, result, _ -> state.copy(result = result) },
         )
-        val workflow = securityMcpWorkflow(step)
+        val workflow = securityMcpWorkflow(step, diagnostics)
 
-        assertThatThrownBy {
+        val thrown = catchThrowable {
             workflow.runWithObserver(observer)
-        }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("allowlist")
+        }
+
+        assertThat(thrown).isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessage("Workflow mcp step was rejected by policy")
+            .hasNoCause()
+        assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
 
         assertThat(observer.singleEvent(SecurityEvents.COMMAND_DENIED).attributes)
             .containsEntry("step_name", "echo")
-            .containsEntry("command", "blocked-server")
+            .containsEntry("command_digest", "blocked-server".sha256())
+            .doesNotContainKey("command")
             .containsEntry("policy_type", "allowlist")
             .containsEntry("step_family", "mcp")
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
 
     @Test
@@ -205,7 +225,8 @@ class StepSecurityObservabilityTest {
             """.trimMargin(),
         ) { hermesCli ->
             val observer = TestingSecurityObserver()
-            val workflow = securityAgentWorkflow("hermes-output-rejected") {
+            val diagnostics = SecurityDiagnosticObserver()
+            val workflow = securityAgentWorkflow("hermes-output-rejected", diagnostics) {
                 hermesStep(
                     name = "review-ui",
                     config = HermesStepConfig(cliPath = hermesCli.toString()),
@@ -214,15 +235,23 @@ class StepSecurityObservabilityTest {
                 )
             }
 
-            assertThatThrownBy {
+            val thrown = catchThrowable {
                 workflow.runWithObserver(observer)
-            }.isInstanceOf(WorkflowHermesException::class.java)
-                .hasMessageContaining("output validation rejected")
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowHermesException::class.java)
+                .hasMessage("Workflow hermes step output was rejected")
+                .hasNoCause()
+            assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.OUTPUT_REJECTED)
 
             assertThat(observer.singleEvent(SecurityEvents.OUTPUT_REJECTED).attributes)
                 .containsEntry("step_name", "review-ui")
-                .containsEntry("reason", "detected prompt extraction attempt")
                 .containsEntry("rule_id", DefaultOutputValidator.RULE_EXTRACTION_SYSTEM_PROMPT)
+                .doesNotContainKey("reason")
+
+            val event = diagnostics.single()
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.OUTPUT_REJECTED)
+            assertThat(event.failure?.message).contains("detected prompt extraction attempt")
         }
     }
 
@@ -236,7 +265,8 @@ class StepSecurityObservabilityTest {
             """.trimMargin(),
         ) { hermesCli ->
             val observer = TestingSecurityObserver()
-            val workflow = securityAgentWorkflow("hermes-parse-failure") {
+            val diagnostics = SecurityDiagnosticObserver()
+            val workflow = securityAgentWorkflow("hermes-parse-failure", diagnostics) {
                 hermesStep(
                     name = "review-ui",
                     config = HermesStepConfig(cliPath = hermesCli.toString()),
@@ -246,14 +276,22 @@ class StepSecurityObservabilityTest {
                 )
             }
 
-            assertThatThrownBy {
+            val thrown = catchThrowable {
                 workflow.runWithObserver(observer)
-            }.isInstanceOf(WorkflowHermesException::class.java)
-                .hasMessageContaining("decode failed")
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowHermesException::class.java)
+                .hasMessage("Workflow hermes step result handling failed")
+                .hasNoCause()
+            assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
 
             assertThat(observer.singleEvent(SecurityEvents.OUTPUT_REJECTED).attributes)
                 .containsEntry("step_name", "review-ui")
                 .containsEntry("reason", "parse_failure")
+
+            val event = diagnostics.single()
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
+            assertThat(event.failure?.message).contains("decode failed")
         }
     }
 
@@ -297,7 +335,8 @@ class StepSecurityObservabilityTest {
             """.trimMargin(),
         ) { codexCli ->
             val observer = TestingSecurityObserver()
-            val workflow = securityAgentWorkflow("codex-output-rejected") {
+            val diagnostics = SecurityDiagnosticObserver()
+            val workflow = securityAgentWorkflow("codex-output-rejected", diagnostics) {
                 codexStep(
                     name = "review-ui",
                     config = CodexStepConfig(cliPath = codexCli.toString()),
@@ -306,15 +345,23 @@ class StepSecurityObservabilityTest {
                 )
             }
 
-            assertThatThrownBy {
+            val thrown = catchThrowable {
                 workflow.runWithObserver(observer)
-            }.isInstanceOf(WorkflowCodexException::class.java)
-                .hasMessageContaining("output validation rejected")
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowCodexException::class.java)
+                .hasMessage("Workflow codex step output was rejected")
+                .hasNoCause()
+            assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.OUTPUT_REJECTED)
 
             assertThat(observer.singleEvent(SecurityEvents.OUTPUT_REJECTED).attributes)
                 .containsEntry("step_name", "review-ui")
-                .containsEntry("reason", "detected prompt extraction attempt")
                 .containsEntry("rule_id", DefaultOutputValidator.RULE_EXTRACTION_SYSTEM_PROMPT)
+                .doesNotContainKey("reason")
+
+            val event = diagnostics.single()
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.OUTPUT_REJECTED)
+            assertThat(event.failure?.message).contains("detected prompt extraction attempt")
         }
     }
 
@@ -329,7 +376,8 @@ class StepSecurityObservabilityTest {
             """.trimMargin(),
         ) { codexCli ->
             val observer = TestingSecurityObserver()
-            val workflow = securityAgentWorkflow("codex-parse-failure") {
+            val diagnostics = SecurityDiagnosticObserver()
+            val workflow = securityAgentWorkflow("codex-parse-failure", diagnostics) {
                 codexStep(
                     name = "review-ui",
                     config = CodexStepConfig(cliPath = codexCli.toString()),
@@ -339,14 +387,22 @@ class StepSecurityObservabilityTest {
                 )
             }
 
-            assertThatThrownBy {
+            val thrown = catchThrowable {
                 workflow.runWithObserver(observer)
-            }.isInstanceOf(WorkflowCodexException::class.java)
-                .hasMessageContaining("decode failed")
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowCodexException::class.java)
+                .hasMessage("Workflow codex step result handling failed")
+                .hasNoCause()
+            assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
 
             assertThat(observer.singleEvent(SecurityEvents.OUTPUT_REJECTED).attributes)
                 .containsEntry("step_name", "review-ui")
                 .containsEntry("reason", "parse_failure")
+
+            val event = diagnostics.single()
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
+            assertThat(event.failure?.message).contains("decode failed")
         }
     }
 
@@ -401,6 +457,16 @@ private data class RecordedSecurityEvent(
     val context: WorkflowContext,
 )
 
+private class SecurityDiagnosticObserver : WorkflowStepFailureDiagnosticObserver {
+    val events = mutableListOf<WorkflowStepFailureDiagnosticEvent>()
+
+    override suspend fun onFailure(event: WorkflowStepFailureDiagnosticEvent) {
+        events += event
+    }
+
+    fun single(): WorkflowStepFailureDiagnosticEvent = events.single()
+}
+
 private class TestingSecurityObserver : WorkflowObserver {
     val events = mutableListOf<RecordedSecurityEvent>()
 
@@ -418,22 +484,31 @@ private class TestingSecurityObserver : WorkflowObserver {
 
 private fun securityAgentWorkflow(
     name: String,
+    diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     configure: WorkflowBuilder<SecurityAgentState>.() -> Unit,
 ): Workflow<SecurityAgentState, SecurityAgentState> = workflow<SecurityAgentState>(
     name,
-    configure = configure,
+    configure = {
+        failureDiagnosticObserver = diagnosticObserver
+        configure()
+    },
 ).build { it }
 
 private fun securityShellWorkflow(
     name: String,
+    diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     configure: WorkflowBuilder<SecurityShellState>.() -> Unit,
 ): Workflow<SecurityShellState, SecurityShellState> = workflow<SecurityShellState>(
     name,
-    configure = configure,
+    configure = {
+        failureDiagnosticObserver = diagnosticObserver
+        configure()
+    },
 ).build { it }
 
 private fun securityMcpWorkflow(
     step: InternalWorkflowStep<SecurityMcpState>,
+    diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ): Workflow<SecurityMcpState, SecurityMcpState> = Workflow(
     name = "security-mcp-workflow",
     definitionVersion = "1",
@@ -445,6 +520,7 @@ private fun securityMcpWorkflow(
     stopPolicy = StopPolicy(),
     clock = Clock.systemUTC(),
     externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
+    failureDiagnosticObserver = diagnosticObserver,
 )
 
 private fun Workflow<SecurityAgentState, SecurityAgentState>.runWithObserver(
@@ -495,3 +571,6 @@ private fun withSecurityExecutableScript(
         Files.deleteIfExists(script)
     }
 }
+
+private fun String.sha256(): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

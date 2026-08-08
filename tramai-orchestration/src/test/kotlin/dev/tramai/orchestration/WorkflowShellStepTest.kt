@@ -59,12 +59,13 @@ class WorkflowShellStepTest {
 
     @Test
     fun `shell step throws on non-zero exit by default`() {
-        val workflow = shellWorkflow("shell-non-zero") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-non-zero", diagnostics) {
             shellStep(
                 name = "fail",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
                 definition = ShellCommandDefinition(executable = "sh"),
-                command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "exit 3")) },
+                command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "echo boom >&2; exit 3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
         }
@@ -72,7 +73,15 @@ class WorkflowShellStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(ShellState()) }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("exit code 3")
+            .hasMessage("Workflow shell step exited unsuccessfully")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.kind).isEqualTo(WorkflowStepKind.SHELL)
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.NON_ZERO_EXIT)
+        assertThat(event.numericMetadata).containsEntry("exitCode", 3L)
+        // Stderr is only visible through the diagnostic channel.
+        assertThat(event.detailPreview).contains("boom")
     }
 
     @Test
@@ -297,8 +306,9 @@ class WorkflowShellStepTest {
     @Test
     fun `shell step redacts command names in failure errors`() {
         val observer = RecordingShellWorkflowObserver()
+        val diagnostics = RecordingDiagnosticObserver()
         val secretCommand = "my-secret-tool"
-        val workflow = shellWorkflow("shell-redaction-failure") {
+        val workflow = shellWorkflow("shell-redaction-failure", diagnostics) {
             shellStep(
                 name = "missing-command",
                 config = ShellStepConfig(allowedCommands = setOf(secretCommand)),
@@ -316,7 +326,8 @@ class WorkflowShellStepTest {
                 )
             }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("[command]")
+            .hasMessage("Workflow shell step process could not be started")
+            .hasNoCause()
             .hasMessageNotContaining(secretCommand)
 
         assertThat(observer.failedErrors)
@@ -324,14 +335,18 @@ class WorkflowShellStepTest {
             .allSatisfy { error ->
                 assertThat(error)
                     .isInstanceOf(WorkflowShellException::class.java)
-                    .hasMessageContaining("[command]")
+                    .hasMessage("Workflow shell step process could not be started")
                     .hasMessageNotContaining(secretCommand)
             }
+
+        // The raw command identifier is only visible through the diagnostic channel.
+        assertThat(diagnostics.single().detailPreview).contains(secretCommand)
     }
 
     @Test
     fun `shell step rejects denied commands`() {
-        val workflow = shellWorkflow("shell-denied") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-denied", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(
@@ -349,13 +364,16 @@ class WorkflowShellStepTest {
         }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowShellException::class.java)
-        assertThat(error).hasMessageContaining("denylist")
+        assertThat(error).hasMessage("Workflow shell step was rejected by policy")
         assertThat(error?.cause).isNull()
+        assertThat(workflowFailureCode(error!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(diagnostics.single().detailPreview).contains("blocked by the denylist")
     }
 
     @Test
     fun `shell step blocks commands outside the allowlist`() {
-        val workflow = shellWorkflow("shell-allowlist") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-allowlist", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("pwd")),
@@ -368,7 +386,12 @@ class WorkflowShellStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(ShellState()) }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("allowlist")
+            .hasMessage("Workflow shell step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
 
     @Test
@@ -467,7 +490,8 @@ class WorkflowShellStepTest {
 
     @Test
     fun `shell step config default constructor denies all commands`() {
-        val workflow = shellWorkflow("shell-default-deny-all") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-default-deny-all", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(),
@@ -480,7 +504,12 @@ class WorkflowShellStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(ShellState()) }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("not in allowlist")
+            .hasMessage("Workflow shell step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
 
     @Test
@@ -503,7 +532,8 @@ class WorkflowShellStepTest {
 
     @Test
     fun `shell step execute throws when allowed commands is empty`() {
-        val workflow = shellWorkflow("shell-explicit-empty-allowlist") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-explicit-empty-allowlist", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = emptySet()),
@@ -516,11 +546,18 @@ class WorkflowShellStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(ShellState()) }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("not in allowlist")
+            .hasMessage("Workflow shell step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
+
     @Test
     fun `shell step with default config denies all commands`() {
-        val workflow = shellWorkflow("shell-default-deny-all") {
+        val diagnostics = RecordingDiagnosticObserver()
+        val workflow = shellWorkflow("shell-default-deny-all", diagnostics) {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(),
@@ -533,7 +570,12 @@ class WorkflowShellStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(ShellState()) }
         }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("not in allowlist")
+            .hasMessage("Workflow shell step was rejected by policy")
+            .hasNoCause()
+
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(event.detailPreview).contains("command is not in allowlist")
     }
 
     @Test
@@ -560,8 +602,12 @@ private data class ShellState(
 
 private fun shellWorkflow(
     name: String,
+    diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     configure: WorkflowBuilder<ShellState>.() -> Unit,
-): Workflow<ShellState, ShellState> = workflow<ShellState>(name, configure = configure).build { it }
+): Workflow<ShellState, ShellState> = workflow<ShellState>(name) {
+    failureDiagnosticObserver = diagnosticObserver
+    configure()
+}.build { it }
 
 private class RecordingShellWorkflowObserver : WorkflowObserver {
     val eventNames = mutableListOf<String>()

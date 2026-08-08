@@ -75,11 +75,17 @@ data class ShellStepConfig(
     }
 }
 
-class WorkflowShellException(
-    val stepName: String,
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException("Workflow shell step '$stepName' $message", cause)
+class WorkflowShellException : RuntimeException {
+    val stepName: String
+    constructor(stepName: String, message: String, cause: Throwable? = null) :
+        super("Workflow shell step '$stepName' $message", cause) { this.stepName = stepName }
+    var failureCode: WorkflowStepFailureCode? = null
+        internal set
+    internal var safeFactoryTrusted: Boolean = false
+    internal constructor(stepName: String, safeMessage: String, safe: Boolean) : super(safeMessage) {
+        this.stepName = stepName
+    }
+}
 
 internal data class ShellWorkflowStep<S>(
     override val name: String,
@@ -95,12 +101,13 @@ internal data class ShellWorkflowStep<S>(
         state: S,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val shellCommand = try {
             commandBuilder(state, context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapShellError(error)
+            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, null, failureDiagnosticObserver)
         }
 
         observer.onWorkflowEvent(
@@ -118,10 +125,13 @@ internal data class ShellWorkflowStep<S>(
                 workflowName = workflowName,
                 context = context,
                 observer = observer,
+                failureDiagnosticObserver = failureDiagnosticObserver,
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapShellError(error, shellCommand)
+            val code = workflowFailureCode(error) ?: WorkflowStepFailureCode.EXECUTION_FAILED
+            if (workflowFailureTrusted(error)) throw error
+            throw failure(workflowName, error, code, null, failureDiagnosticObserver)
         }
 
         observer.onWorkflowEvent(
@@ -137,15 +147,15 @@ internal data class ShellWorkflowStep<S>(
         )
 
         if (config.failOnNonZeroExit && result.exitCode != 0) {
-            throw WorkflowShellException(
-                stepName = name,
-                message = "failed with exit code ${result.exitCode}",
+            throw failure(
+                workflowName, IllegalStateException("non-zero exit"), WorkflowStepFailureCode.NON_ZERO_EXIT,
+                result, failureDiagnosticObserver,
             )
         }
         if (config.failOnStderr && result.stderrSizeBytes > 0) {
-            throw WorkflowShellException(
-                stepName = name,
-                message = "failed because stderr was not empty",
+            throw failure(
+                workflowName, IllegalStateException("stderr was not empty"), WorkflowStepFailureCode.OUTPUT_REJECTED,
+                result, failureDiagnosticObserver,
             )
         }
 
@@ -153,7 +163,7 @@ internal data class ShellWorkflowStep<S>(
             merge(state, result.toWorkflowResult(), context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapShellError(error, shellCommand)
+            throw failure(workflowName, error, WorkflowStepFailureCode.RESULT_HANDLING_FAILED, null, failureDiagnosticObserver)
         }
     }
 
@@ -162,8 +172,14 @@ internal data class ShellWorkflowStep<S>(
         workflowName: String,
         context: WorkflowContext,
         observer: WorkflowObserver,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ): ExecutedShellResult {
-        validateShellCommandDefinition(shellCommand)
+        try {
+            validateShellCommandDefinition(shellCommand)
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, WorkflowStepFailureCode.VALIDATION_FAILED, null, failureDiagnosticObserver)
+        }
         try {
             validateCommandPolicy(shellCommand)
         } catch (error: WorkflowShellException) {
@@ -173,22 +189,25 @@ internal data class ShellWorkflowStep<S>(
                 name = SecurityEvents.COMMAND_DENIED,
                 attributes = mapOf(
                     "step_name" to name,
-                    "command" to File(shellCommand.command.first()).name,
+                    "command_digest" to File(shellCommand.command.first()).name.sha256Digest(),
                     "policy_type" to policyType,
                     "step_family" to "shell",
                 ),
                 context = context,
             )
-            throw error
+            throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, null, failureDiagnosticObserver)
         }
-        val process = ProcessBuilder(shellCommand.command)
-            .apply {
-                shellCommand.workdir?.let { directory(File(it)) }
-                environment().putAll(shellCommand.env)
-            }
-            .run {
-                startOwnedProcess(ioDispatcher) { start() }
-            }
+        val process = try {
+            ProcessBuilder(shellCommand.command)
+                .apply {
+                    shellCommand.workdir?.let { directory(File(it)) }
+                    environment().putAll(shellCommand.env)
+                }
+                .run { startOwnedProcess(ioDispatcher) { start() } }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw failure(workflowName, error, WorkflowStepFailureCode.START_FAILED, null, failureDiagnosticObserver)
+        }
         val lifecycle = CancellableProcessLifecycle(process)
         // Attach-then-active-check: cancellation requests process-tree termination
         // immediately (closing the pipes unblocks the readers below), so structured
@@ -198,9 +217,10 @@ internal data class ShellWorkflowStep<S>(
         val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
         var primaryFailure: Throwable? = null
+        var executedResult: ExecutedShellResult? = null
         try {
             process.outputStream.close()
-            return coroutineScope {
+            executedResult = coroutineScope {
                 val stdoutDeferred = async(ioDispatcher) {
                     process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
                 }
@@ -218,7 +238,9 @@ internal data class ShellWorkflowStep<S>(
                     // the reader coroutines finish, and an observer failure can never
                     // skip the termination request. The bounded graceful→forced cleanup
                     // happens exactly once in the outer finally and attaches its
-                    // diagnostics to this exception.
+                    // diagnostics to this internal marker; the public safe failure is
+                    // constructed only after cleanup below, so raw cleanup diagnostics
+                    // never reach the public exception chain.
                     lifecycle.requestTermination()
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
@@ -228,10 +250,10 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    throw WorkflowShellException(
-                        stepName = name,
-                        message = "timed out after ${config.timeoutSeconds}s",
-                    )
+                    // Owned timeout becomes a non-cancellation internal marker: a
+                    // genuine parent cancellation was already rethrown by ensureActive
+                    // above and must stay a CancellationException all the way out.
+                    throw ShellStepTimeoutException(error)
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -265,14 +287,35 @@ internal data class ShellWorkflowStep<S>(
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             primaryFailure = error
-            throw error
         } finally {
             registration.dispose()
             // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
             // directly here keeps the primary failure (and its diagnostics) intact.
             val cleanup = lifecycle.terminateAndAwait()
-            surfaceProcessCleanup(primaryFailure, cleanup)
+            try {
+                surfaceProcessCleanup(primaryFailure, cleanup)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                if (primaryFailure == null) {
+                    throw failure(
+                        workflowName, error, WorkflowStepFailureCode.CLEANUP_FAILED, null, failureDiagnosticObserver,
+                    )
+                }
+                throw error
+            }
         }
+        // The public safe failure is constructed only after process cleanup has
+        // completed: cleanup diagnostics stay suppressed on the raw internal
+        // primary (observer-only) and never reach the public exception chain.
+        if (primaryFailure != null) {
+            val code = if (primaryFailure is ShellStepTimeoutException) {
+                WorkflowStepFailureCode.TIMEOUT
+            } else {
+                WorkflowStepFailureCode.EXECUTION_FAILED
+            }
+            throw failure(workflowName, primaryFailure!!, code, executedResult, failureDiagnosticObserver)
+        }
+        return executedResult!!
     }
 
     private fun validateShellCommandDefinition(shellCommand: ShellCommand) {
@@ -331,30 +374,29 @@ internal data class ShellWorkflowStep<S>(
         )
     }
 
-    private fun wrapShellError(
+    private suspend fun failure(
+        workflowName: String,
         error: Throwable,
-        shellCommand: ShellCommand? = null,
-    ): WorkflowShellException = when (error) {
-        is WorkflowShellException -> error
-        else -> WorkflowShellException(
-            stepName = name,
-            message = "failed: ${sanitizeShellErrorMessage(error.message ?: error::class.java.simpleName, shellCommand)}",
-            cause = error,
+        code: WorkflowStepFailureCode,
+        result: ExecutedShellResult?,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    ): RuntimeException {
+        val detail = result?.stderr?.let { capture ->
+            val limit = 8193
+            val prefix = if (capture.bytes.size > limit) capture.bytes.copyOfRange(0, limit) else capture.bytes
+            boundedWorkflowDetailPreview(String(prefix, config.charset))
+        } ?: boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        val metadata = result?.let { mapOf("exitCode" to it.exitCode.toLong()) } ?: emptyMap()
+        deliverWorkflowStepFailure(
+            failureDiagnosticObserver,
+            WorkflowStepFailureDiagnosticEvent(
+                workflowName, name, WorkflowStepKind.SHELL, code, 1, false, error,
+                detail.text, detail.truncated, metadata,
+            ),
         )
-    }
-
-    private fun sanitizeShellErrorMessage(
-        message: String,
-        shellCommand: ShellCommand?,
-    ): String {
-        if (shellCommand == null) {
-            return message
-        }
-        return shellCommand.commandIdentifiers()
-            .sortedByDescending(String::length)
-            .fold(message) { current, identifier ->
-                current.replace(identifier, "[command]")
-            }
+        return safeWorkflowStepFailure(
+            WorkflowStepKind.SHELL, code, fixedWorkflowStepMessage(WorkflowStepKind.SHELL, code), name, 1,
+        )
     }
 
 }
@@ -433,3 +475,11 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
         add(fileName)
     }
 }
+
+/** Internal marker: the Shell step's own timeout (never a parent cancellation). */
+private class ShellStepTimeoutException(
+    cause: TimeoutCancellationException,
+) : RuntimeException("shell step timed out", cause)
+
+private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

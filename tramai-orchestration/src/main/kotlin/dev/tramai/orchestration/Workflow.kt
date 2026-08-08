@@ -39,9 +39,7 @@ class ExternalStepExecutorNotRegisteredException(
 
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
-
     fun registeredTypeIds(): Set<String>
-
     fun create(typeId: String): ExternalStepExecutor
 }
 
@@ -228,7 +226,7 @@ class Workflow<S, R> internal constructor(
     private val stopPolicy: StopPolicy,
     private val clock: Clock,
     private val externalStepExecutorResolver: ExternalStepExecutorResolver,
-    private val httpClient: HttpClient = WorkflowHttpClients.default,
+    private val httpClient: HttpClient = WorkflowHttpClients.default, private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
         workflowName = name,
@@ -479,31 +477,31 @@ class Workflow<S, R> internal constructor(
                     state = state,
                     context = context,
                     observer = observer,
-                    httpClient = httpClient,
+                    httpClient = httpClient, failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is ShellWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
-                    observer = observer,
+                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is HermesWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
-                    observer = observer,
+                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is CodexWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
-                    observer = observer,
+                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is McpWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
                     context = context,
-                    observer = observer,
+                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is PluginWorkflowStep<S> -> step.execute(
                     workflowName = name,
@@ -557,8 +555,8 @@ class Workflow<S, R> internal constructor(
             }
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            observer.onStepFailed(name, step.name, error, context)
-            throw error
+            val sanitized = sanitizeStepFailure(step, name, failureDiagnosticObserver, error)
+            observer.onStepFailed(name, step.name, sanitized, context); throw sanitized
         }
         observer.onStepCompleted(name, step.name, context)
         return StepExecutionResult.Completed(nextState)
@@ -570,6 +568,7 @@ class WorkflowBuilder<S> constructor(
     private val stateType: KType,
 ) : AbstractWorkflowBuilder<S>() {
     var schedule: WorkflowScheduleDefinition? = null
+    var failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver
 
     inline fun <reified R> build(
         stopPolicy: StopPolicy = StopPolicy(),
@@ -609,6 +608,7 @@ class WorkflowBuilder<S> constructor(
             stopPolicy = stopPolicy,
             clock = clock,
             externalStepExecutorResolver = externalStepExecutorResolver,
+            failureDiagnosticObserver = failureDiagnosticObserver,
         )
     }
 }
@@ -1140,9 +1140,7 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
         "GET",
         "HEAD",
         "OPTIONS",
-        // HTTP defines PUT and DELETE as idempotent, but replay safety still assumes the remote
-        // application handler avoids additional side effects when the same request is repeated.
-        "PUT",
+        "PUT", // idempotent per HTTP; replay safety still assumes no extra side effects on repeat
         "DELETE",
         -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
 

@@ -47,15 +47,26 @@ data class HttpStepConfig(
     }
 }
 
-class WorkflowHttpException(
-    val stepName: String,
-    val redactedUrl: String,
-    val attempt: Int,
-    cause: Throwable,
-) : RuntimeException(
-    "Workflow HTTP step '$stepName' failed for '$redactedUrl' on attempt $attempt: ${cause.message ?: cause::class.java.simpleName}",
-    cause,
-)
+class WorkflowHttpException : RuntimeException {
+    val stepName: String
+    val redactedUrl: String
+    val attempt: Int
+    constructor(stepName: String, redactedUrl: String, attempt: Int, cause: Throwable) :
+        super("Workflow HTTP step '$stepName' failed for '$redactedUrl' on attempt $attempt: ${cause.message ?: cause::class.java.simpleName}", cause) {
+        this.stepName = stepName
+        this.redactedUrl = redactedUrl
+        this.attempt = attempt
+    }
+    var failureCode: WorkflowStepFailureCode? = null
+        internal set
+    internal var safeFactoryTrusted: Boolean = false
+
+    internal constructor(stepName: String, attempt: Int, safeMessage: String, safe: Boolean) : super(safeMessage) {
+        this.stepName = stepName
+        this.redactedUrl = "<redacted>"
+        this.attempt = attempt
+    }
+}
 
 internal object WorkflowHttpClients {
     val default: HttpClient = HttpClient.newBuilder()
@@ -76,40 +87,32 @@ internal data class HttpWorkflowStep<S>(
         context: WorkflowContext,
         observer: WorkflowObserver,
         httpClient: HttpClient,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val request = try {
             requestBuilder(state, context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapHttpError(
-                error = error,
-                redactedUrl = "<request-builder>",
-                attempt = 1,
-            )
+            throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, 1, false, failureDiagnosticObserver)
         }
         val method = request.method.trim().uppercase()
-        val redactedUrl = request.url.safeStripQueryParameters()
+        val redactedUrl = "<redacted>"
         val uri = try {
             validateMethod(method, request.method)
             validateRequestUri(request.url)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
+            val code = WorkflowStepFailureCode.VALIDATION_FAILED
             observer.onWorkflowEvent(
                 workflowName = workflowName,
                 name = "tramai.workflow.http.request.validation.failed",
                 attributes = mapOf(
                     "step_name" to name,
-                    "http_method" to method,
-                    "url" to redactedUrl,
-                    "reason" to (error.message ?: error::class.java.simpleName),
+                    "failure_code" to code.value,
                 ),
                 context = context,
             )
-            throw wrapHttpError(
-                error = error,
-                redactedUrl = redactedUrl,
-                attempt = 1,
-            )
+            throw failure(workflowName, error, code, 1, false, failureDiagnosticObserver)
         }
 
         observer.onWorkflowEvent(
@@ -118,7 +121,6 @@ internal data class HttpWorkflowStep<S>(
             attributes = mapOf(
                 "step_name" to name,
                 "http_method" to method,
-                "url" to redactedUrl,
             ),
             context = context,
         )
@@ -141,11 +143,12 @@ internal data class HttpWorkflowStep<S>(
                 )
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                throw wrapHttpError(
-                    error = error,
-                    redactedUrl = redactedUrl,
-                    attempt = attemptNumber,
-                )
+                val code = if (error is java.net.http.HttpTimeoutException) {
+                    WorkflowStepFailureCode.TIMEOUT
+                } else {
+                    WorkflowStepFailureCode.TRANSPORT_FAILED
+                }
+                throw failure(workflowName, error, code, attemptNumber, false, failureDiagnosticObserver)
             }
 
             observer.onWorkflowEvent(
@@ -154,7 +157,6 @@ internal data class HttpWorkflowStep<S>(
                 attributes = mapOf(
                     "step_name" to name,
                     "http_method" to method,
-                    "url" to redactedUrl,
                     "status_code" to response.status,
                     "response_size_bytes" to response.responseSizeBytes,
                 ),
@@ -168,7 +170,6 @@ internal data class HttpWorkflowStep<S>(
                     attributes = mapOf(
                         "step_name" to name,
                         "http_method" to method,
-                        "url" to redactedUrl,
                         "status_code" to response.status,
                         "retry_attempt" to (retryAttempt + 1),
                         "next_delay_ms" to nextDelayMillis,
@@ -183,11 +184,7 @@ internal data class HttpWorkflowStep<S>(
                 merge(state, response.toWorkflowResponse(), context)
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                throw wrapHttpError(
-                    error = error,
-                    redactedUrl = redactedUrl,
-                    attempt = attemptNumber,
-                )
+                throw failure(workflowName, error, WorkflowStepFailureCode.RESULT_HANDLING_FAILED, attemptNumber, false, failureDiagnosticObserver)
             }
         }
     }
@@ -200,7 +197,6 @@ internal data class HttpWorkflowStep<S>(
         val workflowName = execution.workflowName
         val context = execution.context
         val httpClient = execution.httpClient
-        val redactedUrl = execution.redactedUrl
         val bodyPublisher = request.body?.let(BodyPublishers::ofString) ?: BodyPublishers.noBody()
         val httpRequest = java.net.http.HttpRequest.newBuilder(uri)
             .timeout(Duration.ofSeconds(config.timeoutSeconds))
@@ -244,7 +240,6 @@ internal data class HttpWorkflowStep<S>(
                 attributes = mapOf(
                     "step_name" to name,
                     "http_method" to method,
-                    "url" to redactedUrl,
                     "status_code" to response.statusCode(),
                     "response_size_bytes" to responseSizeBytes,
                     "max_response_bytes" to config.maxResponseBytes,
@@ -297,34 +292,38 @@ internal data class HttpWorkflowStep<S>(
         // restricted addresses regardless of the allowlist, to prevent SSRF
         // attacks via DNS rebinding or attacker-controlled domains.
         // Skip this check if the host is explicitly in the allowlist.
-        require(
-            isExplicitlyAllowed ||
-                (normalizedHost != localhostHostName && resolvedAddresses.none(::isPrivateOrRestrictedAddress)),
-        ) {
-            "Workflow HTTP step '$name' host '$host' is not a public address"
-        }
+        if (!isExplicitlyAllowed &&
+            (normalizedHost == localhostHostName || resolvedAddresses.any(::isPrivateOrRestrictedAddress))
+        ) throw HttpPolicyViolation("host rejected by private/restricted-address policy: $normalizedHost")
         if (allowedHosts != null) {
-            require(normalizedHost in allowedHosts) {
-                "Workflow HTTP step '$name' host '$host' is not in the allowlist"
-            }
+            if (normalizedHost !in allowedHosts) throw HttpPolicyViolation("host not in allowlist: $normalizedHost")
         }
         return uri
     }
 
-    private fun wrapHttpError(
+    private suspend fun failure(
+        workflowName: String,
         error: Throwable,
-        redactedUrl: String,
+        code: WorkflowStepFailureCode,
         attempt: Int,
-    ): WorkflowHttpException = when (error) {
-        is WorkflowHttpException -> error
-        else -> WorkflowHttpException(
-            stepName = name,
-            redactedUrl = redactedUrl,
-            attempt = attempt,
-            cause = error,
+        willRetry: Boolean,
+        failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
+    ): RuntimeException {
+        val preview = boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        deliverWorkflowStepFailure(
+            observer = failureDiagnosticObserver,
+            event = WorkflowStepFailureDiagnosticEvent(
+                workflowName, name, WorkflowStepKind.HTTP, code, attempt, willRetry, error,
+                preview.text, preview.truncated,
+            ),
+        )
+        return safeWorkflowStepFailure(
+            WorkflowStepKind.HTTP, code, fixedWorkflowStepMessage(WorkflowStepKind.HTTP, code), name, attempt,
         )
     }
 }
+
+private class HttpPolicyViolation(message: String) : IllegalArgumentException(message)
 
 private class ExecutedHttpResponse(
     val status: Int,

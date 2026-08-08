@@ -201,7 +201,8 @@ class WorkflowAgentStepTest {
                 |printf 'not-a-number'
             """.trimMargin(),
         ) { hermesCli ->
-            val workflow = agentWorkflow("hermes-decode-failure") {
+            val diagnostics = RecordingDiagnosticObserver()
+            val workflow = agentWorkflow("hermes-decode-failure", diagnostics) {
                 hermesStep(
                     name = "review-ui",
                     config = HermesStepConfig(cliPath = hermesCli.toString()),
@@ -216,7 +217,14 @@ class WorkflowAgentStepTest {
             assertThatThrownBy {
                 runBlocking { workflow.run(AgentState()) }
             }.isInstanceOf(WorkflowHermesException::class.java)
-                .hasMessageContaining("decode failed for 'not-a-number'")
+                .hasMessage("Workflow hermes step result handling failed")
+                .hasNoCause()
+
+            val event = diagnostics.single()
+            assertThat(event.kind).isEqualTo(WorkflowStepKind.HERMES)
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
+            // The raw decode error reaches only the diagnostic channel.
+            assertThat(event.failure?.message).contains("decode failed for 'not-a-number'")
         }
     }
 
@@ -231,7 +239,8 @@ class WorkflowAgentStepTest {
                 |printf 'not-a-number'
             """.trimMargin(),
         ) { codexCli ->
-            val workflow = agentWorkflow("codex-decode-failure") {
+            val diagnostics = RecordingDiagnosticObserver()
+            val workflow = agentWorkflow("codex-decode-failure", diagnostics) {
                 codexStep(
                     name = "review-ui",
                     config = CodexStepConfig(cliPath = codexCli.toString()),
@@ -246,7 +255,13 @@ class WorkflowAgentStepTest {
             assertThatThrownBy {
                 runBlocking { workflow.run(AgentState()) }
             }.isInstanceOf(WorkflowCodexException::class.java)
-                .hasMessageContaining("decode failed for 'not-a-number'")
+                .hasMessage("Workflow codex step result handling failed")
+                .hasNoCause()
+
+            val event = diagnostics.single()
+            assertThat(event.kind).isEqualTo(WorkflowStepKind.CODEX)
+            assertThat(event.code).isEqualTo(WorkflowStepFailureCode.RESULT_HANDLING_FAILED)
+            assertThat(event.failure?.message).contains("decode failed for 'not-a-number'")
         }
     }
 
@@ -281,7 +296,8 @@ class WorkflowAgentStepTest {
 
                         val failure = runCatching { execution.await() }.exceptionOrNull()
                         assertThat(failure).isInstanceOf(WorkflowHermesException::class.java)
-                            .hasMessageContaining("timed out after 1s")
+                            .hasMessage("Workflow hermes step timed out")
+                            .hasNoCause()
 
                         awaitAgentProcessExit(process)
                         assertThat(process?.isAlive ?: false).isFalse()
@@ -315,8 +331,8 @@ class WorkflowAgentStepTest {
             assertThatThrownBy {
                 runBlocking { workflow.run(AgentState()) }
             }.isInstanceOf(WorkflowHermesException::class.java)
-                .hasMessageContaining("exit code 17")
-                .hasMessageContaining("hermes stderr message")
+                .hasMessage("Workflow hermes step exited unsuccessfully")
+                .hasNoCause()
         }
     }
 
@@ -342,8 +358,8 @@ class WorkflowAgentStepTest {
             assertThatThrownBy {
                 runBlocking { workflow.run(AgentState()) }
             }.isInstanceOf(WorkflowCodexException::class.java)
-                .hasMessageContaining("exit code 27")
-                .hasMessageContaining("codex stderr message")
+                .hasMessage("Workflow codex step exited unsuccessfully")
+                .hasNoCause()
         }
     }
 
@@ -412,7 +428,8 @@ class WorkflowAgentStepTest {
 
                         val failure = runCatching { execution.await() }.exceptionOrNull()
                         assertThat(failure).isInstanceOf(WorkflowHermesException::class.java)
-                            .hasMessageContaining("timed out after 1s")
+                            .hasMessage("Workflow hermes step timed out")
+                            .hasNoCause()
 
                         awaitAgentProcessExit(parentProcess)
                         awaitAgentProcessExit(childProcess)
@@ -517,8 +534,12 @@ private data class AgentState(
 
 private fun agentWorkflow(
     name: String,
+    diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     configure: WorkflowBuilder<AgentState>.() -> Unit,
-): Workflow<AgentState, AgentState> = workflow<AgentState>(name, configure = configure).build { it }
+): Workflow<AgentState, AgentState> = workflow<AgentState>(name) {
+    failureDiagnosticObserver = diagnosticObserver
+    configure()
+}.build { it }
 
 private class RecordingAgentWorkflowObserver : WorkflowObserver {
     val events = mutableListOf<Pair<String, Map<String, Any?>>>()
