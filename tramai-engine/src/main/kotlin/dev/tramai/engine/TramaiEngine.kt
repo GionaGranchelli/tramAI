@@ -59,7 +59,14 @@ import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
+import dev.tramai.core.structured.StructuredOutputFailureCode
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticEvent
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.StructuredOutputResult
+import dev.tramai.core.structured.boundedStructuredOutputDetailPreview
+import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.exception.safeStructuredOutputFailure
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
@@ -140,6 +147,7 @@ class TramaiEngine(
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
     private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
     // Approval suspension dependencies
     private val suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
@@ -183,6 +191,7 @@ class TramaiEngine(
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
         suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
         approvalContinuationStore: ApprovalContinuationStore? = null,
@@ -213,6 +222,7 @@ class TramaiEngine(
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         suspendedInvocationStore = suspendedInvocationStore,
         approvalContinuationStore = approvalContinuationStore,
@@ -256,6 +266,7 @@ class TramaiEngine(
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
             toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
             suspendedInvocationStore = suspendedInvocationStore,
             approvalContinuationStore = approvalContinuationStore,
@@ -318,6 +329,7 @@ class TramaiEngine(
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
             toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
             suspendedInvocationStore = suspendedInvocationStore,
             approvalContinuationStore = approvalContinuationStore,
@@ -425,6 +437,7 @@ internal class TramaiInvocationHandler(
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
+    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
     // Approval suspension dependencies
     private val suspendedInvocationStore: SuspendedInvocationStore,
@@ -1386,12 +1399,20 @@ internal class TramaiInvocationHandler(
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
 
-        return when (
-            val analysis = handler.analyze(
+        val analysis = try {
+            handler.analyze(
                 rawResponse = result.response.content,
                 targetType = targetType,
             )
-        ) {
+        } catch (failure: Throwable) {
+            rethrowOrSanitizeStructuredHandlerFailure(
+                operation = operation,
+                failure = failure,
+                attempt = attemptIndex + 1,
+                willRetry = attemptIndex < maxAttempts - 1,
+            )
+        }
+        return when (analysis) {
             is StructuredOutputResult.Success -> {
                 // Enforce BEFORE_RESPONSE_RETURN before any side effects (persist, cache)
                 // and before onCallCompleted so external consumers don't assume availability
@@ -1483,7 +1504,7 @@ internal class TramaiInvocationHandler(
         chatMemory.add(conversationId, turnMessages + assistantMessage)
     }
 
-    private fun handleStructuredFailure(
+    private suspend fun handleStructuredFailure(
         operation: OperationDefinition,
         analysis: StructuredOutputResult.Failure,
         result: ProviderCallResult,
@@ -1491,17 +1512,33 @@ internal class TramaiInvocationHandler(
         attemptIndex: Int,
         maxAttempts: Int,
     ) {
+        currentCoroutineContext().ensureActive()
+        val rawPreview = boundedStructuredOutputDetailPreview(analysis.rawResponse)
+        val detailPreview = boundedStructuredOutputDetailPreview(analysis.errorSummary)
+        deliverStructuredOutputFailure(
+            StructuredOutputFailureDiagnosticEvent(
+                serviceName = null,
+                methodName = operation.method.name,
+                code = StructuredOutputFailureCode.OUTPUT_REJECTED,
+                attempt = attemptIndex + 1,
+                willRetry = attemptIndex < maxAttempts - 1,
+                rawResponsePreview = rawPreview.text,
+                rawResponseTruncated = rawPreview.truncated,
+                detailPreview = detailPreview.text,
+                detailTruncated = detailPreview.truncated,
+                failure = structuredFailureOriginalFailure(analysis),
+                numericMetadata = mapOf("attempt" to (attemptIndex + 1).toLong()),
+            ),
+        )
         result.observation.onStructuredParseFailure(
-            rawResponse = analysis.rawResponse,
-            errorSummary = analysis.errorSummary,
+            rawResponse = "<redacted structured-output failure>",
+            errorSummary = "Structured output failed validation",
         )
         if (attemptIndex == maxAttempts - 1) {
             result.observation.onCallCompleted(parseSuccess = false)
-            throw dev.tramai.core.exception.StructuredOutputException(
+            throw safeStructuredOutputFailure(
                 message = "Structured output parsing failed after $maxAttempts attempt(s)",
-                originalPrompt = operation.operation.prompt,
-                lastRawResponse = analysis.rawResponse,
-                validationError = analysis.errorSummary,
+                code = StructuredOutputFailureCode.REPAIR_EXHAUSTED,
                 attemptCount = maxAttempts,
             )
         }
@@ -1510,6 +1547,57 @@ internal class TramaiInvocationHandler(
         messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
         messages += Message(MessageRole.USER, analysis.feedbackMessage)
     }
+
+    private suspend fun rethrowOrSanitizeStructuredHandlerFailure(
+        operation: OperationDefinition,
+        failure: Throwable,
+        attempt: Int,
+        willRetry: Boolean,
+    ): Nothing {
+        failure.rethrowIfCancellation()
+        currentCoroutineContext().ensureActive()
+        if (failure is StructuredOutputException && failure.safeFactoryTrusted) {
+            throw failure
+        }
+        deliverStructuredOutputFailure(
+            StructuredOutputFailureDiagnosticEvent(
+                serviceName = null,
+                methodName = operation.method.name,
+                code = StructuredOutputFailureCode.HANDLER_FAILED,
+                attempt = attempt,
+                willRetry = willRetry,
+                rawResponsePreview = null,
+                rawResponseTruncated = false,
+                detailPreview = null,
+                detailTruncated = false,
+                failure = failure,
+                numericMetadata = mapOf("attempt" to attempt.toLong()),
+            ),
+        )
+        throw safeStructuredOutputFailure(
+            message = "Structured output handler failed",
+            code = StructuredOutputFailureCode.HANDLER_FAILED,
+            attemptCount = attempt,
+        )
+    }
+
+    private suspend fun deliverStructuredOutputFailure(event: StructuredOutputFailureDiagnosticEvent) {
+        try {
+            structuredOutputFailureDiagnosticObserver.onFailure(event)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+        } catch (e: Throwable) {
+            e.rethrowIfCancellation()
+        }
+        currentCoroutineContext().ensureActive()
+    }
+
+    private fun structuredFailureOriginalFailure(analysis: StructuredOutputResult.Failure): Throwable? =
+        runCatching {
+            analysis.javaClass.methods
+                .firstOrNull { it.name == "getFailure" && it.parameterCount == 0 }
+                ?.invoke(analysis) as? Throwable
+        }.getOrNull()
 
     private suspend fun executeWithTools(
         context: ToolLoopContext,
@@ -3640,10 +3728,19 @@ internal class TramaiInvocationHandler(
             )
 
         // Fix 3: Parse FIRST before memory persistence and BEFORE_RESPONSE_RETURN
-        val analysis = handler.analyze(
-            rawResponse = loopResult.response.content,
-            targetType = targetType,
-        )
+        val analysis = try {
+            handler.analyze(
+                rawResponse = loopResult.response.content,
+                targetType = targetType,
+            )
+        } catch (failure: Throwable) {
+            rethrowOrSanitizeStructuredHandlerFailure(
+                operation = operation,
+                failure = failure,
+                attempt = 1,
+                willRetry = false,
+            )
+        }
         return when (analysis) {
             is StructuredOutputResult.Success -> {
                 // On success: enforce BEFORE_RESPONSE_RETURN, persist memory, complete observation, return value
@@ -3665,16 +3762,32 @@ internal class TramaiInvocationHandler(
             is StructuredOutputResult.Failure -> {
                 // On failure: record parse failure, do NOT enforce BEFORE_RESPONSE_RETURN,
                 // do NOT persist invalid data, leave continuation CLAIMED
+                currentCoroutineContext().ensureActive()
+                val rawPreview = boundedStructuredOutputDetailPreview(analysis.rawResponse)
+                val detailPreview = boundedStructuredOutputDetailPreview(analysis.errorSummary)
+                deliverStructuredOutputFailure(
+                    StructuredOutputFailureDiagnosticEvent(
+                        serviceName = null,
+                        methodName = operation.method.name,
+                        code = StructuredOutputFailureCode.OUTPUT_REJECTED,
+                        attempt = 1,
+                        willRetry = false,
+                        rawResponsePreview = rawPreview.text,
+                        rawResponseTruncated = rawPreview.truncated,
+                        detailPreview = detailPreview.text,
+                        detailTruncated = detailPreview.truncated,
+                        failure = structuredFailureOriginalFailure(analysis),
+                        numericMetadata = mapOf("attempt" to 1L),
+                    ),
+                )
                 loopResult.observation.onStructuredParseFailure(
-                    rawResponse = analysis.rawResponse,
-                    errorSummary = analysis.errorSummary,
+                    rawResponse = "<redacted structured-output failure>",
+                    errorSummary = "Structured output failed validation",
                 )
                 loopResult.observation.onCallCompleted(parseSuccess = false)
-                throw dev.tramai.core.exception.StructuredOutputException(
+                throw safeStructuredOutputFailure(
                     message = "Structured output parsing failed after resume",
-                    originalPrompt = operation.operation.prompt,
-                    lastRawResponse = analysis.rawResponse,
-                    validationError = analysis.errorSummary,
+                    code = StructuredOutputFailureCode.OUTPUT_REJECTED,
                     attemptCount = 1,
                 )
             }

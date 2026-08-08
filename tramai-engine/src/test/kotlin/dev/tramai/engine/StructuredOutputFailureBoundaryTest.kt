@@ -1,0 +1,165 @@
+package dev.tramai.engine
+
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.structured.StructuredOutputContract
+import dev.tramai.core.structured.StructuredOutputFailureCode
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticEvent
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputHandler
+import dev.tramai.core.structured.StructuredOutputResult
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import kotlin.reflect.KType
+import kotlin.test.Test
+
+class StructuredOutputFailureBoundaryTest {
+    @Test
+    fun `exhausted repair surfaces safe exception with no raw detail`() {
+        val service = engine(FailingHandler()).create<BoundaryService>()
+
+        assertThatThrownBy { runBlocking { service.answer(SO_FIXTURE) } }
+            .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
+                assertThat(error.message).isEqualTo("Structured output parsing failed after 3 attempt(s)")
+                assertThat(error.message).doesNotContain(SO_FIXTURE)
+                assertThat(error.failureCode).isEqualTo(StructuredOutputFailureCode.REPAIR_EXHAUSTED)
+                assertThat(error.attemptCount).isEqualTo(3)
+                assertThat(error.originalPrompt).isNull()
+                assertThat(error.lastRawResponse).isNull()
+                assertThat(error.validationError).isNull()
+                assertThat(error.cause).isNull()
+                assertThat(error.suppressed).isEmpty()
+            }
+    }
+
+    @Test
+    fun `raw detail reaches only the diagnostic observer`() {
+        val diagnostics = RecordingDiagnostics()
+        val service = engine(FailingHandler(), diagnostics = diagnostics).create<BoundaryService>()
+
+        assertThatThrownBy { runBlocking { service.answer(SO_FIXTURE) } }
+            .isInstanceOf(StructuredOutputException::class.java)
+
+        assertThat(diagnostics.events).hasSize(3)
+        diagnostics.events.forEachIndexed { index, event ->
+            assertThat(event.code).isEqualTo(StructuredOutputFailureCode.OUTPUT_REJECTED)
+            assertThat(event.attempt).isEqualTo(index + 1)
+            assertThat(event.willRetry).isEqualTo(index < 2)
+            assertThat(event.rawResponsePreview).contains(SO_FIXTURE)
+            assertThat(event.failure!!.message).contains(SO_FIXTURE)
+        }
+    }
+
+    @Test
+    fun `ordinary observer receives only redacted compatibility text`() {
+        val observer = RecordingOperationObserver()
+        val service = engine(FailingHandler(), operationObserver = observer).create<BoundaryService>()
+
+        assertThatThrownBy { runBlocking { service.answer(SO_FIXTURE) } }
+            .isInstanceOf(StructuredOutputException::class.java)
+
+        assertThat(observer.failures).containsOnly(
+            "<redacted structured-output failure>" to "Structured output failed validation",
+        )
+        assertThat(observer.failures.joinToString()).doesNotContain(SO_FIXTURE)
+    }
+
+    @Test
+    fun `successful repair and first attempt remain unchanged`() {
+        val repaired = engine(SequenceHandler(failuresBeforeSuccess = 1)).create<BoundaryService>()
+        val direct = engine(SequenceHandler(failuresBeforeSuccess = 0)).create<BoundaryService>()
+
+        runBlocking {
+            assertThat(repaired.answer("normal")).isEqualTo(BoundaryValue("ok"))
+            assertThat(direct.answer("normal")).isEqualTo(BoundaryValue("ok"))
+        }
+    }
+
+    @Test
+    fun `custom handler exception is re-sanitized as handler failed and observer failures fail open`() {
+        val diagnostics = RecordingDiagnostics(throwAfterRecording = true)
+        val service = engine(ThrowingHandler(), diagnostics = diagnostics).create<BoundaryService>()
+
+        assertThatThrownBy { runBlocking { service.answer(SO_FIXTURE) } }
+            .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
+                assertThat(error.failureCode).isEqualTo(StructuredOutputFailureCode.HANDLER_FAILED)
+                assertThat(error.message).isEqualTo("Structured output handler failed")
+                assertThat(error.message).doesNotContain(SO_FIXTURE)
+                assertThat(error.cause).isNull()
+            }
+        assertThat(diagnostics.events.single().failure!!.message).contains(SO_FIXTURE)
+    }
+
+    @Test
+    fun `diagnostic raw preview is byte bounded`() {
+        val diagnostics = RecordingDiagnostics()
+        val service = engine(FailingHandler(), diagnostics = diagnostics, response = "a".repeat(8193) + SO_FIXTURE).create<BoundaryService>()
+
+        assertThatThrownBy { runBlocking { service.answer(SO_FIXTURE) } }.isInstanceOf(StructuredOutputException::class.java)
+
+        assertThat(diagnostics.events.first().rawResponseTruncated).isTrue()
+        assertThat(diagnostics.events.first().rawResponsePreview!!.toByteArray(Charsets.UTF_8).size).isLessThanOrEqualTo(8192)
+    }
+
+    private fun engine(
+        handler: StructuredOutputHandler,
+        diagnostics: StructuredOutputFailureDiagnosticObserver = RecordingDiagnostics(),
+        operationObserver: OperationObserver = RecordingOperationObserver(),
+        response: String = "raw $SO_FIXTURE",
+    ): TramaiEngine = TramaiEngine(
+        provider = object : ModelProvider { override suspend fun complete(request: ModelRequest) = ModelResponse(content = response) },
+        structuredOutputHandler = handler,
+        structuredOutputFailureDiagnosticObserver = diagnostics,
+        operationObserver = operationObserver,
+    )
+
+    private open class FailingHandler : StructuredOutputHandler {
+        override fun createContract(targetType: KType) = StructuredOutputContract(targetType, "{}")
+        override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = StructuredOutputResult.Failure(rawResponse, "detail $SO_FIXTURE", "repair", IllegalStateException("handler $SO_FIXTURE"))
+        override fun generateSchema(type: KType) = "{}"
+        override fun deserialize(input: Any, targetType: KType): Any = error("unused")
+        override fun serialize(value: Any): Any = value
+    }
+
+    private class ThrowingHandler : FailingHandler() {
+        override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = throw IllegalStateException(SO_FIXTURE)
+    }
+
+    private class SequenceHandler(private var failuresBeforeSuccess: Int) : FailingHandler() {
+        override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = if (failuresBeforeSuccess-- > 0) super.analyze(rawResponse, targetType) else StructuredOutputResult.Success(BoundaryValue("ok"), rawResponse)
+    }
+
+    private class RecordingDiagnostics(private val throwAfterRecording: Boolean = false) : StructuredOutputFailureDiagnosticObserver {
+        val events = mutableListOf<StructuredOutputFailureDiagnosticEvent>()
+        override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) { events += event; if (throwAfterRecording) throw IllegalStateException("observer boom") }
+    }
+
+    private class RecordingOperationObserver : OperationObserver {
+        val failures = mutableListOf<Pair<String, String>>()
+        override fun onCallStarted(context: OperationCallContext): OperationObservation = object : OperationObservation {
+            override fun onProviderResponse(response: ModelResponse) = Unit
+            override fun onProviderFailure(error: Throwable) = Unit
+            override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) { failures += rawResponse to errorSummary }
+            override fun onCallCompleted(parseSuccess: Boolean?) = Unit
+            override fun onCallCancelled() = Unit
+        }
+    }
+
+    @AiService
+    private interface BoundaryService {
+        @Operation(prompt = "prompt $SO_FIXTURE", model = "boundary")
+        suspend fun answer(input: String): BoundaryValue
+    }
+
+    private data class BoundaryValue(val value: String)
+
+    private companion object { const val SO_FIXTURE = "fixture-sentinel-so-2b4" }
+}

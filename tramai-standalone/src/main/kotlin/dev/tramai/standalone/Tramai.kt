@@ -36,6 +36,8 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
+import dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import dev.tramai.engine.CircuitBreakerSettings
@@ -72,6 +74,7 @@ class Tramai private constructor(
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
@@ -115,6 +118,7 @@ class Tramai private constructor(
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -157,6 +161,7 @@ class Tramai private constructor(
         private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
         private var engineEventObserver: EngineEventObserver = NoOpEngineEventObserver
         private var toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver
+        private var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -321,6 +326,10 @@ class Tramai private constructor(
             this.toolFailureDiagnosticObserver = observer
         }
 
+        fun structuredOutputFailureDiagnosticObserver(observer: StructuredOutputFailureDiagnosticObserver): Builder = apply {
+            this.structuredOutputFailureDiagnosticObserver = observer
+        }
+
         /**
          * Configures the sanitizer applied to user-supplied operation arguments before prompt construction.
          */
@@ -473,6 +482,7 @@ class Tramai private constructor(
                 toolResultFilteringSettings = toolResultFilteringSettings,
                 engineEventObserver = engineEventObserver,
                 toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+                structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
                 promptSanitizer = promptSanitizer,
                 chatMemory = chatMemory,
                 policyDecisionAuditEmitter = policyDecisionAuditEmitter,

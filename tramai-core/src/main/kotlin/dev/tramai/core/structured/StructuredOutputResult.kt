@@ -20,9 +20,11 @@ sealed interface StructuredOutputResult {
     data class Failure(
         /** Original failing response. */
         val rawResponse: String,
-        /** Stable summary intended for logging and observation. */
+        /** Compatibility-safe text for ordinary observation; raw diagnostic material flows only through the diagnostic observer. */
         val errorSummary: String,
         /** Natural-language feedback that the engine can append for another attempt. */
         val feedbackMessage: String,
+        /** Original throwable when the failure came from an exception, for diagnostic-only delivery. */
+        val failure: Throwable? = null,
     ) : StructuredOutputResult
 }

@@ -70,10 +70,7 @@ class JacksonStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).satisfiesAnyOf(
-            { summary -> assertThat(summary).contains("recommendations") },
-            { summary -> assertThat(summary).contains("confidence") },
-        )
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
         assertThat(failure.feedbackMessage).contains("failed validation")
     }
 
@@ -86,7 +83,7 @@ class JacksonStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("Could not find a JSON object or array")
+        assertThat(failure.errorSummary).isEqualTo("Could not extract JSON content from the model response")
     }
 
     @Test

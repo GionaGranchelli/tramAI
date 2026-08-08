@@ -1,6 +1,7 @@
 package dev.tramai.core.exception
 
 import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.structured.StructuredOutputFailureCode
 
 /**
  * Base runtime exception for Tramai failures.
@@ -33,7 +34,43 @@ class StructuredOutputException(
     /** Total number of attempts performed before giving up. */
     val attemptCount: Int? = null,
     cause: Throwable? = null,
-) : TramaiException(message, cause)
+) : TramaiException(message, cause) {
+    /**
+     * Typed classification for engine-produced failures; null for caller-constructed
+     * instances. Trusted only when [safeFactoryTrusted] is true.
+     */
+    var failureCode: StructuredOutputFailureCode? = null
+        internal set
+
+    /**
+     * Set only by the internal safe factory; external instances remain untrusted and
+     * are re-sanitized at the engine boundary.
+     */
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
+
+/**
+ * Constructs the safe engine-produced structured-output failure: fixed trusted
+ * message, typed failure code, safe numeric attempt count, no raw fields, no
+ * cause. Raw response/validation detail is delivered separately to the
+ * diagnostic observer; this exception is what callers see.
+ *
+ * Only pass text controlled by the caller (fixed templates). Provider
+ * responses, throwable messages, raw model output, and other untrusted values
+ * must not be interpolated into [message].
+ */
+fun safeStructuredOutputFailure(
+    message: String,
+    code: StructuredOutputFailureCode,
+    attemptCount: Int,
+): StructuredOutputException = StructuredOutputException(
+    message = message,
+    attemptCount = attemptCount,
+).apply {
+    failureCode = code
+    safeFactoryTrusted = true
+}
 
 /**
  * Raised when a provider transport or API call fails.

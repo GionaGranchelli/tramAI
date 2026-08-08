@@ -13,6 +13,8 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticEvent
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedaction
@@ -34,6 +36,26 @@ import kotlin.reflect.KClass
 import kotlin.test.Test
 
 class TramaiTest {
+
+    @Test
+    fun `structured failure diagnostic observer is frozen at build time`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "not json $SO_FIXTURE") }
+        val observerA = RecordingStructuredDiagnostics()
+        val observerB = RecordingStructuredDiagnostics()
+        val builder = Tramai.Builder()
+            .provider(provider, default = true)
+            .model("claude-sonnet-4-20250514", "anthropic")
+            .structuredOutputFailureDiagnosticObserver(observerA)
+        val built = builder.build()
+        builder.structuredOutputFailureDiagnosticObserver(observerB)
+
+        val service = built.create<StructuredService>()
+        assertThatThrownBy { runBlocking { service.status(SO_FIXTURE) } }
+            .isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
+
+        assertThat(observerA.events).hasSize(3)
+        assertThat(observerB.events).isEmpty()
+    }
 
     @Test
     fun `kotlin builder creates suspend service`() {
@@ -550,6 +572,15 @@ class TramaiTest {
         assertThat(provider.requests).hasSize(1)
     }
 }
+
+private class RecordingStructuredDiagnostics : StructuredOutputFailureDiagnosticObserver {
+    val events = mutableListOf<StructuredOutputFailureDiagnosticEvent>()
+    override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) {
+        events += event
+    }
+}
+
+private const val SO_FIXTURE = "fixture-sentinel-so-2b4"
 
 @AiService
 interface CancellingToolService {
