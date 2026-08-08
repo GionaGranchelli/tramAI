@@ -1,6 +1,8 @@
 # Safe Error Boundaries
 
-> **Status:** implemented for tool execution (PR #219) and provider HTTP/transport failures (PR #222). Workflow steps, persistence, MCP, shell, and public structured-output exceptions remain future slices of Epic 1.2.
+> **Status:** implemented for tool execution (PR #219), provider HTTP/transport failures (PR #222), external workflow steps (PR #223), and structured-output failures (PR #224). Persistence and MCP remain future slices of Epic 1.2.
+
+> **Structured-output note (PR #224):** engine-produced `StructuredOutputException` instances no longer populate `originalPrompt`, `lastRawResponse`, or `validationError` — those fields stay ABI-compatible but are intentionally null for built-in runtime failures. Raw detail flows only to `StructuredOutputFailureDiagnosticObserver`; `OperationObservation.onStructuredParseFailure` receives redacted/fixed text; OTel emits typed metadata only.
 
 ## The rule
 

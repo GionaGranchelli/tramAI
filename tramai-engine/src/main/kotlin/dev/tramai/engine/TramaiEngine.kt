@@ -147,7 +147,6 @@ class TramaiEngine(
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
     private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
     // Approval suspension dependencies
     private val suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
@@ -157,6 +156,14 @@ class TramaiEngine(
     private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
     private val clock: Clock = Clock.systemUTC(),
 ) : AutoCloseable {
+    /**
+     * Structured-output failure diagnostic observer. Additive configuration
+     * (not a primary-constructor parameter — preserves the published JVM
+     * constructor descriptors); set via the observer-aware secondary
+     * constructor. Defaults to no-op.
+     */
+    private var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+        NoOpStructuredOutputFailureDiagnosticObserver
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -191,7 +198,6 @@ class TramaiEngine(
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
         suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
         approvalContinuationStore: ApprovalContinuationStore? = null,
@@ -222,7 +228,6 @@ class TramaiEngine(
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         suspendedInvocationStore = suspendedInvocationStore,
         approvalContinuationStore = approvalContinuationStore,
@@ -231,6 +236,149 @@ class TramaiEngine(
         approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
         clock = clock,
     )
+
+    /**
+     * Additive configuration: creates an engine backed by a single provider
+     * with a structured-output failure diagnostic observer.
+     *
+     * The existing constructors remain byte-for-byte unchanged; this is the
+     * additive path for the Epic 1.2 structured-output failure boundary.
+     */
+    constructor(
+        provider: ModelProvider,
+        structuredOutputHandler: StructuredOutputHandler? = null,
+        toolRegistry: ToolRegistry = ToolRegistry(),
+        operationObserver: OperationObserver = NoOpOperationObserver,
+        operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
+        responseCache: OperationResponseCache = NoOpOperationResponseCache,
+        modelRegistry: ModelRegistry = NoOpModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
+        circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
+        retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
+        tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+        promptSanitizer: PromptSanitizer? = null,
+        chatMemory: ChatMemory? = null,
+        conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
+        job: Job = SupervisorJob(),
+        scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+        policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+        dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+        engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+        suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+        approvalContinuationStore: ApprovalContinuationStore? = null,
+        toolArgumentsDigester: ToolArgumentsDigester? = null,
+        approvalGateCoordinator: ApprovalGateCoordinator? = null,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        clock: Clock = Clock.systemUTC(),
+    ) : this(
+        provider = provider,
+        structuredOutputHandler = structuredOutputHandler,
+        toolRegistry = toolRegistry,
+        operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
+        responseCache = responseCache,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
+        circuitBreakerSettings = circuitBreakerSettings,
+        retryPolicySettings = retryPolicySettings,
+        tokenBudgetSettings = tokenBudgetSettings,
+        promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
+        job = job,
+        scope = scope,
+        policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+        toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        suspendedInvocationStore = suspendedInvocationStore,
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        clock = clock,
+    ) {
+        this.structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver
+    }
+
+    /**
+     * Additive configuration: creates an engine from a provider registry with
+     * a structured-output failure diagnostic observer. Same contract as the
+     * ModelProvider additive constructor; the existing primary constructor is
+     * unchanged.
+     */
+    constructor(
+        providerRegistry: ProviderRegistry,
+        structuredOutputHandler: StructuredOutputHandler? = null,
+        toolRegistry: ToolRegistry = ToolRegistry(),
+        operationObserver: OperationObserver = NoOpOperationObserver,
+        operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
+        responseCache: OperationResponseCache = NoOpOperationResponseCache,
+        modelRegistry: ModelRegistry = NoOpModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
+        circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
+        retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
+        tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+        promptSanitizer: PromptSanitizer? = null,
+        chatMemory: ChatMemory? = null,
+        conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
+        job: Job = SupervisorJob(),
+        scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+        policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+        dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+        engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+        suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+        approvalContinuationStore: ApprovalContinuationStore? = null,
+        toolArgumentsDigester: ToolArgumentsDigester? = null,
+        approvalGateCoordinator: ApprovalGateCoordinator? = null,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        clock: Clock = Clock.systemUTC(),
+    ) : this(
+        providerRegistry = providerRegistry,
+        structuredOutputHandler = structuredOutputHandler,
+        toolRegistry = toolRegistry,
+        operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
+        responseCache = responseCache,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
+        circuitBreakerSettings = circuitBreakerSettings,
+        retryPolicySettings = retryPolicySettings,
+        tokenBudgetSettings = tokenBudgetSettings,
+        promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
+        job = job,
+        scope = scope,
+        policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+        toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        suspendedInvocationStore = suspendedInvocationStore,
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        clock = clock,
+    ) {
+        this.structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver
+    }
 
     /**
      * Creates a proxy implementation for the given Tramai service interface.
@@ -1274,7 +1422,11 @@ internal class TramaiInvocationHandler(
         val handler = structuredOutputHandler ?: throw ConfigurationException(
             "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
         )
-        val contract = operation.structuredContract(handler)
+        val contract = try {
+            operation.structuredContract(handler)
+        } catch (failure: Throwable) {
+            rethrowContractFailure(operation, failure)
+        }
         val correlationId = java.util.UUID.randomUUID().toString()
         val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
@@ -1407,9 +1559,9 @@ internal class TramaiInvocationHandler(
         } catch (failure: Throwable) {
             rethrowOrSanitizeStructuredHandlerFailure(
                 operation = operation,
+                result = result,
                 failure = failure,
                 attempt = attemptIndex + 1,
-                willRetry = attemptIndex < maxAttempts - 1,
             )
         }
         return when (analysis) {
@@ -1514,7 +1666,11 @@ internal class TramaiInvocationHandler(
     ) {
         currentCoroutineContext().ensureActive()
         val rawPreview = boundedStructuredOutputDetailPreview(analysis.rawResponse)
-        val detailPreview = boundedStructuredOutputDetailPreview(analysis.errorSummary)
+        // Privileged diagnostics keep the ACTUAL validation reason (original
+        // throwable message) when one exists; the ordinary summary stays
+        // compatibility-safe fixed text.
+        val detailSource = analysis.failure?.message ?: analysis.errorSummary
+        val detailPreview = boundedStructuredOutputDetailPreview(detailSource)
         deliverStructuredOutputFailure(
             StructuredOutputFailureDiagnosticEvent(
                 serviceName = null,
@@ -1526,7 +1682,7 @@ internal class TramaiInvocationHandler(
                 rawResponseTruncated = rawPreview.truncated,
                 detailPreview = detailPreview.text,
                 detailTruncated = detailPreview.truncated,
-                failure = structuredFailureOriginalFailure(analysis),
+                failure = analysis.failure,
                 numericMetadata = mapOf("attempt" to (attemptIndex + 1).toLong()),
             ),
         )
@@ -1550,9 +1706,9 @@ internal class TramaiInvocationHandler(
 
     private suspend fun rethrowOrSanitizeStructuredHandlerFailure(
         operation: OperationDefinition,
+        result: ProviderCallResult,
         failure: Throwable,
         attempt: Int,
-        willRetry: Boolean,
     ): Nothing {
         failure.rethrowIfCancellation()
         currentCoroutineContext().ensureActive()
@@ -1565,7 +1721,9 @@ internal class TramaiInvocationHandler(
                 methodName = operation.method.name,
                 code = StructuredOutputFailureCode.HANDLER_FAILED,
                 attempt = attempt,
-                willRetry = willRetry,
+                // A thrown handler failure is always terminal: the safe
+                // exception is thrown below, never retried.
+                willRetry = false,
                 rawResponsePreview = null,
                 rawResponseTruncated = false,
                 detailPreview = null,
@@ -1574,10 +1732,45 @@ internal class TramaiInvocationHandler(
                 numericMetadata = mapOf("attempt" to attempt.toLong()),
             ),
         )
+        // Complete the ordinary observation exactly like the terminal
+        // structured-failure path: parse-failure signal + terminal completion.
+        result.observation.onStructuredParseFailure(
+            rawResponse = "<redacted structured-output failure>",
+            errorSummary = "Structured output failed validation",
+        )
+        result.observation.onCallCompleted(parseSuccess = false)
         throw safeStructuredOutputFailure(
             message = "Structured output handler failed",
             code = StructuredOutputFailureCode.HANDLER_FAILED,
             attemptCount = attempt,
+        )
+    }
+
+    private suspend fun rethrowContractFailure(
+        operation: OperationDefinition,
+        failure: Throwable,
+    ): Nothing {
+        failure.rethrowIfCancellation()
+        currentCoroutineContext().ensureActive()
+        deliverStructuredOutputFailure(
+            StructuredOutputFailureDiagnosticEvent(
+                serviceName = null,
+                methodName = operation.method.name,
+                code = StructuredOutputFailureCode.CONTRACT_FAILED,
+                attempt = 1,
+                willRetry = false,
+                rawResponsePreview = null,
+                rawResponseTruncated = false,
+                detailPreview = null,
+                detailTruncated = false,
+                failure = failure,
+                numericMetadata = mapOf("attempt" to 1L),
+            ),
+        )
+        throw safeStructuredOutputFailure(
+            message = "Structured output contract generation failed",
+            code = StructuredOutputFailureCode.CONTRACT_FAILED,
+            attemptCount = 1,
         )
     }
 
@@ -1591,13 +1784,6 @@ internal class TramaiInvocationHandler(
         }
         currentCoroutineContext().ensureActive()
     }
-
-    private fun structuredFailureOriginalFailure(analysis: StructuredOutputResult.Failure): Throwable? =
-        runCatching {
-            analysis.javaClass.methods
-                .firstOrNull { it.name == "getFailure" && it.parameterCount == 0 }
-                ?.invoke(analysis) as? Throwable
-        }.getOrNull()
 
     private suspend fun executeWithTools(
         context: ToolLoopContext,
@@ -3736,9 +3922,9 @@ internal class TramaiInvocationHandler(
         } catch (failure: Throwable) {
             rethrowOrSanitizeStructuredHandlerFailure(
                 operation = operation,
+                result = loopResult,
                 failure = failure,
                 attempt = 1,
-                willRetry = false,
             )
         }
         return when (analysis) {
@@ -3764,7 +3950,8 @@ internal class TramaiInvocationHandler(
                 // do NOT persist invalid data, leave continuation CLAIMED
                 currentCoroutineContext().ensureActive()
                 val rawPreview = boundedStructuredOutputDetailPreview(analysis.rawResponse)
-                val detailPreview = boundedStructuredOutputDetailPreview(analysis.errorSummary)
+                val detailSource = analysis.failure?.message ?: analysis.errorSummary
+                val detailPreview = boundedStructuredOutputDetailPreview(detailSource)
                 deliverStructuredOutputFailure(
                     StructuredOutputFailureDiagnosticEvent(
                         serviceName = null,
@@ -3776,7 +3963,7 @@ internal class TramaiInvocationHandler(
                         rawResponseTruncated = rawPreview.truncated,
                         detailPreview = detailPreview.text,
                         detailTruncated = detailPreview.truncated,
-                        failure = structuredFailureOriginalFailure(analysis),
+                        failure = analysis.failure,
                         numericMetadata = mapOf("attempt" to 1L),
                     ),
                 )

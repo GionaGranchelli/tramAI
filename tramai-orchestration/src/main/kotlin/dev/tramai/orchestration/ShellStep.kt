@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -228,11 +229,16 @@ internal data class ShellWorkflowStep<S>(
                     process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
                 }
 
-                try {
-                    withTimeout(config.timeoutSeconds.seconds) {
-                        lifecycle.awaitExit()
-                    }
-                } catch (error: TimeoutCancellationException) {
+                // withTimeoutOrNull distinguishes its OWN timeout (null) from a
+                // foreign TimeoutCancellationException (a parent withTimeout or
+                // genuine cancellation), which propagates through untouched. A
+                // broad catch(TimeoutCancellationException) below would convert a
+                // PARENT timeout into an owned shell TIMEOUT + diagnostic.
+                val timedOut = withTimeoutOrNull(config.timeoutSeconds.seconds) {
+                    lifecycle.awaitExit()
+                    false
+                } ?: true
+                if (timedOut) {
                     currentCoroutineContext().ensureActive()
                     // Request termination BEFORE the observer: closing the pipes lets
                     // the reader coroutines finish, and an observer failure can never
@@ -253,7 +259,9 @@ internal data class ShellWorkflowStep<S>(
                     // Owned timeout becomes a non-cancellation internal marker: a
                     // genuine parent cancellation was already rethrown by ensureActive
                     // above and must stay a CancellationException all the way out.
-                    throw ShellStepTimeoutException(error)
+                    throw ShellStepTimeoutException(
+                        CancellationException("Shell step timed out after ${config.timeoutSeconds}s"),
+                    )
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -478,7 +486,7 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
 
 /** Internal marker: the Shell step's own timeout (never a parent cancellation). */
 private class ShellStepTimeoutException(
-    cause: TimeoutCancellationException,
+    cause: Throwable?,
 ) : RuntimeException("shell step timed out", cause)
 
 private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")

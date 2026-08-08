@@ -16,6 +16,10 @@ import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
@@ -115,6 +119,62 @@ class StructuredOutputFailureBoundaryTest {
     }
 
     @Test
+    fun `contract generation failure is sanitized as contract failed`() {
+        val diagnostics = RecordingDiagnostics()
+        val service = engine(ContractThrowingHandler(), diagnostics = diagnostics).create<BoundaryService>()
+
+        val thrown = catchThrowable { runBlocking { service.answer(SO_FIXTURE) } }
+        assertThat(thrown).isInstanceOf(StructuredOutputException::class.java)
+        assertThat((thrown as StructuredOutputException).failureCode)
+            .isEqualTo(StructuredOutputFailureCode.CONTRACT_FAILED)
+        assertThat(thrown.message).isEqualTo("Structured output contract generation failed")
+        assertThat(thrown.message).doesNotContain(SO_FIXTURE)
+        assertThat(thrown.cause).isNull()
+        assertThat(thrown.originalPrompt).isNull()
+        assertThat(thrown.lastRawResponse).isNull()
+        assertThat(thrown.validationError).isNull()
+        // The sentinel reaches ONLY the privileged diagnostic observer.
+        assertThat(diagnostics.events.single().failure!!.message).contains(SO_FIXTURE)
+        assertThat(diagnostics.events.single().code).isEqualTo(StructuredOutputFailureCode.CONTRACT_FAILED)
+    }
+
+    @Test
+    fun `genuine parent cancellation during diagnostic delivery stays primary`() {
+        val observerEntered = CompletableDeferred<Unit>()
+        val observerRelease = CompletableDeferred<Unit>()
+        val diagnostics = object : StructuredOutputFailureDiagnosticObserver {
+            override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) {
+                observerEntered.complete(Unit)
+                // Suspend (never block the dispatcher) until the test cancels.
+                observerRelease.await()
+            }
+        }
+        val service = engine(FailingHandler(), diagnostics = diagnostics).create<BoundaryService>()
+        val outcome = CompletableDeferred<Throwable?>()
+        runBlocking {
+            coroutineScope {
+                launch {
+                    try {
+                        service.answer(SO_FIXTURE)
+                        outcome.complete(null)
+                    } catch (t: Throwable) {
+                        outcome.complete(t)
+                    }
+                }
+                observerEntered.await()
+                // Genuine parent cancellation while the diagnostic is being
+                // delivered: the engine's execution is a child of the caller's
+                // job (continuation.context), so this cancels it mid-delivery.
+                coroutineContext.cancelChildren()
+                observerRelease.complete(Unit)
+                val terminal = outcome.await()
+                assertThat(terminal).isInstanceOf(CancellationException::class.java)
+                assertThat(terminal).isNotInstanceOf(StructuredOutputException::class.java)
+            }
+        }
+    }
+
+    @Test
     fun `diagnostic raw preview is byte bounded`() {
         val diagnostics = RecordingDiagnostics()
         val service = engine(FailingHandler(), diagnostics = diagnostics, response = "a".repeat(8193) + SO_FIXTURE).create<BoundaryService>()
@@ -149,6 +209,10 @@ class StructuredOutputFailureBoundaryTest {
 
     private class ThrowingHandler : FailingHandler() {
         override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult = throw IllegalStateException(SO_FIXTURE)
+    }
+
+    private class ContractThrowingHandler : FailingHandler() {
+        override fun createContract(targetType: KType): StructuredOutputContract = throw IllegalStateException(SO_FIXTURE)
     }
 
     private class SequenceHandler(private var failuresBeforeSuccess: Int) : FailingHandler() {

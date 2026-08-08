@@ -99,7 +99,7 @@ class JacksonStructuredOutputHandler(
                 rawResponse = rawResponse,
                 errorSummary = "Structured output failed validation",
                 feedbackMessage = "Your previous response failed validation: $validationError. Return corrected JSON only.",
-            )
+            ).also { it.failure = IllegalArgumentException(validationError) }
         }
 
         return StructuredOutputResult.Success(

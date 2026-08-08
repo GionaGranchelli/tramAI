@@ -121,7 +121,7 @@ class OpenTelemetryOperationObserverTest {
                 .containsEntry(AttributeKey.booleanKey("tramai.structured.parse_success"), false)
                 .containsEntry(AttributeKey.stringKey("tramai.structured.failure_code"), "output_rejected")
             assertThat(event.attributes.asMap().keys.map { it.key })
-                .contains("tramai.raw_response_length")
+                .doesNotContain("tramai.raw_response_length")
                 .doesNotContain("tramai.validation_error")
         }
         assertThat(firstAttempt.attributes.asMap())
