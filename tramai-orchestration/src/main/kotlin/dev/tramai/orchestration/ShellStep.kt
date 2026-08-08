@@ -396,7 +396,6 @@ internal data class ShellWorkflowStep<S>(
         )
         return safeWorkflowStepFailure(
             WorkflowStepKind.SHELL, code, fixedWorkflowStepMessage(WorkflowStepKind.SHELL, code), name, 1,
-            exitCode = result?.exitCode?.toLong(),
         )
     }
 

@@ -379,8 +379,9 @@ internal data class McpWorkflowStep<S>(
                         } catch (closeError: Throwable) {
                             if (primaryFailure != null) {
                                 // A primary failure (typically cancellation) wins: suppress
-                                // the close failure onto it, never replace it.
-                                primaryFailure!!.addSuppressedDistinct(closeError)
+                                // the close failure onto it, never replace it. Raw close text
+                                // never bypasses the safe boundary via suppressed.
+                                primaryFailure!!.suppressCleanupDiagnostic(closeError)
                             } else {
                                 if (closeError is CancellationException) {
                                     // Cancellation becomes the tracked primary itself before
@@ -434,8 +435,9 @@ internal data class McpWorkflowStep<S>(
         } catch (error: Throwable) {
             if (primary != null) {
                 // A primary failure (typically cancellation) wins: suppress every cleanup
-                // throwable — including a cleanup CancellationException — onto it.
-                primary.addSuppressedDistinct(error)
+                // throwable — including a cleanup CancellationException — onto it. Raw
+                // cleanup text never bypasses the safe boundary via suppressed.
+                primary.suppressCleanupDiagnostic(error)
                 null
             } else {
                 if (error is CancellationException) throw error

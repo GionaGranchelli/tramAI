@@ -1095,16 +1095,13 @@ class SubprocessCancellationContractTest {
 
         surfaceProcessCleanup(primary, result)
 
-        // Primary is still the cancellation; diagnostics are attached exactly once.
+        // Primary is still the cancellation; a single sanitized marker records the
+        // cleanup diagnostics — raw failure text never rides on cancellation.
         assertThat(primary).isInstanceOf(CancellationException::class.java)
         assertThat(primary.message).isEqualTo("parent cancelled")
-        assertThat(primary.suppressed).hasSize(2)
-        assertThat(primary.suppressed).anySatisfy { suppressed ->
-            assertThat(suppressed).isEqualTo(cleanupFailure)
-        }
-        assertThat(primary.suppressed).anySatisfy { suppressed ->
-            assertThat(suppressed).isInstanceOf(ProcessTreeSurvivorException::class.java)
-        }
+        assertThat(primary.suppressed).hasSize(1)
+        assertThat(primary.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(assertsNoFixture(primary.suppressed.single().toString())).isTrue()
     }
 
     @Test
@@ -1127,7 +1124,7 @@ class SubprocessCancellationContractTest {
 
     @Test
     fun `cleanup failure with survivor diagnostics attached exactly once`() {
-        val primary = CancellationException("parent cancelled")
+        val primary = IllegalStateException("step failed")
         val cleanupFailure = IllegalStateException("simulated cleanup failure")
 
         // Survivors are represented once (via ProcessCleanupResult.survivors), never
@@ -1160,7 +1157,11 @@ class SubprocessCancellationContractTest {
 
         assertThat(primary).isInstanceOf(CancellationException::class.java)
         assertThat(primary.message).isEqualTo("parent cancelled")
-        assertThat(primary.suppressed).isEmpty()
+        // The diagnostic that equals the primary is never self-suppressed; a single
+        // sanitized marker records that cleanup had diagnostics.
+        assertThat(primary.suppressed).hasSize(1)
+        assertThat(primary.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(primary.suppressed.single()).isNotSameAs(primary)
     }
 
     // ═══ 11. Graceful shutdown escalates to forced termination ═══
@@ -1416,9 +1417,10 @@ class SubprocessCancellationContractTest {
                             assertThat(captured.get()).hasMessage("original parent cancellation")
                             assertThat(thrown).isInstanceOf(CancellationException::class.java)
                             assertThat(thrown).hasMessage("original parent cancellation")
-                            // Survivor diagnostics landed on the original instance, never a copy.
+                            // A sanitized cleanup marker landed on the original instance,
+                            // never a copy; raw survivor/failure text never rides on it.
                             assertThat(captured.get()!!.suppressed)
-                                .anySatisfy { assertThat(it).isInstanceOf(ProcessTreeSurvivorException::class.java) }
+                                .anySatisfy { assertThat(it).isInstanceOf(ProcessCleanupException::class.java) }
                         } finally {
                             process.destroyForcibly()
                             runCatching { process.waitFor(5, TimeUnit.SECONDS) }

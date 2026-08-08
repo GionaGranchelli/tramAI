@@ -612,6 +612,7 @@ class WorkflowStepFailureBoundaryTest {
         val diagnostics = BoundaryDiagnosticObserver()
         val script = Files.createTempFile("hang-parent", ".sh")
         val marker = Files.createTempFile("hang-parent-started", ".pid")
+        Files.deleteIfExists(marker)
         Files.writeString(script, "#!/bin/sh\ntouch $marker\nsleep 30\n")
         script.toFile().setExecutable(true)
         try {
@@ -651,6 +652,38 @@ class WorkflowStepFailureBoundaryTest {
         val line = defaultLifecycleFailureLog("termination failed")
         assertThat(line).contains("termination failed")
         assertThat(assertsNoFixture(line)).isTrue()
+    }
+
+    @Test
+    fun `cleanup diagnostics suppressed onto cancellation are sanitized`() {
+        val cancellation = CancellationException("cancelled")
+        cancellation.suppressCleanupDiagnostic(IllegalStateException(SECRET_FIXTURE))
+        assertThat(cancellation.suppressed).hasSize(1)
+        val suppressed = cancellation.suppressed.single()
+        assertThat(suppressed).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(suppressed.message).doesNotContain(SECRET_FIXTURE)
+        assertThat(suppressed.cause).isNull()
+        assertThat(assertsNoFixture(suppressed.toString())).isTrue()
+        // A real (non-cancellation) primary keeps raw diagnostics attached internally,
+        // so the observer event still carries the raw cleanup detail.
+        val primary = IllegalStateException("step failed")
+        primary.suppressCleanupDiagnostic(IllegalStateException(SECRET_FIXTURE))
+        assertThat(primary.suppressed.single().message).contains(SECRET_FIXTURE)
+    }
+
+    @Test
+    fun `surface process cleanup attaches only a sanitized marker onto cancellation`() {
+        val cancellation = CancellationException("cancelled")
+        surfaceProcessCleanup(
+            cancellation,
+            ProcessCleanupResult(
+                survivors = emptyList(),
+                failures = listOf("terminate" to IllegalStateException(SECRET_FIXTURE)),
+            ),
+        )
+        assertThat(cancellation.suppressed).hasSize(1)
+        assertThat(cancellation.suppressed.single()).isInstanceOf(ProcessCleanupException::class.java)
+        assertThat(assertsNoFixture(cancellation.suppressed.single().toString())).isTrue()
     }
 
     @Test

@@ -46,7 +46,6 @@ internal fun boundedWorkflowDetailPreview(input: InputStream, limitBytes: Int = 
 
 internal fun safeWorkflowStepFailure(
     kind: WorkflowStepKind, code: WorkflowStepFailureCode, message: String, stepName: String, attempt: Int,
-    statusCode: Int? = null, exitCode: Long? = null,
 ): RuntimeException {
     val failure = when (kind) {
         WorkflowStepKind.HTTP -> WorkflowHttpException(stepName, attempt, message, true)

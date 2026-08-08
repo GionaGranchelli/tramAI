@@ -412,11 +412,34 @@ internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupR
         }
     }
     if (primary != null) {
-        diagnostics.forEach { primary.addSuppressedDistinct(it) }
+        if (primary is CancellationException) {
+            // Cancellation stays primary control flow: raw cleanup diagnostics never
+            // bypass the safe boundary through suppressed. A single cause-free,
+            // fixed-text marker records that cleanup had diagnostics.
+            if (diagnostics.isNotEmpty()) primary.addSuppressed(ProcessCleanupException())
+        } else {
+            diagnostics.forEach { primary.addSuppressedDistinct(it) }
+        }
     } else {
         val cleanupException = ProcessCleanupException()
         diagnostics.forEach { cleanupException.addSuppressedDistinct(it) }
         throw cleanupException
+    }
+}
+
+/**
+ * Attaches a cleanup diagnostic to a primary failure without ever letting raw
+ * throwable text bypass the safe failure boundary through suppressed. A primary
+ * CancellationException keeps cancellation as control flow: only a cause-free,
+ * fixed-text [ProcessCleanupException] marker is suppressed onto it. Raw
+ * cleanup detail still rides inside the diagnostic observer event via the
+ * primary's own suppressed chain only when the primary is a real step failure.
+ */
+internal fun Throwable.suppressCleanupDiagnostic(error: Throwable) {
+    if (this is CancellationException) {
+        addSuppressed(if (error is ProcessCleanupException) error else ProcessCleanupException())
+    } else {
+        addSuppressedDistinct(error)
     }
 }
 
