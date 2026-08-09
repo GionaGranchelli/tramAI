@@ -126,15 +126,21 @@ data class McpTransportConnection(
     val input: Source,
     val output: Sink,
     val cleanup: (suspend () -> Unit)? = null,
+) {
     /**
      * Whether the transport has begun terminating the server process (step
      * timeout or cancellation). When true, transport errors surfacing from the
      * client are a CONSEQUENCE of that termination, not an independent
      * failure — the step classifies them as the timeout, never as a separate
      * TRANSPORT_FAILED (deterministic descendant-cleanup timeout reporting).
+     *
+     * Deliberately a class-body member, not a primary-constructor parameter:
+     * it is internal process-lifecycle state, and adding it to the primary
+     * constructor would break the published JVM descriptors of this public
+     * data class (constructor, synthetic default ctor, copy(), componentN()).
      */
-    val terminationRequested: () -> Boolean = { false },
-)
+    internal var terminationRequested: () -> Boolean = { false }
+}
 
 /**
  * Default transport provider that starts the MCP server as a subprocess.
@@ -175,7 +181,6 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
         return McpTransportConnection(
             input = process.inputStream.asSource().buffered(),
             output = process.outputStream.asSink().buffered(),
-            terminationRequested = { lifecycle.isTerminationRequested() },
             cleanup = {
                 drainScope.cancel()
                 registration.dispose()
@@ -184,7 +189,12 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
                 // caller decides suppression when a client-operation failure exists).
                 surfaceProcessCleanup(primary = null, cleanup = result)
             },
-        )
+        ).apply {
+            // Class-body signal (kept off the public constructor for ABI stability):
+            // the step classifies a transport error surfacing after termination as the
+            // timeout, never as an independent TRANSPORT_FAILED.
+            terminationRequested = { lifecycle.isTerminationRequested() }
+        }
     }
 
     private fun drainStream(inputStream: java.io.InputStream) {

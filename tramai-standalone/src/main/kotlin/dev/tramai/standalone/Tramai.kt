@@ -74,7 +74,6 @@ class Tramai private constructor(
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
@@ -89,6 +88,14 @@ class Tramai private constructor(
     private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    /**
+     * Structured-output diagnostic observer, delivered additively (class-body
+     * member, not a constructor parameter) so the published JVM constructor
+     * descriptor of [Tramai] — including its synthetic default-argument
+     * constructor — is preserved. The builder assigns it after construction.
+     */
+    internal var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+        NoOpStructuredOutputFailureDiagnosticObserver
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
      */
@@ -482,7 +489,6 @@ class Tramai private constructor(
                 toolResultFilteringSettings = toolResultFilteringSettings,
                 engineEventObserver = engineEventObserver,
                 toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-                structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
                 promptSanitizer = promptSanitizer,
                 chatMemory = chatMemory,
                 policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -495,7 +501,12 @@ class Tramai private constructor(
                 approvalGateCoordinator = approvalGateCoordinator,
                 approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
                 clock = clock,
-            )
+            ).apply {
+                // Additive observer delivery: the constructor descriptor is
+                // preserved; the snapshot is frozen here (after this point,
+                // builder mutations cannot redirect diagnostics of the runtime).
+                structuredOutputFailureDiagnosticObserver = this@Builder.structuredOutputFailureDiagnosticObserver
+            }
         }
     }
 }
