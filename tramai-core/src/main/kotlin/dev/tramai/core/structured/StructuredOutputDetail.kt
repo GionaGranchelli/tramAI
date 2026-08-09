@@ -62,17 +62,18 @@ private fun completeUtf8PrefixLength(bytes: ByteArray, limit: Int): Int {
     while (end > 0) {
         val last = bytes[end - 1].toInt() and 0xFF
         if (last < 0x80) return end // ASCII boundary — complete
-        if (last in 0x80..0xBF) {
-            // Continuation byte: walk back to the lead byte of this code point.
-            var start = end - 1
-            while (start > 0 && (bytes[start - 1].toInt() and 0xC0) == 0x80) start--
-            val lead = bytes[start].toInt() and 0xFF
-            val expectedLength = utf8SequenceLength(lead)
-            if (expectedLength == 0 || start + expectedLength > end) return start // incomplete or invalid — drop the code point
-            return end // complete code point ends exactly at the boundary
+        // Walk back to the LEAD byte of the code point ending at the boundary
+        // (a continuation byte at the boundary belongs to a code point whose
+        // lead is further left; the walk stops on the first non-continuation).
+        var leadIndex = end - 1
+        while (leadIndex > 0 && (bytes[leadIndex].toInt() and 0xC0) == 0x80) {
+            leadIndex--
         }
-        // Bare lead byte with no continuations yet: incomplete — drop it.
-        return end - 1
+        val lead = bytes[leadIndex].toInt() and 0xFF
+        val expectedLength = utf8SequenceLength(lead)
+        val actualLength = end - leadIndex
+        if (expectedLength != 0 && actualLength == expectedLength) return end // complete code point
+        return leadIndex // incomplete or invalid — drop the whole code point
     }
     return 0
 }

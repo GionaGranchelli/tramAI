@@ -155,8 +155,13 @@ class StructuredOutputFailureBoundaryTest {
         assertThat(thrown.message).isEqualTo("Structured output handler failed")
         assertThat(thrown.message).doesNotContain(SO_FIXTURE)
         assertThat(thrown.cause).isNull()
-        // The raw handler exception reaches only the diagnostic observer.
-        assertThat(diagnostics.events.single().failure!!.message).contains(SO_FIXTURE)
+        // The raw handler exception reaches only the diagnostic observer, with
+        // the operation identity that produced it.
+        val event = diagnostics.events.single()
+        assertThat(event.serviceName)
+            .endsWith("StructuredOutputFailureBoundaryTest.BoundaryService")
+        assertThat(event.methodName).isEqualTo("answer")
+        assertThat(event.failure!!.message).contains(SO_FIXTURE)
     }
 
     @Test

@@ -1675,7 +1675,7 @@ internal class TramaiInvocationHandler(
         val detailPreview = boundedStructuredOutputDetailPreview(detailSource)
         deliverStructuredOutputFailure(
             StructuredOutputFailureDiagnosticEvent(
-                serviceName = null,
+                serviceName = structuredDiagnosticServiceName(),
                 methodName = operation.method.name,
                 code = StructuredOutputFailureCode.OUTPUT_REJECTED,
                 attempt = attemptIndex + 1,
@@ -1720,7 +1720,7 @@ internal class TramaiInvocationHandler(
         // re-sanitized here.
         deliverStructuredOutputFailure(
             StructuredOutputFailureDiagnosticEvent(
-                serviceName = null,
+                serviceName = structuredDiagnosticServiceName(),
                 methodName = operation.method.name,
                 code = StructuredOutputFailureCode.HANDLER_FAILED,
                 attempt = attempt,
@@ -1756,7 +1756,7 @@ internal class TramaiInvocationHandler(
         currentCoroutineContext().ensureActive()
         deliverStructuredOutputFailure(
             StructuredOutputFailureDiagnosticEvent(
-                serviceName = null,
+                serviceName = structuredDiagnosticServiceName(),
                 methodName = operation.method.name,
                 code = StructuredOutputFailureCode.CONTRACT_FAILED,
                 attempt = 1,
@@ -1774,6 +1774,12 @@ internal class TramaiInvocationHandler(
             attemptCount = 1,
         )
     }
+
+    /** Service identity for structured diagnostic events (qualified name when available). */
+    private fun structuredDiagnosticServiceName(): String =
+        serviceDefinition.serviceType.qualifiedName
+            ?: serviceDefinition.serviceType.simpleName
+            ?: "<unknown>"
 
     private suspend fun deliverStructuredOutputFailure(event: StructuredOutputFailureDiagnosticEvent) {
         try {
@@ -3956,7 +3962,7 @@ internal class TramaiInvocationHandler(
                 val detailPreview = boundedStructuredOutputDetailPreview(detailSource)
                 deliverStructuredOutputFailure(
                     StructuredOutputFailureDiagnosticEvent(
-                        serviceName = null,
+                        serviceName = structuredDiagnosticServiceName(),
                         methodName = operation.method.name,
                         code = StructuredOutputFailureCode.OUTPUT_REJECTED,
                         attempt = 1,

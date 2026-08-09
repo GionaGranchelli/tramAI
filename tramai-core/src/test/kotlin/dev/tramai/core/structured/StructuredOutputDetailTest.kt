@@ -24,6 +24,28 @@ class StructuredOutputDetailTest {
     }
 
     @Test
+    fun `complete multibyte characters are preserved`() {
+        assertThat(boundedStructuredOutputDetailPreview("€").text).isEqualTo("€")
+        assertThat(boundedStructuredOutputDetailPreview("é").text).isEqualTo("é")
+        assertThat(boundedStructuredOutputDetailPreview("😀").text).isEqualTo("😀")
+        assertThat(boundedStructuredOutputDetailPreview("a€").text).isEqualTo("a€")
+        assertThat(boundedStructuredOutputDetailPreview("é😀€").text).isEqualTo("é😀€")
+    }
+
+    @Test
+    fun `complete multibyte character ending exactly at 8192 bytes is preserved`() {
+        // "a" x 8189 + "€" = exactly 8192 UTF-8 bytes — the final code point is
+        // complete at the boundary and must survive untouched.
+        val input = "a".repeat(STRUCTURED_OUTPUT_DETAIL_LIMIT_BYTES - 3) + "€"
+
+        val preview = boundedStructuredOutputDetailPreview(input)
+
+        assertThat(preview.truncated).isFalse()
+        assertThat(preview.text).isEqualTo(input)
+        assertThat(preview.text.toByteArray(Charsets.UTF_8)).hasSize(STRUCTURED_OUTPUT_DETAIL_LIMIT_BYTES)
+    }
+
+    @Test
     fun `split multibyte character is dropped and preview stays within byte limit`() {
         val input = "a".repeat(STRUCTURED_OUTPUT_DETAIL_LIMIT_BYTES - 1) + "€"
 
