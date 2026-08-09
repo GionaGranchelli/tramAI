@@ -44,6 +44,10 @@ interface OperationObservation {
 
     /**
      * Records a structured parsing or validation failure that may trigger an engine retry.
+     *
+     * This signature is preserved for compatibility, but this is an ordinary
+     * observability surface and no longer receives raw diagnostic material. The
+     * structured-output diagnostic observer is the sole privileged channel.
      */
     fun onStructuredParseFailure(
         rawResponse: String,

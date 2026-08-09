@@ -394,6 +394,7 @@ class TrustedReplayEnvelopeRegistryTest {
             toolResultFilteringSettings = ToolResultFilteringSettings(),
             engineEventObserver = NoOpEngineEventObserver,
             toolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+            structuredOutputFailureDiagnosticObserver = dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver,
             policyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = null,

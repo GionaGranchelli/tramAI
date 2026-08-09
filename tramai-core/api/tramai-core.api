@@ -980,8 +980,10 @@ public final class dev/tramai/core/exception/StructuredOutputException : dev/tra
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getAttemptCount ()Ljava/lang/Integer;
+	public final fun getFailureCode ()Ldev/tramai/core/structured/StructuredOutputFailureCode;
 	public final fun getLastRawResponse ()Ljava/lang/String;
 	public final fun getOriginalPrompt ()Ljava/lang/String;
+	public final fun getSafeFactoryTrusted ()Z
 	public final fun getValidationError ()Ljava/lang/String;
 }
 
@@ -1015,6 +1017,10 @@ public final class dev/tramai/core/exception/ToolInvalidInputException$Companion
 public abstract class dev/tramai/core/exception/TramaiException : java/lang/RuntimeException {
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/core/exception/TramaiExceptionKt {
+	public static final fun safeStructuredOutputFailure (Ldev/tramai/core/structured/StructuredOutputFailureCode;I)Ldev/tramai/core/exception/StructuredOutputException;
 }
 
 public abstract interface class dev/tramai/core/memory/ChatMemory {
@@ -2287,6 +2293,24 @@ public final class dev/tramai/core/security/ValidationResult$Valid : dev/tramai/
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/core/structured/BoundedStructuredOutputDetail {
+	public fun <init> (Ljava/lang/String;Z)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun copy (Ljava/lang/String;Z)Ldev/tramai/core/structured/BoundedStructuredOutputDetail;
+	public static synthetic fun copy$default (Ldev/tramai/core/structured/BoundedStructuredOutputDetail;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/core/structured/BoundedStructuredOutputDetail;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public final fun getTruncated ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/structured/NoOpStructuredOutputFailureDiagnosticObserver : dev/tramai/core/structured/StructuredOutputFailureDiagnosticObserver {
+	public static final field INSTANCE Ldev/tramai/core/structured/NoOpStructuredOutputFailureDiagnosticObserver;
+	public fun onFailure (Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/core/structured/StructuredOutputContract {
 	public fun <init> (Lkotlin/reflect/KType;Ljava/lang/String;)V
 	public final fun component1 ()Lkotlin/reflect/KType;
@@ -2298,6 +2322,59 @@ public final class dev/tramai/core/structured/StructuredOutputContract {
 	public final fun getTargetType ()Lkotlin/reflect/KType;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/structured/StructuredOutputDetailKt {
+	public static final field STRUCTURED_OUTPUT_DETAIL_LIMIT_BYTES I
+	public static final fun boundedStructuredOutputDetailPreview (Ljava/io/InputStream;)Ldev/tramai/core/structured/BoundedStructuredOutputDetail;
+	public static final fun boundedStructuredOutputDetailPreview (Ljava/lang/String;)Ldev/tramai/core/structured/BoundedStructuredOutputDetail;
+}
+
+public final class dev/tramai/core/structured/StructuredOutputFailureCode : java/lang/Enum {
+	public static final field CONTRACT_FAILED Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public static final field HANDLER_FAILED Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public static final field OUTPUT_REJECTED Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public static final field REPAIR_EXHAUSTED Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public static fun values ()[Ldev/tramai/core/structured/StructuredOutputFailureCode;
+}
+
+public final class dev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/structured/StructuredOutputFailureCode;IZLjava/lang/String;ZLjava/lang/String;ZLjava/lang/Throwable;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/structured/StructuredOutputFailureCode;IZLjava/lang/String;ZLjava/lang/String;ZLjava/lang/Throwable;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/Throwable;
+	public final fun component11 ()Ljava/util/Map;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public final fun component4 ()I
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Z
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/structured/StructuredOutputFailureCode;IZLjava/lang/String;ZLjava/lang/String;ZLjava/lang/Throwable;Ljava/util/Map;)Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent;
+	public static synthetic fun copy$default (Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/structured/StructuredOutputFailureCode;IZLjava/lang/String;ZLjava/lang/String;ZLjava/lang/Throwable;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getCode ()Ldev/tramai/core/structured/StructuredOutputFailureCode;
+	public final fun getDetailPreview ()Ljava/lang/String;
+	public final fun getDetailTruncated ()Z
+	public final fun getFailure ()Ljava/lang/Throwable;
+	public final fun getMethodName ()Ljava/lang/String;
+	public final fun getNumericMetadata ()Ljava/util/Map;
+	public final fun getRawResponsePreview ()Ljava/lang/String;
+	public final fun getRawResponseTruncated ()Z
+	public final fun getServiceName ()Ljava/lang/String;
+	public final fun getWillRetry ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/structured/StructuredOutputFailureDiagnosticObserver {
+	public abstract fun onFailure (Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticEvent;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public abstract interface class dev/tramai/core/structured/StructuredOutputHandler {
@@ -2320,9 +2397,11 @@ public final class dev/tramai/core/structured/StructuredOutputResult$Failure : d
 	public static synthetic fun copy$default (Ldev/tramai/core/structured/StructuredOutputResult$Failure;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/structured/StructuredOutputResult$Failure;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getErrorSummary ()Ljava/lang/String;
+	public final fun getFailure ()Ljava/lang/Throwable;
 	public final fun getFeedbackMessage ()Ljava/lang/String;
 	public final fun getRawResponse ()Ljava/lang/String;
 	public fun hashCode ()I
+	public final fun setFailure (Ljava/lang/Throwable;)V
 	public fun toString ()Ljava/lang/String;
 }
 

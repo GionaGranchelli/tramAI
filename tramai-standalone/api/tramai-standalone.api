@@ -33,6 +33,7 @@ public final class dev/tramai/standalone/Tramai$Builder {
 	public final fun provider (Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Z)Ldev/tramai/standalone/Tramai$Builder;
 	public static synthetic fun provider$default (Ldev/tramai/standalone/Tramai$Builder;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun retryPolicy (Ldev/tramai/engine/RetryPolicySettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun structuredOutputFailureDiagnosticObserver (Ldev/tramai/core/structured/StructuredOutputFailureDiagnosticObserver;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun suspendedInvocationStore (Ldev/tramai/engine/SuspendedInvocationStore;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun tokenBudget (Ldev/tramai/engine/TokenBudgetSettings;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun toolArgumentsDigester (Ldev/tramai/core/approval/ToolArgumentsDigester;)Ldev/tramai/standalone/Tramai$Builder;

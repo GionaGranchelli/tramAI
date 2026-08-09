@@ -232,7 +232,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("status")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -249,7 +249,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -267,7 +267,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("active")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -285,7 +285,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("count")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -305,7 +305,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("count")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -323,7 +323,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
         assertThat(failure.feedbackMessage).contains("failed validation")
     }
 
@@ -342,7 +342,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("reasons")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -360,7 +360,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("decision")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -378,7 +378,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("reasons")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -419,7 +419,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -439,7 +439,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("outcome")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -462,7 +462,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("outcome")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -485,8 +485,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("count")
-        assertThat(failure.errorSummary).contains("payload")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -513,7 +512,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test
@@ -552,7 +551,7 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
     }
 
     @Test

@@ -4,6 +4,7 @@ import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.structured.StructuredOutputFailureCode
 import dev.tramai.standalone.Tramai
 import dev.tramai.standalone.create
 import kotlinx.coroutines.runBlocking
@@ -130,8 +131,12 @@ class TestingModuleTest {
         assertThatThrownBy { runBlocking { service.analyze("invoice-1") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
                 kotlin.test.assertEquals(3, error.attemptCount)
-                kotlin.test.assertEquals("Analyze the invoice", error.originalPrompt)
-                kotlin.test.assertEquals("still broken", error.lastRawResponse)
+                // Safe boundary: raw prompt/response/validation detail is no longer
+                // exposed on the public exception — classification is typed.
+                kotlin.test.assertNull(error.originalPrompt)
+                kotlin.test.assertNull(error.lastRawResponse)
+                kotlin.test.assertNull(error.validationError)
+                kotlin.test.assertEquals(StructuredOutputFailureCode.REPAIR_EXHAUSTED, error.failureCode)
             }
 
         TramaiAssertions.assertThat(provider, observer)

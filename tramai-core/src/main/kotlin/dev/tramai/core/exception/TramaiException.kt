@@ -1,6 +1,7 @@
 package dev.tramai.core.exception
 
 import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.structured.StructuredOutputFailureCode
 
 /**
  * Base runtime exception for Tramai failures.
@@ -33,7 +34,48 @@ class StructuredOutputException(
     /** Total number of attempts performed before giving up. */
     val attemptCount: Int? = null,
     cause: Throwable? = null,
-) : TramaiException(message, cause)
+) : TramaiException(message, cause) {
+    /**
+     * Typed classification for engine-produced failures; null for caller-constructed
+     * instances. Trusted only when [safeFactoryTrusted] is true.
+     */
+    var failureCode: StructuredOutputFailureCode? = null
+        internal set
+
+    /**
+     * Set only by the internal safe factory; external instances remain untrusted and
+     * are re-sanitized at the engine boundary.
+     */
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
+
+/**
+ * Constructs the safe engine-produced structured-output failure: fixed public
+ * message derived internally from [code], typed failure code, safe numeric
+ * attempt count, no raw fields, no cause. Callers CANNOT supply message text —
+ * any caller-controlled detail must travel only through the diagnostic
+ * observer, never through this exception. Raw response/validation detail is
+ * delivered separately to the diagnostic observer; this exception is what
+ * callers see.
+ */
+fun safeStructuredOutputFailure(
+    code: StructuredOutputFailureCode,
+    attemptCount: Int,
+): StructuredOutputException = StructuredOutputException(
+    message = code.fixedPublicMessage(attemptCount),
+    attemptCount = attemptCount,
+).apply {
+    failureCode = code
+    safeFactoryTrusted = true
+}
+
+private fun StructuredOutputFailureCode.fixedPublicMessage(attemptCount: Int): String = when (this) {
+    StructuredOutputFailureCode.CONTRACT_FAILED -> "Structured output contract generation failed"
+    StructuredOutputFailureCode.OUTPUT_REJECTED -> "Structured output parsing failed"
+    StructuredOutputFailureCode.REPAIR_EXHAUSTED -> "Structured output parsing failed after $attemptCount attempt(s)"
+    StructuredOutputFailureCode.HANDLER_FAILED -> "Structured output handler failed"
+}
 
 /**
  * Raised when a provider transport or API call fails.

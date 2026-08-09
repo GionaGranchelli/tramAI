@@ -52,9 +52,10 @@ class JacksonStructuredOutputHandler(
         } catch (error: IllegalArgumentException) {
             return StructuredOutputResult.Failure(
                 rawResponse = rawResponse,
-                errorSummary = error.message ?: "Could not extract JSON content from the model response",
+                errorSummary = "Could not extract JSON content from the model response",
                 feedbackMessage = "Your previous response did not contain valid JSON. Return only valid JSON that matches the requested schema.",
             )
+                .also { it.failure = error }
         }
 
         val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
@@ -64,20 +65,21 @@ class JacksonStructuredOutputHandler(
         // null after Jackson deserialisation and therefore cannot be detected post-hoc.
         val jsonNode = try {
             objectMapper.readTree(jsonCandidate)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             return StructuredOutputResult.Failure(
                 rawResponse = rawResponse,
                 errorSummary = "Could not parse the JSON payload",
                 feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
             )
+                .also { it.failure = error }
         }
 
         validateJsonShape(jsonNode, targetType, "")?.let { error ->
             return StructuredOutputResult.Failure(
                 rawResponse = rawResponse,
-                errorSummary = error,
+                errorSummary = "Structured output failed validation",
                 feedbackMessage = "Your previous response failed validation: $error. Return corrected JSON only.",
-            )
+            ).also { it.failure = IllegalArgumentException(error) }
         }
 
         val value = try {
@@ -85,18 +87,19 @@ class JacksonStructuredOutputHandler(
         } catch (error: Exception) {
             return StructuredOutputResult.Failure(
                 rawResponse = rawResponse,
-                errorSummary = error.message ?: "Could not deserialize the JSON payload",
+                errorSummary = "Could not deserialize the JSON payload",
                 feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
             )
+                .also { it.failure = error }
         }
 
         val validationError = validateValue(value, targetType)
         if (validationError != null) {
             return StructuredOutputResult.Failure(
                 rawResponse = rawResponse,
-                errorSummary = validationError,
+                errorSummary = "Structured output failed validation",
                 feedbackMessage = "Your previous response failed validation: $validationError. Return corrected JSON only.",
-            )
+            ).also { it.failure = IllegalArgumentException(validationError) }
         }
 
         return StructuredOutputResult.Success(

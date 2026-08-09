@@ -36,6 +36,8 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
+import dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import dev.tramai.engine.CircuitBreakerSettings
@@ -87,6 +89,14 @@ class Tramai private constructor(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     /**
+     * Structured-output diagnostic observer, delivered additively (class-body
+     * member, not a constructor parameter) so the published JVM constructor
+     * descriptor of [Tramai] — including its synthetic default-argument
+     * constructor — is preserved. The builder assigns it after construction.
+     */
+    internal var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+        NoOpStructuredOutputFailureDiagnosticObserver
+    /**
      * Creates a service proxy using the built-in Jackson structured output handler.
      */
     fun <T : Any> create(serviceType: KClass<T>): T = newEngine().create(serviceType)
@@ -115,6 +125,7 @@ class Tramai private constructor(
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -157,6 +168,7 @@ class Tramai private constructor(
         private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
         private var engineEventObserver: EngineEventObserver = NoOpEngineEventObserver
         private var toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver
+        private var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -319,6 +331,10 @@ class Tramai private constructor(
          */
         fun toolFailureDiagnosticObserver(observer: ToolFailureDiagnosticObserver): Builder = apply {
             this.toolFailureDiagnosticObserver = observer
+        }
+
+        fun structuredOutputFailureDiagnosticObserver(observer: StructuredOutputFailureDiagnosticObserver): Builder = apply {
+            this.structuredOutputFailureDiagnosticObserver = observer
         }
 
         /**
@@ -485,7 +501,12 @@ class Tramai private constructor(
                 approvalGateCoordinator = approvalGateCoordinator,
                 approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
                 clock = clock,
-            )
+            ).apply {
+                // Additive observer delivery: the constructor descriptor is
+                // preserved; the snapshot is frozen here (after this point,
+                // builder mutations cannot redirect diagnostics of the runtime).
+                structuredOutputFailureDiagnosticObserver = this@Builder.structuredOutputFailureDiagnosticObserver
+            }
         }
     }
 }

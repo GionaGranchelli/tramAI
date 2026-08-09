@@ -33,6 +33,9 @@ import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.policy.ApprovalRequirement
+import dev.tramai.core.structured.StructuredOutputFailureCode
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticEvent
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.StructuredOutputResult
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
@@ -45,6 +48,7 @@ import dev.tramai.security.approval.UuidApprovalIdGenerator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.catchThrowable
 import org.assertj.core.api.Assertions.catchThrowableOfType
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.api.Assertions.fail
@@ -1922,6 +1926,67 @@ class ApprovalResumeEngineTest {
                 )
             }
         }.isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
+    }
+
+    @Test
+    fun `resumeApproval structured parse failure is sanitized and leaks only to the diagnostic observer`() {
+        val resumeFixture = "fixture-sentinel-so-2b4"
+        val diagnostics = mutableListOf<StructuredOutputFailureDiagnosticEvent>()
+        val structuredHandler = FakeStructuredOutputHandler(
+            StructuredOutputResult.Failure(
+                rawResponse = "unparseable $resumeFixture",
+                errorSummary = "failed to parse $resumeFixture",
+                feedbackMessage = "Please provide a valid JSON response",
+            ),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            structuredOutputHandler = structuredHandler,
+            structuredOutputFailureDiagnosticObserver = StructuredOutputFailureDiagnosticObserver { diagnostics += it },
+        )
+
+        val structuredService = engine.create<StructuredResumeTriggerService>()
+        val exception = try {
+            runBlocking { structuredService.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        val thrown = catchThrowable {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }
+        assertThat(thrown).isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
+        val safe = thrown as dev.tramai.core.exception.StructuredOutputException
+        assertThat(safe.failureCode).isEqualTo(StructuredOutputFailureCode.OUTPUT_REJECTED)
+        assertThat(safe.message).doesNotContain(resumeFixture)
+        assertThat(safe.originalPrompt).isNull()
+        assertThat(safe.lastRawResponse).isNull()
+        assertThat(safe.validationError).isNull()
+        assertThat(safe.cause).isNull()
+        // The sentinel reaches ONLY the privileged diagnostic observer.
+        val event = diagnostics.single()
+        assertThat(event.code).isEqualTo(StructuredOutputFailureCode.OUTPUT_REJECTED)
+        assertThat(event.rawResponsePreview).contains(resumeFixture)
     }
 
     @Test

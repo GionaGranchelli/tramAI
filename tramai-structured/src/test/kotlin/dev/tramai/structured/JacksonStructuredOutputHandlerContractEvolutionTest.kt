@@ -113,8 +113,7 @@ class JacksonStructuredOutputHandlerContractEvolutionTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("confidence")
-        assertThat(failure.errorSummary).contains("between 0.0 and 1.0")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
         assertThat(failure.feedbackMessage).contains("failed validation")
     }
 
@@ -147,8 +146,7 @@ class JacksonStructuredOutputHandlerContractEvolutionTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("items")
-        assertThat(failure.errorSummary).contains("at least 1")
+        assertThat(failure.errorSummary).isEqualTo("Structured output failed validation")
         assertThat(failure.feedbackMessage).contains("failed validation")
     }
 
@@ -160,7 +158,7 @@ class JacksonStructuredOutputHandlerContractEvolutionTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        assertThat(failure.errorSummary).contains("Could not find a JSON object or array")
+        assertThat(failure.errorSummary).isEqualTo("Could not extract JSON content from the model response")
         assertThat(failure.feedbackMessage).contains("Return only valid JSON")
     }
 }

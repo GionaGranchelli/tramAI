@@ -14,6 +14,7 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.exception.TimeoutException
+import dev.tramai.core.structured.StructuredOutputFailureCode
 import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
@@ -256,7 +257,7 @@ class TramaiEngineTest {
     }
 
     @Test
-    fun `structured output exception preserves failure context`() {
+    fun `structured output exception exposes only safe failure context`() {
         val provider = SequencedProvider(
             ModelResponse(content = "not json"),
             ModelResponse(content = "still wrong"),
@@ -270,10 +271,11 @@ class TramaiEngineTest {
 
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
-                assertThat(error.originalPrompt).isEqualTo("Return a structured status")
-                assertThat(error.lastRawResponse).isEqualTo("final bad payload")
-                assertThat(error.validationError).contains("JSON")
+                assertThat(error.originalPrompt).isNull()
+                assertThat(error.lastRawResponse).isNull()
+                assertThat(error.validationError).isNull()
                 assertThat(error.attemptCount).isEqualTo(3)
+                assertThat(error.failureCode).isEqualTo(StructuredOutputFailureCode.REPAIR_EXHAUSTED)
             }
     }
 
@@ -341,8 +343,9 @@ class TramaiEngineTest {
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
                 assertThat(error.attemptCount).isEqualTo(1)
-                assertThat(error.lastRawResponse).isEqualTo("still not json")
-                assertThat(error.validationError).contains("JSON")
+                assertThat(error.lastRawResponse).isNull()
+                assertThat(error.validationError).isNull()
+                assertThat(error.failureCode).isEqualTo(StructuredOutputFailureCode.REPAIR_EXHAUSTED)
             }
         assertThat(provider.requests).hasSize(1)
     }
@@ -363,8 +366,9 @@ class TramaiEngineTest {
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
                 assertThat(error.attemptCount).isEqualTo(3)
-                assertThat(error.lastRawResponse).isEqualTo("nope")
-                assertThat(error.validationError).contains("JSON")
+                assertThat(error.lastRawResponse).isNull()
+                assertThat(error.validationError).isNull()
+                assertThat(error.failureCode).isEqualTo(StructuredOutputFailureCode.REPAIR_EXHAUSTED)
             }
         assertThat(provider.requests).hasSize(3)
     }

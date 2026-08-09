@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -134,6 +135,12 @@ internal data class ShellWorkflowStep<S>(
             throw failure(workflowName, error, code, null, failureDiagnosticObserver)
         }
 
+        // Cancellation can terminate the child process: the process exit may
+        // have been observed before cancellation reached a checkpoint. Re-check
+        // BEFORE interpreting exit codes / stderr as ordinary shell outcomes, so
+        // a parent cancellation never surfaces as NON_ZERO_EXIT etc.
+        currentCoroutineContext().ensureActive()
+
         observer.onWorkflowEvent(
             workflowName = workflowName,
             name = "tramai.workflow.shell.completed",
@@ -228,11 +235,22 @@ internal data class ShellWorkflowStep<S>(
                     process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
                 }
 
-                try {
-                    withTimeout(config.timeoutSeconds.seconds) {
-                        lifecycle.awaitExit()
-                    }
-                } catch (error: TimeoutCancellationException) {
+                // withTimeoutOrNull distinguishes its OWN timeout (null) from a
+                // foreign TimeoutCancellationException (a parent withTimeout or
+                // genuine cancellation), which propagates through untouched. A
+                // broad catch(TimeoutCancellationException) below would convert a
+                // PARENT timeout into an owned shell TIMEOUT + diagnostic.
+                val timedOut = withTimeoutOrNull(config.timeoutSeconds.seconds) {
+                    lifecycle.awaitExit()
+                    // Cancellation can terminate the child process (e.g. exit
+                    // 143 on SIGTERM): awaitExit may observe process death
+                    // BEFORE the cancellation reaches this coroutine's next
+                    // checkpoint. Re-check so a parent cancellation is never
+                    // interpreted as an owned shell outcome below.
+                    currentCoroutineContext().ensureActive()
+                    false
+                } ?: true
+                if (timedOut) {
                     currentCoroutineContext().ensureActive()
                     // Request termination BEFORE the observer: closing the pipes lets
                     // the reader coroutines finish, and an observer failure can never
@@ -253,7 +271,9 @@ internal data class ShellWorkflowStep<S>(
                     // Owned timeout becomes a non-cancellation internal marker: a
                     // genuine parent cancellation was already rethrown by ensureActive
                     // above and must stay a CancellationException all the way out.
-                    throw ShellStepTimeoutException(error)
+                    throw ShellStepTimeoutException(
+                        CancellationException("Shell step timed out after ${config.timeoutSeconds}s"),
+                    )
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -478,7 +498,7 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
 
 /** Internal marker: the Shell step's own timeout (never a parent cancellation). */
 private class ShellStepTimeoutException(
-    cause: TimeoutCancellationException,
+    cause: Throwable?,
 ) : RuntimeException("shell step timed out", cause)
 
 private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")

@@ -166,6 +166,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0016
+    metric: nondeterminismSources
+    scope: ":tramai-engine"
+    baseline: 8
+    allowed: 10
+    reason: "PR #224 additive structured-output observer constructors replicate the existing Clock.systemUTC() default-parameter pattern (+2); remaining delta is line-shift identity churn in TramaiEngine.kt from the same PR. Same deterministic sources as the canonical population; will be addressed in Phase 2 nondeterminism audit."
+    acceptedAt: "2026-08-08"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.
