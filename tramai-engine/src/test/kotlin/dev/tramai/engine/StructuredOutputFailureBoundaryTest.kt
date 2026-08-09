@@ -3,6 +3,7 @@ package dev.tramai.engine
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.exception.safeStructuredOutputFailure
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationCallContext
@@ -136,6 +137,41 @@ class StructuredOutputFailureBoundaryTest {
         // The sentinel reaches ONLY the privileged diagnostic observer.
         assertThat(diagnostics.events.single().failure!!.message).contains(SO_FIXTURE)
         assertThat(diagnostics.events.single().code).isEqualTo(StructuredOutputFailureCode.CONTRACT_FAILED)
+    }
+
+    @Test
+    fun `handler-thrown raw structured exception is never trusted`() {
+        val diagnostics = RecordingDiagnostics()
+        val handler = object : FailingHandler() {
+            override fun analyze(rawResponse: String, targetType: KType): StructuredOutputResult =
+                throw StructuredOutputException(message = "secret $SO_FIXTURE")
+        }
+        val service = engine(handler, diagnostics = diagnostics).create<BoundaryService>()
+
+        val thrown = catchThrowable { runBlocking { service.answer(SO_FIXTURE) } }
+        assertThat(thrown).isInstanceOf(StructuredOutputException::class.java)
+        assertThat((thrown as StructuredOutputException).failureCode)
+            .isEqualTo(StructuredOutputFailureCode.HANDLER_FAILED)
+        assertThat(thrown.message).isEqualTo("Structured output handler failed")
+        assertThat(thrown.message).doesNotContain(SO_FIXTURE)
+        assertThat(thrown.cause).isNull()
+        // The raw handler exception reaches only the diagnostic observer.
+        assertThat(diagnostics.events.single().failure!!.message).contains(SO_FIXTURE)
+    }
+
+    @Test
+    fun `safe factory message is fixed and cannot carry caller text`() {
+        val exception = safeStructuredOutputFailure(
+            code = StructuredOutputFailureCode.HANDLER_FAILED,
+            attemptCount = 2,
+        )
+        assertThat(exception.message).isEqualTo("Structured output handler failed")
+        assertThat(exception.failureCode).isEqualTo(StructuredOutputFailureCode.HANDLER_FAILED)
+        assertThat(exception.attemptCount).isEqualTo(2)
+        assertThat(exception.originalPrompt).isNull()
+        assertThat(exception.lastRawResponse).isNull()
+        assertThat(exception.validationError).isNull()
+        assertThat(exception.cause).isNull()
     }
 
     @Test

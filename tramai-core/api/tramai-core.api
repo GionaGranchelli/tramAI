@@ -1020,7 +1020,7 @@ public abstract class dev/tramai/core/exception/TramaiException : java/lang/Runt
 }
 
 public final class dev/tramai/core/exception/TramaiExceptionKt {
-	public static final fun safeStructuredOutputFailure (Ljava/lang/String;Ldev/tramai/core/structured/StructuredOutputFailureCode;I)Ldev/tramai/core/exception/StructuredOutputException;
+	public static final fun safeStructuredOutputFailure (Ldev/tramai/core/structured/StructuredOutputFailureCode;I)Ldev/tramai/core/exception/StructuredOutputException;
 }
 
 public abstract interface class dev/tramai/core/memory/ChatMemory {

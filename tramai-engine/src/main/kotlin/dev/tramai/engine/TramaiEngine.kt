@@ -1693,7 +1693,6 @@ internal class TramaiInvocationHandler(
         if (attemptIndex == maxAttempts - 1) {
             result.observation.onCallCompleted(parseSuccess = false)
             throw safeStructuredOutputFailure(
-                message = "Structured output parsing failed after $maxAttempts attempt(s)",
                 code = StructuredOutputFailureCode.REPAIR_EXHAUSTED,
                 attemptCount = maxAttempts,
             )
@@ -1712,9 +1711,11 @@ internal class TramaiInvocationHandler(
     ): Nothing {
         failure.rethrowIfCancellation()
         currentCoroutineContext().ensureActive()
-        if (failure is StructuredOutputException && failure.safeFactoryTrusted) {
-            throw failure
-        }
+        // Anything thrown by a handler is UNTRUSTED regardless of exception
+        // type — including exceptions produced by the public factory. The
+        // factory only guarantees fixed text; a handler could still construct
+        // a raw StructuredOutputException with arbitrary text, so it is always
+        // re-sanitized here.
         deliverStructuredOutputFailure(
             StructuredOutputFailureDiagnosticEvent(
                 serviceName = null,
@@ -1740,7 +1741,6 @@ internal class TramaiInvocationHandler(
         )
         result.observation.onCallCompleted(parseSuccess = false)
         throw safeStructuredOutputFailure(
-            message = "Structured output handler failed",
             code = StructuredOutputFailureCode.HANDLER_FAILED,
             attemptCount = attempt,
         )
@@ -1768,7 +1768,6 @@ internal class TramaiInvocationHandler(
             ),
         )
         throw safeStructuredOutputFailure(
-            message = "Structured output contract generation failed",
             code = StructuredOutputFailureCode.CONTRACT_FAILED,
             attemptCount = 1,
         )
@@ -3973,7 +3972,6 @@ internal class TramaiInvocationHandler(
                 )
                 loopResult.observation.onCallCompleted(parseSuccess = false)
                 throw safeStructuredOutputFailure(
-                    message = "Structured output parsing failed after resume",
                     code = StructuredOutputFailureCode.OUTPUT_REJECTED,
                     attemptCount = 1,
                 )

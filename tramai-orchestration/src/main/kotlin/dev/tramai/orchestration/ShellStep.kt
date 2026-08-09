@@ -135,6 +135,12 @@ internal data class ShellWorkflowStep<S>(
             throw failure(workflowName, error, code, null, failureDiagnosticObserver)
         }
 
+        // Cancellation can terminate the child process: the process exit may
+        // have been observed before cancellation reached a checkpoint. Re-check
+        // BEFORE interpreting exit codes / stderr as ordinary shell outcomes, so
+        // a parent cancellation never surfaces as NON_ZERO_EXIT etc.
+        currentCoroutineContext().ensureActive()
+
         observer.onWorkflowEvent(
             workflowName = workflowName,
             name = "tramai.workflow.shell.completed",
@@ -236,6 +242,12 @@ internal data class ShellWorkflowStep<S>(
                 // PARENT timeout into an owned shell TIMEOUT + diagnostic.
                 val timedOut = withTimeoutOrNull(config.timeoutSeconds.seconds) {
                     lifecycle.awaitExit()
+                    // Cancellation can terminate the child process (e.g. exit
+                    // 143 on SIGTERM): awaitExit may observe process death
+                    // BEFORE the cancellation reaches this coroutine's next
+                    // checkpoint. Re-check so a parent cancellation is never
+                    // interpreted as an owned shell outcome below.
+                    currentCoroutineContext().ensureActive()
                     false
                 } ?: true
                 if (timedOut) {

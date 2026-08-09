@@ -51,25 +51,30 @@ class StructuredOutputException(
 }
 
 /**
- * Constructs the safe engine-produced structured-output failure: fixed trusted
- * message, typed failure code, safe numeric attempt count, no raw fields, no
- * cause. Raw response/validation detail is delivered separately to the
- * diagnostic observer; this exception is what callers see.
- *
- * Only pass text controlled by the caller (fixed templates). Provider
- * responses, throwable messages, raw model output, and other untrusted values
- * must not be interpolated into [message].
+ * Constructs the safe engine-produced structured-output failure: fixed public
+ * message derived internally from [code], typed failure code, safe numeric
+ * attempt count, no raw fields, no cause. Callers CANNOT supply message text —
+ * any caller-controlled detail must travel only through the diagnostic
+ * observer, never through this exception. Raw response/validation detail is
+ * delivered separately to the diagnostic observer; this exception is what
+ * callers see.
  */
 fun safeStructuredOutputFailure(
-    message: String,
     code: StructuredOutputFailureCode,
     attemptCount: Int,
 ): StructuredOutputException = StructuredOutputException(
-    message = message,
+    message = code.fixedPublicMessage(attemptCount),
     attemptCount = attemptCount,
 ).apply {
     failureCode = code
     safeFactoryTrusted = true
+}
+
+private fun StructuredOutputFailureCode.fixedPublicMessage(attemptCount: Int): String = when (this) {
+    StructuredOutputFailureCode.CONTRACT_FAILED -> "Structured output contract generation failed"
+    StructuredOutputFailureCode.OUTPUT_REJECTED -> "Structured output parsing failed"
+    StructuredOutputFailureCode.REPAIR_EXHAUSTED -> "Structured output parsing failed after $attemptCount attempt(s)"
+    StructuredOutputFailureCode.HANDLER_FAILED -> "Structured output handler failed"
 }
 
 /**

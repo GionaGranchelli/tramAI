@@ -79,7 +79,7 @@ class JacksonStructuredOutputHandler(
                 rawResponse = rawResponse,
                 errorSummary = "Structured output failed validation",
                 feedbackMessage = "Your previous response failed validation: $error. Return corrected JSON only.",
-            )
+            ).also { it.failure = IllegalArgumentException(error) }
         }
 
         val value = try {
