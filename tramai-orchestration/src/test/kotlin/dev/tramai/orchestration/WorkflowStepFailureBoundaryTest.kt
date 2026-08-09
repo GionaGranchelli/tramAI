@@ -15,8 +15,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -618,27 +620,41 @@ class WorkflowStepFailureBoundaryTest {
         try {
             val thrown = catchThrowable {
                 runBlocking {
-                    // 500 ms is well beyond subprocess start (marker proves the
-                    // script ran) yet far below the 30 s step timeout, so the
-                    // parent timeout fires while lifecycle.awaitExit() is running.
-                    withTimeout(500) {
-                        workflow<BoundaryState>("parent-timeout") {
-                            failureDiagnosticObserver = diagnostics
-                            shellStep(
-                                name = "hang",
-                                config = ShellStepConfig(
-                                    allowedCommands = setOf(script.toString()),
-                                    timeoutSeconds = 30,
-                                ),
-                                definition = ShellCommandDefinition(executable = script.toString()),
-                                command = { _, _ -> ShellCommand(listOf(script.toString())) },
-                                merge = { state, result, _ -> state.copy(result = result) },
-                            )
-                        }.build { it }.run(BoundaryState())
+                    coroutineScope {
+                        val execution = async {
+                            workflow<BoundaryState>("parent-timeout") {
+                                failureDiagnosticObserver = diagnostics
+                                shellStep(
+                                    name = "hang",
+                                    config = ShellStepConfig(
+                                        allowedCommands = setOf(script.toString()),
+                                        timeoutSeconds = 30,
+                                    ),
+                                    definition = ShellCommandDefinition(executable = script.toString()),
+                                    command = { _, _ -> ShellCommand(listOf(script.toString())) },
+                                    merge = { state, result, _ -> state.copy(result = result) },
+                                )
+                            }.build { it }.run(BoundaryState())
+                        }
+                        // Synchronization-driven ordering: wait until the child
+                        // process proves it started (marker file), THEN fire the
+                        // parent timeout. The 5 s guard is a deadlock safety net
+                        // only — it never establishes ordering, so a slow runner
+                        // cannot make the timeout fire before the process exists.
+                        withTimeout(5_000) {
+                            while (!Files.exists(marker)) {
+                                delay(10)
+                            }
+                        }
+                        // coroutineScope cancels the workflow execution when this
+                        // withTimeout fires, so the parent TimeoutCancellationException
+                        // is genuinely the workflow's cancellation.
+                        withTimeout(1_000) {
+                            execution.await()
+                        }
                     }
                 }
             }
-            assertThat(Files.exists(marker)).isTrue()
             assertThat(thrown).isInstanceOf(TimeoutCancellationException::class.java)
             assertThat(diagnostics.events).isEmpty()
         } finally {

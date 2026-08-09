@@ -1425,6 +1425,7 @@ internal class TramaiInvocationHandler(
         val contract = try {
             operation.structuredContract(handler)
         } catch (failure: Throwable) {
+            failure.rethrowIfCancellation()
             rethrowContractFailure(operation, failure)
         }
         val correlationId = java.util.UUID.randomUUID().toString()
@@ -1557,6 +1558,7 @@ internal class TramaiInvocationHandler(
                 targetType = targetType,
             )
         } catch (failure: Throwable) {
+            failure.rethrowIfCancellation()
             rethrowOrSanitizeStructuredHandlerFailure(
                 operation = operation,
                 result = result,
@@ -3919,6 +3921,7 @@ internal class TramaiInvocationHandler(
                 targetType = targetType,
             )
         } catch (failure: Throwable) {
+            failure.rethrowIfCancellation()
             rethrowOrSanitizeStructuredHandlerFailure(
                 operation = operation,
                 result = loopResult,
