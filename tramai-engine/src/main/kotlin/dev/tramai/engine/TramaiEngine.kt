@@ -794,6 +794,15 @@ internal class TramaiInvocationHandler(
 
         return flow {
             check(!isClosed.get()) { "Tramai runtime is closed" }
+            // Every chunk is gated on the engine still being open: a cold flow
+            // being collected at close() time must not keep delivering chunks
+            // (the collector's job is not cancelled by close(), so cooperative
+            // cancellation alone is insufficient). Deterministic termination
+            // within one chunk latency.
+            suspend fun emitWhileOpen(chunk: StreamChunk) {
+                check(!isClosed.get()) { "Tramai runtime is closed" }
+                emit(chunk)
+            }
             val correlationId = java.util.UUID.randomUUID().toString()
             enforceBeforeProviderResolution(operation, correlationId, securityContext)
             val candidates = providerRegistry.resolveCandidates(operation.operation)
@@ -824,7 +833,7 @@ internal class TramaiInvocationHandler(
                             memoryMessages = effectiveMessages,
                             historySize = history.size,
                             conversationId = conversationId,
-                            emitChunk = { emit(it) },
+                            emitChunk = { emitWhileOpen(it) },
                         ),
                         correlationId = correlationId,
                         securityContext = securityContext,
@@ -855,13 +864,13 @@ internal class TramaiInvocationHandler(
                         lastFailure = result.error
                     }
                     is StreamingRouteResult.TerminalError -> {
-                        emit(result.errorChunk)
+                        emitWhileOpen(result.errorChunk)
                         return@flow
                     }
                 }
             }
 
-            emit(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+            emitWhileOpen(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
         }
     }
 

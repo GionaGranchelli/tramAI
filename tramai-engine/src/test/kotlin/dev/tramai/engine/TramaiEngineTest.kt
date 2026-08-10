@@ -320,6 +320,53 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `mid-collection close terminates an in-flight stream`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                emit(StreamChunk.Token("first"))
+                gate.await()
+                emit(StreamChunk.Token("second"))
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val chunks = mutableListOf<StreamChunk>()
+        val firstChunkDelivered = CompletableDeferred<Unit>()
+        val collection = async {
+            try {
+                service.stream("invoice-123").collect {
+                    chunks += it
+                    firstChunkDelivered.complete(Unit)
+                }
+                null
+            } catch (t: Throwable) {
+                t
+            }
+        }
+        // Wait until the first chunk is delivered (provider is streaming).
+        firstChunkDelivered.await()
+        engine.close()
+        gate.complete(Unit)
+        val terminal = collection.await()
+
+        // The stream must not deliver the second chunk after close: either the
+        // collection failed with the fixed lifecycle error, or it stopped
+        // without the post-close chunk.
+        assertThat(chunks.map { it }).doesNotContain(StreamChunk.Token("second"))
+        if (terminal != null) {
+            assertThat(terminal)
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessage("Tramai runtime is closed")
+        }
+    }
+
+    @Test
     fun `supports blocking interfaces`() {
         val provider = RecordingProvider { ModelResponse(content = "summary") }
         val engine = TramaiEngine(provider)
