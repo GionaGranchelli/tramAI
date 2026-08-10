@@ -487,6 +487,11 @@ class PersistenceSafeFailureBoundaryTest {
                             }
                             store.registerWorker("w1", "pool", "v1", setOf(), "host")
                         } else {
+                            // Genuine unregister: the next heartbeat either sees
+                            // the worker (re-registered by an even iteration) or
+                            // fails with IllegalArgumentException — never a
+                            // NoSuchElementException from a check-then-act race.
+                            store.unregisterWorker("w1")
                             try {
                                 store.updateHeartbeat("w1")
                             } catch (t: Throwable) {
