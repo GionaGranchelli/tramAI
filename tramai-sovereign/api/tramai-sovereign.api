@@ -35,10 +35,11 @@ public final class dev/tramai/sovereign/SovereignProfileConfiguration {
 public final class dev/tramai/sovereign/SovereignProfileConfiguration$Companion {
 }
 
-public final class dev/tramai/sovereign/SovereignTramai {
+public final class dev/tramai/sovereign/SovereignTramai : java/lang/AutoCloseable {
 	public static final field Companion Ldev/tramai/sovereign/SovereignTramai$Companion;
 	public synthetic fun <init> (Ldev/tramai/standalone/Tramai;Ljava/util/List;Ldev/tramai/sovereign/SovereignProfileConfiguration;Ldev/tramai/core/model/ModelArtifactVerificationSettings;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public fun close ()V
 	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
 	public final fun evidencePack (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
 	public static synthetic fun evidencePack$default (Ldev/tramai/sovereign/SovereignTramai;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;

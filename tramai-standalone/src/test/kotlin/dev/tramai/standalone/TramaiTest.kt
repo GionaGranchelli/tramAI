@@ -38,6 +38,120 @@ import kotlin.test.Test
 class TramaiTest {
 
     @Test
+    fun `two create calls share one runtime lifecycle`() {
+        val tramai = configuredTramai()
+
+        tramai.create<SuspendService>()
+        val runtime = tramai.runtime()
+        tramai.create<SuspendService>()
+
+        assertThat(runtime).isSameAs(tramai.runtime())
+    }
+
+    @Test
+    fun `runtime returns the same runtime as create`() {
+        val tramai = configuredTramai()
+        val runtime = tramai.runtime()
+
+        runtime.create<SuspendService>()
+
+        assertThat(runtime).isSameAs(tramai.runtime())
+    }
+
+    @Test
+    fun `close before first use rejects runtime creation`() {
+        val tramai = configuredTramai()
+
+        tramai.close()
+
+        assertThatThrownBy { tramai.runtime() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `repeated close is harmless`() {
+        val tramai = configuredTramai()
+        tramai.runtime()
+
+        tramai.close()
+        tramai.close()
+
+        assertThatThrownBy { tramai.create<SuspendService>() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `externally supplied provider is not closed`() {
+        val provider = CloseTrackingProvider()
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "external")
+        }
+
+        tramai.close()
+
+        assertThat(provider.closed).isFalse()
+    }
+
+    @Test
+    fun `concurrent create calls create only one engine`() {
+        val tramai = configuredTramai()
+        val runtimes = java.util.Collections.synchronizedList(mutableListOf<TramaiRuntime>())
+        val threads = (1..8).map {
+            Thread {
+                repeat(50) {
+                    runtimes.add(tramai.runtime())
+                }
+            }.also { it.start() }
+        }
+        threads.forEach { it.join() }
+
+        assertThat(runtimes.map { it }.distinct()).hasSize(1)
+    }
+
+    @Test
+    fun `create racing with close cannot resurrect the runtime`() {
+        repeat(50) {
+            val tramai = configuredTramai()
+            val outcomes = java.util.Collections.synchronizedList(mutableListOf<Throwable?>())
+            val creator = Thread {
+                try {
+                    tramai.runtime()
+                    outcomes.add(null)
+                } catch (e: Throwable) {
+                    outcomes.add(e)
+                }
+            }
+            val closer = Thread { tramai.close() }
+            creator.start()
+            closer.start()
+            creator.join()
+            closer.join()
+            // Post-close, any further access must reject; the close may win the
+            // race before the creator obtains the runtime, in which case the
+            // creator sees the fixed rejection.
+            val terminal = try {
+                tramai.runtime()
+                null
+            } catch (e: Throwable) {
+                e
+            }
+            assertThat(terminal)
+                .describedAs("iteration $it: runtime after close must reject")
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessage("Tramai runtime is closed")
+            outcomes.forEach { e ->
+                assertThat(e).satisfiesAnyOf(
+                    { assertThat(e).isNull() },
+                    { assertThat(e).isInstanceOf(IllegalStateException::class.java).hasMessage("Tramai runtime is closed") },
+                )
+            }
+        }
+    }
+
+    @Test
     fun `structured failure diagnostic observer is frozen at build time`() {
         val provider = RecordingProvider("anthropic") { ModelResponse(content = "not json $SO_FIXTURE") }
         val observerA = RecordingStructuredDiagnostics()
@@ -573,6 +687,11 @@ class TramaiTest {
     }
 }
 
+private fun configuredTramai(): Tramai = Tramai {
+    provider(RecordingProvider("anthropic") { ModelResponse(content = "hello") }, default = true)
+    model("claude-sonnet-4-20250514", "anthropic")
+}
+
 private class RecordingStructuredDiagnostics : StructuredOutputFailureDiagnosticObserver {
     val events = mutableListOf<StructuredOutputFailureDiagnosticEvent>()
     override suspend fun onFailure(event: StructuredOutputFailureDiagnosticEvent) {
@@ -633,6 +752,13 @@ private class RecordingProvider(
     }
 
     override fun providerId(): String = id
+}
+
+private class CloseTrackingProvider : ModelProvider, AutoCloseable {
+    var closed = false
+    override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse(content = "unused")
+    override fun providerId(): String = "external"
+    override fun close() { closed = true }
 }
 
 private class LookupInput(val query: String)

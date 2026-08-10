@@ -79,7 +79,7 @@ class SovereignTramai private constructor(
     verificationReceipts: List<VerifiedLocalModelArtifact>,
     private val profile: SovereignProfileConfiguration,
     private val verificationSettings: ModelArtifactVerificationSettings,
-) {
+) : AutoCloseable {
     private val verificationReceipts: List<VerifiedLocalModelArtifact> =
         Collections.unmodifiableList(ArrayList(verificationReceipts))
     /**
@@ -92,6 +92,9 @@ class SovereignTramai private constructor(
      * both service creation and approval-resume operations.
      */
     fun runtime(): SovereignTramaiRuntime = SovereignTramaiRuntime(delegate.runtime())
+
+    /** Closes the owned standalone runtime and its engine. */
+    override fun close() = delegate.close()
 
     /**
      * Returns immutable verification receipts from build-time artifact verification.

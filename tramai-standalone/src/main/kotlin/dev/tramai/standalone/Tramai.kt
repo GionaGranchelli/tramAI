@@ -59,6 +59,10 @@ import kotlin.reflect.full.createType
 
 /**
  * Minimal composition module that wires core, engine, and structured output support.
+ *
+ * This instance owns the runtime and engine it creates. Closing it closes that runtime;
+ * providers, stores, clients, executors, and observers supplied to the builder remain
+ * caller-owned unless their own API explicitly transfers ownership.
  */
 class Tramai private constructor(
     private val providerRegistry: ProviderRegistry,
@@ -87,7 +91,7 @@ class Tramai private constructor(
     private val approvalGateCoordinator: ApprovalGateCoordinator? = null,
     private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
     private val clock: Clock = Clock.systemUTC(),
-) {
+) : AutoCloseable {
     /**
      * Structured-output diagnostic observer, delivered additively (class-body
      * member, not a constructor parameter) so the published JVM constructor
@@ -96,16 +100,35 @@ class Tramai private constructor(
      */
     internal var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
         NoOpStructuredOutputFailureDiagnosticObserver
+
+    // Class-body lifecycle state preserves published constructor descriptors.
+    private val lifecycleLock = Any()
+    private var ownedRuntime: TramaiRuntime? = null
+    private var closed = false
+
+    private fun activeRuntime(): TramaiRuntime = synchronized(lifecycleLock) {
+        check(!closed) { "Tramai runtime is closed" }
+        ownedRuntime ?: TramaiRuntime(newEngine()).also { ownedRuntime = it }
+    }
+
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
      */
-    fun <T : Any> create(serviceType: KClass<T>): T = newEngine().create(serviceType)
+    fun <T : Any> create(serviceType: KClass<T>): T = activeRuntime().create(serviceType)
 
     /**
      * Creates a [TramaiRuntime] that owns exactly one engine and exposes
      * both service creation and approval-resume operations.
      */
-    fun runtime(): TramaiRuntime = TramaiRuntime(newEngine())
+    fun runtime(): TramaiRuntime = activeRuntime()
+
+    override fun close() = synchronized(lifecycleLock) {
+        if (!closed) {
+            closed = true
+            ownedRuntime?.close()
+            ownedRuntime = null
+        }
+    }
 
     /**
      * Returns a configured [TramaiEngine] from the current builder state.

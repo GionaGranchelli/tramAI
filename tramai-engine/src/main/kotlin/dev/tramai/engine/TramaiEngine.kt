@@ -92,6 +92,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -171,6 +172,14 @@ class TramaiEngine(
         ?: LegacyPermissivePolicyEngine
     private val isLegacyFallback: Boolean = policyEngine == null
     private val resumeOperationRegistry: ResumeOperationRegistry = ResumeOperationRegistry()
+    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val engineThreadMarker = ThreadLocal<Boolean>()
+    /**
+     * Suspend-invocation jobs launched for caller continuations. They are
+     * children of the CALLER's job (so parent cancellation propagates), but the
+     * engine tracks them so close() terminates in-flight work it owns.
+     */
+    private val activeInvocationJobs = java.util.concurrent.ConcurrentHashMap.newKeySet<Job>()
 
     /**
      * Creates an engine backed by a single provider.
@@ -384,6 +393,7 @@ class TramaiEngine(
      * Creates a proxy implementation for the given Tramai service interface.
      */
     fun <T : Any> create(serviceType: KClass<T>): T {
+        check(!closed.get()) { "Tramai runtime is closed" }
         val definition = ServiceDefinition.create(
             serviceType = serviceType,
             toolRegistry = toolRegistry,
@@ -405,6 +415,9 @@ class TramaiEngine(
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
             scope = scope,
+            isClosed = closed,
+            engineThreadMarker = engineThreadMarker,
+            activeInvocationJobs = activeInvocationJobs,
             serviceDefinition = definition,
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
@@ -468,6 +481,9 @@ class TramaiEngine(
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
             scope = scope,
+            isClosed = closed,
+            engineThreadMarker = engineThreadMarker,
+            activeInvocationJobs = activeInvocationJobs,
             serviceDefinition = definition,
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
@@ -531,10 +547,19 @@ class TramaiEngine(
         resumeApproval(command) as R
 
     /**
-     * Cancels the engine-owned coroutine job hierarchy.
+     * Cancels and, except from one of its own coroutines, waits for the engine-owned
+     * coroutine hierarchy. Dependencies supplied by callers are not closed.
      */
     override fun close() {
-        job.cancel()
+        if (closed.compareAndSet(false, true)) {
+            job.cancel()
+            // Suspend invocations are children of their CALLER's job, not the
+            // engine scope job; cancel them explicitly so close() owns them.
+            activeInvocationJobs.forEach { it.cancel() }
+            if (engineThreadMarker.get() != true) {
+                runBlocking { job.join() }
+            }
+        }
     }
 }
 
@@ -576,6 +601,9 @@ internal class TramaiInvocationHandler(
     private val chatMemory: ChatMemory?,
     private val conversationIdProvider: ConversationIdProvider,
     private val scope: CoroutineScope,
+    private val isClosed: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+    private val engineThreadMarker: ThreadLocal<Boolean> = ThreadLocal(),
+    private val activeInvocationJobs: MutableSet<Job> = java.util.concurrent.ConcurrentHashMap.newKeySet(),
     private val serviceDefinition: ServiceDefinition,
     policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
@@ -639,6 +667,8 @@ internal class TramaiInvocationHandler(
             return handleObjectMethod(proxy, method, args.orEmpty())
         }
 
+        check(!isClosed.get()) { "Tramai runtime is closed" }
+
         val operation = serviceDefinition.operations[method]
             ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
 
@@ -663,11 +693,19 @@ internal class TramaiInvocationHandler(
             ?: throw ConfigurationException("Suspend invocation for ${operation.method.name} is missing its continuation")
 
         val callArguments = args.dropLast(1)
-        scope.launch(continuation.context) {
+        // Launch as a child of the CALLER's job (continuation.context) so parent
+        // cancellation propagates synchronously into the in-flight invocation
+        // (validated by the ToolSafeFailureContract / StructuredOutputFailureBoundary
+        // parent-cancellation tests), while tracking the launched job so engine
+        // close() also owns it (cancel below). Engine close cancels the engine
+        // scope job AND every tracked invocation job.
+        val launched = scope.launch(continuation.context + engineThreadMarker.asContextElement(true)) {
             runCatching { execute(operation, callArguments, conversationId) }
                 .onSuccess { continuation.resumeWith(Result.success(it)) }
                 .onFailure { continuation.resumeWith(Result.failure(it)) }
         }
+        activeInvocationJobs += launched
+        launched.invokeOnCompletion { activeInvocationJobs -= launched }
         return COROUTINE_SUSPENDED
     }
 

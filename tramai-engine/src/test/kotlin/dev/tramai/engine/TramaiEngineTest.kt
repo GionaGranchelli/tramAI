@@ -59,12 +59,14 @@ import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
@@ -118,6 +120,52 @@ class TramaiEngineTest {
             .contains("Analyze the invoice")
             .contains("invoiceId")
             .contains("invoice-123")
+    }
+
+    @Test
+    fun `old proxy fails after close before provider executes`() {
+        val provider = RecordingProvider { ModelResponse(content = "unused") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+
+        engine.close()
+
+        assertThatThrownBy { runBlocking { service.analyze("invoice-123") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        assertThat(provider.requests).isEmpty()
+    }
+
+    @Test
+    fun `in flight suspend invocation terminates on close`() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val provider = RecordingProvider {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+        val call = async { runCatching { service.analyze("invoice-123") } }
+
+        started.await()
+        engine.close()
+
+        assertThat(call.await().exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
+    }
+
+    @Test
+    fun `self close from owned coroutine does not deadlock`() = runBlocking {
+        lateinit var engine: TramaiEngine
+        val provider = RecordingProvider {
+            engine.close()
+            ModelResponse(content = "unreachable")
+        }
+        engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+
+        val result = withTimeout(2_000) { runCatching { service.analyze("invoice-123") } }
+
+        assertThat(result.exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
     }
 
     @Test
