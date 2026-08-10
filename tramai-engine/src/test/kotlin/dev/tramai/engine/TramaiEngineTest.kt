@@ -244,6 +244,33 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `blocking invocation racing close never delivers a result from a closed engine`() {
+        val provider = RecordingProvider { ModelResponse(content = "summary") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<BlockingSummarizer>()
+
+        val closer = Thread { engine.close() }
+        closer.start()
+        val outcome = try {
+            val result = service.summarize("raw input")
+            "result:$result"
+        } catch (t: Throwable) {
+            "error:${t.javaClass.simpleName}:${t.message}"
+        }
+        closer.join()
+
+        // Either the call completed before close won the race (result), or it
+        // failed fast / after close (fixed lifecycle error). It must NEVER be
+        // a summary delivered from an engine that was already closed.
+        assertThat(outcome)
+            .describedAs("outcome: $outcome")
+            .satisfiesAnyOf(
+                { assertThat(it).startsWith("result:") },
+                { assertThat(it).isEqualTo("error:IllegalStateException:Tramai runtime is closed") },
+            )
+    }
+
+    @Test
     fun `supports blocking interfaces`() {
         val provider = RecordingProvider { ModelResponse(content = "summary") }
         val engine = TramaiEngine(provider)

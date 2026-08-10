@@ -686,9 +686,15 @@ internal class TramaiInvocationHandler(
         return if (operation.isSuspend) {
             invokeSuspend(operation, args.orEmpty(), conversationId)
         } else {
-            runBlocking {
+            val result = runBlocking {
                 execute(operation, args.orEmpty().toList(), conversationId)
             }
+            // The engine may have closed while this blocking call was in
+            // flight (caller-owned runBlocking, not cancellable from here).
+            // Never deliver a result computed against a closed engine: the
+            // caller sees the fixed lifecycle error instead.
+            check(!isClosed.get()) { "Tramai runtime is closed" }
+            result
         }
     }
 
