@@ -189,13 +189,15 @@ class TramaiEngine(
         lifecycleJob + Dispatchers.Default + CoroutineExceptionHandler { _, error ->
             // Engine-owned background work can outlive its caller (e.g. a
             // streaming collection abandoned mid-flight). Its failure is
-            // already surfaced to the caller's continuation when one exists;
-            // orphaned failures must not crash the process or leak onto a
-            // shared global handler — log them instead.
+            // already surfaced to the caller's continuation when one exists.
+            // Orphaned failures must not crash the process or leak onto a
+            // shared global handler. Log FIXED safe metadata only — never the
+            // raw throwable: the failure may carry externally supplied
+            // exception messages (PII), which the safe-error-boundary work
+            // (Epic 1.2) keeps out of normal logs.
             System.getLogger("dev.tramai.engine.TramaiEngine").log(
                 System.Logger.Level.WARNING,
-                "Engine-owned coroutine failed after close or abandonment",
-                error,
+                "Engine-owned coroutine failed after close or abandonment (type: ${error::class.qualifiedName})",
             )
         },
     )
@@ -601,11 +603,14 @@ class TramaiEngine(
                 // Wait for the engine-owned hierarchy AND every tracked
                 // invocation: cancellation is a request, not termination —
                 // cleanup (e.g. NonCancellable finally blocks) must complete
-                // before close() returns. Caller-parented invocation jobs run
-                // on the caller's dispatcher; joining is safe as long as
-                // close() is not called from a coroutine dispatched on that
-                // same single-threaded dispatcher (documented caller
-                // constraint, matching the self-close marker guard below).
+                // before close() returns. Invocation jobs run on the engine's
+                // own dispatcher (lifecycleScope's Dispatchers.Default; the
+                // caller's ContinuationInterceptor is stripped at launch so a
+                // single-threaded caller loop can't be blocked by close()),
+                // so joining is safe as long as close() is not called from a
+                // coroutine dispatched on that same engine dispatcher
+                // (documented caller constraint, matching the self-close
+                // marker guard below).
                 runBlocking {
                     lifecycleJob.join()
                     tracked.forEach { it.join() }
@@ -855,8 +860,11 @@ internal class TramaiInvocationHandler(
             // (including the provider stream's cleanup), and close() joins
             // lifecycleJob — so the collection has terminated before close()
             // returns. Chunks are bridged to the caller's emit through a
-            // channel (emit itself must stay in the collector's coroutine).
-            val chunks = kotlinx.coroutines.channels.Channel<StreamChunk>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            // RENDEZVOUS channel: emit must stay in the collector's coroutine
+            // (SafeCollector invariant), and a rendezvous keeps Flow
+            // backpressure semantics — a slow caller blocks the provider
+            // instead of letting it race ahead into unbounded buffering.
+            val chunks = kotlinx.coroutines.channels.Channel<StreamChunk>(kotlinx.coroutines.channels.Channel.RENDEZVOUS)
             val collectFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
             val collectJob = lifecycleScope.launch {
                 try {
@@ -928,13 +936,28 @@ internal class TramaiInvocationHandler(
                     }
 
                     chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // The engine closed (or the collector stopped): terminate
+                    // the collection job normally; the invokeOnCompletion
+                    // below closes the channel with the cancellation cause.
+                    throw e
                 } catch (failure: Throwable) {
+                    // Surface the failure to the collector WITHOUT rethrowing
+                    // it here: rethrowing would let an arbitrary (possibly
+                    // sensitive, externally supplied) throwable reach the
+                    // lifecycle scope's CoroutineExceptionHandler and the
+                    // normal logger. The collector rethrows it after the
+                    // channel drains.
                     collectFailure.set(failure)
-                    throw failure
-                } finally {
-                    chunks.close()
                 }
             }
+            // Channel termination depends on JOB completion, not on the
+            // coroutine body having started: if close() cancels lifecycleJob
+            // after the flow's open check but before this launch's body runs,
+            // the body's finally never executes — but invokeOnCompletion still
+            // fires, closing the channel so the collector terminates instead
+            // of hanging forever on receive.
+            collectJob.invokeOnCompletion { cause -> chunks.close(cause) }
             try {
                 for (chunk in chunks) {
                     check(!isClosed.get()) { "Tramai runtime is closed" }

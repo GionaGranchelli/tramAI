@@ -473,6 +473,80 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `stream start racing close never hangs the collector`() = runBlocking {
+        // Force the admission race deterministically: the flow's open check
+        // passes, then close() cancels lifecycleJob BEFORE the collection
+        // coroutine body begins executing. Channel termination must come from
+        // job completion (invokeOnCompletion), not from the body's finally.
+        repeat(200) { iteration ->
+            val provider = NamedStreamingProvider("p") {
+                flow {
+                    emit(StreamChunk.Token("first"))
+                    awaitCancellation()
+                }
+            }
+            val registry = ProviderRegistry.builder()
+                .provider("p", provider)
+                .model("claude-sonnet-4-20250514", "p")
+                .build()
+            val engine = TramaiEngine(providerRegistry = registry)
+            val service = engine.create<StreamingService>()
+
+            val collectionDone = CompletableDeferred<Unit>()
+            val collection = async {
+                runCatching { service.stream("invoice-$iteration").collect {} }
+                collectionDone.complete(Unit)
+            }
+            // Close immediately: either the collection won (tracked + joined)
+            // or close() won (launch rejected / cancelled pre-start). Either
+            // way the collector must terminate — never hang.
+            engine.close()
+            withTimeout(5_000) { collectionDone.await() }
+            collection.await()
+        }
+    }
+
+    @Test
+    fun `streaming bridge preserves backpressure when the collector is slow`() = runBlocking {
+        val emitted = java.util.concurrent.atomic.AtomicInteger(0)
+        val collectorGate = CompletableDeferred<Unit>()
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                var i = 0
+                while (true) {
+                    emit(StreamChunk.Token("chunk-${i++}"))
+                    emitted.incrementAndGet()
+                }
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val firstChunk = CompletableDeferred<Unit>()
+        val collection = async {
+            service.stream("invoice-123").collect {
+                if (!firstChunk.isCompleted) firstChunk.complete(Unit)
+                collectorGate.await()
+            }
+        }
+        firstChunk.await()
+        // The collector is deliberately blocked after chunk 1. With a
+        // rendezvous bridge the provider cannot race ahead producing chunk
+        // 2..N (UNLIMITED would let it buffer unboundedly).
+        delay(300)
+        assertThat(emitted.get()).isEqualTo(1)
+        collectorGate.complete(Unit)
+        engine.close()
+        // Collection is terminated by close() (rendezvous bridge cancelled
+        // through lifecycleJob) — the CE is the expected termination signal.
+        runCatching { collection.await() }
+    }
+
+    @Test
     fun `supports blocking interfaces`() {
         val provider = RecordingProvider { ModelResponse(content = "summary") }
         val engine = TramaiEngine(provider)
