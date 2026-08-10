@@ -357,7 +357,9 @@ class TramaiEngineTest {
 
         // The stream must not deliver the second chunk after close: either the
         // collection failed with the fixed lifecycle error, or it stopped
-        // without the post-close chunk.
+        // without the post-close chunk. The first chunk was provably delivered
+        // (firstChunkDelivered completes only after a chunk arrives).
+        assertThat(chunks.map { it }).contains(StreamChunk.Token("first"))
         assertThat(chunks.map { it }).doesNotContain(StreamChunk.Token("second"))
         if (terminal != null) {
             assertThat(terminal)
