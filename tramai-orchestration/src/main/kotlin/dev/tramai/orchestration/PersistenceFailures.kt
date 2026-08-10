@@ -45,9 +45,11 @@ data class PersistenceFailureDiagnosticEvent(
  * Public, diagnostic-only view of a corrupt persisted payload.
  *
  * An external [PersistenceFailureDiagnosticObserver] receives the internal
- * corrupt carrier as [PersistenceFailureDiagnosticEvent.failure]; casting it
- * to this interface is the only public way to read the raw payload that failed
- * to decode. The payload is never forwarded to caller-visible exceptions, logs,
+ * corrupt carrier in [PersistenceFailureDiagnosticEvent.failure] (directly for
+ * normal corruption events; as the cause chain of an internal marker such as
+ * [CheckpointDmlFailure] for fenced JDBC DML). Casting the reachable carrier to
+ * this interface is the only public way to read the raw payload that failed to
+ * decode. The payload is never forwarded to caller-visible exceptions, logs,
  * audit, or telemetry.
  */
 interface PersistenceCorruptionDetail {
@@ -86,6 +88,15 @@ internal class CheckpointDmlFailure(
 internal class LeaseReadPhaseFailure(
     val raw: Throwable,
 ) : RuntimeException("Lease read phase failed", raw)
+
+/**
+ * Marker raised when a lease DELETE phase fails inside an operation whose
+ * default code would be wrong (e.g. expired-lease cleanup during LOAD/RENEW).
+ * The failing phase is DELETE_FAILED; the outer operation context is preserved.
+ */
+internal class LeaseDeletePhaseFailure(
+    val raw: Throwable,
+) : RuntimeException("Lease delete phase failed", raw)
 
 internal class CorruptStepAttemptException(
     message: String,
@@ -222,10 +233,7 @@ internal suspend fun <T> persistenceBoundary(
     // the sanitized CE could be returned. The docs contract is that genuine
     // cancellation is rethrown and not emitted as an ordinary persistence
     // diagnostic.
-    if (
-        (error.cause != null && error.cause !is CancellationException) ||
-        error.suppressed.any { it !is CancellationException }
-    ) {
+    if (error.hasUnsafeCancellationDetail()) {
         throw sanitizePersistenceCancellation(error)
     }
     throw error
@@ -259,6 +267,17 @@ internal suspend fun <T> persistenceBoundary(
     if (error is LeaseReadPhaseFailure) {
         error.rethrowIfCancellation()
         val code = PersistenceFailureCode.READ_FAILED
+        deliverPersistenceFailure(
+            diagnosticObserver,
+            PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
+        )
+        throw safePersistenceFailure(resourceKind, operation, code)
+    }
+    // A lease DELETE phase (expired-lease cleanup) failed inside an operation
+    // whose default would be READ/WRITE_FAILED. The phase picks DELETE_FAILED.
+    if (error is LeaseDeletePhaseFailure) {
+        error.rethrowIfCancellation()
+        val code = PersistenceFailureCode.DELETE_FAILED
         deliverPersistenceFailure(
             diagnosticObserver,
             PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
@@ -344,9 +363,39 @@ private fun reconstructSafePersistenceFailure(error: Throwable): RuntimeExceptio
 private fun sanitizePersistenceCancellation(error: CancellationException): CancellationException {
     // Fixed framework text only: a JDBC driver message can embed SQL or paths.
     val sanitized = CancellationException("Workflow persistence operation cancelled")
-    sanitized.addSuppressed(SanitizedCleanupDiagnosticException())
+    sanitized.addSuppressed(PersistenceCleanupDiagnosticException())
     return sanitized
 }
+
+/**
+ * True when the throwable graph reachable from [this] (via cause and suppressed,
+ * cycle-safe) contains any node that is not a [CancellationException]. A
+ * framework JobCancellationException chain is all-CE and passes through
+ * untouched; a raw SQLException/IOException nested anywhere in the graph
+ * (direct or indirect child) is JDBC cleanup contamination and must be
+ * sanitized. Mirrors the recursive leak-inspection semantics of the tests.
+ */
+private fun Throwable.hasUnsafeCancellationDetail(
+): Boolean = hasUnsafeCancellationDetail(ArrayList())
+
+private fun Throwable.hasUnsafeCancellationDetail(
+    seen: MutableList<Throwable>,
+): Boolean {
+    if (seen.any { it === this }) return false
+    seen += this
+    if (this !is CancellationException) return true
+    return (cause?.hasUnsafeCancellationDetail(seen) == true) ||
+        suppressed.any { it.hasUnsafeCancellationDetail(seen) }
+}
+
+/**
+ * Fixed-text marker for persistence-cleanup diagnostics attached to a sanitized
+ * CancellationException. Deliberately distinct from the process-cleanup marker
+ * so a cancelled JDBC persistence operation never mentions "Process cleanup".
+ */
+internal class PersistenceCleanupDiagnosticException : RuntimeException(
+    "Persistence cleanup had diagnostics",
+)
 
 private fun workflowPersistenceFailureMessage(code: PersistenceFailureCode): String = when (code) {
     PersistenceFailureCode.READ_FAILED -> "Workflow persistence read failed"

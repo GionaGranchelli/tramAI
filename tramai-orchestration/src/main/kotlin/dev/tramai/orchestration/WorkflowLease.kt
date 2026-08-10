@@ -242,12 +242,19 @@ class InMemoryWorkflowLeaseStore(
     }
 
     override suspend fun updateHeartbeat(workerId: String) {
-        // Unknown-worker is a caller error, not a persistence failure (P2-3).
-        require(workers.containsKey(workerId)) { "Worker '$workerId' is not registered" }
-        persistenceBoundary(PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
-            val existing = workers.getValue(workerId)
-            workers[workerId] = existing.copy(lastHeartbeatEpochMillis = clockMillis())
-        } }
+        // clockMillis() can throw (user-supplied) — sanitize that failure. The
+        // existence check and update must stay ONE atomic monitor operation
+        // (P2-1: no unsynchronized LinkedHashMap read, no check-then-act race
+        // with unregisterWorker); the unknown-worker IllegalArgumentException
+        // surfaces from inside the monitor, outside any persistence boundary.
+        val now = persistenceBoundary(
+            PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        ) { clockMillis() }
+        synchronized(monitor) {
+            val existing = workers[workerId]
+                ?: throw IllegalArgumentException("Worker '$workerId' is not registered")
+            workers[workerId] = existing.copy(lastHeartbeatEpochMillis = now)
+        }
     }
 
     override suspend fun unregisterWorker(workerId: String) {

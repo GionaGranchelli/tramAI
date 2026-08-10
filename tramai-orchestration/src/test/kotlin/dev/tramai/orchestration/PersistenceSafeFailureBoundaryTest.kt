@@ -322,7 +322,7 @@ class PersistenceSafeFailureBoundaryTest {
             // postcondition ensureActive() would throw under parent cancellation),
             // only the sanitized CE with the fixed cleanup marker.
             assertThat(observer.events).isEmpty()
-            assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+            assertThat(thrown!!.suppressed.single()).isInstanceOf(PersistenceCleanupDiagnosticException::class.java)
         }
     }
 
@@ -343,7 +343,29 @@ class PersistenceSafeFailureBoundaryTest {
             assertThat(thrown).isInstanceOf(CancellationException::class.java)
             assertNoSecret(thrown, SECRET_SQL)
             assertThat(observer.events).isEmpty()
-            assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+            assertThat(thrown!!.suppressed.single()).isInstanceOf(PersistenceCleanupDiagnosticException::class.java)
+        }
+    }
+
+    @Test
+    fun `nested cancellation with raw suppressed sql in cause graph is sanitized for the caller`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val inner = CancellationException("inner").also { it.addSuppressed(SQLException(SECRET_SQL)) }
+            val outer = CancellationException("outer").also { it.initCause(inner) }
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        throw outer
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(observer.events).isEmpty()
+            assertThat(thrown!!.suppressed.single()).isInstanceOf(PersistenceCleanupDiagnosticException::class.java)
         }
     }
 
@@ -423,6 +445,123 @@ class PersistenceSafeFailureBoundaryTest {
         }
     }
 
+    @Test
+    fun `lease delete phase inside load is classified delete failed`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, observer) {
+                        throw LeaseDeletePhaseFailure(IOException(SECRET_PATH))
+                    }
+                }
+            }
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.DELETE_FAILED)
+            assertThat(observer.events.single().operation).isEqualTo(PersistenceOperation.LOAD)
+        }
+    }
+
+    @Test
+    fun `updateHeartbeat check and update stay atomic against unregister`() {
+        runBlocking {
+            val store = InMemoryWorkflowLeaseStore(
+                clockMillis = { 1000L },
+                observer = RecordingPersistenceObserver(),
+            )
+            store.registerWorker("w1", "pool", "v1", setOf(), "host")
+            // Concurrent heartbeats and unregisters; the observable outcomes are
+            // only success or IllegalArgumentException (unknown worker) — never
+            // NoSuchElementException or a persistence failure from a
+            // check-then-act race.
+            val errors = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
+            val jobs = (1..8).map { worker ->
+                launch {
+                    repeat(100) { i ->
+                        if (i % 2 == 0) {
+                            try {
+                                store.updateHeartbeat("w1")
+                            } catch (t: Throwable) {
+                                errors.add(t)
+                            }
+                            store.registerWorker("w1", "pool", "v1", setOf(), "host")
+                        } else {
+                            try {
+                                store.updateHeartbeat("w1")
+                            } catch (t: Throwable) {
+                                errors.add(t)
+                            }
+                            store.registerWorker("w1", "pool", "v1", setOf(), "host")
+                        }
+                    }
+                }
+            }
+            jobs.forEach { it.join() }
+            errors.forEach { assertThat(it).isInstanceOf(IllegalArgumentException::class.java) }
+        }
+    }
+
+    @Test
+    fun `updateHeartbeat unknown worker throws IllegalArgumentException not persistence failure`() {
+        runBlocking {
+            val store = InMemoryWorkflowLeaseStore(
+                clockMillis = { 1000L },
+                observer = RecordingPersistenceObserver(),
+            )
+            val thrown = catchThrowable { runBlocking { store.updateHeartbeat("unknown") } }
+            assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `negative stale threshold throws IllegalArgumentException not persistence failure`() {
+        runBlocking {
+            val store = InMemoryWorkflowLeaseStore(
+                clockMillis = { 1000L },
+                observer = RecordingPersistenceObserver(),
+            )
+            val thrown = catchThrowable { runBlocking { store.listStaleWorkers(-1) } }
+            assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `lease delete phase inside renew is classified delete failed`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, observer) {
+                        throw LeaseDeletePhaseFailure(IOException(SECRET_PATH))
+                    }
+                }
+            }
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.DELETE_FAILED)
+            assertThat(observer.events.single().operation).isEqualTo(PersistenceOperation.RENEW)
+        }
+    }
+
+    @Test
+    fun `lease read phase inside claim is classified read failed`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, observer) {
+                        throw LeaseReadPhaseFailure(IOException(SECRET_PATH))
+                    }
+                }
+            }
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.READ_FAILED)
+            assertThat(observer.events.single().operation).isEqualTo(PersistenceOperation.CLAIM)
+        }
+    }
+
     private class FailingLoadCheckpointStore(
         private val delegate: InMemoryWorkflowCheckpointStore,
         private val failure: Throwable,
@@ -498,7 +637,7 @@ class PersistenceSafeFailureBoundaryTest {
             assertThat(terminal).isInstanceOf(CancellationException::class.java)
             assertNoSecret(terminal, SECRET_SQL)
             assertThat(terminal!!.suppressed).hasSize(1)
-            assertThat(terminal.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+            assertThat(terminal.suppressed.single()).isInstanceOf(PersistenceCleanupDiagnosticException::class.java)
             assertThat(observer.events).isEmpty()
         }
     }

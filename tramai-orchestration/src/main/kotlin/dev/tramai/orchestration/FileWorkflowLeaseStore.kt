@@ -76,7 +76,7 @@ class FileWorkflowLeaseStore private constructor(
             if (existing == null) {
                 null
             } else if (isExpired(existing)) {
-                Files.deleteIfExists(leasePath)
+                deleteLeaseIfPresent(leasePath)
                 null
             } else {
                 existing
@@ -124,7 +124,7 @@ class FileWorkflowLeaseStore private constructor(
             val existing = readLeaseIfPresent(leasePath)
                 ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             if (isExpired(existing)) {
-                Files.deleteIfExists(leasePath)
+                deleteLeaseIfPresent(leasePath)
                 throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
@@ -145,13 +145,13 @@ class FileWorkflowLeaseStore private constructor(
             withFileLockCancellable(leasePath) {
                 val existing = readLeaseIfPresent(leasePath) ?: return@withFileLockCancellable
                 if (isExpired(existing)) {
-                    Files.deleteIfExists(leasePath)
+                    deleteLeaseIfPresent(leasePath)
                     return@withFileLockCancellable
                 }
                 if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
                 }
-                Files.deleteIfExists(leasePath)
+                deleteLeaseIfPresent(leasePath)
             }
         }
     }
@@ -202,6 +202,13 @@ class FileWorkflowLeaseStore private constructor(
     } catch (error: Throwable) {
         error.rethrowIfCancellation()
         throw LeaseReadPhaseFailure(error)
+    }
+
+    private fun deleteLeaseIfPresent(path: Path): Boolean = try {
+        Files.deleteIfExists(path)
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        throw LeaseDeletePhaseFailure(error)
     }
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 
