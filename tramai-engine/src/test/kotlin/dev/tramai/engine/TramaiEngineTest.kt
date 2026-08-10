@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.AiRange
 import dev.tramai.core.annotations.ConversationId
@@ -268,6 +269,54 @@ class TramaiEngineTest {
                 { assertThat(it).startsWith("result:") },
                 { assertThat(it).isEqualTo("error:IllegalStateException:Tramai runtime is closed") },
             )
+    }
+
+    @Test
+    fun `registerService and resumeApproval fail fast on a closed engine`() {
+        val engine = TramaiEngine(RecordingProvider { ModelResponse(content = "unused") })
+
+        engine.close()
+
+        assertThatThrownBy { engine.registerService(SuspendAnalyzer::class) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        // Guard fires before any store access, so placeholder command values suffice.
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = "any",
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = ApprovalToken.parsePresented("token"),
+                        resumedBy = "test",
+                    ),
+                )
+            }
+        }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `streaming flow collected after close fails before provider executes`() {
+        val provider = NamedStreamingProvider("p") {
+            flow { emit(StreamChunk.Token("unused")) }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val flow = service.stream("invoice-123")
+        engine.close()
+
+        assertThatThrownBy { runBlocking { flow.toList() } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        assertThat(provider.streamRequests).isEmpty()
     }
 
     @Test

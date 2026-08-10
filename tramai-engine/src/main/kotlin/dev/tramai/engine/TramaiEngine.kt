@@ -460,6 +460,7 @@ class TramaiEngine(
      * Conflicting registration (same key, different digest) fails closed.
      */
     fun registerService(serviceType: KClass<*>) {
+        check(!closed.get()) { "Tramai runtime is closed" }
         val definition = ServiceDefinition.create(
             serviceType = serviceType,
             toolRegistry = toolRegistry,
@@ -522,6 +523,7 @@ class TramaiEngine(
      * @throws dev.tramai.core.exception.ApprovalAuthorizationException on store-level failures.
      */
     suspend fun resumeApproval(command: ResumeApprovalCommand): Any? {
+        check(!closed.get()) { "Tramai runtime is closed" }
         // P1-2: Check continuation status BEFORE loading metadata
         // (post-completion cleanup removes metadata, but continuation is authoritative)
         val store = approvalContinuationStore
@@ -724,7 +726,14 @@ internal class TramaiInvocationHandler(
         val launched = synchronized(activeInvocationJobs) {
             check(!isClosed.get()) { "Tramai runtime is closed" }
             val job = scope.launch(continuation.context + engineThreadMarker.asContextElement(true)) {
-                val result = runCatching { execute(operation, callArguments, conversationId) }
+                var result = runCatching { execute(operation, callArguments, conversationId) }
+                // Never deliver a success computed against a closed engine: the
+                // engine may have closed while the invocation was in flight
+                // (caller-parented job, not joined by close()). The caller sees
+                // the fixed lifecycle error instead (mirrors the blocking path).
+                if (isClosed.get() && result.isSuccess) {
+                    result = Result.failure(IllegalStateException("Tramai runtime is closed"))
+                }
                 resumed.set(result)
                 continuation.resumeWith(result)
             }
@@ -784,6 +793,7 @@ internal class TramaiInvocationHandler(
             ?: (emptyList<Message>() to initialMessages)
 
         return flow {
+            check(!isClosed.get()) { "Tramai runtime is closed" }
             val correlationId = java.util.UUID.randomUUID().toString()
             enforceBeforeProviderResolution(operation, correlationId, securityContext)
             val candidates = providerRegistry.resolveCandidates(operation.operation)
