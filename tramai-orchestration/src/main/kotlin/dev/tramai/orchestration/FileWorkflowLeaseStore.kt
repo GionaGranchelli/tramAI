@@ -1,4 +1,6 @@
 package dev.tramai.orchestration
+
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -191,10 +193,15 @@ class FileWorkflowLeaseStore private constructor(
         workflowName: String,
         workflowId: String,
     ): Path = pathStrategy.resolve(rootDirectory, workflowName, workflowId)
-    private fun readLeaseIfPresent(path: Path): WorkflowLease? = if (Files.exists(path)) {
-        decodeLease(Files.readString(path))
-    } else {
-        null
+    private fun readLeaseIfPresent(path: Path): WorkflowLease? = try {
+        if (Files.exists(path)) {
+            decodeLease(Files.readString(path))
+        } else {
+            null
+        }
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        throw LeaseReadPhaseFailure(error)
     }
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 

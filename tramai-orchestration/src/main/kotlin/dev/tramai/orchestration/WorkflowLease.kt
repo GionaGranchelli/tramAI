@@ -242,9 +242,10 @@ class InMemoryWorkflowLeaseStore(
     }
 
     override suspend fun updateHeartbeat(workerId: String) {
+        // Unknown-worker is a caller error, not a persistence failure (P2-3).
+        require(workers.containsKey(workerId)) { "Worker '$workerId' is not registered" }
         persistenceBoundary(PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
-            val existing = workers[workerId]
-                ?: throw IllegalArgumentException("Worker '$workerId' is not registered")
+            val existing = workers.getValue(workerId)
             workers[workerId] = existing.copy(lastHeartbeatEpochMillis = clockMillis())
         } }
     }
@@ -261,17 +262,18 @@ class InMemoryWorkflowLeaseStore(
         workers.values.sortedBy { it.workerId }
     } }
 
-    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> = persistenceBoundary(
-        PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
-    ) { synchronized(monitor) {
-        require(staleThresholdMillis >= 0) {
-            "staleThresholdMillis must be zero or greater"
-        }
-        val cutoff = clockMillis() - staleThresholdMillis
-        workers.values
-            .filter { it.lastHeartbeatEpochMillis <= cutoff }
-            .sortedBy { it.workerId }
-    } }
+    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> {
+        // Negative threshold is a caller error, not a persistence failure (P2-3).
+        require(staleThresholdMillis >= 0) { "staleThresholdMillis must be zero or greater" }
+        return persistenceBoundary(
+            PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+        ) { synchronized(monitor) {
+            val cutoff = clockMillis() - staleThresholdMillis
+            workers.values
+                .filter { it.lastHeartbeatEpochMillis <= cutoff }
+                .sortedBy { it.workerId }
+        } }
+    }
 
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 

@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -317,7 +318,10 @@ class PersistenceSafeFailureBoundaryTest {
 
             assertThat(thrown).isInstanceOf(CancellationException::class.java)
             assertNoSecret(thrown, SECRET_SQL)
-            assertThat(observer.events.single().failure).isSameAs(cancelled)
+            // Genuine-cancellation path: no observer delivery (delivery's
+            // postcondition ensureActive() would throw under parent cancellation),
+            // only the sanitized CE with the fixed cleanup marker.
+            assertThat(observer.events).isEmpty()
             assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         }
     }
@@ -338,7 +342,7 @@ class PersistenceSafeFailureBoundaryTest {
 
             assertThat(thrown).isInstanceOf(CancellationException::class.java)
             assertNoSecret(thrown, SECRET_SQL)
-            assertThat(observer.events.single().failure).isSameAs(cancelled)
+            assertThat(observer.events).isEmpty()
             assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
         }
     }
@@ -467,6 +471,165 @@ class PersistenceSafeFailureBoundaryTest {
             assertNoSecret(thrown, SECRET_SQL)
             assertThat(checkpointObserver.events.single().resourceKind).isEqualTo(PersistenceResourceKind.CHECKPOINT)
             assertThat(leaseObserver.events).isEmpty()
+        }
+    }
+
+    @Test
+    fun `sanitized cancellation escapes even when coroutine context is already cancelled`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val contaminated = CancellationException("parent").also { it.addSuppressed(SQLException(SECRET_SQL)) }
+            val outer = CoroutineScope(Job())
+            val outcome = CompletableDeferred<Throwable?>()
+
+            outer.launch {
+                try {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        currentCoroutineContext().cancel()
+                        throw contaminated
+                    }
+                    outcome.complete(null)
+                } catch (error: Throwable) {
+                    outcome.complete(error)
+                }
+            }
+
+            val terminal = withTimeout(5_000) { outcome.await() }
+            assertThat(terminal).isInstanceOf(CancellationException::class.java)
+            assertNoSecret(terminal, SECRET_SQL)
+            assertThat(terminal!!.suppressed).hasSize(1)
+            assertThat(terminal.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+            assertThat(observer.events).isEmpty()
+        }
+    }
+
+    @Test
+    fun `corrupt checkpoint inside fenced dml is classified corrupted data`() {
+        runBlocking {
+            val checkpointObserver = RecordingPersistenceObserver()
+            val leaseObserver = RecordingPersistenceObserver()
+            val corrupt = CorruptCheckpointException("corrupt", "payload-$SECRET_SQL")
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(
+                        PersistenceResourceKind.LEASE,
+                        PersistenceOperation.SAVE,
+                        leaseObserver,
+                        checkpointDiagnosticObserver = checkpointObserver,
+                    ) { throw CheckpointDmlFailure(corrupt) }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(checkpointObserver.events.single().failureCode).isEqualTo(PersistenceFailureCode.CORRUPTED_DATA)
+            assertThat(leaseObserver.events).isEmpty()
+        }
+    }
+
+    @Test
+    fun `external diagnostic observer reads corrupt payload through public interface`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val corrupt = CorruptCheckpointException("corrupt", "payload-$SECRET_SQL")
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, observer) {
+                        throw corrupt
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            val detail = observer.events.single().failure as? PersistenceCorruptionDetail
+            assertThat(detail).isNotNull
+            assertThat(detail!!.corruptPayload).contains(SECRET_SQL)
+        }
+    }
+
+    @Test
+    fun `fenced jdbc save preconditions remain caller errors`() {
+        runBlocking {
+            val leaseStore = JdbcWorkflowLeaseStore(SeededSqlDataSource(SQLException(SECRET_SQL)))
+            val nonJdbc = catchThrowable {
+                runBlocking {
+                    leaseStore.saveCheckpointIfLeaseOwner(InMemoryWorkflowCheckpointStore(), testCheckpoint(), null, testLease())
+                }
+            }
+            val mismatched = catchThrowable {
+                runBlocking {
+                    leaseStore.saveCheckpointIfLeaseOwner(
+                        JdbcWorkflowCheckpointStore(SeededSqlDataSource(SQLException(SECRET_SQL))),
+                        testCheckpoint(),
+                        null,
+                        testLease(),
+                    )
+                }
+            }
+
+            assertThat(nonJdbc).isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(mismatched).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `in memory lease caller preconditions remain caller errors`() {
+        runBlocking {
+            val store = InMemoryWorkflowLeaseStore()
+            val unknownWorker = catchThrowable { runBlocking { store.updateHeartbeat("unknown") } }
+            val negativeThreshold = catchThrowable { runBlocking { store.listStaleWorkers(-1) } }
+
+            assertThat(unknownWorker).isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(negativeThreshold).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `jdbc lease claim read failure is classified read failed not write failed`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val store = JdbcWorkflowLeaseStore(SeededSqlDataSource(SQLException(SECRET_SQL)))
+            store.persistenceFailureDiagnosticObserver = observer
+
+            val thrown = catchThrowable {
+                runBlocking { store.claim("wf", "run-1", "owner", null, 1_000) }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.READ_FAILED)
+            assertThat(observer.events.single().operation).isEqualTo(PersistenceOperation.CLAIM)
+        }
+    }
+
+    @Test
+    fun `lease renew read failure preserves renew operation`() {
+        assertLeaseReadFailure(PersistenceOperation.RENEW)
+    }
+
+    @Test
+    fun `lease release read failure preserves release operation`() {
+        assertLeaseReadFailure(PersistenceOperation.RELEASE)
+    }
+
+    private fun assertLeaseReadFailure(operation: PersistenceOperation) {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.LEASE, operation, observer) {
+                        throw LeaseReadPhaseFailure(IOException(SECRET_PATH))
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.READ_FAILED)
+            assertThat(observer.events.single().operation).isEqualTo(operation)
         }
     }
 

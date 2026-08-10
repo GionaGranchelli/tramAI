@@ -121,27 +121,34 @@ class JdbcWorkflowLeaseStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ): WorkflowCheckpoint = persistenceBoundary(
-        PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
-        checkpointDiagnosticObserver = (checkpointStore as? JdbcWorkflowCheckpointStore)?.persistenceFailureDiagnosticObserver,
-    ) {
+    ): WorkflowCheckpoint {
+        // Caller/framework preconditions stay OUTSIDE the boundary: a wrong
+        // store type or DataSource mismatch is a caller error (IllegalArgumentException),
+        // not a persistence failure (the P2-3 finding). Both fences must agree.
         val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
             ?: throw unsupportedFence(checkpointStore)
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        executeJdbcCancellable(dataSource, transactional = true) { conn ->
-            lockLeaseRow(conn, expectedLease)
-            // Checkpoint DML belongs to the checkpoint store's diagnostic
-            // channel, not the lease store's: mark the raw failure so the outer
-            // lease boundary routes it to jdbcCheckpointStore's observer with
-            // resourceKind=CHECKPOINT. Lease-row/fence failures stay on the
-            // lease channel (exactly one event per failing phase).
-            try {
-                jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
-            } catch (error: Throwable) {
-                error.rethrowIfCancellation()
-                throw CheckpointDmlFailure(error)
+        return persistenceBoundary(
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.SAVE,
+            persistenceFailureDiagnosticObserver,
+            checkpointDiagnosticObserver = jdbcCheckpointStore.persistenceFailureDiagnosticObserver,
+        ) {
+            executeJdbcCancellable(dataSource, transactional = true) { conn ->
+                lockLeaseRow(conn, expectedLease)
+                // Checkpoint DML belongs to the checkpoint store's diagnostic
+                // channel, not the lease store's: mark the raw failure so the outer
+                // lease boundary routes it to jdbcCheckpointStore's observer with
+                // resourceKind=CHECKPOINT. Lease-row/fence failures stay on the
+                // lease channel (exactly one event per failing phase).
+                try {
+                    jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    throw CheckpointDmlFailure(error)
+                }
             }
         }
     }
@@ -247,16 +254,21 @@ class JdbcWorkflowLeaseStore(
         connection: java.sql.Connection,
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = connection.prepareStatement(selectSql()).use { statement ->
-        statement.setString(1, workflowName)
-        statement.setString(2, workflowId)
-        statement.executeQuery().use { resultSet ->
-            if (!resultSet.next()) {
-                null
-            } else {
-                resultSet.toLease()
+    ): WorkflowLease? = try {
+        connection.prepareStatement(selectSql()).use { statement ->
+            statement.setString(1, workflowName)
+            statement.setString(2, workflowId)
+            statement.executeQuery().use { resultSet ->
+                if (!resultSet.next()) {
+                    null
+                } else {
+                    resultSet.toLease()
+                }
             }
         }
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        throw LeaseReadPhaseFailure(error)
     }
     private suspend fun deleteExpiredLease(lease: WorkflowLease) {
         executeJdbcCancellable(dataSource) { conn ->

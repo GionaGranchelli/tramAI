@@ -692,6 +692,10 @@ public abstract interface class dev/tramai/orchestration/PartitionAssignmentStra
 	public abstract fun ownsPartition (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public abstract interface class dev/tramai/orchestration/PersistenceCorruptionDetail {
+	public abstract fun getCorruptPayload ()Ljava/lang/String;
+}
+
 public final class dev/tramai/orchestration/PersistenceFailureCode : java/lang/Enum {
 	public static final field CONFLICT Ldev/tramai/orchestration/PersistenceFailureCode;
 	public static final field CORRUPTED_DATA Ldev/tramai/orchestration/PersistenceFailureCode;

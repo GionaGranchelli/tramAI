@@ -41,6 +41,20 @@ data class PersistenceFailureDiagnosticEvent(
     val failure: Throwable,
 )
 
+/**
+ * Public, diagnostic-only view of a corrupt persisted payload.
+ *
+ * An external [PersistenceFailureDiagnosticObserver] receives the internal
+ * corrupt carrier as [PersistenceFailureDiagnosticEvent.failure]; casting it
+ * to this interface is the only public way to read the raw payload that failed
+ * to decode. The payload is never forwarded to caller-visible exceptions, logs,
+ * audit, or telemetry.
+ */
+interface PersistenceCorruptionDetail {
+    /** Raw persisted payload that failed to decode (diagnostic-only). */
+    val corruptPayload: String?
+}
+
 object NoOpPersistenceFailureDiagnosticObserver : PersistenceFailureDiagnosticObserver {
     override suspend fun onFailure(event: PersistenceFailureDiagnosticEvent) = Unit
 }
@@ -48,7 +62,9 @@ object NoOpPersistenceFailureDiagnosticObserver : PersistenceFailureDiagnosticOb
 internal class CorruptCheckpointException(
     message: String,
     val rawPayload: String?,
-) : RuntimeException(message)
+) : RuntimeException(message), PersistenceCorruptionDetail {
+    override val corruptPayload: String? get() = rawPayload
+}
 
 /**
  * Marker raised inside [executeJdbcCancellable]'s non-suspend block when the
@@ -60,11 +76,24 @@ internal class CheckpointDmlFailure(
     val raw: Throwable,
 ) : RuntimeException("Checkpoint DML failed", raw)
 
+/**
+ * Marker raised when a lease read phase fails inside a compound operation
+ * (CLAIM/RENEW/RELEASE perform reads before/during their mutation). The
+ * low-level failing phase chooses the failure code: the boundary classifies
+ * this as READ_FAILED while the outer operation (CLAIM/RENEW/RELEASE) supplies
+ * the operation context.
+ */
+internal class LeaseReadPhaseFailure(
+    val raw: Throwable,
+) : RuntimeException("Lease read phase failed", raw)
+
 internal class CorruptStepAttemptException(
     message: String,
     val rawPayload: String?,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : RuntimeException(message, cause), PersistenceCorruptionDetail {
+    override val corruptPayload: String? get() = rawPayload
+}
 
 /** General-purpose safe persistence failure for non-semantic persistence errors. */
 class WorkflowPersistenceFailureException(
@@ -185,18 +214,18 @@ internal suspend fun <T> persistenceBoundary(
     // stays cancellation, but a caller-visible CE must not carry raw
     // persistence internals. Genuine framework cancellation (a parent
     // JobCancellationException, possibly with framework-only children) passes
-    // through untouched and emits no diagnostic; only a CE carrying a real
-    // non-cancellation child (SQLException/IOException from JDBC cleanup) is
-    // sanitized — deliver the raw graph to the observer and rethrow a fresh CE
-    // with only a fixed cleanup marker.
+    // through untouched. Only a CE carrying a real non-cancellation child
+    // (SQLException/IOException from JDBC cleanup) is sanitized: construct a
+    // fresh fixed-text CE with a cleanup marker and throw it immediately.
+    // NOTE: no diagnostic delivery on this path — deliverPersistenceFailure ends
+    // with ensureActive(), which throws under genuine parent cancellation before
+    // the sanitized CE could be returned. The docs contract is that genuine
+    // cancellation is rethrown and not emitted as an ordinary persistence
+    // diagnostic.
     if (
         (error.cause != null && error.cause !is CancellationException) ||
         error.suppressed.any { it !is CancellationException }
     ) {
-        deliverPersistenceFailure(
-            diagnosticObserver,
-            PersistenceFailureDiagnosticEvent(resourceKind, operation, PersistenceFailureCode.READ_FAILED, error),
-        )
         throw sanitizePersistenceCancellation(error)
     }
     throw error
@@ -209,7 +238,14 @@ internal suspend fun <T> persistenceBoundary(
         error.rethrowIfCancellation()
         val checkpointObserver = checkpointDiagnosticObserver
             ?: throw IllegalArgumentException("CheckpointDmlFailure without checkpoint observer", error)
-        val code = error.raw.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation)
+        // Corrupt carriers are internal (no persistenceFailureCode); classify
+        // them explicitly so a corrupt read inside fenced DML stays
+        // CORRUPTED_DATA -> WorkflowCheckpointCorruptionException, not a generic
+        // WRITE/DELETE failure (the P2-2 finding).
+        val code = when (error.raw) {
+            is CorruptCheckpointException -> PersistenceFailureCode.CORRUPTED_DATA
+            else -> error.raw.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation)
+        }
         deliverPersistenceFailure(
             checkpointObserver,
             // Deliver the marker graph (raw cause + any cleanup suppressed
@@ -217,6 +253,17 @@ internal suspend fun <T> persistenceBoundary(
             PersistenceFailureDiagnosticEvent(PersistenceResourceKind.CHECKPOINT, operation, code, error),
         )
         throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, operation, code)
+    }
+    // A lease read phase inside a compound op (CLAIM/RENEW/RELEASE) failed.
+    // The phase picks the code (READ_FAILED); the outer op keeps its context.
+    if (error is LeaseReadPhaseFailure) {
+        error.rethrowIfCancellation()
+        val code = PersistenceFailureCode.READ_FAILED
+        deliverPersistenceFailure(
+            diagnosticObserver,
+            PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
+        )
+        throw safePersistenceFailure(resourceKind, operation, code)
     }
     if (error.persistenceFailureTrusted()) {
         // Never pass the same throwable instance across the boundary: JDBC
@@ -238,7 +285,15 @@ internal suspend fun <T> persistenceBoundary(
         throw reconstructSafePersistenceFailure(error)
     }
 
-    val code = classify(error) ?: error.persistenceFailureCode() ?: defaultPersistenceFailureCode(operation)
+    val code = classify(error) ?: error.persistenceFailureCode()
+        // Internal corrupt carriers carry no persistenceFailureCode; the store's
+        // classify lambda usually maps them, but the boundary must not depend on
+        // every call site passing one (the P2-4 finding).
+        ?: when (error) {
+            is CorruptCheckpointException, is CorruptStepAttemptException -> PersistenceFailureCode.CORRUPTED_DATA
+            else -> null
+        }
+        ?: defaultPersistenceFailureCode(operation)
     deliverPersistenceFailure(
         diagnosticObserver,
         PersistenceFailureDiagnosticEvent(resourceKind, operation, code, error),
