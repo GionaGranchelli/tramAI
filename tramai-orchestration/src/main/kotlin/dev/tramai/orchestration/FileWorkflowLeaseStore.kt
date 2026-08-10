@@ -14,6 +14,9 @@ class FileWorkflowLeaseStore private constructor(
     private val clockMillis: () -> Long = System::currentTimeMillis,
     private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
 
     constructor(
         rootDirectory: Path,
@@ -21,6 +24,15 @@ class FileWorkflowLeaseStore private constructor(
             DefaultWorkflowCheckpointPathStrategy("lease.properties"),
         clockMillis: () -> Long = System::currentTimeMillis,
     ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter)
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy,
+        clockMillis: () -> Long,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter) {
+        persistenceFailureDiagnosticObserver = observer
+    }
 
     internal companion object {
         fun forTest(
@@ -33,17 +45,31 @@ class FileWorkflowLeaseStore private constructor(
             clockMillis,
             atomicWriter,
         )
+
+        fun forTest(
+            rootDirectory: Path,
+            atomicWriter: AtomicFileWriter,
+            clockMillis: () -> Long = System::currentTimeMillis,
+            observer: PersistenceFailureDiagnosticObserver,
+        ) = FileWorkflowLeaseStore(
+            rootDirectory,
+            DefaultWorkflowCheckpointPathStrategy("lease.properties"),
+            clockMillis,
+            atomicWriter,
+        ).also { it.persistenceFailureDiagnosticObserver = observer }
     }
 
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? {
+    ): WorkflowLease? = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+    ) {
         val leasePath = leasePath(workflowName, workflowId)
         if (!Files.exists(leasePath)) {
-            return null
+            return@persistenceBoundary null
         }
-        return withFileLockCancellable(leasePath) {
+        withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
             if (existing == null) {
                 null
@@ -61,14 +87,14 @@ class FileWorkflowLeaseStore private constructor(
         ownerId: String,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
+    ) {
         val leasePath = leasePath(workflowName, workflowId)
-        return withFileLockCancellable(leasePath) {
+        withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
             if (existing != null && !isExpired(existing)) {
-                throw WorkflowLeaseConflictException(
-                    "Workflow '$workflowName' and workflowId='$workflowId' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
             }
             val now = clockMillis()
             val lease = WorkflowLease(
@@ -88,23 +114,19 @@ class FileWorkflowLeaseStore private constructor(
         lease: WorkflowLease,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
+    ) {
         val leasePath = leasePath(lease.workflowName, lease.workflowId)
-        return withFileLockCancellable(leasePath) {
+        withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
-                ?: throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
-                )
+                ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             if (isExpired(existing)) {
                 Files.deleteIfExists(leasePath)
-                throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' lease has expired before renewal",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             }
             val now = clockMillis()
             val renewed = existing.copy(
@@ -117,19 +139,17 @@ class FileWorkflowLeaseStore private constructor(
     }
     override suspend fun release(lease: WorkflowLease) {
         val leasePath = leasePath(lease.workflowName, lease.workflowId)
-        withFileLockCancellable(leasePath) {
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) { withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath) ?: return@withFileLockCancellable
             if (isExpired(existing)) {
                 Files.deleteIfExists(leasePath)
                 return@withFileLockCancellable
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
             }
             Files.deleteIfExists(leasePath)
-        }
+        } }
     }
 
     override suspend fun saveCheckpointIfLeaseOwner(
@@ -137,9 +157,11 @@ class FileWorkflowLeaseStore private constructor(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ): WorkflowCheckpoint {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+    ) {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        return withFileLockCancellableSuspending(leasePath) {
+        withFileLockCancellableSuspending(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
             checkpointStore.save(checkpoint, expectedRevision)
@@ -154,11 +176,11 @@ class FileWorkflowLeaseStore private constructor(
         expectedLease: WorkflowLease,
     ) {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        withFileLockCancellableSuspending(leasePath) {
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { withFileLockCancellableSuspending(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
             checkpointStore.delete(workflowName, workflowId, expectedRevision)
-        }
+        } }
     }
 
     private fun leasePath(
@@ -177,14 +199,10 @@ class FileWorkflowLeaseStore private constructor(
         current: WorkflowLease?,
     ) {
         if (current == null) {
-            throw StaleWorkflowLeaseException(
-                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
-            )
+            throw safeStaleWorkflowLeaseFailure()
         }
         if (current.leaseId != expectedLease.leaseId || current.ownerId != expectedLease.ownerId) {
-            throw StaleWorkflowLeaseException(
-                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${current.leaseId}' owned by '${current.ownerId}'",
-            )
+            throw safeStaleWorkflowLeaseFailure()
         }
     }
 }

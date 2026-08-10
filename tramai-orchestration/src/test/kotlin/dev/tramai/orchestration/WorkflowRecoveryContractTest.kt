@@ -1020,8 +1020,12 @@ class WorkflowRecoveryContractTest {
 
     @Test
     fun `decoding malformed recovery payload fails closed`() {
+        // decodeRecoveryState is internal; it fails closed with the internal
+        // corruption carrier. The public fixed-text
+        // WorkflowCheckpointCorruptionException is proven at the store boundary
+        // (PersistenceSafeFailureBoundaryTest).
         assertThatThrownBy { decodeRecoveryState("not-a-valid-properties-format") }
-            .isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
+            .isInstanceOf(CorruptCheckpointException::class.java)
         assertThat(decodeRecoveryState(null)).isSameAs(WorkflowRecoveryState.Normal)
     }
 

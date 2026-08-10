@@ -1,6 +1,6 @@
 # Safe Error Boundaries
 
-> **Status:** implemented for tool execution (PR #219), provider HTTP/transport failures (PR #222), external workflow steps incl. MCP/shell (PR #223), and structured-output failures (PR #224). Persistence remains a future slice.
+> **Status:** implemented for tool execution (PR #219), provider HTTP/transport failures (PR #222), external workflow steps incl. MCP/shell (PR #223), structured-output failures (PR #224), and persistence failures (PR #225). Epic 1.2 is complete.
 
 > **Structured-output note (PR #224):** engine-produced `StructuredOutputException` instances no longer populate `originalPrompt`, `lastRawResponse`, or `validationError` — those fields stay ABI-compatible but are intentionally null for built-in runtime failures. Raw detail flows only to `StructuredOutputFailureDiagnosticObserver`; `OperationObservation.onStructuredParseFailure` receives redacted/fixed text; OTel emits typed metadata only.
 
@@ -27,7 +27,7 @@ Tool failures are classified with stable machine-readable codes — never by par
 | `EXECUTION_FAILED` | `tool.execution.failed` | Tool execution failed |
 | `RETRY_EXHAUSTED` | `tool.execution.retry_exhausted` | Tool execution failed |
 
-Codes are domain-specific. `ToolFailureCode` covers tools, while `ProviderFailureCode` covers provider HTTP rejection, timeout, connection, transport, and unexpected failures. They classify diagnostic events and select fixed safe defaults; retry remains represented by the relevant domain contract rather than inferred from message text. Workflow, approval, persistence, and policy failures can gain their own code families without introducing a repository-wide "god enum".
+Codes are domain-specific. `ToolFailureCode` covers tools, `ProviderFailureCode` covers provider HTTP rejection, timeout, connection, transport, and unexpected failures, and `PersistenceFailureCode` covers persistence failures. They classify diagnostic events and select fixed safe defaults; retry remains represented by the relevant domain contract rather than inferred from message text. Approval and policy failures can gain their own code families without introducing a repository-wide "god enum".
 
 ## Tool results
 
@@ -92,6 +92,28 @@ Provider adapters use shared safe boundaries for HTTP and transport failures:
 
 Retry behavior remains structural: `statusCode`, `retryable`, and `retryAfterMillis` survive HTTP mapping, while transport categories select their established retryability. Cancellation input is rethrown before classification. Observer-thrown cancellation is swallowed only while the current coroutine remains active; cancellation of the enclosing job remains primary.
 
-## Scope and non-claims (PRs #219 and #222)
+## Persistence failures
 
-These slices do not complete Epic 1.2. Built-in HTTP, shell, MCP, Codex, and Hermes workflow steps now use the same safe-boundary shape; persistence and structured-output exception fields remain outside this slice. The work does not add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.
+Persistence uses typed context rather than exception text: `PersistenceFailureCode` classifies read, write, delete, list, conflict, and corrupted-data failures; `PersistenceResourceKind` identifies checkpoints, leases, step attempts, or the worker registry; and `PersistenceOperation` identifies the affected store operation.
+
+`PersistenceFailureDiagnosticObserver` receives a `PersistenceFailureDiagnosticEvent` containing that typed context and the original failure. It is diagnostic-only and fail-open: observer failures do not replace the safe persistence failure. Cancellation remains primary; genuine coroutine cancellation is rethrown and is not delivered as an ordinary diagnostic failure.
+
+Built-in public failures use fixed text only:
+
+- `Workflow checkpoint conflict`;
+- `Workflow lease conflict`;
+- `Persisted workflow checkpoint is invalid`;
+- `Persisted step-attempt record is invalid`;
+- `Workflow persistence read/write/delete/list failed`.
+
+File, markdown, JDBC, and in-memory checkpoint stores; file and JDBC lease stores; and file and JDBC step-attempt stores wrap every persistence operation in `persistenceBoundary`. Raw paths, SQL, and persisted payloads reach only the diagnostic observer. `StaleWorkflowLeaseException` remains a semantic class for worker fencing, with the fixed text `Workflow lease is no longer active`.
+
+Ordinary worker callbacks (`onPollFailed`, `onLeaseRenewalFailed`, `onLeaseReleaseFailed`, and `onStepAttemptFailed`) receive safe failures rather than raw persistence exceptions. `LoggingTramaiWorkerObserver` logs their exception class names only.
+
+The persistence exception constructors remain ABI-compatible. Class-body `failureCode` and `safeFactoryTrusted` properties and additive observer-taking store constructors extend the API without changing those constructor descriptors. The binary fixture exercises v0.5.0 persistence exception and store constructors.
+
+This boundary does not add cross-store transactions, schema changes, encryption, retries, lease-semantic changes, or cancellation-semantic changes.
+
+## Scope and non-claims (PRs #219–#225)
+
+These slices complete Epic 1.2. Built-in HTTP, shell, MCP, Codex, and Hermes workflow steps, structured-output failures, and persistence failures now use the same safe-boundary shape; approval-gateway exception fields remain outside this slice. The work does not add automatic secret detection, guarantee application-supplied trusted messages are secret-free, introduce a universal failure-code taxonomy, or change tool retry/idempotency semantics.

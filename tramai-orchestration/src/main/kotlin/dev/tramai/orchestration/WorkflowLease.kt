@@ -74,13 +74,29 @@ interface WorkflowLeaseCheckpointFence {
  */
 class WorkflowLeaseConflictException(
     message: String,
-) : RuntimeException(message)
+) : RuntimeException(message) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 /**
  * Simple in-memory lease store for tests and lightweight local use.
  */
 class InMemoryWorkflowLeaseStore(
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
+    constructor(
+        clockMillis: () -> Long,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(clockMillis) {
+        persistenceFailureDiagnosticObserver = observer
+    }
+
     private val leases = linkedMapOf<LeaseKey, WorkflowLease>()
     private val workers = linkedMapOf<String, WorkerRegistryRecord>()
     private val monitor = Any()
@@ -89,11 +105,13 @@ class InMemoryWorkflowLeaseStore(
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = leaseMutex.withLock {
+    ): WorkflowLease? = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+    ) { leaseMutex.withLock {
         synchronized(monitor) {
             activeLease(workflowName, workflowId)
         }
-    }
+    } }
 
     override suspend fun claim(
         workflowName: String,
@@ -101,14 +119,14 @@ class InMemoryWorkflowLeaseStore(
         ownerId: String,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = leaseMutex.withLock {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
+    ) { leaseMutex.withLock {
         synchronized(monitor) {
             val key = LeaseKey(workflowName, workflowId)
             val existing = leases[key]
             if (existing != null && !isExpired(existing)) {
-                throw WorkflowLeaseConflictException(
-                    "Workflow '$workflowName' and workflowId='$workflowId' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
             }
             val now = clockMillis()
             val lease = WorkflowLease(
@@ -123,29 +141,25 @@ class InMemoryWorkflowLeaseStore(
             leases[key] = lease
             lease
         }
-    }
+    } }
 
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = leaseMutex.withLock {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
+    ) { leaseMutex.withLock {
         synchronized(monitor) {
             val key = LeaseKey(lease.workflowName, lease.workflowId)
             val existing = leases[key]
-                ?: throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
-                )
+                ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             if (isExpired(existing)) {
                 leases.remove(key)
-                throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' lease has expired before renewal",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                throw WorkflowLeaseConflictException(
-                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
             }
             val now = clockMillis()
             val renewed = existing.copy(
@@ -155,25 +169,23 @@ class InMemoryWorkflowLeaseStore(
             leases[key] = renewed
             renewed
         }
-    }
+    } }
 
     override suspend fun release(lease: WorkflowLease) {
-        leaseMutex.withLock {
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) { leaseMutex.withLock {
             synchronized(monitor) {
                 val key = LeaseKey(lease.workflowName, lease.workflowId)
-                val existing = leases[key] ?: return
+                val existing = leases[key] ?: return@persistenceBoundary Unit
                 if (isExpired(existing)) {
                     leases.remove(key)
-                    return
+                    return@persistenceBoundary Unit
                 }
                 if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                    throw WorkflowLeaseConflictException(
-                        "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
-                    )
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
                 }
                 leases.remove(key)
             }
-        }
+        } }
     }
 
     override suspend fun saveCheckpointIfLeaseOwner(
@@ -181,13 +193,15 @@ class InMemoryWorkflowLeaseStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ): WorkflowCheckpoint = leaseMutex.withLock {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+    ) { leaseMutex.withLock {
         val current = synchronized(monitor) {
             activeLease(expectedLease.workflowName, expectedLease.workflowId)
         }
         validateExpectedLease(expectedLease, current)
         checkpointStore.save(checkpoint, expectedRevision)
-    }
+    } }
 
     override suspend fun deleteCheckpointIfLeaseOwner(
         checkpointStore: WorkflowCheckpointStore,
@@ -196,13 +210,13 @@ class InMemoryWorkflowLeaseStore(
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
     ) {
-        leaseMutex.withLock {
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { leaseMutex.withLock {
             val current = synchronized(monitor) {
                 activeLease(workflowName, workflowId)
             }
             validateExpectedLease(expectedLease, current)
             checkpointStore.delete(workflowName, workflowId, expectedRevision)
-        }
+        } }
     }
 
     override suspend fun registerWorker(
@@ -212,7 +226,7 @@ class InMemoryWorkflowLeaseStore(
         capabilityLabels: Set<String>,
         host: String,
     ) {
-        synchronized(monitor) {
+        persistenceBoundary(PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
             val now = clockMillis()
             val existing = workers[workerId]
             workers[workerId] = WorkerRegistryRecord(
@@ -224,28 +238,32 @@ class InMemoryWorkflowLeaseStore(
                 registeredAtEpochMillis = existing?.registeredAtEpochMillis ?: now,
                 lastHeartbeatEpochMillis = now,
             )
-        }
+        } }
     }
 
     override suspend fun updateHeartbeat(workerId: String) {
-        synchronized(monitor) {
+        persistenceBoundary(PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
             val existing = workers[workerId]
                 ?: throw IllegalArgumentException("Worker '$workerId' is not registered")
             workers[workerId] = existing.copy(lastHeartbeatEpochMillis = clockMillis())
-        }
+        } }
     }
 
     override suspend fun unregisterWorker(workerId: String) {
-        synchronized(monitor) {
+        persistenceBoundary(PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
             workers.remove(workerId)
-        }
+        } }
     }
 
-    override suspend fun listActiveWorkers(): List<WorkerRegistryRecord> = synchronized(monitor) {
+    override suspend fun listActiveWorkers(): List<WorkerRegistryRecord> = persistenceBoundary(
+        PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+    ) { synchronized(monitor) {
         workers.values.sortedBy { it.workerId }
-    }
+    } }
 
-    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> = synchronized(monitor) {
+    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> = persistenceBoundary(
+        PersistenceResourceKind.WORKER_REGISTRY, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+    ) { synchronized(monitor) {
         require(staleThresholdMillis >= 0) {
             "staleThresholdMillis must be zero or greater"
         }
@@ -253,7 +271,7 @@ class InMemoryWorkflowLeaseStore(
         workers.values
             .filter { it.lastHeartbeatEpochMillis <= cutoff }
             .sortedBy { it.workerId }
-    }
+    } }
 
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 
@@ -275,14 +293,10 @@ class InMemoryWorkflowLeaseStore(
         current: WorkflowLease?,
     ) {
         if (current == null) {
-            throw StaleWorkflowLeaseException(
-                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
-            )
+            throw safeStaleWorkflowLeaseFailure()
         }
         if (current.leaseId != expectedLease.leaseId || current.ownerId != expectedLease.ownerId) {
-            throw StaleWorkflowLeaseException(
-                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${current.leaseId}' owned by '${current.ownerId}'",
-            )
+            throw safeStaleWorkflowLeaseFailure()
         }
     }
 }

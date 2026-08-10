@@ -13,12 +13,27 @@ class JdbcWorkflowLeaseStore(
     internal val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
+    constructor(
+        dataSource: DataSource,
+        table: JdbcWorkflowLeaseTable,
+        clockMillis: () -> Long,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(dataSource, table, clockMillis) {
+        persistenceFailureDiagnosticObserver = observer
+    }
+
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? {
-        val lease = loadLease(workflowName, workflowId) ?: return null
-        return lease.takeUnless(::isExpired)
+    ): WorkflowLease? = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+    ) {
+        val lease = loadLease(workflowName, workflowId)
+        lease?.takeUnless(::isExpired)
     }
     override suspend fun claim(
         workflowName: String,
@@ -26,7 +41,9 @@ class JdbcWorkflowLeaseStore(
         ownerId: String,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
+    ) {
         val lease = newLease(
             workflowName = workflowName,
             workflowId = workflowId,
@@ -35,9 +52,9 @@ class JdbcWorkflowLeaseStore(
             leaseDurationMillis = leaseDurationMillis,
         )
         val existing = loadLease(workflowName, workflowId)
-        return when {
+        when {
             existing == null -> insertLease(lease)
-            !isExpired(existing) -> throw activeLeaseConflict(existing)
+            !isExpired(existing) -> throw activeLeaseConflict()
             else -> replaceExpiredLease(
                 lease = lease,
                 previous = existing,
@@ -48,7 +65,9 @@ class JdbcWorkflowLeaseStore(
         lease: WorkflowLease,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease {
+    ): WorkflowLease = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
+    ) {
         val now = clockMillis()
         val renewed = lease.copy(
             checkpointRevision = checkpointRevision,
@@ -70,17 +89,14 @@ class JdbcWorkflowLeaseStore(
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
                     val existing = loadLease(conn, lease.workflowName, lease.workflowId)
-                    throw renewalConflict(
-                        attempted = lease,
-                        existing = existing,
-                    )
+                    throw renewalConflict()
                 }
             }
         }
-        return renewed
+        renewed
     }
     override suspend fun release(lease: WorkflowLease) {
-        executeJdbcCancellable(dataSource) { conn ->
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) { executeJdbcCancellable(dataSource) { conn ->
             conn.prepareStatement(releaseSql()).use { statement ->
                 statement.setString(1, lease.workflowName)
                 statement.setString(2, lease.workflowId)
@@ -93,13 +109,10 @@ class JdbcWorkflowLeaseStore(
                         deleteExpiredLease(conn, existing)
                         return@executeJdbcCancellable
                     }
-                    throw releaseConflict(
-                        attempted = lease,
-                        existing = existing,
-                    )
+                    throw releaseConflict()
                 }
             }
-        }
+        } }
     }
 
     override suspend fun saveCheckpointIfLeaseOwner(
@@ -107,13 +120,15 @@ class JdbcWorkflowLeaseStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ): WorkflowCheckpoint {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+    ) {
         val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
             ?: throw unsupportedFence(checkpointStore)
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        return executeJdbcCancellable(dataSource, transactional = true) { conn ->
+        executeJdbcCancellable(dataSource, transactional = true) { conn ->
             lockLeaseRow(conn, expectedLease)
             jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
         }
@@ -131,10 +146,10 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        executeJdbcCancellable(dataSource, transactional = true) { conn ->
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { executeJdbcCancellable(dataSource, transactional = true) { conn ->
             lockLeaseRow(conn, expectedLease)
             jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
-        }
+        } }
     }
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
@@ -158,7 +173,7 @@ class JdbcWorkflowLeaseStore(
             } catch (error: SQLException) {
                 val current = loadLease(conn, lease.workflowName, lease.workflowId)
                 if (current != null && !isExpired(current)) {
-                    throw activeLeaseConflict(current)
+                    throw activeLeaseConflict()
                 }
                 throw error
             }
@@ -189,11 +204,9 @@ class JdbcWorkflowLeaseStore(
                 if (updated == 0) {
                     val current = loadLease(conn, lease.workflowName, lease.workflowId)
                     if (current != null && !isExpired(current)) {
-                        throw activeLeaseConflict(current)
+                        throw activeLeaseConflict()
                     }
-                    throw WorkflowLeaseConflictException(
-                        "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' could not replace its expired lease atomically",
-                    )
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
                 }
             }
         }
@@ -261,15 +274,7 @@ class JdbcWorkflowLeaseStore(
             statement.setLong(6, clockMillis())
             val updated = statement.executeUpdate()
             if (updated == 0) {
-                val existing = loadLease(connection, expectedLease.workflowName, expectedLease.workflowId)
-                throw when {
-                    existing == null || isExpired(existing) -> StaleWorkflowLeaseException(
-                        "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
-                    )
-                    else -> StaleWorkflowLeaseException(
-                        "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${existing.leaseId}' owned by '${existing.ownerId}'",
-                    )
-                }
+                throw safeStaleWorkflowLeaseFailure()
             }
         }
     }
@@ -277,30 +282,9 @@ class JdbcWorkflowLeaseStore(
     private fun unsupportedFence(checkpointStore: WorkflowCheckpointStore): IllegalArgumentException = IllegalArgumentException(
         "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances, not ${checkpointStore::class.qualifiedName}",
     )
-    private fun activeLeaseConflict(existing: WorkflowLease): WorkflowLeaseConflictException =
-        WorkflowLeaseConflictException(
-            "Workflow '${existing.workflowName}' and workflowId='${existing.workflowId}' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
-        )
-    private fun renewalConflict(
-        attempted: WorkflowLease,
-        existing: WorkflowLease?,
-    ): WorkflowLeaseConflictException = when {
-        existing == null -> WorkflowLeaseConflictException(
-            "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' has no active lease to renew",
-        )
-        isExpired(existing) -> WorkflowLeaseConflictException(
-            "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' lease has expired before renewal",
-        )
-        else -> WorkflowLeaseConflictException(
-            "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' is leased by owner '${existing.ownerId}', not '${attempted.ownerId}'",
-        )
-    }
-    private fun releaseConflict(
-        attempted: WorkflowLease,
-        existing: WorkflowLease,
-    ): WorkflowLeaseConflictException = WorkflowLeaseConflictException(
-        "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' is leased by owner '${existing.ownerId}', not '${attempted.ownerId}'",
-    )
+    private fun activeLeaseConflict(): RuntimeException = safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
+    private fun renewalConflict(): RuntimeException = safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+    private fun releaseConflict(): RuntimeException = safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
     private fun newLease(
         workflowName: String,
         workflowId: String,

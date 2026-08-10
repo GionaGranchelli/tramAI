@@ -10,28 +10,46 @@ class MarkdownWorkflowCheckpointStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.md"),
 ) : WorkflowCheckpointStore {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(rootDirectory, pathStrategy) {
+        persistenceFailureDiagnosticObserver = observer
+    }
     override suspend fun load(
         workflowName: String,
         workflowId: String,
-    ): WorkflowCheckpoint? {
+    ): WorkflowCheckpoint? = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
         if (!Files.exists(checkpointPath)) {
-            return null
-        }
-        return withFileLockCancellable(checkpointPath) {
-            if (!Files.exists(checkpointPath)) {
-                null
-            } else {
-                decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+            null
+        } else {
+            withFileLockCancellable(checkpointPath) {
+                if (!Files.exists(checkpointPath)) {
+                    null
+                } else {
+                    decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+                }
             }
         }
     }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) {
         val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        return withFileLockCancellable(checkpointPath) {
+        withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeMarkdownCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -52,6 +70,9 @@ class MarkdownWorkflowCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+    ) = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
     ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
         withFileLockCancellable(checkpointPath) {
@@ -67,6 +88,7 @@ class MarkdownWorkflowCheckpointStore(
                 expectedRevision = expectedRevision,
             )
             Files.deleteIfExists(checkpointPath)
+            Unit
         }
     }
     private fun checkpointPath(
@@ -104,39 +126,39 @@ internal fun encodeMarkdownCheckpoint(checkpoint: WorkflowCheckpoint): String {
         appendLine(fence)
     }
 }
-internal fun decodeMarkdownCheckpoint(content: String): WorkflowCheckpoint {
+internal fun decodeMarkdownCheckpoint(content: String): WorkflowCheckpoint = try {
     val lines = content.lines()
-    require(lines.firstOrNull() == "---") { "Markdown checkpoint is missing opening front matter" }
+    if (lines.firstOrNull() != "---") throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
     val closingIndex = lines.drop(1).indexOfFirst { it == "---" }
         .takeIf { it >= 0 }
         ?.plus(1)
         ?: -1
-    require(closingIndex > 0) { "Markdown checkpoint is missing closing front matter" }
+    if (closingIndex <= 0) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
     val frontMatter = lines.subList(1, closingIndex)
         .filter { it.isNotBlank() }
         .associate { line ->
             val separatorIndex = line.indexOf(": ")
-            require(separatorIndex > 0) { "Malformed markdown checkpoint front matter line '$line'" }
+            if (separatorIndex <= 0) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", line)
             line.substring(0, separatorIndex) to line.substring(separatorIndex + 2)
         }
     val payloadHeaderIndex = lines.indexOfFirst { it == "## State Payload" }
-    require(payloadHeaderIndex >= 0) { "Markdown checkpoint is missing state payload heading" }
+    if (payloadHeaderIndex < 0) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
     val fenceLineIndex = ((payloadHeaderIndex + 1) until lines.size)
         .firstOrNull { lines[it].startsWith("```") }
         ?: -1
-    require(fenceLineIndex > payloadHeaderIndex) { "Markdown checkpoint is missing opening payload fence" }
+    if (fenceLineIndex <= payloadHeaderIndex) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
     val fence = lines[fenceLineIndex].substringBefore(" ")
     val closingFenceIndex = ((fenceLineIndex + 1) until lines.size)
         .firstOrNull { lines[it] == fence }
         ?: -1
-    require(closingFenceIndex > fenceLineIndex) { "Markdown checkpoint is missing closing payload fence" }
+    if (closingFenceIndex <= fenceLineIndex) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
     val payload = lines.subList(fenceLineIndex + 1, closingFenceIndex).joinToString("\n")
     val metadata = frontMatter.entries
         .filter { it.key.startsWith("metadata.") }
         .associate { entry ->
             base64Decode(entry.key.removePrefix("metadata.")) to base64Decode(entry.value)
         }
-    return WorkflowCheckpoint(
+    WorkflowCheckpoint(
         workflowName = base64Decode(frontMatter.requireValue("workflowName")),
         workflowId = base64Decode(frontMatter.requireValue("workflowId")),
         nextStepIndex = frontMatter.requireValue("nextStepIndex").toInt(),
@@ -150,6 +172,10 @@ internal fun decodeMarkdownCheckpoint(content: String): WorkflowCheckpoint {
             frontMatter["recoveryState"]?.takeIf { it.isNotBlank() }?.let(::base64Decode),
         ),
     )
+} catch (error: CorruptCheckpointException) {
+    throw error
+} catch (error: Throwable) {
+    throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
 }
 private fun markdownFence(content: String): String {
     val longestFence = Regex("`+")
@@ -159,4 +185,4 @@ private fun markdownFence(content: String): String {
     return "`".repeat(max(3, longestFence + 1))
 }
 private fun <K> Map<K, String>.requireValue(key: K): String = get(key)
-    ?: error("Missing markdown checkpoint field '$key'")
+    ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", null)

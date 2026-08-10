@@ -35,7 +35,7 @@ class BinaryCompatibilityFixtureTest {
                 .invoke(null) as String
         }
 
-        (1..6).forEach { marker ->
+        (1..17).forEach { marker ->
             assertThat(markers).contains("FIXTURE_OK_$marker")
         }
         assertThat(markers).doesNotContain("FIXTURE_FAIL")

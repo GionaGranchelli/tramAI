@@ -108,7 +108,12 @@ object NoOpTramaiWorkerObserver : TramaiWorkerObserver
 
 class StaleWorkflowLeaseException(
     message: String,
-) : RuntimeException(message)
+) : RuntimeException(message) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 
 internal data class WorkerWorkflowBinding<S, R>(
     val workflow: Workflow<S, R>,
@@ -347,7 +352,10 @@ class TramaiWorker(
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                observability.onPollFailed(config.workerId, error)
+                observability.onPollFailed(
+                    config.workerId,
+                    safeWorkerObservableFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LIST, error),
+                )
                 delay(maxOf(100L, config.pollIntervalMillis))
             }
         }
@@ -721,7 +729,11 @@ class TramaiWorker(
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                observability.onLeaseRenewalFailed(handle.workflowId, config.workerId, error)
+                observability.onLeaseRenewalFailed(
+                    handle.workflowId,
+                    config.workerId,
+                    safeWorkerObservableFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, error),
+                )
                 nextDelayMillis = maxOf(50L, interval / 2)
                 continue
             }
@@ -739,7 +751,11 @@ class TramaiWorker(
             observability.onLeaseReleased(handle.workflowId, config.workerId)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            observability.onLeaseReleaseFailed(handle.workflowId, config.workerId, error)
+            observability.onLeaseReleaseFailed(
+                handle.workflowId,
+                config.workerId,
+                safeWorkerObservableFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, error),
+            )
         }
     }
 
@@ -951,7 +967,13 @@ private class ExecutionTracker(
         synchronized(monitor) {
             activeAttempt = null
         }
-        observability.onStepAttemptFailed(failed.runId, failed.stepName, failed.attemptId, workerId, error)
+        observability.onStepAttemptFailed(
+            failed.runId,
+            failed.stepName,
+            failed.attemptId,
+            workerId,
+            safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error),
+        )
     }
 
     suspend fun failActiveAttempt(error: Throwable) {

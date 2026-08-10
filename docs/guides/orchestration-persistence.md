@@ -108,6 +108,29 @@ The important contract detail is revision handling:
 
 That gives database, object-store, and filesystem implementations the same optimistic-concurrency model.
 
+## Safe Failure Boundaries
+
+Built-in persistence stores expose fixed-text public failures. They do not copy filesystem paths, SQL, persisted payloads, or arbitrary storage exception messages into public exceptions, ordinary worker callbacks, or default logs. The original failure is available only through `PersistenceFailureDiagnosticObserver`.
+
+Configure the observer with a built-in store's additive observer constructor overload:
+
+```kotlin
+val checkpointStore = FileWorkflowCheckpointStore(
+    Path.of(".tramai/workflows"),
+    DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+    PersistenceFailureDiagnosticObserver { event ->
+        // Route diagnostic-only event.failure to an access-controlled sink.
+        diagnosticSink.record(event.resourceKind, event.operation, event.failureCode, event.failure)
+    },
+)
+```
+
+The observer is fail-open: an observer failure does not replace the persistence failure. Cancellation remains first: genuine coroutine cancellation propagates rather than becoming a persistence diagnostic. This is an API-level constructor setting; no YAML or configuration property is required.
+
+Checkpoint conflicts, lease conflicts, invalid checkpoints, invalid step-attempt records, and general read/write/delete/list failures have fixed public text. `StaleWorkflowLeaseException` remains the semantic fencing signal with fixed text. In a worker, `onPollFailed`, `onLeaseRenewalFailed`, `onLeaseReleaseFailed`, and `onStepAttemptFailed` receive safe failures; `LoggingTramaiWorkerObserver` logs only their exception class names.
+
+The built-in file, markdown, JDBC, and in-memory checkpoint stores; file and JDBC lease stores; and file and JDBC step-attempt stores apply this boundary to every persistence operation. Custom stores should preserve the same separation when they handle raw backend errors.
+
 ## Wiring A Workflow
 
 Once you have a codec and store, attach them through `WorkflowPersistence`:

@@ -49,7 +49,8 @@ class WorkflowCheckpointStoreTest {
                 }
             }
                 .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-                .hasMessageContaining("expected revision 1")
+                .hasMessage("Workflow checkpoint conflict")
+                .hasNoCause()
             runBlocking {
                 store.delete(
                     workflowName = "file-workflow",
@@ -126,7 +127,8 @@ class WorkflowCheckpointStoreTest {
             }
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-            .hasMessageContaining("expected revision 1")
+            .hasMessage("Workflow checkpoint conflict")
+            .hasNoCause()
         assertThatThrownBy {
             runBlocking {
                 store.delete(
@@ -137,7 +139,8 @@ class WorkflowCheckpointStoreTest {
             }
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-            .hasMessageContaining("expected revision 1")
+            .hasMessage("Workflow checkpoint conflict")
+            .hasNoCause()
         runBlocking {
             store.delete(
                 workflowName = "jdbc-workflow",
