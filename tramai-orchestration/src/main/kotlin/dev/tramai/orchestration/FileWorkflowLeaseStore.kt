@@ -138,18 +138,20 @@ class FileWorkflowLeaseStore private constructor(
         }
     }
     override suspend fun release(lease: WorkflowLease) {
-        val leasePath = leasePath(lease.workflowName, lease.workflowId)
-        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) { withFileLockCancellable(leasePath) {
-            val existing = readLeaseIfPresent(leasePath) ?: return@withFileLockCancellable
-            if (isExpired(existing)) {
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) {
+            val leasePath = leasePath(lease.workflowName, lease.workflowId)
+            withFileLockCancellable(leasePath) {
+                val existing = readLeaseIfPresent(leasePath) ?: return@withFileLockCancellable
+                if (isExpired(existing)) {
+                    Files.deleteIfExists(leasePath)
+                    return@withFileLockCancellable
+                }
+                if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
+                }
                 Files.deleteIfExists(leasePath)
-                return@withFileLockCancellable
             }
-            if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
-            }
-            Files.deleteIfExists(leasePath)
-        } }
+        }
     }
 
     override suspend fun saveCheckpointIfLeaseOwner(
@@ -175,12 +177,14 @@ class FileWorkflowLeaseStore private constructor(
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
     ) {
-        val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { withFileLockCancellableSuspending(leasePath) {
-            val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
-            validateExpectedLease(expectedLease, current)
-            checkpointStore.delete(workflowName, workflowId, expectedRevision)
-        } }
+        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) {
+            val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
+            withFileLockCancellableSuspending(leasePath) {
+                val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
+                validateExpectedLease(expectedLease, current)
+                checkpointStore.delete(workflowName, workflowId, expectedRevision)
+            }
+        }
     }
 
     private fun leasePath(

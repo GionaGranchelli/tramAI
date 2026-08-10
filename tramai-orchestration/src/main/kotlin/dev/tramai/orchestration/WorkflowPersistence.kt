@@ -96,17 +96,24 @@ interface WorkflowCheckpointStore {
         expectedRevision: Long,
         record: WorkflowRecoveryRecord,
     ): WorkflowCheckpoint {
+        // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
+        // is WRITE_FAILED — the outer operation (SAVE) must not mislabel the
+        // load phase (the Copilot finding).
+        val current = persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.LOAD,
+            checkpointDiagnosticObserver(this),
+        ) { load(workflowName, workflowId) }
+            ?: throw safePersistenceFailure(
+                PersistenceResourceKind.CHECKPOINT,
+                PersistenceOperation.SAVE,
+                PersistenceFailureCode.CONFLICT,
+            )
         return persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.SAVE,
             checkpointDiagnosticObserver(this),
         ) {
-            val current = load(workflowName, workflowId)
-                ?: throw safePersistenceFailure(
-                    PersistenceResourceKind.CHECKPOINT,
-                    PersistenceOperation.SAVE,
-                    PersistenceFailureCode.CONFLICT,
-                )
             save(
                 checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Required(record)),
                 expectedRevision = expectedRevision,
@@ -127,17 +134,23 @@ interface WorkflowCheckpointStore {
         workflowId: String,
         expectedRevision: Long,
     ): WorkflowCheckpoint {
+        // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
+        // is WRITE_FAILED (same split as requireRecovery).
+        val current = persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.LOAD,
+            checkpointDiagnosticObserver(this),
+        ) { load(workflowName, workflowId) }
+            ?: throw safePersistenceFailure(
+                PersistenceResourceKind.CHECKPOINT,
+                PersistenceOperation.SAVE,
+                PersistenceFailureCode.CONFLICT,
+            )
         return persistenceBoundary(
             PersistenceResourceKind.CHECKPOINT,
             PersistenceOperation.SAVE,
             checkpointDiagnosticObserver(this),
         ) {
-            val current = load(workflowName, workflowId)
-                ?: throw safePersistenceFailure(
-                    PersistenceResourceKind.CHECKPOINT,
-                    PersistenceOperation.SAVE,
-                    PersistenceFailureCode.CONFLICT,
-                )
             save(
                 checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
                 expectedRevision = expectedRevision,

@@ -271,10 +271,10 @@ class PersistenceSafeFailureBoundaryTest {
         }
     }
 
-    // --- 6. Trusted safe exception passes through unchanged ---
+    // --- 6. Trusted safe exceptions are reconstructed ---
 
     @Test
-    fun `trusted safe exception passes through unchanged`() {
+    fun `trusted safe exception is reconstructed without observer event`() {
         runBlocking {
             val observer = RecordingPersistenceObserver()
             val safe = safePersistenceFailure(
@@ -293,7 +293,208 @@ class PersistenceSafeFailureBoundaryTest {
                 }
             }
 
-            assertThat(thrown).isSameAs(safe)
+            assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+            assertThat(thrown).isNotSameAs(safe)
+            assertThat(thrown!!.cause).isNull()
+            assertThat(thrown.suppressed).isEmpty()
+            assertThat(observer.events).isEmpty()
+        }
+    }
+
+    @Test
+    fun `cancellation with suppressed sql is sanitized for the caller`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val cancelled = CancellationException("parent cancelled").also { it.addSuppressed(SQLException(SECRET_SQL)) }
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        throw cancelled
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(observer.events.single().failure).isSameAs(cancelled)
+            assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+        }
+    }
+
+    @Test
+    fun `cancellation with cause and suppressed sql is sanitized for the caller`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val cancelled = CancellationException("close $SECRET_SQL").also { it.addSuppressed(SQLException("rollback $SECRET_SQL")) }
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        throw cancelled
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(observer.events.single().failure).isSameAs(cancelled)
+            assertThat(thrown!!.suppressed.single()).isInstanceOf(SanitizedCleanupDiagnosticException::class.java)
+        }
+    }
+
+    @Test
+    fun `trusted exception contaminated by jdbc cleanup is reconstructed not passed through`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val trusted = safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
+                .also { it.addSuppressed(SQLException(SECRET_SQL)) }
+
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) { throw trusted }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+            assertThat(thrown).isNotSameAs(trusted)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(thrown!!.cause).isNull()
+            assertThat(thrown.suppressed).isEmpty()
+            assertThat(observer.events.single().failure).isSameAs(trusted)
+        }
+    }
+
+    @Test
+    fun `throwing path strategy in file lease release is caught by boundary`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val store = FileWorkflowLeaseStore(tempDir, throwingPathStrategy(), { 0L }, observer)
+            val thrown = catchThrowable { runBlocking { store.release(testLease()) } }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `throwing path strategy in file fenced delete is caught by boundary`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val store = FileWorkflowLeaseStore(tempDir, throwingPathStrategy(), { 0L }, observer)
+            val thrown = catchThrowable {
+                runBlocking { store.deleteCheckpointIfLeaseOwner(InMemoryWorkflowCheckpointStore(), "wf", "run-1", null, testLease()) }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_PATH)
+            assertThat(observer.events).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `requireRecovery load failure is classified read failed not write failed`() {
+        runBlocking {
+            // Explicit implementation (no `by` delegation): the interface default
+            // requireRecovery must call THIS load() and fail with the raw error.
+            val store = FailingLoadCheckpointStore(InMemoryWorkflowCheckpointStore(), IOException(SECRET_PATH))
+            val thrown = catchThrowable { runBlocking { store.requireRecovery("wf", "run-1", 1, testRecoveryRecord()) } }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertThat(thrown!!.message).isEqualTo("Workflow persistence read failed")
+            assertNoSecret(thrown, SECRET_PATH)
+        }
+    }
+
+    @Test
+    fun `clearRecovery load failure is classified read failed not write failed`() {
+        runBlocking {
+            val store = FailingLoadCheckpointStore(InMemoryWorkflowCheckpointStore(), IOException(SECRET_PATH))
+            val thrown = catchThrowable { runBlocking { store.clearRecovery("wf", "run-1", 1) } }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertThat(thrown!!.message).isEqualTo("Workflow persistence read failed")
+            assertNoSecret(thrown, SECRET_PATH)
+        }
+    }
+
+    private class FailingLoadCheckpointStore(
+        private val delegate: InMemoryWorkflowCheckpointStore,
+        private val failure: Throwable,
+    ) : WorkflowCheckpointStore {
+        override suspend fun load(workflowName: String, workflowId: String): WorkflowCheckpoint? = throw failure
+        override suspend fun save(checkpoint: WorkflowCheckpoint, expectedRevision: Long?): WorkflowCheckpoint =
+            delegate.save(checkpoint, expectedRevision)
+        override suspend fun delete(workflowName: String, workflowId: String, expectedRevision: Long?) =
+            delegate.delete(workflowName, workflowId, expectedRevision)
+    }
+
+    @Test
+    fun `raw conflict named exception uses operation default rather than name heuristic`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        throw IllegalStateException("Conflict-ish")
+                    }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertThat(observer.events.single().failureCode).isEqualTo(PersistenceFailureCode.WRITE_FAILED)
+        }
+    }
+
+    @Test
+    fun `checkpoint dml failure reaches checkpoint observer not lease observer`() {
+        runBlocking {
+            val checkpointObserver = RecordingPersistenceObserver()
+            val leaseObserver = RecordingPersistenceObserver()
+            val thrown = catchThrowable {
+                runBlocking {
+                    persistenceBoundary(
+                        PersistenceResourceKind.LEASE,
+                        PersistenceOperation.SAVE,
+                        leaseObserver,
+                        checkpointDiagnosticObserver = checkpointObserver,
+                    ) { throw CheckpointDmlFailure(SQLException(SECRET_SQL)) }
+                }
+            }
+
+            assertThat(thrown).isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            assertNoSecret(thrown, SECRET_SQL)
+            assertThat(checkpointObserver.events.single().resourceKind).isEqualTo(PersistenceResourceKind.CHECKPOINT)
+            assertThat(leaseObserver.events).isEmpty()
+        }
+    }
+
+    @Test
+    fun `trusted failure cannot beat concurrent genuine cancellation`() {
+        runBlocking {
+            val observer = RecordingPersistenceObserver()
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val outer = CoroutineScope(Job())
+            val outcome = CompletableDeferred<Throwable?>()
+            outer.launch {
+                try {
+                    persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, observer) {
+                        entered.complete(Unit)
+                        release.await()
+                        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
+                    }
+                    outcome.complete(null)
+                } catch (t: Throwable) {
+                    outcome.complete(t)
+                }
+            }
+            entered.await()
+            outer.coroutineContext[Job]!!.cancel()
+            release.complete(Unit)
+
+            assertThat(withTimeout(5_000) { outcome.await() }).isInstanceOf(CancellationException::class.java)
             assertThat(observer.events).isEmpty()
         }
     }
@@ -580,6 +781,28 @@ class PersistenceSafeFailureBoundaryTest {
         stepExecutions = 0,
         lastCompletedStepName = null,
         statePayload = "state",
+    )
+
+    private fun testLease() = WorkflowLease(
+        workflowName = "wf",
+        workflowId = "run-1",
+        leaseId = "lease-1",
+        ownerId = "owner-1",
+        checkpointRevision = null,
+        acquiredAtEpochMillis = 0,
+        expiresAtEpochMillis = 1_000,
+    )
+
+    private fun throwingPathStrategy() = object : WorkflowCheckpointPathStrategy {
+        override fun resolve(root: Path, workflowName: String, workflowId: String): Path = throw IOException(SECRET_PATH)
+    }
+
+    private fun testRecoveryRecord() = WorkflowRecoveryRecord(
+        reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+        stepName = "step",
+        attemptId = "attempt",
+        priorWorkerId = "worker",
+        detectedAtEpochMillis = 0,
     )
 
     private fun minimalAttempt() = StepAttemptRecord(

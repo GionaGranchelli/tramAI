@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.sql.SQLException
 import javax.sql.DataSource
 
@@ -122,6 +123,7 @@ class JdbcWorkflowLeaseStore(
         expectedLease: WorkflowLease,
     ): WorkflowCheckpoint = persistenceBoundary(
         PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        checkpointDiagnosticObserver = (checkpointStore as? JdbcWorkflowCheckpointStore)?.persistenceFailureDiagnosticObserver,
     ) {
         val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
             ?: throw unsupportedFence(checkpointStore)
@@ -130,7 +132,17 @@ class JdbcWorkflowLeaseStore(
         }
         executeJdbcCancellable(dataSource, transactional = true) { conn ->
             lockLeaseRow(conn, expectedLease)
-            jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
+            // Checkpoint DML belongs to the checkpoint store's diagnostic
+            // channel, not the lease store's: mark the raw failure so the outer
+            // lease boundary routes it to jdbcCheckpointStore's observer with
+            // resourceKind=CHECKPOINT. Lease-row/fence failures stay on the
+            // lease channel (exactly one event per failing phase).
+            try {
+                jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                throw CheckpointDmlFailure(error)
+            }
         }
     }
 
@@ -146,9 +158,21 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { executeJdbcCancellable(dataSource, transactional = true) { conn ->
+        persistenceBoundary(
+            PersistenceResourceKind.LEASE,
+            PersistenceOperation.DELETE,
+            persistenceFailureDiagnosticObserver,
+            checkpointDiagnosticObserver = (checkpointStore as? JdbcWorkflowCheckpointStore)?.persistenceFailureDiagnosticObserver,
+        ) { executeJdbcCancellable(dataSource, transactional = true) { conn ->
             lockLeaseRow(conn, expectedLease)
-            jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
+            // Same diagnostic-ownership split as saveCheckpointIfLeaseOwner:
+            // checkpoint DML failures go to the checkpoint store's observer.
+            try {
+                jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                throw CheckpointDmlFailure(error)
+            }
         } }
     }
     fun createTableSql(): String = """
