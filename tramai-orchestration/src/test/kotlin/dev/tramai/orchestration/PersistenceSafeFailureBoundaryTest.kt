@@ -539,6 +539,38 @@ class PersistenceSafeFailureBoundaryTest {
         ).isEqualTo("Workflow persistence list failed")
     }
 
+    // --- 15. Worker failAttempt sanitizes persistence failures, keeps user step errors ---
+
+    @Test
+    fun `worker failAttempt persists safe summary for persistence failures but keeps user step errors`() {
+        // Mirrors the classifier the worker's failAttempt uses: a
+        // persistence-family failure is sanitized for the durable outputSummary
+        // and observer, while a user step-execution error keeps its message.
+        val rawPersistence = WorkflowCheckpointCorruptionException("password=fixture-sentinel-7f3c")
+        val safeSummary = summarizeForTest(rawPersistence)
+        assertThat(safeSummary).doesNotContain("fixture-sentinel-7f3c")
+        assertThat(safeSummary).doesNotContain("password=")
+
+        val userError = IllegalStateException("user step failed: fixture-sentinel-7f3c")
+        val userSummary = summarizeForTest(userError)
+        assertThat(userSummary).contains("user step failed")
+    }
+
+    private fun summarizeForTest(error: Throwable): String {
+        val observable = when {
+            !error.isPersistenceFamilyFailure() -> error
+            else -> safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error)
+        }
+        return buildString {
+            append(observable::class.simpleName ?: observable::class.java.simpleName)
+            val message = observable.message?.take(240)
+            if (!message.isNullOrBlank()) {
+                append(": ")
+                append(message)
+            }
+        }
+    }
+
     // --- fixtures ---
 
     private fun testCheckpoint() = WorkflowCheckpoint(

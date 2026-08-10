@@ -123,6 +123,16 @@ internal fun safeWorkerObservableFailure(
     return safePersistenceFailure(resourceKind, operation, code)
 }
 
+/**
+ * True when [error] is a persistence-family failure (a trusted safe exception,
+ * an untrusted caller-constructed persistence exception, or a raw failure
+ * classified as one by the boundary). Used by the worker to decide whether a
+ * step-attempt failure is a persistence failure (sanitize) or a user
+ * step-execution error (keep the real message).
+ */
+internal fun Throwable.isPersistenceFamilyFailure(): Boolean =
+    persistenceFailureTrusted() || persistenceFailureCode() != null
+
 private fun RuntimeException.setPersistenceFailureMetadata(code: PersistenceFailureCode) {
     when (this) {
         is WorkflowResumeException -> { failureCode = code; safeFactoryTrusted = true }
@@ -170,6 +180,12 @@ internal suspend fun <T> persistenceBoundary(
     // semantic class (the worker relies on it) but lose any raw text.
     if (error is StaleWorkflowLeaseException) throw safeStaleWorkflowLeaseFailure()
     throw safePersistenceFailure(resourceKind, operation, code)
+}.also {
+    // Cancellation can arrive while the block runs and still complete normally
+    // (e.g. a deferred released concurrently with the parent cancel). Parent
+    // cancellation must win over a normal return — the #223/#224 post-callback
+    // rule applied to the boundary itself.
+    currentCoroutineContext().ensureActive()
 }
 
 internal fun checkpointDiagnosticObserver(store: WorkflowCheckpointStore): PersistenceFailureDiagnosticObserver = when (store) {

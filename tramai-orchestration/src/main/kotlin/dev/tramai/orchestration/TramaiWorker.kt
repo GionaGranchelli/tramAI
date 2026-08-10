@@ -958,10 +958,18 @@ private class ExecutionTracker(
         val attempt = synchronized(monitor) {
             activeAttempt?.takeIf { it.stepName == stepName }
         } ?: return
+        // The persisted outputSummary must not carry raw persistence internals
+        // (paths, SQL, payloads). Sanitize persistence-family failures; user
+        // step-execution errors are not persistence internals and keep their
+        // real message so the durable record stays diagnostically useful.
+        val observableFailure = when {
+            !error.isPersistenceFamilyFailure() -> error
+            else -> safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error)
+        }
         val failed = attempt.copy(
             status = StepAttemptStatus.FAILED,
             completedAt = System.currentTimeMillis(),
-            outputSummary = summarize(error),
+            outputSummary = summarize(observableFailure),
         )
         stepAttemptStore.updateStepAttempt(failed)
         synchronized(monitor) {
@@ -972,7 +980,7 @@ private class ExecutionTracker(
             failed.stepName,
             failed.attemptId,
             workerId,
-            safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error),
+            observableFailure,
         )
     }
 
