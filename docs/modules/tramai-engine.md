@@ -718,7 +718,7 @@ The test suite covers **28 behavioral scenarios** across 2 test files:
 |------|------|-------------|
 | `TramaiEngine` | Class | Main engine: creates AI-backed proxies from annotated interfaces |
 | `TramaiEngine.create()` | Method | Returns a JVM proxy implementing the given service type |
-| `TramaiEngine.close()` | Method | Cancels the engine's coroutine job hierarchy and waits for externally initiated shutdown |
+| `TramaiEngine.close()` | Method | Cancels and joins all engine-owned work: blocking calls, suspend invocations, and streaming collections. The caller-supplied `job`/`scope` constructor parameters are never cancelled or joined |
 | `RetryPolicySettings` | Data class | Retry delay computation: max `Retry-After` cap, jitter ratio |
 | `CircuitBreakerSettings` | Data class | Per-provider circuit breaker: enabled, threshold, open duration |
 | `TokenBudgetSettings` | Data class | Token budgets: hard per-attempt, hard/soft per-operation |
