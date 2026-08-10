@@ -1361,8 +1361,8 @@ class WorkflowTest {
             }
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-            .hasMessageContaining("already exists")
-            .hasMessageContaining("workflowId='wf-existing'")
+            .hasMessage("Workflow checkpoint conflict")
+            .hasNoCause()
     }
     @Test
     fun `completion checkpoint delete conflict fails loudly and still releases the lease`() {
@@ -1535,7 +1535,8 @@ class WorkflowTest {
             }
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-            .hasMessageContaining("expected revision 1")
+            .hasMessage("Workflow checkpoint conflict")
+            .hasNoCause()
     }
     @Test
     fun `checkpoint store rejects stale delete revisions`() {
@@ -1575,7 +1576,8 @@ class WorkflowTest {
             }
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
-            .hasMessageContaining("expected revision 1")
+            .hasMessage("Workflow checkpoint conflict")
+            .hasNoCause()
     }
 }
 private data class PlanningState(

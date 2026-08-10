@@ -12,7 +12,16 @@ class FileStepAttemptRecordStore internal constructor(
     private val rootDirectory: Path,
     private val atomicWriter: AtomicFileWriter,
 ) : StepAttemptRecordStore {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
     constructor(rootDirectory: Path) : this(rootDirectory, realAtomicFileWriter)
+
+    constructor(rootDirectory: Path, observer: PersistenceFailureDiagnosticObserver) :
+        this(rootDirectory, realAtomicFileWriter) {
+        persistenceFailureDiagnosticObserver = observer
+    }
 
     internal companion object {
         private const val ATTEMPT_SUFFIX = ".attempt.properties"
@@ -20,29 +29,45 @@ class FileStepAttemptRecordStore internal constructor(
 
         fun forTest(rootDirectory: Path, atomicWriter: AtomicFileWriter): FileStepAttemptRecordStore =
             FileStepAttemptRecordStore(rootDirectory, atomicWriter)
+
+        fun forTest(
+            rootDirectory: Path,
+            atomicWriter: AtomicFileWriter,
+            observer: PersistenceFailureDiagnosticObserver,
+        ): FileStepAttemptRecordStore = FileStepAttemptRecordStore(rootDirectory, atomicWriter).also {
+            it.persistenceFailureDiagnosticObserver = observer
+        }
     }
 
     override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
         record.requirePersistableIdentity()
-        val path = attemptPath(record.runId, record.stepName, record.attemptId)
-        return withFileLockCancellable(path) {
-            atomicWriter.write(path, encodeStoredRecord(record))
-            record
+        return persistenceBoundary(
+            PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+            classify = ::classifyStepAttemptFailure,
+        ) {
+            val path = attemptPath(record.runId, record.stepName, record.attemptId)
+            withFileLockCancellable(path) {
+                atomicWriter.write(path, encodeStoredRecord(record))
+                record
+            }
         }
     }
 
     override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
         record.requirePersistableIdentity()
-        val path = attemptPath(record.runId, record.stepName, record.attemptId)
-        return withFileLockCancellable(path) {
-            if (!Files.exists(path)) {
-                throw IllegalStateException(
-                    "Step attempt '${record.attemptId}' for run '${record.runId}' and step '${record.stepName}' does not exist",
-                )
+        return persistenceBoundary(
+            PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+            classify = ::classifyStepAttemptFailure,
+        ) {
+            val path = attemptPath(record.runId, record.stepName, record.attemptId)
+            withFileLockCancellable(path) {
+                if (!Files.exists(path)) {
+                    throw IllegalStateException("Step attempt does not exist")
+                }
+                readStoredRecord(path, record.runId, record.stepName, record.attemptId)
+                atomicWriter.write(path, encodeStoredRecord(record))
+                record
             }
-            readStoredRecord(path, record.runId, record.stepName, record.attemptId)
-            atomicWriter.write(path, encodeStoredRecord(record))
-            record
         }
     }
 
@@ -52,77 +77,98 @@ class FileStepAttemptRecordStore internal constructor(
     ): Boolean {
         if (expected.identity() != updated.identity()) return false
         updated.requirePersistableIdentity()
-        val path = attemptPath(expected.runId, expected.stepName, expected.attemptId)
-        return withFileLockCancellable(path) {
-            val current = if (Files.exists(path)) {
-                readStoredRecord(path, expected.runId, expected.stepName, expected.attemptId)
-            } else {
-                null
-            }
-            if (current != expected) {
-                false
-            } else {
-                atomicWriter.write(path, encodeStoredRecord(updated))
-                true
+        return persistenceBoundary(
+            PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.COMPARE_AND_SET, persistenceFailureDiagnosticObserver,
+            classify = ::classifyStepAttemptFailure,
+        ) {
+            val path = attemptPath(expected.runId, expected.stepName, expected.attemptId)
+            withFileLockCancellable(path) {
+                val current = if (Files.exists(path)) {
+                    readStoredRecord(path, expected.runId, expected.stepName, expected.attemptId)
+                } else {
+                    null
+                }
+                if (current != expected) {
+                    false
+                } else {
+                    atomicWriter.write(path, encodeStoredRecord(updated))
+                    true
+                }
             }
         }
     }
 
     override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? {
         require(runId.isNotBlank() && stepName.isNotBlank()) { "Step-attempt runId and stepName must not be blank" }
-        val stepDirectory = rootDirectory
-            .resolve(base64UrlEncodeNoPadding(runId))
-            .resolve(base64UrlEncodeNoPadding(stepName))
-        if (!Files.exists(stepDirectory)) return null
-        val paths = runInterruptible(Dispatchers.IO) {
-            Files.list(stepDirectory).use { stream ->
-                stream.filter(Files::isRegularFile)
-                    .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
-                    .toList()
+        return persistenceBoundary(
+            PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+            classify = ::classifyStepAttemptFailure,
+        ) {
+            val stepDirectory = rootDirectory
+                .resolve(base64UrlEncodeNoPadding(runId))
+                .resolve(base64UrlEncodeNoPadding(stepName))
+            if (!Files.exists(stepDirectory)) {
+                null
+            } else {
+                val paths = runInterruptible(Dispatchers.IO) {
+                    Files.list(stepDirectory).use { stream ->
+                        stream.filter(Files::isRegularFile)
+                            .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
+                            .toList()
+                    }
+                }
+                paths.mapNotNull { path ->
+                    withFileLockCancellable(path) {
+                        if (Files.exists(path)) {
+                            val fileName = path.fileName.toString()
+                            val keyAttemptId = decodePathSegment(fileName.removeSuffix(ATTEMPT_SUFFIX), path)
+                            readStoredRecord(path, runId, stepName, keyAttemptId)
+                        } else {
+                            null
+                        }
+                    }
+                }.maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
             }
         }
-        return paths.mapNotNull { path ->
-            withFileLockCancellable(path) {
-                if (Files.exists(path)) {
-                    val fileName = path.fileName.toString()
-                    val keyAttemptId = decodePathSegment(fileName.removeSuffix(ATTEMPT_SUFFIX), path)
-                    readStoredRecord(path, runId, stepName, keyAttemptId)
-                } else {
-                    null
-                }
-            }
-        }.maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
     }
 
     override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> {
         require(runId.isNotBlank()) { "Step-attempt runId must not be blank" }
-        val runDirectory = rootDirectory.resolve(base64UrlEncodeNoPadding(runId))
-        if (!Files.exists(runDirectory)) return emptyList()
-        val paths = runInterruptible(Dispatchers.IO) {
-            Files.walk(runDirectory).use { stream ->
-                stream.filter(Files::isRegularFile)
-                    .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
-                    .toList()
+        return persistenceBoundary(
+            PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+            classify = ::classifyStepAttemptFailure,
+        ) {
+            val runDirectory = rootDirectory.resolve(base64UrlEncodeNoPadding(runId))
+            if (!Files.exists(runDirectory)) {
+                emptyList()
+            } else {
+                val paths = runInterruptible(Dispatchers.IO) {
+                    Files.walk(runDirectory).use { stream ->
+                        stream.filter(Files::isRegularFile)
+                            .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
+                            .toList()
+                    }
+                }
+                paths.map { path ->
+                    val relative = runDirectory.relativize(path)
+                    if (relative.nameCount != 2) {
+                        throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
+                    }
+                    val keyStepName = decodePathSegment(relative.getName(0).toString(), path)
+                    val fileName = relative.fileName.toString()
+                    val keyAttemptId = decodePathSegment(fileName.removeSuffix(ATTEMPT_SUFFIX), path)
+                    withFileLockCancellable(path) {
+                        if (!Files.exists(path)) {
+                            null
+                        } else {
+                            readStoredRecord(path, runId, keyStepName, keyAttemptId)
+                        }
+                    }
+                }.filterNotNull().sortedWith(
+                    compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }),
+                )
             }
         }
-        return paths.map { path ->
-            val relative = runDirectory.relativize(path)
-            if (relative.nameCount != 2) {
-                throw StepAttemptRecordCorruptionException("Invalid step-attempt path '$path'")
-            }
-            val keyStepName = decodePathSegment(relative.getName(0).toString(), path)
-            val fileName = relative.fileName.toString()
-            val keyAttemptId = decodePathSegment(fileName.removeSuffix(ATTEMPT_SUFFIX), path)
-            withFileLockCancellable(path) {
-                if (!Files.exists(path)) {
-                    null
-                } else {
-                    readStoredRecord(path, runId, keyStepName, keyAttemptId)
-                }
-            }
-        }.filterNotNull().sortedWith(
-            compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }),
-        )
     }
 
     private fun attemptPath(runId: String, stepName: String, attemptId: String): Path = rootDirectory
@@ -134,19 +180,19 @@ class FileStepAttemptRecordStore internal constructor(
         val payload = try {
             Files.readString(path)
         } catch (error: Exception) {
-            throw StepAttemptRecordCorruptionException("Unable to read step-attempt record '$path'", error)
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString(), error)
         }
         val properties = try {
             Properties().apply { load(payload.reader()) }
         } catch (error: Exception) {
-            throw StepAttemptRecordCorruptionException("Invalid step-attempt properties in '$path'", error)
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload, error)
         }
         val record = StepAttemptRecordCodec.decode(payload)
         val storedHash = properties.getProperty(RECORD_HASH)
-            ?: throw StepAttemptRecordCorruptionException("Missing record fingerprint in '$path'")
-        StepAttemptRecordCodec.requireValidFingerprint(record, storedHash, "'$path'")
+            ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
+        StepAttemptRecordCodec.requireValidFingerprint(record, storedHash, path.toString())
         if (record.identity() != AttemptIdentity(runId, stepName, attemptId)) {
-            throw StepAttemptRecordCorruptionException("Step-attempt identity does not match storage path '$path'")
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
         }
         return record
     }
@@ -157,7 +203,7 @@ class FileStepAttemptRecordStore internal constructor(
     private fun decodePathSegment(value: String, path: Path): String = try {
         base64UrlDecode(value)
     } catch (error: IllegalArgumentException) {
-        throw StepAttemptRecordCorruptionException("Invalid encoded identity in step-attempt path '$path'", error)
+        throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString(), error)
     }
 
 }
@@ -173,3 +219,6 @@ internal fun base64UrlDecode(value: String): String = String(
 private data class AttemptIdentity(val runId: String, val stepName: String, val attemptId: String)
 
 private fun StepAttemptRecord.identity(): AttemptIdentity = AttemptIdentity(runId, stepName, attemptId)
+
+internal fun classifyStepAttemptFailure(error: Throwable): PersistenceFailureCode? =
+    if (error is CorruptStepAttemptException) PersistenceFailureCode.CORRUPTED_DATA else null

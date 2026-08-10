@@ -27,12 +27,23 @@ class FileWorkflowCheckpointStore private constructor(
     private val pathStrategy: WorkflowCheckpointPathStrategy,
     private val atomicWriter: AtomicFileWriter,
 ) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
 
     constructor(
         rootDirectory: Path,
         pathStrategy: WorkflowCheckpointPathStrategy =
             DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
     ) : this(rootDirectory, pathStrategy, realAtomicFileWriter)
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(rootDirectory, pathStrategy, realAtomicFileWriter) {
+        persistenceFailureDiagnosticObserver = observer
+    }
 
     internal companion object {
         fun forTest(
@@ -43,30 +54,47 @@ class FileWorkflowCheckpointStore private constructor(
             DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
             atomicWriter,
         )
+
+        fun forTest(
+            rootDirectory: Path,
+            atomicWriter: AtomicFileWriter,
+            observer: PersistenceFailureDiagnosticObserver,
+        ) = FileWorkflowCheckpointStore(
+            rootDirectory,
+            DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+            atomicWriter,
+        ).also { it.persistenceFailureDiagnosticObserver = observer }
     }
 
     override suspend fun load(
         workflowName: String,
         workflowId: String,
-    ): WorkflowCheckpoint? {
+    ): WorkflowCheckpoint? = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
         if (!Files.exists(checkpointPath)) {
-            return null
-        }
-        return withFileLockCancellable(checkpointPath) {
-            if (!Files.exists(checkpointPath)) {
-                null
-            } else {
-                decodeCheckpoint(Files.readString(checkpointPath))
+            null
+        } else {
+            withFileLockCancellable(checkpointPath) {
+                if (!Files.exists(checkpointPath)) {
+                    null
+                } else {
+                    decodeCheckpoint(Files.readString(checkpointPath))
+                }
             }
         }
     }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) {
         val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        return withFileLockCancellable(checkpointPath) {
+        withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -89,6 +117,9 @@ class FileWorkflowCheckpointStore private constructor(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+    ) = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
     ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
         withFileLockCancellable(checkpointPath) {
@@ -104,6 +135,7 @@ class FileWorkflowCheckpointStore private constructor(
                 expectedRevision = expectedRevision,
             )
             Files.deleteIfExists(checkpointPath)
+            Unit
         }
     }
 
@@ -113,18 +145,22 @@ class FileWorkflowCheckpointStore private constructor(
      * Large deployments should prefer a paged or indexed catalog implementation to avoid heap pressure
      * during worker scans.
      */
-    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> {
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) {
         if (!Files.exists(rootDirectory)) {
-            return emptyList()
-        }
-        Files.walk(rootDirectory).use { paths ->
-            return paths
+            emptyList()
+        } else {
+            Files.walk(rootDirectory).use { paths ->
+                paths
                 .filter(Files::isRegularFile)
                 .filter { !it.fileName.toString().endsWith(".lock") }
                 .map(Files::readString)
                 .map(::decodeCheckpoint)
                 .toList()
                 .sortedWith(compareBy<WorkflowCheckpoint>({ it.workflowName }, { it.workflowId }))
+            }
         }
     }
     private fun checkpointPath(
@@ -172,17 +208,15 @@ internal fun encodeCheckpoint(checkpoint: WorkflowCheckpoint): String {
         properties.store(writer, "Tramai workflow checkpoint")
     }.toString()
 }
-internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
-    val properties = Properties().apply {
-        load(content.reader())
-    }
+internal fun decodeCheckpoint(content: String): WorkflowCheckpoint = try {
+    val properties = Properties().apply { load(content.reader()) }
     val metadata = properties.stringPropertyNames()
         .filter { it.startsWith("metadata.") }
         .associate { propertyName ->
             val encodedKey = propertyName.removePrefix("metadata.")
             base64Decode(encodedKey) to base64Decode(properties.getProperty(propertyName))
         }
-    return WorkflowCheckpoint(
+    WorkflowCheckpoint(
         workflowName = properties.requireProperty("workflowName"),
         workflowId = properties.requireProperty("workflowId"),
         nextStepIndex = properties.requireProperty("nextStepIndex").toInt(),
@@ -192,10 +226,12 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         revision = properties.getProperty("revision")?.toLong() ?: 0,
         metadata = metadata,
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
-        recoveryState = decodeRecoveryState(
-            properties.getProperty("recoveryState")?.takeIf { it.isNotBlank() }?.let(::base64Decode),
-        ),
+        recoveryState = decodeRecoveryState(properties.getProperty("recoveryState")?.takeIf { it.isNotBlank() }?.let(::base64Decode)),
     )
+} catch (error: CorruptCheckpointException) {
+    throw error
+} catch (error: Throwable) {
+    throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)
 }
 
 // --- Per-path Mutex registry with reference counting ---
@@ -365,19 +401,13 @@ internal fun validateExpectedRevision(
     expectedRevision: Long?,
 ) {
     if (expectedRevision == null && existing != null) {
-        throw WorkflowCheckpointConflictException(
-            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' already exists at revision ${existing.revision}",
-        )
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
     }
     if (expectedRevision != null && existing == null) {
-        throw WorkflowCheckpointConflictException(
-            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' does not exist for expected revision $expectedRevision",
-        )
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
     }
     if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
-        throw WorkflowCheckpointConflictException(
-            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' is at revision ${existing.revision}, not expected revision $expectedRevision",
-        )
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
     }
 }
 internal fun validateDeleteExpectedRevision(
@@ -387,14 +417,10 @@ internal fun validateDeleteExpectedRevision(
     expectedRevision: Long?,
 ) {
     if (expectedRevision != null && existing == null) {
-        throw WorkflowCheckpointConflictException(
-            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' does not exist for expected revision $expectedRevision",
-        )
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
     }
     if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
-        throw WorkflowCheckpointConflictException(
-            "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' is at revision ${existing.revision}, not expected revision $expectedRevision",
-        )
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
     }
 }
 internal fun sanitizePathSegment(input: String): String = input.map { character ->
@@ -409,6 +435,9 @@ internal fun base64Decode(value: String): String = String(
     Base64.getDecoder().decode(value),
     StandardCharsets.UTF_8,
 )
+
+internal fun classifyCheckpointFailure(error: Throwable): PersistenceFailureCode? =
+    if (error is CorruptCheckpointException) PersistenceFailureCode.CORRUPTED_DATA else null
 
 internal fun ensureOwnerOnlyDirectory(path: Path) {
     Files.createDirectories(path)

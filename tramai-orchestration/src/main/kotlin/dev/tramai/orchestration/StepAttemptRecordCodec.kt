@@ -33,7 +33,7 @@ internal object StepAttemptRecordCodec {
         val properties = Properties().apply { load(payload.reader()) }
         val schemaVersion = properties.requireCodecProperty("schemaVersion")
         if (schemaVersion != SCHEMA_VERSION) {
-            corrupt("Unsupported step-attempt schema version '$schemaVersion'")
+            corrupt("Unsupported step-attempt schema version", schemaVersion)
         }
         StepAttemptRecord(
             runId = decodeString(properties.requireCodecProperty("runId"), "runId"),
@@ -53,10 +53,10 @@ internal object StepAttemptRecordCodec {
             resolutionAction = properties.decodeNullableString("resolutionAction")?.let(::decodeResolutionAction),
             approvedIdempotencyKey = properties.decodeNullableString("approvedIdempotencyKey"),
         )
-    } catch (error: StepAttemptRecordCorruptionException) {
+    } catch (error: CorruptStepAttemptException) {
         throw error
     } catch (error: Exception) {
-        throw StepAttemptRecordCorruptionException("Invalid step-attempt record", error)
+        throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload, error)
     }
 
     fun fingerprint(record: StepAttemptRecord): String = MessageDigest.getInstance("SHA-256")
@@ -65,7 +65,7 @@ internal object StepAttemptRecordCodec {
 
     fun requireValidFingerprint(record: StepAttemptRecord, storedFingerprint: String, context: String) {
         if (storedFingerprint != fingerprint(record)) {
-            throw StepAttemptRecordCorruptionException("Step-attempt fingerprint mismatch in $context")
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", context)
         }
     }
 
@@ -104,11 +104,12 @@ internal object StepAttemptRecordCodec {
     private fun decodeString(value: String, field: String): String = try {
         String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8)
     } catch (error: IllegalArgumentException) {
-        throw StepAttemptRecordCorruptionException("Invalid encoded value for '$field'", error)
+        throw CorruptStepAttemptException("Invalid encoded value for '$field'", value, error)
     }
 
     private fun <E : Enum<E>> enumValue(value: String, label: String, entries: List<E>): E =
-        entries.firstOrNull { it.name == value } ?: corrupt("Unknown $label: '$value'")
+        entries.firstOrNull { it.name == value } ?: corrupt("Unknown $label", value)
 
-    private fun corrupt(message: String): Nothing = throw StepAttemptRecordCorruptionException(message)
+    private fun corrupt(message: String, rawPayload: String? = null): Nothing =
+        throw CorruptStepAttemptException(message, rawPayload)
 }

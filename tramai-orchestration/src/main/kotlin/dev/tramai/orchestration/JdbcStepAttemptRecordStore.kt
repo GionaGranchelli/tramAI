@@ -11,34 +11,50 @@ class JdbcStepAttemptRecordStore(
     private val dataSource: DataSource,
     private val table: JdbcStepAttemptTable = JdbcStepAttemptTable(),
 ) : StepAttemptRecordStore {
-    override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord =
-        executeJdbcCancellable(dataSource) { conn ->
-            record.requirePersistableIdentity()
-            if (update(conn, record, requireHash = null) == 0) {
-                try {
-                    insert(conn, record)
-                } catch (error: SQLException) {
-                    if (update(conn, record, requireHash = null) == 0) throw error
-                }
-            }
-            record
-        }
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
 
-    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord =
-        executeJdbcCancellable(dataSource) { conn ->
-            record.requirePersistableIdentity()
-            if (update(conn, record, requireHash = null) == 0) {
-                if (!exists(conn, record)) {
-                    throw IllegalStateException(
-                        "Step attempt '${record.attemptId}' for run '${record.runId}' and step '${record.stepName}' does not exist",
-                    )
+    constructor(
+        dataSource: DataSource,
+        table: JdbcStepAttemptTable,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(dataSource, table) {
+        persistenceFailureDiagnosticObserver = observer
+    }
+
+    override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
+        record.requirePersistableIdentity()
+        return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
+            executeJdbcCancellable(dataSource) { conn ->
+                if (update(conn, record, requireHash = null) == 0) {
+                    try {
+                        insert(conn, record)
+                    } catch (error: SQLException) {
+                        if (update(conn, record, requireHash = null) == 0) throw error
+                    }
                 }
-                // A concurrent recordStepAttempt inserted the row between our UPDATE and the
-                // existence check — retry so the update is not silently dropped.
-                update(conn, record, requireHash = null)
+                record
             }
-            record
         }
+    }
+
+    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
+        record.requirePersistableIdentity()
+        return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
+            executeJdbcCancellable(dataSource) { conn ->
+                if (update(conn, record, requireHash = null) == 0) {
+                    if (!exists(conn, record)) {
+                        throw IllegalStateException("Step attempt does not exist")
+                    }
+                    // A concurrent recordStepAttempt inserted the row between our UPDATE and the
+                    // existence check — retry so the update is not silently dropped.
+                    update(conn, record, requireHash = null)
+                }
+                record
+            }
+        }
+    }
 
     override suspend fun compareAndSetStepAttempt(
         expected: StepAttemptRecord,
@@ -46,19 +62,23 @@ class JdbcStepAttemptRecordStore(
     ): Boolean {
         if (expected.key() != updated.key()) return false
         updated.requirePersistableIdentity()
-        return executeJdbcCancellable(dataSource) { conn ->
-            update(conn, updated, StepAttemptRecordCodec.fingerprint(expected)) > 0
+        return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.COMPARE_AND_SET, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
+            executeJdbcCancellable(dataSource) { conn ->
+                update(conn, updated, StepAttemptRecordCodec.fingerprint(expected)) > 0
+            }
         }
     }
 
     override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? {
         require(runId.isNotBlank() && stepName.isNotBlank()) { "Step-attempt runId and stepName must not be blank" }
-        return executeJdbcCancellable(dataSource) { conn ->
-            conn.prepareStatement(latestSql()).use { statement ->
+        return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
+            executeJdbcCancellable(dataSource) { conn ->
+                conn.prepareStatement(latestSql()).use { statement ->
                 statement.setString(1, runId)
                 statement.setString(2, stepName)
                 statement.executeQuery().use { resultSet ->
                     if (resultSet.next()) resultSet.toVerifiedRecord() else null
+                }
                 }
             }
         }
@@ -66,13 +86,15 @@ class JdbcStepAttemptRecordStore(
 
     override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> {
         require(runId.isNotBlank()) { "Step-attempt runId must not be blank" }
-        return executeJdbcCancellable(dataSource) { conn ->
-            conn.prepareStatement(listSql()).use { statement ->
+        return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
+            executeJdbcCancellable(dataSource) { conn ->
+                conn.prepareStatement(listSql()).use { statement ->
                 statement.setString(1, runId)
                 statement.executeQuery().use { resultSet ->
                     buildList {
                         while (resultSet.next()) add(resultSet.toVerifiedRecord())
                     }
+                }
                 }
             }
         }
@@ -237,35 +259,33 @@ class JdbcStepAttemptRecordStore(
                 resolutionAction = getString(table.resolutionActionColumn)?.let(::decodeResolutionAction),
                 approvedIdempotencyKey = getString(table.approvedIdempotencyKeyColumn),
             )
-        } catch (error: StepAttemptRecordCorruptionException) {
+        } catch (error: CorruptStepAttemptException) {
             throw error
         } catch (error: Exception) {
-            throw StepAttemptRecordCorruptionException("Invalid JDBC step-attempt record", error)
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", "JDBC storage", error)
         }
         val storedVersion = getString(table.recordSchemaVersionColumn)
-            ?: throw StepAttemptRecordCorruptionException("Missing JDBC step-attempt schema version")
+            ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", table.recordSchemaVersionColumn)
         if (storedVersion != StepAttemptRecordCodec.SCHEMA_VERSION) {
-            throw StepAttemptRecordCorruptionException(
-                "Unsupported JDBC step-attempt schema version '$storedVersion' (expected '${StepAttemptRecordCodec.SCHEMA_VERSION}')",
-            )
+            throw CorruptStepAttemptException("Unsupported step-attempt schema version", storedVersion)
         }
         val storedHash = getString(table.recordHashColumn)
-            ?: throw StepAttemptRecordCorruptionException("Missing JDBC step-attempt fingerprint")
+            ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", table.recordHashColumn)
         StepAttemptRecordCodec.requireValidFingerprint(record, storedHash, "JDBC storage")
         return record
     }
 
     private fun corruptColumn(column: String): Nothing =
-        throw StepAttemptRecordCorruptionException("Missing mandatory JDBC step-attempt column '$column'")
+        throw CorruptStepAttemptException("Persisted step-attempt record is invalid", column)
 
     private fun ResultSet.nullableLong(column: String): Long? = getObject(column)?.let { value ->
         (value as? Number)?.toLong()
-            ?: throw StepAttemptRecordCorruptionException("Invalid numeric JDBC step-attempt column '$column'")
+            ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", value.toString())
     }
 
     private fun <E : Enum<E>> strictEnum(value: String?, label: String, entries: List<E>): E =
         entries.firstOrNull { it.name == value }
-            ?: throw StepAttemptRecordCorruptionException("Unknown $label: '$value'")
+            ?: throw CorruptStepAttemptException("Unknown $label", value)
 }
 
 data class JdbcStepAttemptTable(

@@ -12,29 +12,49 @@ class JdbcWorkflowCheckpointStore(
     internal val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
 ) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
+    constructor(
+        dataSource: DataSource,
+        table: JdbcWorkflowCheckpointTable,
+        observer: PersistenceFailureDiagnosticObserver,
+    ) : this(dataSource, table) {
+        persistenceFailureDiagnosticObserver = observer
+    }
     override suspend fun load(
         workflowName: String,
         workflowId: String,
-    ): WorkflowCheckpoint? = executeJdbcCancellable(dataSource) { conn ->
+    ): WorkflowCheckpoint? = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) { executeJdbcCancellable(dataSource) { conn ->
         load(conn, workflowName, workflowId)
-    }
+    } }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint = executeJdbcCancellable(dataSource) { conn ->
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) { executeJdbcCancellable(dataSource) { conn ->
         saveInConnection(conn, checkpoint, expectedRevision)
-    }
+    } }
     override suspend fun delete(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
     ) {
-        executeJdbcCancellable(dataSource) { conn ->
+        persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver, ::classifyCheckpointFailure) { executeJdbcCancellable(dataSource) { conn ->
             deleteInConnection(conn, workflowName, workflowId, expectedRevision)
-        }
+        } }
     }
 
-    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = executeJdbcCancellable(dataSource) { conn ->
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+        classify = ::classifyCheckpointFailure,
+    ) { executeJdbcCancellable(dataSource) { conn ->
         conn.prepareStatement(listSql()).use { statement ->
             statement.executeQuery().use { resultSet ->
                 val checkpoints = mutableListOf<WorkflowCheckpoint>()
@@ -44,7 +64,7 @@ class JdbcWorkflowCheckpointStore(
                 checkpoints
             }
         }
-    }
+    } }
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
             ${table.workflowNameColumn} VARCHAR(255) NOT NULL,
@@ -260,18 +280,28 @@ class JdbcWorkflowCheckpointStore(
         setLong(9, checkpoint.savedAtEpochMillis)
         setString(10, encodeRecoveryState(checkpoint.recoveryState))
     }
-    private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
-        workflowName = getString(table.workflowNameColumn),
-        workflowId = getString(table.workflowIdColumn),
-        nextStepIndex = getInt(table.nextStepIndexColumn),
-        stepExecutions = getInt(table.stepExecutionsColumn),
-        lastCompletedStepName = getString(table.lastCompletedStepNameColumn),
-        statePayload = getString(table.statePayloadColumn),
-        revision = getLong(table.revisionColumn),
-        metadata = decodeMetadata(getString(table.metadataColumn)),
-        savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
-        recoveryState = decodeRecoveryState(getString(table.recoveryStateColumn)),
-    )
+    private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint {
+        val metadataPayload = getString(table.metadataColumn)
+        val recoveryPayload = getString(table.recoveryStateColumn)
+        return try {
+            WorkflowCheckpoint(
+                workflowName = getString(table.workflowNameColumn),
+                workflowId = getString(table.workflowIdColumn),
+                nextStepIndex = getInt(table.nextStepIndexColumn),
+                stepExecutions = getInt(table.stepExecutionsColumn),
+                lastCompletedStepName = getString(table.lastCompletedStepNameColumn),
+                statePayload = getString(table.statePayloadColumn),
+                revision = getLong(table.revisionColumn),
+                metadata = decodeMetadata(metadataPayload),
+                savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
+                recoveryState = decodeRecoveryState(recoveryPayload),
+            )
+        } catch (error: CorruptCheckpointException) {
+            throw error
+        } catch (error: Throwable) {
+            throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", metadataPayload ?: recoveryPayload)
+        }
+    }
 }
 data class JdbcWorkflowCheckpointTable(
     val tableName: String = "tramai_workflow_checkpoint",
@@ -309,16 +339,19 @@ internal fun encodeMetadata(metadata: Map<String, String>): String {
         properties.store(writer, "Tramai workflow checkpoint metadata")
     }.toString()
 }
-internal fun decodeMetadata(payload: String?): Map<String, String> {
+internal fun decodeMetadata(payload: String?): Map<String, String> = try {
     if (payload.isNullOrBlank()) {
-        return emptyMap()
+        emptyMap()
+    } else {
+        val properties = Properties().apply { load(payload.reader()) }
+        properties.stringPropertyNames().associate { encodedKey ->
+            base64Decode(encodedKey) to base64Decode(properties.getProperty(encodedKey))
+        }
     }
-    val properties = Properties().apply {
-        load(payload.reader())
-    }
-    return properties.stringPropertyNames().associate { encodedKey ->
-        base64Decode(encodedKey) to base64Decode(properties.getProperty(encodedKey))
-    }
+} catch (error: CorruptCheckpointException) {
+    throw error
+} catch (error: Throwable) {
+    throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
 }
 
 internal fun requireValidSqlIdentifier(

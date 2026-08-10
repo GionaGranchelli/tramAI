@@ -96,16 +96,29 @@ interface WorkflowCheckpointStore {
         expectedRevision: Long,
         record: WorkflowRecoveryRecord,
     ): WorkflowCheckpoint {
-        val current = load(workflowName, workflowId)
-            ?: throw WorkflowCheckpointConflictException(
-                "Cannot require recovery for workflow '$workflowName' and workflowId='$workflowId': checkpoint does not exist for expected revision $expectedRevision",
+        // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
+        // is WRITE_FAILED — the outer operation (SAVE) must not mislabel the
+        // load phase (the Copilot finding).
+        val current = persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.LOAD,
+            checkpointDiagnosticObserver(this),
+        ) { load(workflowName, workflowId) }
+            ?: throw safePersistenceFailure(
+                PersistenceResourceKind.CHECKPOINT,
+                PersistenceOperation.SAVE,
+                PersistenceFailureCode.CONFLICT,
             )
-        return save(
-            checkpoint = current.copy(
-                recoveryState = WorkflowRecoveryState.Required(record),
-            ),
-            expectedRevision = expectedRevision,
-        )
+        return persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.SAVE,
+            checkpointDiagnosticObserver(this),
+        ) {
+            save(
+                checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Required(record)),
+                expectedRevision = expectedRevision,
+            )
+        }
     }
 
     /**
@@ -121,14 +134,28 @@ interface WorkflowCheckpointStore {
         workflowId: String,
         expectedRevision: Long,
     ): WorkflowCheckpoint {
-        val current = load(workflowName, workflowId)
-            ?: throw WorkflowCheckpointConflictException(
-                "Cannot clear recovery for workflow '$workflowName' and workflowId='$workflowId': checkpoint does not exist for expected revision $expectedRevision",
+        // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
+        // is WRITE_FAILED (same split as requireRecovery).
+        val current = persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.LOAD,
+            checkpointDiagnosticObserver(this),
+        ) { load(workflowName, workflowId) }
+            ?: throw safePersistenceFailure(
+                PersistenceResourceKind.CHECKPOINT,
+                PersistenceOperation.SAVE,
+                PersistenceFailureCode.CONFLICT,
             )
-        return save(
-            checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
-            expectedRevision = expectedRevision,
-        )
+        return persistenceBoundary(
+            PersistenceResourceKind.CHECKPOINT,
+            PersistenceOperation.SAVE,
+            checkpointDiagnosticObserver(this),
+        ) {
+            save(
+                checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
+                expectedRevision = expectedRevision,
+            )
+        }
     }
 }
 
@@ -168,13 +195,23 @@ data class WorkflowPersistence<S>(
  */
 class WorkflowResumeException(
     message: String,
-) : RuntimeException(message)
+) : RuntimeException(message) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 /**
  * Raised when a checkpoint write or delete is attempted with stale revision state.
  */
 class WorkflowCheckpointConflictException(
     message: String,
-) : RuntimeException(message)
+) : RuntimeException(message) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 
 /**
  * Raised when persisted checkpoint data is present but malformed or corrupted.
@@ -186,7 +223,12 @@ class WorkflowCheckpointConflictException(
  */
 class WorkflowCheckpointCorruptionException(
     message: String,
-) : RuntimeException(message)
+) : RuntimeException(message) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 
 /**
  * Shared recovery-state codec for store implementations.
@@ -217,29 +259,22 @@ internal fun decodeRecoveryState(payload: String?): WorkflowRecoveryState {
     if (payload.isNullOrBlank()) return WorkflowRecoveryState.Normal
     val map = try {
         decodeMetadata(payload)
-    } catch (error: IllegalArgumentException) {
-        throw WorkflowCheckpointCorruptionException(
-            "Persisted recovery state is not a valid encoded payload: '$payload'",
-        )
+    } catch (error: CorruptCheckpointException) {
+        throw error
+    } catch (error: Throwable) {
+        throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
     }
     val reason = map["reason"]?.let { name ->
         WorkflowRecoveryReason.entries.firstOrNull { it.name == name }
-    } ?: throw WorkflowCheckpointCorruptionException(
-        "Persisted recovery state is missing or has an invalid 'reason' field: '${map["reason"]}'",
-    )
-    val stepName = map["stepName"] ?: throw WorkflowCheckpointCorruptionException(
-        "Persisted recovery state is missing 'stepName'",
-    )
-    val attemptId = map["attemptId"] ?: throw WorkflowCheckpointCorruptionException(
-        "Persisted recovery state is missing 'attemptId'",
-    )
-    val priorWorkerId = map["priorWorkerId"] ?: throw WorkflowCheckpointCorruptionException(
-        "Persisted recovery state is missing 'priorWorkerId'",
-    )
+    } ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
+    val stepName = map["stepName"]
+        ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
+    val attemptId = map["attemptId"]
+        ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
+    val priorWorkerId = map["priorWorkerId"]
+        ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
     val detectedAt = map["detectedAtEpochMillis"]?.toLongOrNull()
-        ?: throw WorkflowCheckpointCorruptionException(
-            "Persisted recovery state has invalid 'detectedAtEpochMillis': '${map["detectedAtEpochMillis"]}'",
-        )
+        ?: throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", payload)
     return WorkflowRecoveryState.Required(
         WorkflowRecoveryRecord(
             reason = reason,
@@ -255,88 +290,97 @@ internal fun decodeRecoveryState(payload: String?): WorkflowRecoveryState {
 /**
  * Simple in-memory checkpoint store for tests and lightweight local use.
  */
-class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore, WorkflowCheckpointCatalog, StepAttemptRecordStore {
+class InMemoryWorkflowCheckpointStore :
+    WorkflowCheckpointStore, WorkflowCheckpointCatalog, StepAttemptRecordStore {
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
+
+    constructor()
+
+    constructor(observer: PersistenceFailureDiagnosticObserver) : this() {
+        persistenceFailureDiagnosticObserver = observer
+    }
     private val checkpoints = linkedMapOf<CheckpointKey, WorkflowCheckpoint>()
     private val stepAttempts = linkedMapOf<AttemptKey, StepAttemptRecord>()
     private val monitor = Any()
     override suspend fun load(
         workflowName: String,
         workflowId: String,
-    ): WorkflowCheckpoint? = synchronized(monitor) {
-        checkpoints[CheckpointKey(workflowName, workflowId)]
-    }
+    ): WorkflowCheckpoint? = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+    ) { synchronized(monitor) { checkpoints[CheckpointKey(workflowName, workflowId)] } }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint = synchronized(monitor) {
+    ): WorkflowCheckpoint = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+    ) { synchronized(monitor) {
         val key = CheckpointKey(checkpoint.workflowName, checkpoint.workflowId)
         val existing = checkpoints[key]
         if (expectedRevision == null && existing != null) {
-            throw WorkflowCheckpointConflictException(
-                "Checkpoint for workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' already exists at revision ${existing.revision}",
-            )
+            throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
         }
         if (expectedRevision != null && existing == null) {
-            throw WorkflowCheckpointConflictException(
-                "Checkpoint for workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' does not exist for expected revision $expectedRevision",
-            )
+            throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
         }
         if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
-            throw WorkflowCheckpointConflictException(
-                "Checkpoint for workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' is at revision ${existing.revision}, not expected revision $expectedRevision",
-            )
+            throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
         }
         val persisted = checkpoint.copy(
             revision = (existing?.revision ?: 0) + 1,
         )
         checkpoints[key] = persisted
         persisted
-    }
+    } }
     override suspend fun delete(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
     ) {
-        synchronized(monitor) {
+        persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
             val key = CheckpointKey(workflowName, workflowId)
             val existing = checkpoints[key]
             if (expectedRevision != null && existing == null) {
-                throw WorkflowCheckpointConflictException(
-                    "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' does not exist for expected revision $expectedRevision",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
             }
             if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
-                throw WorkflowCheckpointConflictException(
-                    "Checkpoint for workflow '$workflowName' and workflowId='$workflowId' is at revision ${existing.revision}, not expected revision $expectedRevision",
-                )
+                throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
             }
             checkpoints.remove(key)
-        }
+        } }
     }
 
-    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = synchronized(monitor) {
-        checkpoints.values.toList()
-    }
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = persistenceBoundary(
+        PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+    ) { synchronized(monitor) { checkpoints.values.toList() } }
 
-    override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord = synchronized(monitor) {
+    override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord = persistenceBoundary(
+        PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyStepAttemptFailure,
+    ) { synchronized(monitor) {
         val key = AttemptKey(record.runId, record.stepName, record.attemptId)
         stepAttempts[key] = record
         record
-    }
+    } }
 
-    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord = synchronized(monitor) {
+    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord = persistenceBoundary(
+        PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        classify = ::classifyStepAttemptFailure,
+    ) { synchronized(monitor) {
         val key = AttemptKey(record.runId, record.stepName, record.attemptId)
-        require(stepAttempts.containsKey(key)) {
-            "Step attempt '${record.attemptId}' for run '${record.runId}' and step '${record.stepName}' does not exist"
-        }
+        require(stepAttempts.containsKey(key)) { "Step attempt does not exist" }
         stepAttempts[key] = record
         record
-    }
+    } }
 
     override suspend fun compareAndSetStepAttempt(
         expected: StepAttemptRecord,
         updated: StepAttemptRecord,
-    ): Boolean = synchronized(monitor) {
+    ): Boolean = persistenceBoundary(
+        PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.COMPARE_AND_SET, persistenceFailureDiagnosticObserver,
+        classify = ::classifyStepAttemptFailure,
+    ) { synchronized(monitor) {
         val expectedKey = AttemptKey(expected.runId, expected.stepName, expected.attemptId)
         val updatedKey = AttemptKey(updated.runId, updated.stepName, updated.attemptId)
         if (expectedKey != updatedKey) {
@@ -347,23 +391,29 @@ class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore, WorkflowCheckpo
             stepAttempts[expectedKey] = updated
             true
         }
-    }
+    } }
 
     override suspend fun latestStepAttempt(
         runId: String,
         stepName: String,
-    ): StepAttemptRecord? = synchronized(monitor) {
+    ): StepAttemptRecord? = persistenceBoundary(
+        PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
+        classify = ::classifyStepAttemptFailure,
+    ) { synchronized(monitor) {
         stepAttempts.values
             .asSequence()
             .filter { it.runId == runId && it.stepName == stepName }
             .maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
-    }
+    } }
 
-    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> = synchronized(monitor) {
+    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> = persistenceBoundary(
+        PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.LIST, persistenceFailureDiagnosticObserver,
+        classify = ::classifyStepAttemptFailure,
+    ) { synchronized(monitor) {
         stepAttempts.values
             .filter { it.runId == runId }
             .sortedWith(compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }))
-    }
+    } }
 }
 private data class CheckpointKey(
     val workflowName: String,

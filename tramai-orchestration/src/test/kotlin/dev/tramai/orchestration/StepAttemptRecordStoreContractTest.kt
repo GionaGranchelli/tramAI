@@ -85,8 +85,9 @@ abstract class StepAttemptRecordStoreContractTest {
     @Test
     fun `5 update rejects missing record`() {
         assertThatThrownBy { runBlocking { store.updateStepAttempt(minimalRecord()) } }
-            .isInstanceOfAny(IllegalStateException::class.java, IllegalArgumentException::class.java)
-            .hasMessageContaining("does not exist")
+            .isInstanceOf(WorkflowPersistenceFailureException::class.java)
+            .hasMessage("Workflow persistence write failed")
+            .hasNoCause()
     }
 
     @Test
@@ -215,7 +216,7 @@ abstract class StepAttemptRecordStoreContractTest {
             if (!harness.supportsPersistentCorruption) {
                 assertThatThrownBy {
                     StepAttemptRecordCodec.requireValidFingerprint(record, "bad", "contract fixture")
-                }.isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+                }.isInstanceOf(CorruptStepAttemptException::class.java)
                 return@runBlocking
             }
             store.recordStepAttempt(record)
@@ -297,8 +298,11 @@ interface AttemptStoreHarness {
         val lines = StepAttemptRecordCodec.encode(testCodecRecord()).lines().toMutableList()
         val index = lines.indexOfFirst { it.startsWith("$field=") }
         if (replacement == null) lines.removeAt(index) else lines[index] = "$field=$replacement"
+        // The codec is internal; it fails closed with the internal corruption
+        // carrier. The public fixed-text StepAttemptRecordCorruptionException is
+        // proven at the store boundary (PersistenceSafeFailureBoundaryTest).
         assertThatThrownBy { StepAttemptRecordCodec.decode(lines.joinToString("\n")) }
-            .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+            .isInstanceOf(CorruptStepAttemptException::class.java)
     }
 
     suspend fun corruptFingerprint(record: StepAttemptRecord) = Unit
@@ -372,7 +376,8 @@ class JdbcStepAttemptRecordStoreContractTest : StepAttemptRecordStoreContractTes
             jdbcHarness.corruptSchemaVersion(recorded)
             assertThatThrownBy { runBlocking { store.listStepAttempts("run") } }
                 .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
-                .hasMessageContaining("schema version")
+                .hasMessage("Persisted step-attempt record is invalid")
+                .hasNoCause()
         }
     }
 }

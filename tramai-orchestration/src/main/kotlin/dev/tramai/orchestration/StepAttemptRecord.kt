@@ -123,7 +123,12 @@ interface StepAttemptRecordStore {
 class StepAttemptRecordCorruptionException(
     message: String,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : RuntimeException(message, cause) {
+    var failureCode: PersistenceFailureCode? = null
+        internal set
+    var safeFactoryTrusted: Boolean = false
+        internal set
+}
 
 class NonReplayableStepStateUnknownException(
     val runId: String,

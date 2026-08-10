@@ -66,7 +66,8 @@ class WorkflowLeaseStoreTest {
             }
         }
             .isInstanceOf(WorkflowLeaseConflictException::class.java)
-            .hasMessageContaining("already leased by owner 'node-a'")
+            .hasMessage("Workflow lease conflict")
+            .hasNoCause()
     }
     @Test
     fun `in memory lease store rejects renewal after lease expiry`() {
@@ -92,7 +93,8 @@ class WorkflowLeaseStoreTest {
             }
         }
             .isInstanceOf(WorkflowLeaseConflictException::class.java)
-            .hasMessageContaining("lease has expired before renewal")
+            .hasMessage("Workflow lease conflict")
+            .hasNoCause()
         assertThat(runBlocking { store.currentLease("lease-workflow", "wf-expired") }).isNull()
     }
     @Test
@@ -118,8 +120,8 @@ class WorkflowLeaseStoreTest {
             }
         }
             .isInstanceOf(WorkflowLeaseConflictException::class.java)
-            .hasMessageContaining("leased by owner 'node-a'")
-            .hasMessageContaining("not 'node-b'")
+            .hasMessage("Workflow lease conflict")
+            .hasNoCause()
         assertThat(runBlocking { store.currentLease("lease-workflow", "wf-release-conflict") }).isEqualTo(claimed)
     }
     @Test
@@ -160,7 +162,8 @@ class WorkflowLeaseStoreTest {
                 }
             }
                 .isInstanceOf(WorkflowLeaseConflictException::class.java)
-                .hasMessageContaining("node-a")
+                .hasMessage("Workflow lease conflict")
+                .hasNoCause()
             runBlocking { store.release(renewed) }
             assertThat(runBlocking { store.currentLease("lease-workflow", "wf-1") }).isNull()
         } finally {
@@ -218,7 +221,8 @@ class WorkflowLeaseStoreTest {
             }
         }
             .isInstanceOf(WorkflowLeaseConflictException::class.java)
-            .hasMessageContaining("node-a")
+            .hasMessage("Workflow lease conflict")
+            .hasNoCause()
     }
     @Test
     fun `workflow failure releases lease so another owner can take over`() {
@@ -298,7 +302,8 @@ class WorkflowLeaseStoreTest {
             }
         }
             .isInstanceOf(WorkflowLeaseConflictException::class.java)
-            .hasMessageContaining("node-a")
+            .hasMessage("Workflow lease conflict")
+            .hasNoCause()
         now = 2_000L
         val replacement = runBlocking {
             store.claim(

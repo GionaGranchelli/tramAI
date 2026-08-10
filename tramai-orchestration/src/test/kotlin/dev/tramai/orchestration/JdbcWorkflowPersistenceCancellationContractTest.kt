@@ -411,7 +411,8 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             } catch (e: WorkflowLeaseConflictException) { e }
             assertThat(leaseConflictThrown)
                 .isInstanceOf(WorkflowLeaseConflictException::class.java)
-                .hasMessageContaining("owner-a")
+                .hasMessage("Workflow lease conflict")
+                .hasNoCause()
 
             leaseStore.release(leaseStore.currentLease(cp.workflowName, cp.workflowId)!!)
             val freshLease = leaseStore.claim(

@@ -321,27 +321,27 @@ This phase is intentionally completed before large decomposition work.
 
 ## Epic 1.2: Safe error boundaries
 
-> **Status:** in progress — tool failures (PR #219) and provider HTTP/transport failures (PR #222) are implemented. Workflow-step, persistence, MCP, shell, and structured-output boundaries remain.
+> **Status:** ✅ Complete — tool failures (PR #219), provider HTTP/transport failures (PR #222), workflow-step/MCP/shell boundaries (PR #223), structured-output failures (PR #224), and persistence failures (PR #225) are implemented.
 
 **Goal:** Separate internal diagnostic detail from public, model-visible, audit-visible, and telemetry-visible errors.
 
 ### Tasks
 
-1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode`; **PR #222:** `ProviderFailureCode`; **PR #223:** `WorkflowStepFailureCode` for built-in external workflow steps. Other domains remain later slices.
+1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode`; **PR #222:** `ProviderFailureCode`; **PR #223:** `WorkflowStepFailureCode` for built-in external workflow steps; **PR #225:** `PersistenceFailureCode`. Approval and policy domains remain later slices.
 2. Define four explicit error surfaces:
-   - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver`; **PR #222:** `ProviderFailureDiagnosticObserver`; **PR #223:** `WorkflowStepFailureDiagnosticObserver` (all fail-open and diagnostic-only).
-   - public caller message; — **PR #222:** fixed provider HTTP/transport messages; **PR #223:** fixed built-in workflow-step messages.
+   - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver`; **PR #222:** `ProviderFailureDiagnosticObserver`; **PR #223:** `WorkflowStepFailureDiagnosticObserver`; **PR #225:** `PersistenceFailureDiagnosticObserver` (all fail-open and diagnostic-only).
+   - public caller message; — **PR #222:** fixed provider HTTP/transport messages; **PR #223:** fixed built-in workflow-step messages; **PR #225:** fixed persistence messages.
    - model-visible message; — **PR #219:** `ModelVisibleToolMessage.trusted(...)`.
-   - audit/telemetry metadata. — **PR #222:** provider logs and telemetry expose fixed messages and trusted metadata only; other surfaces remain.
+   - audit/telemetry metadata. — **PR #222:** provider logs and telemetry expose fixed messages and trusted metadata only; **PR #225:** persistence raw detail remains diagnostic-observer-only while ordinary worker logs expose exception class names only. Approval surfaces remain.
 3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** `ToolResult` retains its four 0.5.0 variants for exhaustive-`when` compatibility; `safeInvalidInput(...)`/`safePermanentFailure(...)` factories wrap validated or fixed text in the existing variants. Built-in engine and standalone paths never derive text from `Throwable.message`.
 4. Review provider HTTP failure handling so response bodies are:
    - bounded;
    - sanitised;
    - disabled or redacted by default;
    - never copied wholesale into public exceptions. — **PR #222:** complete for provider HTTP failures; bounded previews are available only through `ProviderFailureDiagnosticObserver`.
-5. Review debug logging of provider bodies and secret-related paths. — **PR #222:** complete for provider adapters; debug logs are metadata-only.
-6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals. — **PR #222:** provider HTTP/transport helpers; **PR #223:** built-in HTTP, shell, MCP, Codex, and Hermes workflow-step helpers. Persistence and approvals remain later slices.
-7. Add negative tests with tokens, prompts, paths, SQL fragments, command arguments, and malformed payloads. — **PR #219:** tool boundary; **PR #222:** provider HTTP, transport, adapter, and telemetry boundaries. Other surfaces remain.
+5. Review debug logging of provider bodies and secret-related paths. — **PR #222:** complete for provider adapters; debug logs are metadata-only. **PR #225:** persistence worker logging emits exception class names only.
+6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals. — **PR #222:** provider HTTP/transport helpers; **PR #223:** built-in HTTP, shell, MCP, Codex, and Hermes workflow-step helpers; **PR #225:** persistence boundaries. Approvals remain a later slice.
+7. Add negative tests with tokens, prompts, paths, SQL fragments, command arguments, and malformed payloads. — **PR #219:** tool boundary; **PR #222:** provider HTTP, transport, adapter, and telemetry boundaries; **PR #224:** structured-output boundary; **PR #225:** persistence paths, SQL, payloads, observer behavior, cancellation, and worker failures. Approval surfaces remain.
 
 ### Acceptance criteria
 
