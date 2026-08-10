@@ -402,6 +402,8 @@ class TrustedReplayEnvelopeRegistryTest {
             approvalGateCoordinator = null,
             approvalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
             resumeOperationRegistry = registry,
+            lifecycleJob = kotlinx.coroutines.SupervisorJob(),
+            lifecycleScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
             clock = Clock.systemUTC(),
         )
     }

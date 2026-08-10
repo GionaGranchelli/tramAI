@@ -90,6 +90,7 @@ import dev.tramai.core.exception.ToolInvalidInputException
 import dev.tramai.core.model.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asContextElement
@@ -103,6 +104,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
@@ -174,6 +176,29 @@ class TramaiEngine(
     private val resumeOperationRegistry: ResumeOperationRegistry = ResumeOperationRegistry()
     private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val engineThreadMarker = ThreadLocal<Boolean>()
+    /**
+     * Internally owned lifecycle job and scope. The engine's OWN work (blocking
+     * calls, streaming collections) parents here — never to the caller-supplied
+     * [job]/[scope] constructor parameters, which remain for ABI compatibility
+     * only. close() cancels and joins [lifecycleJob], so it can prove that
+     * engine-initiated work has terminated, regardless of where the caller's
+     * job lives (and without risking the caller-job join deadlock).
+     */
+    private val lifecycleJob: Job = SupervisorJob()
+    private val lifecycleScope: CoroutineScope = CoroutineScope(
+        lifecycleJob + Dispatchers.Default + CoroutineExceptionHandler { _, error ->
+            // Engine-owned background work can outlive its caller (e.g. a
+            // streaming collection abandoned mid-flight). Its failure is
+            // already surfaced to the caller's continuation when one exists;
+            // orphaned failures must not crash the process or leak onto a
+            // shared global handler — log them instead.
+            System.getLogger("dev.tramai.engine.TramaiEngine").log(
+                System.Logger.Level.WARNING,
+                "Engine-owned coroutine failed after close or abandonment",
+                error,
+            )
+        },
+    )
     /**
      * Suspend-invocation jobs launched for caller continuations. They are
      * children of the CALLER's job (so parent cancellation propagates), but the
@@ -415,6 +440,8 @@ class TramaiEngine(
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
             scope = scope,
+            lifecycleJob = lifecycleJob,
+            lifecycleScope = lifecycleScope,
             isClosed = closed,
             engineThreadMarker = engineThreadMarker,
             activeInvocationJobs = activeInvocationJobs,
@@ -482,6 +509,8 @@ class TramaiEngine(
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
             scope = scope,
+            lifecycleJob = lifecycleJob,
+            lifecycleScope = lifecycleScope,
             isClosed = closed,
             engineThreadMarker = engineThreadMarker,
             activeInvocationJobs = activeInvocationJobs,
@@ -549,27 +578,38 @@ class TramaiEngine(
         resumeApproval(command) as R
 
     /**
-     * Cancels and, except from one of its own coroutines, waits for the engine-owned
-     * coroutine hierarchy. Dependencies supplied by callers are not closed.
+     * Cancels all engine-initiated work and, except from one of the engine's
+     * own coroutines, waits for it to terminate. The caller-supplied [job] and
+     * [scope] constructor parameters are NEVER cancelled or joined here — the
+     * engine owns its own [lifecycleJob], so closing cannot deadlock a caller
+     * that passed its current job. Dependencies supplied by callers are not
+     * closed.
      */
     override fun close() {
         if (closed.compareAndSet(false, true)) {
-            job.cancel()
+            lifecycleJob.cancel()
             // Suspend invocations are children of their CALLER's job, not the
             // engine scope job; cancel them explicitly so close() owns them.
             // Synchronized with the launch+add in invokeSuspend: either the
             // launch completed first (its job is in the set and gets cancelled
             // here) or close() won and the launch's in-lock re-check rejects it.
-            // Never JOIN caller-parented jobs here: their completion is
-            // dispatched on the caller's dispatcher, which may be blocked
-            // waiting on this very close() — joining would deadlock. Cancel
-            // propagates to the in-flight work; invokeSuspend's exactly-once
-            // resume guarantees the caller's suspension completes.
-            synchronized(activeInvocationJobs) {
-                activeInvocationJobs.toList().forEach { it.cancel() }
+            val tracked = synchronized(activeInvocationJobs) {
+                activeInvocationJobs.toList()
             }
+            tracked.forEach { it.cancel() }
             if (engineThreadMarker.get() != true) {
-                runBlocking { job.join() }
+                // Wait for the engine-owned hierarchy AND every tracked
+                // invocation: cancellation is a request, not termination —
+                // cleanup (e.g. NonCancellable finally blocks) must complete
+                // before close() returns. Caller-parented invocation jobs run
+                // on the caller's dispatcher; joining is safe as long as
+                // close() is not called from a coroutine dispatched on that
+                // same single-threaded dispatcher (documented caller
+                // constraint, matching the self-close marker guard below).
+                runBlocking {
+                    lifecycleJob.join()
+                    tracked.forEach { it.join() }
+                }
             }
         }
     }
@@ -613,6 +653,8 @@ internal class TramaiInvocationHandler(
     private val chatMemory: ChatMemory?,
     private val conversationIdProvider: ConversationIdProvider,
     private val scope: CoroutineScope,
+    private val lifecycleJob: Job,
+    private val lifecycleScope: CoroutineScope,
     private val isClosed: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
     private val engineThreadMarker: ThreadLocal<Boolean> = ThreadLocal(),
     private val activeInvocationJobs: MutableSet<Job> = java.util.concurrent.ConcurrentHashMap.newKeySet(),
@@ -688,13 +730,19 @@ internal class TramaiInvocationHandler(
         return if (operation.isSuspend) {
             invokeSuspend(operation, args.orEmpty(), conversationId)
         } else {
-            val result = runBlocking {
+            // Run the blocking call as a child of the engine's OWN lifecycle
+            // job (not the caller-supplied job/scope): close() cancels and
+            // joins lifecycleJob, so it can terminate a blocking provider
+            // that is still executing when the engine is closed. The thread
+            // marker marks this coroutine as engine-owned so a blocking call
+            // that itself invokes close() skips the join (avoiding a
+            // self-deadlock on lifecycleJob).
+            val result = runBlocking(lifecycleJob + engineThreadMarker.asContextElement(true)) {
                 execute(operation, args.orEmpty().toList(), conversationId)
             }
             // The engine may have closed while this blocking call was in
-            // flight (caller-owned runBlocking, not cancellable from here).
-            // Never deliver a result computed against a closed engine: the
-            // caller sees the fixed lifecycle error instead.
+            // flight. Never deliver a result computed against a closed engine:
+            // the caller sees the fixed lifecycle error instead.
             check(!isClosed.get()) { "Tramai runtime is closed" }
             result
         }
@@ -711,26 +759,33 @@ internal class TramaiInvocationHandler(
             ?: throw ConfigurationException("Suspend invocation for ${operation.method.name} is missing its continuation")
 
         val callArguments = args.dropLast(1)
-        // Launch as a child of the CALLER's job (continuation.context) so parent
-        // cancellation propagates synchronously into the in-flight invocation
-        // (validated by the ToolSafeFailureContract / StructuredOutputFailureBoundary
-        // parent-cancellation tests). Engine close() owns the work too: the
-        // launch+add is synchronized with close()'s cancel snapshot, and the
-        // closed flag is re-checked INSIDE the lock — so a close that won the
-        // race rejects this launch instead of leaving an untracked in-flight job.
-        // Exactly-once resume: the block records the outcome BEFORE resuming the
-        // continuation, and invokeOnCompletion resumes with a cancellation when
-        // the block never ran (job cancelled pre-start by close()) — otherwise
-        // the caller's suspension would freeze forever.
+        // Launch as a child of the CALLER's job (continuation.context, with the
+        // caller's Job element retained) so parent cancellation propagates
+        // synchronously into the in-flight invocation (validated by the
+        // ToolSafeFailureContract / StructuredOutputFailureBoundary
+        // parent-cancellation tests). The invocation RUNS on the engine's own
+        // dispatcher (lifecycleScope), NOT the caller's: if it ran on the
+        // caller's single-threaded dispatcher, close() joining it could
+        // deadlock when that thread is blocked inside close(). Engine close()
+        // owns the work: the launch+add is synchronized with close()'s cancel
+        // snapshot, the closed flag is re-checked INSIDE the lock, and close()
+        // cancels AND joins every tracked invocation. Exactly-once resume: the
+        // block records the outcome BEFORE resuming the continuation, and
+        // invokeOnCompletion resumes with a cancellation when the block never
+        // ran (job cancelled pre-start by close()) — otherwise the caller's
+        // suspension would freeze forever.
         val resumed = java.util.concurrent.atomic.AtomicReference<Result<Any?>?>(null)
         val launched = synchronized(activeInvocationJobs) {
             check(!isClosed.get()) { "Tramai runtime is closed" }
-            val job = scope.launch(continuation.context + engineThreadMarker.asContextElement(true)) {
+            val job = lifecycleScope.launch(
+                continuation.context.minusKey(kotlin.coroutines.ContinuationInterceptor) +
+                    engineThreadMarker.asContextElement(true),
+            ) {
                 var result = runCatching { execute(operation, callArguments, conversationId) }
                 // Never deliver a success computed against a closed engine: the
-                // engine may have closed while the invocation was in flight
-                // (caller-parented job, not joined by close()). The caller sees
-                // the fixed lifecycle error instead (mirrors the blocking path).
+                // engine may have closed while the invocation was in flight.
+                // The caller sees the fixed lifecycle error instead (mirrors
+                // the blocking path).
                 if (isClosed.get() && result.isSuccess) {
                     result = Result.failure(IllegalStateException("Tramai runtime is closed"))
                 }
@@ -794,83 +849,108 @@ internal class TramaiInvocationHandler(
 
         return flow {
             check(!isClosed.get()) { "Tramai runtime is closed" }
-            // Every chunk is gated on the engine still being open: a cold flow
-            // being collected at close() time must not keep delivering chunks
-            // (the collector's job is not cancelled by close(), so cooperative
-            // cancellation alone is insufficient). Deterministic termination
-            // within one chunk latency.
-            suspend fun emitWhileOpen(chunk: StreamChunk) {
-                check(!isClosed.get()) { "Tramai runtime is closed" }
-                emit(chunk)
-            }
-            val correlationId = java.util.UUID.randomUUID().toString()
-            enforceBeforeProviderResolution(operation, correlationId, securityContext)
-            val candidates = providerRegistry.resolveCandidates(operation.operation)
-            var lastFailure: Throwable? = null
-            var lastCircuitOpen: CircuitBreakerOpenException? = null
-            val attemptCounter = AttemptCounter()
+            // The provider collection runs as a child of the engine's OWN
+            // lifecycle job (lifecycleScope), NOT the collector's job: close()
+            // cancels lifecycleJob, which cancels an in-flight collection
+            // (including the provider stream's cleanup), and close() joins
+            // lifecycleJob — so the collection has terminated before close()
+            // returns. Chunks are bridged to the caller's emit through a
+            // channel (emit itself must stay in the collector's coroutine).
+            val chunks = kotlinx.coroutines.channels.Channel<StreamChunk>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            val collectFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+            val collectJob = lifecycleScope.launch {
+                try {
+                    val correlationId = java.util.UUID.randomUUID().toString()
+                    enforceBeforeProviderResolution(operation, correlationId, securityContext)
+                    val candidates = providerRegistry.resolveCandidates(operation.operation)
+                    var lastFailure: Throwable? = null
+                    var lastCircuitOpen: CircuitBreakerOpenException? = null
+                    val attemptCounter = AttemptCounter()
 
-            for ((routeIndex, route) in candidates.withIndex()) {
-                val circuitOpen = handleCircuitBreakerOpenRoute(
-                    route = route,
-                    nextRoute = candidates.getOrNull(routeIndex + 1),
-                    correlationId = correlationId,
-                    securityContext = securityContext,
-                )
-                if (circuitOpen != null) {
-                    lastCircuitOpen = circuitOpen
-                    continue
-                }
-
-                when (
-                    val result = executeStreamingRoute(
-                        StreamingExecutionRoute(
-                            operation = operation,
-                            route = route,
-                            routeIndex = routeIndex,
-                            attempt = attemptCounter.next(),
-                            tokenBudgetTracker = tokenBudgetTracker,
-                            memoryMessages = effectiveMessages,
-                            historySize = history.size,
-                            conversationId = conversationId,
-                            emitChunk = { emitWhileOpen(it) },
-                        ),
-                        correlationId = correlationId,
-                        securityContext = securityContext,
-                        arguments = arguments,
-                    )
-                ) {
-                    is StreamingRouteResult.Completed -> {
-                        if (chatMemory != null && conversationId != null) {
-                            val assistantMessage = Message(
-                                role = MessageRole.ASSISTANT,
-                                content = result.fullText,
-                            )
-                            val turnMessages = effectiveMessages
-                                .drop(history.size)
-                                .filter { it.role != MessageRole.SYSTEM }
-                            chatMemory.add(conversationId, turnMessages + assistantMessage)
-                        }
-                        return@flow
-                    }
-                    is StreamingRouteResult.StartupFailure -> {
-                        enforceStreamingFallbackAfterFailure(
-                            error = result.error,
+                    for ((routeIndex, route) in candidates.withIndex()) {
+                        val circuitOpen = handleCircuitBreakerOpenRoute(
                             route = route,
                             nextRoute = candidates.getOrNull(routeIndex + 1),
                             correlationId = correlationId,
                             securityContext = securityContext,
                         )
-                        lastFailure = result.error
+                        if (circuitOpen != null) {
+                            lastCircuitOpen = circuitOpen
+                            continue
+                        }
+
+                        when (
+                            val result = executeStreamingRoute(
+                                StreamingExecutionRoute(
+                                    operation = operation,
+                                    route = route,
+                                    routeIndex = routeIndex,
+                                    attempt = attemptCounter.next(),
+                                    tokenBudgetTracker = tokenBudgetTracker,
+                                    memoryMessages = effectiveMessages,
+                                    historySize = history.size,
+                                    conversationId = conversationId,
+                                    emitChunk = { chunks.send(it) },
+                                ),
+                                correlationId = correlationId,
+                                securityContext = securityContext,
+                                arguments = arguments,
+                            )
+                        ) {
+                            is StreamingRouteResult.Completed -> {
+                                if (chatMemory != null && conversationId != null) {
+                                    val assistantMessage = Message(
+                                        role = MessageRole.ASSISTANT,
+                                        content = result.fullText,
+                                    )
+                                    val turnMessages = effectiveMessages
+                                        .drop(history.size)
+                                        .filter { it.role != MessageRole.SYSTEM }
+                                    chatMemory.add(conversationId, turnMessages + assistantMessage)
+                                }
+                                return@launch
+                            }
+                            is StreamingRouteResult.StartupFailure -> {
+                                enforceStreamingFallbackAfterFailure(
+                                    error = result.error,
+                                    route = route,
+                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                                    correlationId = correlationId,
+                                    securityContext = securityContext,
+                                )
+                                lastFailure = result.error
+                            }
+                            is StreamingRouteResult.TerminalError -> {
+                                chunks.send(result.errorChunk)
+                                return@launch
+                            }
+                        }
                     }
-                    is StreamingRouteResult.TerminalError -> {
-                        emitWhileOpen(result.errorChunk)
-                        return@flow
-                    }
+
+                    chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+                } catch (failure: Throwable) {
+                    collectFailure.set(failure)
+                    throw failure
+                } finally {
+                    chunks.close()
                 }
             }
-
-            emitWhileOpen(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+            try {
+                for (chunk in chunks) {
+                    check(!isClosed.get()) { "Tramai runtime is closed" }
+                    emit(chunk)
+                }
+                // The collection job may have failed (e.g. provider does not
+                // support streaming, or a route error aborted the loop): the
+                // channel closes either way, so rethrow the job's failure here
+                // instead of silently completing the flow.
+                collectFailure.get()?.let { throw it }
+            } finally {
+                // If the caller stops collecting (or the engine closed), the
+                // engine-owned collection job must not keep running.
+                collectJob.cancel()
+                collectJob.join()
+            }
         }
     }
 

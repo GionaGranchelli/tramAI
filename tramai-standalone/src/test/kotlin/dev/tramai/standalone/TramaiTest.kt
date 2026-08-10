@@ -90,6 +90,11 @@ class TramaiTest {
             model("claude-sonnet-4-20250514", "external")
         }
 
+        // Force engine creation so the test proves the rule against a REAL
+        // runtime: closing an actual engine must leave an externally supplied
+        // provider alone (a bare close() without runtime() never created an
+        // engine, making the old assertion vacuous).
+        tramai.runtime()
         tramai.close()
 
         assertThat(provider.closed).isFalse()

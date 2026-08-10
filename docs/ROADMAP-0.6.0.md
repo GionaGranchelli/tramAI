@@ -356,6 +356,8 @@ This phase is intentionally completed before large decomposition work.
 
 **Goal:** Ensure no convenience API creates an uncloseable runtime.
 
+> **Status:** ✅ Complete — PR #226. `Tramai`/`SovereignTramai` are `AutoCloseable` and own one runtime/engine; `close()` cancels and joins engine-owned work (blocking calls, suspend invocations, streaming collections) via an internal lifecycle job; caller-supplied `job`/`scope` are never cancelled/joined; Spring closes via `destroyMethod`; resource ownership documented.
+
 ### Tasks
 
 1. Make `Tramai` own one engine or one runtime session rather than constructing an unreachable engine per `create()` call.
