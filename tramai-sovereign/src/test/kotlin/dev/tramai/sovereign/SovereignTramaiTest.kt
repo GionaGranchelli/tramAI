@@ -112,6 +112,13 @@ class SovereignTramaiTest {
     }
 
     @Test
+    fun `sovereign runtime returns the same wrapper instance`() {
+        val tramai = validBuilder().build()
+
+        assertThat(tramai.runtime()).isSameAs(tramai.runtime())
+    }
+
+    @Test
     fun `sovereign close propagates to the delegate runtime`() {
         val tramai = validBuilder().build()
         val runtime = tramai.runtime()

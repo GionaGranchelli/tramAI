@@ -169,6 +169,58 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `close racing a fast suspend invocation never leaves work against a closed engine`() = runBlocking {
+        repeat(100) {
+            val providerEntered = CompletableDeferred<Unit>()
+            val providerStartedAt = java.util.concurrent.atomic.AtomicLong(-1)
+            val provider = RecordingProvider {
+                providerStartedAt.set(System.nanoTime())
+                providerEntered.complete(Unit)
+                ModelResponse(content = "ok")
+            }
+            val engine = TramaiEngine(provider)
+            val service = engine.create<SuspendAnalyzer>()
+            val closeCompletedAt = java.util.concurrent.atomic.AtomicLong(-1)
+            val outcome = CompletableDeferred<Throwable?>()
+            // Close immediately while the invocation is launched: either the
+            // launch won (tracked + cancelled/joined) or close won (launch
+            // rejected with the closed error). A TOCTOU miss would run the
+            // provider AFTER close() returned — the leak this test guards.
+            val closer = Thread {
+                engine.close()
+                closeCompletedAt.set(System.nanoTime())
+            }
+            closer.start()
+            try {
+                service.analyze("invoice-1")
+                outcome.complete(null)
+            } catch (t: Throwable) {
+                outcome.complete(t)
+            }
+            closer.join()
+            val terminal = outcome.await()
+            val providerStarted = providerStartedAt.get()
+            val closeCompleted = closeCompletedAt.get()
+            if (terminal == null) {
+                // Success is only legal if the provider ran BEFORE close completed.
+                assertThat(providerStarted)
+                    .describedAs("iteration $it: provider must not run after close")
+                    .isNotNegative()
+                assertThat(providerStarted).isLessThan(closeCompleted)
+            } else {
+                // Close won the race (ISE via the in-lock re-check) or the
+                // invocation was cancelled in-flight / pre-start (CE via the
+                // exactly-once resume) — never a provider result delivered
+                // after close.
+                assertThat(terminal).satisfiesAnyOf(
+                    { assertThat(it).isInstanceOf(IllegalStateException::class.java).hasMessage("Tramai runtime is closed") },
+                    { assertThat(it).isInstanceOf(kotlinx.coroutines.CancellationException::class.java) },
+                )
+            }
+        }
+    }
+
+    @Test
     fun `renders classified document payloads into prompts without wrapper metadata`() {
         val provider = RecordingProvider { ModelResponse(content = "hardcoded response") }
         val engine = TramaiEngine(provider)

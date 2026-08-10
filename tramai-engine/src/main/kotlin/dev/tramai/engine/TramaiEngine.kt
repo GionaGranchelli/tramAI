@@ -555,7 +555,17 @@ class TramaiEngine(
             job.cancel()
             // Suspend invocations are children of their CALLER's job, not the
             // engine scope job; cancel them explicitly so close() owns them.
-            activeInvocationJobs.forEach { it.cancel() }
+            // Synchronized with the launch+add in invokeSuspend: either the
+            // launch completed first (its job is in the set and gets cancelled
+            // here) or close() won and the launch's in-lock re-check rejects it.
+            // Never JOIN caller-parented jobs here: their completion is
+            // dispatched on the caller's dispatcher, which may be blocked
+            // waiting on this very close() — joining would deadlock. Cancel
+            // propagates to the in-flight work; invokeSuspend's exactly-once
+            // resume guarantees the caller's suspension completes.
+            synchronized(activeInvocationJobs) {
+                activeInvocationJobs.toList().forEach { it.cancel() }
+            }
             if (engineThreadMarker.get() != true) {
                 runBlocking { job.join() }
             }
@@ -696,16 +706,37 @@ internal class TramaiInvocationHandler(
         // Launch as a child of the CALLER's job (continuation.context) so parent
         // cancellation propagates synchronously into the in-flight invocation
         // (validated by the ToolSafeFailureContract / StructuredOutputFailureBoundary
-        // parent-cancellation tests), while tracking the launched job so engine
-        // close() also owns it (cancel below). Engine close cancels the engine
-        // scope job AND every tracked invocation job.
-        val launched = scope.launch(continuation.context + engineThreadMarker.asContextElement(true)) {
-            runCatching { execute(operation, callArguments, conversationId) }
-                .onSuccess { continuation.resumeWith(Result.success(it)) }
-                .onFailure { continuation.resumeWith(Result.failure(it)) }
+        // parent-cancellation tests). Engine close() owns the work too: the
+        // launch+add is synchronized with close()'s cancel snapshot, and the
+        // closed flag is re-checked INSIDE the lock — so a close that won the
+        // race rejects this launch instead of leaving an untracked in-flight job.
+        // Exactly-once resume: the block records the outcome BEFORE resuming the
+        // continuation, and invokeOnCompletion resumes with a cancellation when
+        // the block never ran (job cancelled pre-start by close()) — otherwise
+        // the caller's suspension would freeze forever.
+        val resumed = java.util.concurrent.atomic.AtomicReference<Result<Any?>?>(null)
+        val launched = synchronized(activeInvocationJobs) {
+            check(!isClosed.get()) { "Tramai runtime is closed" }
+            val job = scope.launch(continuation.context + engineThreadMarker.asContextElement(true)) {
+                val result = runCatching { execute(operation, callArguments, conversationId) }
+                resumed.set(result)
+                continuation.resumeWith(result)
+            }
+            activeInvocationJobs += job
+            job
         }
-        activeInvocationJobs += launched
-        launched.invokeOnCompletion { activeInvocationJobs -= launched }
+        launched.invokeOnCompletion { cause ->
+            activeInvocationJobs -= launched
+            if (resumed.get() == null) {
+                // Block never ran (e.g. cancelled before the dispatcher started
+                // it): resume so the caller's suspension does not freeze.
+                continuation.resumeWith(
+                    Result.failure(
+                        cause as? CancellationException ?: CancellationException("Engine closed", cause),
+                    ),
+                )
+            }
+        }
         return COROUTINE_SUSPENDED
     }
 
