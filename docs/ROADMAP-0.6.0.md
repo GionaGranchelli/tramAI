@@ -383,7 +383,7 @@ This phase is intentionally completed before large decomposition work.
 | Worker jobs | Existing worker shutdown/cancellation tests in tramai-orchestration (`TramaiWorkerTest`, lease-drain and shutdown coverage from Epics 1.1/1.2) |
 | Subprocesses | PR #216/#221 cancellation contract (`SubprocessCancellationContractTest` in tramai-orchestration) |
 | HTTP response streams | Provider-level InputStream cleanup tests in tramai-openai `OpenAiProviderTest`: `stream closes response body after done marker`, `stream closes response body after malformed chunk`, `stream closes response body when collector stops after first token`, `mid stream io failure is retryable sanitized and observed`; plus #226 engine streaming lifecycle tests (`streaming collection suspended indefinitely is cancelled and cleaned up by close`, `mid-collection close terminates an in-flight stream`) and the springboot example E2E smoke test |
-| Shutdown hooks | Spring `destroyMethod` close + `tramai-spring` context-shutdown tests; `repeated close is harmless` idempotency test in tramai-standalone |
+| Shutdown hooks | `TramaiWorkerTest`: `close deregisters the JVM shutdown hook and retains no reference` — proves the registered hook is absent from `Runtime` after close (`removeShutdownHook` returns false) and the worker retains no `Thread` reference; plus Spring `destroyMethod` close + context-shutdown tests and `repeated close is harmless` idempotency test in tramai-standalone |
 
 ---
 

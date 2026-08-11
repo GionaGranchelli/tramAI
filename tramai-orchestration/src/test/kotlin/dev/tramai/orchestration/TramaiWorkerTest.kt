@@ -78,11 +78,26 @@ class TramaiWorkerTest {
         val hookAfterStart = hookField.get(worker) as? Thread
         assertThat(hookAfterStart).isNotNull()
 
-        worker.close()
-        // close() -> shutdown() must remove the hook and drop the reference:
-        // no retained shutdown hook survives a graceful worker close.
-        val hookAfterClose = hookField.get(worker) as? Thread
-        assertThat(hookAfterClose).isNull()
+        try {
+            worker.close()
+            // close() -> shutdown() must drop the worker's reference...
+            val hookAfterClose = hookField.get(worker) as? Thread
+            assertThat(hookAfterClose).isNull()
+            // ...AND deregister the hook from the JVM. removeShutdownHook
+            // returns false when the hook was already deregistered; true would
+            // mean close() left a live hook registered (a real JVM-level leak
+            // that the field-null check alone cannot detect). If the
+            // implementation is broken, this call also removes the leaked hook
+            // from the test JVM before the assertion fails.
+            assertThat(Runtime.getRuntime().removeShutdownHook(requireNotNull(hookAfterStart))).isFalse()
+        } finally {
+            // Never leave a hook registered in the test JVM, even if an
+            // assertion above failed before the deregistration check ran.
+            val residual = hookField.get(worker) as? Thread
+            if (residual != null) {
+                worker.close()
+            }
+        }
     }
 
     @Test
