@@ -473,6 +473,34 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `self close from streaming owned coroutine does not deadlock`() = runBlocking {
+        lateinit var engine: TramaiEngine
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                engine.close()
+                emit(StreamChunk.Token("unreachable"))
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        // The provider runs inside the engine-owned streaming collection
+        // coroutine (lifecycleScope child) and re-enters close(). The engine
+        // thread marker is carried by the SCOPE, so close() skips the join and
+        // returns; the collection is then cancelled and the flow terminates
+        // instead of self-joining forever.
+        withTimeout(2_000) {
+            runCatching {
+                service.stream("invoice").collect {}
+            }
+        }
+    }
+
+    @Test
     fun `stream start racing close never hangs the collector`() = runBlocking {
         // Force the admission race deterministically: the flow's open check
         // passes, then close() cancels lifecycleJob BEFORE the collection

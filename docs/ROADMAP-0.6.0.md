@@ -375,6 +375,16 @@ This phase is intentionally completed before large decomposition work.
 - Repeated creation does not accidentally create independent hidden engines.
 - Spring context shutdown leaves no TramAI-owned jobs or hooks active.
 
+### Leak-test evidence matrix (roadmap task 6)
+
+| Requirement | Existing proof |
+|---|---|
+| Engine jobs | PR #226 lifecycle tests: `close() cancels and joins` blocking/suspend/streaming engine-owned work (`blocking invocation in long suspension is cancelled and joined by close`, `self close from owned coroutine does not deadlock`, `self close from streaming owned coroutine does not deadlock`, `stream start racing close never hangs the collector`, `close does not deadlock when caller supplied its own job and scope`) |
+| Worker jobs | Existing worker shutdown/cancellation tests in tramai-orchestration (`TramaiWorkerTest`, lease-drain and shutdown coverage from Epics 1.1/1.2) |
+| Subprocesses | PR #216/#221 cancellation contract (`SubprocessCancellationContractTest` in tramai-orchestration) |
+| HTTP response streams | PR #226 streaming lifecycle tests: `streaming collection suspended indefinitely is cancelled and cleaned up by close`, `mid-collection close terminates an in-flight stream`; example `kotlin-springboot-example` E2E smoke test |
+| Shutdown hooks | Spring `destroyMethod` close + `tramai-spring` context-shutdown tests; `repeated close is harmless` idempotency test in tramai-standalone |
+
 ---
 
 ## Epic 1.4: HTTP network-boundary correctness

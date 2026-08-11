@@ -185,8 +185,13 @@ class TramaiEngine(
      * job lives (and without risking the caller-job join deadlock).
      */
     private val lifecycleJob: Job = SupervisorJob()
+    // Every engine-owned child (streaming collection, future lifecycle tasks)
+    // carries the engine-thread marker: close() called from ANY engine-owned
+    // coroutine (provider/interceptor/observer re-entering close) skips the
+    // join and cannot self-deadlock. Encoding ownership once at the scope
+    // level is stronger than decorating individual launches.
     private val lifecycleScope: CoroutineScope = CoroutineScope(
-        lifecycleJob + Dispatchers.Default + CoroutineExceptionHandler { _, error ->
+        lifecycleJob + Dispatchers.Default + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
             // Engine-owned background work can outlive its caller (e.g. a
             // streaming collection abandoned mid-flight). Its failure is
             // already surfaced to the caller's continuation when one exists.
