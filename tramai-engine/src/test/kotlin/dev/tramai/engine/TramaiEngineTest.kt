@@ -422,10 +422,12 @@ class TramaiEngineTest {
     @Test
     fun `streaming collection suspended indefinitely is cancelled and cleaned up by close`() = runBlocking {
         val providerCleanedUp = CompletableDeferred<Unit>()
+        val firstChunkDelivered = CompletableDeferred<Unit>()
         val provider = NamedStreamingProvider("p") {
             flow {
                 try {
                     emit(StreamChunk.Token("first"))
+                    firstChunkDelivered.complete(Unit)
                     awaitCancellation()
                 } finally {
                     withContext(kotlinx.coroutines.NonCancellable) {
@@ -446,8 +448,9 @@ class TramaiEngineTest {
             runCatching { service.stream("invoice-123").collect {} }
             collectionDone.complete(Unit)
         }
-        // Let the first chunk arrive (provider is suspended indefinitely).
-        delay(200)
+        // Deterministic admission gate: wait until the provider has emitted its
+        // first chunk and is suspended indefinitely, instead of a sleep.
+        firstChunkDelivered.await()
         engine.close()
         // close() cancels lifecycleJob -> the engine-owned collection job is
         // cancelled -> the provider's finally runs -> the collection terminates.
@@ -536,14 +539,15 @@ class TramaiEngineTest {
 
     @Test
     fun `streaming bridge preserves backpressure when the collector is slow`() = runBlocking {
-        val emitted = java.util.concurrent.atomic.AtomicInteger(0)
+        val attempted = java.util.concurrent.atomic.AtomicInteger(0)
+        val delivered = java.util.concurrent.atomic.AtomicInteger(0)
         val collectorGate = CompletableDeferred<Unit>()
         val provider = NamedStreamingProvider("p") {
             flow {
                 var i = 0
                 while (true) {
+                    attempted.incrementAndGet()
                     emit(StreamChunk.Token("chunk-${i++}"))
-                    emitted.incrementAndGet()
                 }
             }
         }
@@ -557,16 +561,24 @@ class TramaiEngineTest {
         val firstChunk = CompletableDeferred<Unit>()
         val collection = async {
             service.stream("invoice-123").collect {
+                delivered.incrementAndGet()
                 if (!firstChunk.isCompleted) firstChunk.complete(Unit)
                 collectorGate.await()
             }
         }
         firstChunk.await()
-        // The collector is deliberately blocked after chunk 1. With a
-        // rendezvous bridge the provider cannot race ahead producing chunk
-        // 2..N (UNLIMITED would let it buffer unboundedly).
-        delay(300)
-        assertThat(emitted.get()).isEqualTo(1)
+        // The collector is deliberately blocked after chunk 1. Prove
+        // backpressure deterministically (no sleeps): the provider must
+        // ATTEMPT chunk 2 (it got past chunk 1) and then STALL at the send —
+        // a rendezvous bridge holds the second chunk until the collector
+        // consumes it; UNLIMITED would let the provider race ahead past 2.
+        withTimeout(2_000) {
+            while (attempted.get() < 2) {
+                delay(10)
+            }
+        }
+        assertThat(attempted.get()).isEqualTo(2)
+        assertThat(delivered.get()).isEqualTo(1)
         collectorGate.complete(Unit)
         engine.close()
         // Collection is terminated by close() (rendezvous bridge cancelled

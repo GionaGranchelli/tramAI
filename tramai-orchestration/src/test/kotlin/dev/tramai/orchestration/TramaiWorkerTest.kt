@@ -63,6 +63,29 @@ class TramaiWorkerTest {
     }
 
     @Test
+    fun `close deregisters the JVM shutdown hook and retains no reference`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("hook-leak") {
+            localStep(name = "noop", transform = { state, _ -> state })
+        }
+        val worker = worker("hook-worker", leaseStore, checkpointStore, workflow)
+
+        worker.start()
+        // The hook field is populated by start(): a JVM shutdown hook is registered.
+        val hookField = TramaiWorker::class.java.getDeclaredField("shutdownHook")
+        hookField.isAccessible = true
+        val hookAfterStart = hookField.get(worker) as? Thread
+        assertThat(hookAfterStart).isNotNull()
+
+        worker.close()
+        // close() -> shutdown() must remove the hook and drop the reference:
+        // no retained shutdown hook survives a graceful worker close.
+        val hookAfterClose = hookField.get(worker) as? Thread
+        assertThat(hookAfterClose).isNull()
+    }
+
+    @Test
     fun `worker crash leaves non replayable step in unknown state and takeover fails`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         var now = 1_000L
