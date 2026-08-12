@@ -61,14 +61,17 @@ interface OutboundNetworkPolicy {
  * unless [allowPrivateDestinations] is explicitly true.
  */
 object OutboundNetworkPolicies {
-    /** Default defence-in-depth: optional per-step hostname allowlist, restricted-address filtering active. */
+    /** Default defence-in-depth policy: public hostnames permitted by the framework's step constraints, restricted-address filtering active. */
     fun defenceInDepth(allowPrivateDestinations: Boolean = false): OutboundNetworkPolicy =
         DefaultOutboundNetworkPolicy(allowedHosts = null, allowPrivateDestinations = allowPrivateDestinations)
 
     /**
      * Governed/strict policy: hostname allowlist MANDATORY (require non-empty at construction),
      * restricted-address filtering active, private destinations require [allowPrivateDestinations].
-     * The governed allowlist overrides any per-step HttpStepConfig.allowedHosts.
+     *
+     * This allowlist is ADDITIVE to the framework-owned [HttpStepConfig.allowedHosts] ceiling:
+     * when both are configured, the target must satisfy both restrictions — the effective
+     * hostname authority is their intersection. A workflow policy can narrow a step, never widen it.
      */
     fun governed(allowedHosts: Set<String>, allowPrivateDestinations: Boolean = false): OutboundNetworkPolicy {
         require(allowedHosts.isNotEmpty()) { "Governed outbound network policy requires at least one allowed hostname" }
