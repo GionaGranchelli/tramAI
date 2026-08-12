@@ -421,6 +421,8 @@ This phase is intentionally completed before large decomposition work.
 
 ## Epic 2.1: Introduce immutable runtime component groups
 
+**Status: ✅ Complete — PR #228**
+
 **Goal:** Replace constructor and builder explosion with cohesive, inspectable runtime configuration.
 
 ### Proposed component model
@@ -441,18 +443,18 @@ The exact API may differ, but each group must have one responsibility and explic
 
 ### Tasks
 
-1. Introduce immutable component groups without changing public builder APIs initially.
-2. Move all all-or-none composition validation into component constructors or factories.
-3. Distinguish required components, optional capabilities, and no-op implementations.
-4. Replace nullable dependency clusters with explicit capability types where possible.
-5. Document thread-safety and lifecycle ownership for every component group.
-6. Ensure component snapshots are immutable after runtime construction.
+1. ✅ Introduce immutable component groups without changing public builder APIs initially.
+2. ✅ Move all all-or-none composition validation into component constructors or factories.
+3. ✅ Distinguish required components, optional capabilities, and no-op implementations.
+4. ✅ Replace nullable dependency clusters with explicit capability types where possible.
+5. ✅ Document thread-safety and lifecycle ownership for every component group.
+6. ✅ Ensure component snapshots are immutable after runtime construction.
 
 ### Acceptance criteria
 
-- `TramaiEngine` and its main execution coordinators receive cohesive component groups rather than dozens of unrelated dependencies.
-- Invalid partial approval, policy, persistence, or evidence configurations fail during build.
-- Runtime code does not discover configuration dynamically.
+- ✅ `TramaiEngine` and its main execution coordinators receive cohesive component groups rather than dozens of unrelated dependencies.
+- ✅ Invalid partial approval, policy, persistence, or evidence configurations fail during build.
+- ✅ Runtime code does not discover configuration dynamically.
 
 ---
 

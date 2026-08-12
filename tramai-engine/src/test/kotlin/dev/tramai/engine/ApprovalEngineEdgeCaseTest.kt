@@ -891,33 +891,24 @@ class ApprovalEngineEdgeCaseTest {
     }
 
     @Test
-    fun `missing digester does not consume token`() {
-        // Engine without digester — suspension will fail early because
-        // tool execution requires a digester for approval binding validation.
+    fun `missing digester fails at construction`() {
+        // Epic 2.1: partial approval composition (continuation store + coordinator
+        // without a digester) is unrepresentable in the component model and is
+        // rejected at engine construction — not lazily at tool execution.
         val coordinator = ConfigurableApprovalGateCoordinator()
-        val engine = TramaiEngine(
-            provider = provider,
-            toolRegistry = toolRegistry,
-            policyEngine = policyEngine,
-            suspendedInvocationStore = suspendedInvocationStore,
-            approvalContinuationStore = continuationStore,
-            // No digester
-            approvalGateCoordinator = coordinator,
-            clock = fixedClock,
-        )
-
-        val service = engine.create<TriggerService>()
-
-        // The initial tool execution should fail with ConfigurationException
-        // because the digester is required for approval binding validation.
         assertThatThrownBy {
-            runBlocking { service.execute("input") }
-        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
-            .hasMessageContaining("ToolArgumentsDigester")
-
-        // Coordinator was NEVER called — suspension failed before any approval
-        assertThat(coordinator.lastCreateCommand).isNull()
-        assertThat(coordinator.lastAuthorizeCommand).isNull()
+            TramaiEngine(
+                provider = provider,
+                toolRegistry = toolRegistry,
+                policyEngine = policyEngine,
+                suspendedInvocationStore = suspendedInvocationStore,
+                approvalContinuationStore = continuationStore,
+                // No digester
+                approvalGateCoordinator = coordinator,
+                clock = fixedClock,
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("Approval suspension requires continuation store, arguments digester, and gate coordinator")
     }
 
     @Test

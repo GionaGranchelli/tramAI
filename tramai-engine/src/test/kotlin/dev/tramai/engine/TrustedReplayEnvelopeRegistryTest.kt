@@ -1,6 +1,7 @@
 package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.engine.components.EngineComponentFactory
 import dev.tramai.core.memory.UuidConversationIdProvider
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
@@ -369,7 +370,7 @@ class TrustedReplayEnvelopeRegistryTest {
 
     /** Creates a [TramaiInvocationHandler] with minimal viable defaults (never dereferenced during registration). */
     private fun dummyHandler(svcDef: ServiceDefinition, registry: ResumeOperationRegistry): TramaiInvocationHandler {
-        return TramaiInvocationHandler(
+        val components = EngineComponentFactory.create(
             providerRegistry = ProviderRegistry.builder().build(),
             structuredOutputHandler = null,
             toolRegistry = ToolRegistry(),
@@ -378,33 +379,35 @@ class TrustedReplayEnvelopeRegistryTest {
             responseCache = NoOpOperationResponseCache,
             modelRegistry = dev.tramai.core.model.NoOpModelRegistry,
             modelRegistrySettings = dev.tramai.core.model.ModelRegistrySettings(),
-            circuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
-            retryDelayPolicy = ProviderRetryDelayPolicy(RetryPolicySettings()),
+            circuitBreakerSettings = CircuitBreakerSettings(),
+            retryPolicySettings = RetryPolicySettings(),
             tokenBudgetSettings = TokenBudgetSettings(),
             promptSanitizer = null,
             chatMemory = null,
             conversationIdProvider = UuidConversationIdProvider(),
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            serviceDefinition = svcDef,
             policyEngine = PolicyEngine { _ -> PolicyDecision.Allow },
-            migrationWarningGuard = AtomicBoolean(false),
-            isLegacyFallback = false,
             dlpInterceptor = NoOpDlpInterceptor,
             dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
             toolResultFilteringSettings = ToolResultFilteringSettings(),
             engineEventObserver = NoOpEngineEventObserver,
             toolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-            structuredOutputFailureDiagnosticObserver = dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver,
             policyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = null,
             toolArgumentsDigester = null,
             approvalGateCoordinator = null,
             approvalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-            resumeOperationRegistry = registry,
+            clock = Clock.systemUTC(),
+        )
+        return TramaiInvocationHandler(
+            components = components,
+            circuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
+            retryDelayPolicy = ProviderRetryDelayPolicy(RetryPolicySettings()),
+            migrationWarningGuard = AtomicBoolean(false),
             lifecycleJob = kotlinx.coroutines.SupervisorJob(),
             lifecycleScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
-            clock = Clock.systemUTC(),
+            serviceDefinition = svcDef,
+            resumeOperationRegistry = registry,
         )
     }
 }
