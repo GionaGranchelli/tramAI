@@ -27,8 +27,6 @@ import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.ToolResultFilteringSettings
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import java.time.Clock
 
 /**
@@ -46,13 +44,13 @@ internal data class EngineComponents(
     val execution: ExecutionComponents,
 )
 
-/** Provider routing owned by the engine; registry thread-safety remains its contract. */
+/** Runtime snapshot of provider routing. The snapshot reference is immutable; supplied providers retain their existing ownership and thread-safety contracts. */
 internal data class ProviderComponents(val providerRegistry: ProviderRegistry)
 
-/** Tool resolution owned by the engine; registry/settings are immutable composition references. */
+/** Runtime snapshot of tool resolution and filtering settings. Caller-supplied registries remain caller-owned. */
 internal data class ToolComponents(val toolRegistry: ToolRegistry, val toolResultFilteringSettings: ToolResultFilteringSettings)
 
-/** Security enforcement owned by the engine; collaborators retain their documented thread-safety. */
+/** Runtime snapshot of security enforcement. Caller-supplied policy, registry, DLP, and audit collaborators remain caller-owned. */
 internal data class SecurityComponents(
     val resolvedPolicyEngine: PolicyEngine,
     val isLegacyFallback: Boolean,
@@ -64,7 +62,7 @@ internal data class SecurityComponents(
     val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
 )
 
-/** Complete approval capability owned by the engine; partial approval state is unrepresentable. */
+/** Explicit approval capability: partial approval state is unrepresentable. */
 internal sealed interface ApprovalCapability {
     data object Disabled : ApprovalCapability
     data class Enabled(
@@ -74,21 +72,21 @@ internal sealed interface ApprovalCapability {
     ) : ApprovalCapability
 }
 
-/** Approval persistence and auditing owned by the engine; stores define their own thread-safety. */
+/** Approval collaborators used by the engine. Caller-supplied stores and emitters remain caller-owned. */
 internal data class ApprovalComponents(
     val suspendedInvocationStore: SuspendedInvocationStore,
     val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
     val capability: ApprovalCapability,
 )
 
-/** Response persistence owned by the engine; supplied cache and memory retain their contracts. */
+/** Runtime snapshot of persistence. Caller-supplied cache and memory remain caller-owned. */
 internal data class PersistenceComponents(
     val responseCache: OperationResponseCache,
     val chatMemory: ChatMemory?,
     val conversationIdProvider: ConversationIdProvider,
 )
 
-/** Observation hooks owned by the engine; observers must meet their existing thread-safety contracts. */
+/** Runtime snapshot of observation hooks. Caller-supplied observers and interceptors remain caller-owned. */
 internal data class ObservationComponents(
     val operationObserver: OperationObserver,
     val operationInterceptor: OperationInterceptor,
@@ -97,13 +95,16 @@ internal data class ObservationComponents(
     val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver,
 )
 
-/** Execution mechanics owned by the engine; caller-supplied job/scope are retained for ABI compatibility only — close() cancels the engine's internally owned lifecycle job. */
+/**
+ * Runtime snapshot of execution mechanics. Engine execution parents to its internally owned
+ * lifecycle job/scope (PR #226 lifecycle model); the legacy job/scope constructor parameters
+ * of [dev.tramai.engine.TramaiEngine] exist for ABI compatibility only and never cross into
+ * this snapshot.
+ */
 internal data class ExecutionComponents(
     val structuredOutputHandler: StructuredOutputHandler?,
     val circuitBreakerSettings: CircuitBreakerSettings,
     val retryPolicySettings: RetryPolicySettings,
     val tokenBudgetSettings: TokenBudgetSettings,
     val clock: Clock,
-    val job: Job,
-    val scope: CoroutineScope,
 )

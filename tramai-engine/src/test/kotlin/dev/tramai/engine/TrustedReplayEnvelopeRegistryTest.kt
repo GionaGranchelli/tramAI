@@ -384,7 +384,6 @@ class TrustedReplayEnvelopeRegistryTest {
             promptSanitizer = null,
             chatMemory = null,
             conversationIdProvider = UuidConversationIdProvider(),
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             serviceDefinition = svcDef,
             policyEngine = PolicyEngine { _ -> PolicyDecision.Allow },
             migrationWarningGuard = AtomicBoolean(false),

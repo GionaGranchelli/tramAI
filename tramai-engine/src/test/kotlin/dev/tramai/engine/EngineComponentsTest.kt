@@ -41,10 +41,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 
 class EngineComponentsTest {
     @Test
@@ -107,8 +103,6 @@ class EngineComponentsTest {
             promptSanitizer = null,
             chatMemory = null,
             conversationIdProvider = UuidConversationIdProvider(),
-            job = SupervisorJob(),
-            scope = CoroutineScope(Dispatchers.Default),
             policyEngine = null,
             dlpInterceptor = NoOpDlpInterceptor,
             dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
@@ -177,8 +171,6 @@ class EngineComponentsTest {
         promptSanitizer: PromptSanitizer? = null,
         chatMemory: ChatMemory? = null,
         conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
-        job: Job = SupervisorJob(),
-        scope: CoroutineScope = CoroutineScope(Dispatchers.Default),
         policyEngine: PolicyEngine? = null,
         dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
         dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
@@ -207,8 +199,6 @@ class EngineComponentsTest {
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         conversationIdProvider = conversationIdProvider,
-        job = job,
-        scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,

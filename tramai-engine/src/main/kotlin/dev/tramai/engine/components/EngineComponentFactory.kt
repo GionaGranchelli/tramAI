@@ -11,8 +11,6 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.*
 import dev.tramai.core.structured.*
 import dev.tramai.engine.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import java.time.Clock
 
 /** One authoritative composition boundary: validates collaborators and creates the immutable snapshot. */
@@ -22,7 +20,7 @@ internal object EngineComponentFactory {
         operationObserver: OperationObserver, operationInterceptor: OperationInterceptor, responseCache: OperationResponseCache,
         modelRegistry: ModelRegistry, modelRegistrySettings: ModelRegistrySettings, circuitBreakerSettings: CircuitBreakerSettings,
         retryPolicySettings: RetryPolicySettings, tokenBudgetSettings: TokenBudgetSettings, promptSanitizer: PromptSanitizer?,
-        chatMemory: ChatMemory?, conversationIdProvider: ConversationIdProvider, job: Job, scope: CoroutineScope,
+        chatMemory: ChatMemory?, conversationIdProvider: ConversationIdProvider,
         policyEngine: PolicyEngine?, dlpInterceptor: DlpInterceptor, dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
         toolResultFilteringSettings: ToolResultFilteringSettings, engineEventObserver: EngineEventObserver,
         toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver, policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
@@ -39,7 +37,7 @@ internal object EngineComponentFactory {
             ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
             ObservationComponents(operationObserver, operationInterceptor, engineEventObserver, toolFailureDiagnosticObserver, structuredOutputFailureDiagnosticObserver),
-            ExecutionComponents(structuredOutputHandler, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, clock, job, scope),
+            ExecutionComponents(structuredOutputHandler, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, clock),
         )
     }
 

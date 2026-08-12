@@ -147,8 +147,6 @@ class TramaiEngine private constructor(
     private val promptSanitizer = components.security.promptSanitizer
     private val chatMemory = components.persistence.chatMemory
     private val conversationIdProvider = components.persistence.conversationIdProvider
-    private val job = components.execution.job
-    private val scope = components.execution.scope
     private val dlpInterceptor = components.security.dlpInterceptor
     private val dlpRedactionAuditEmitter = components.security.dlpRedactionAuditEmitter
     private val toolResultFilteringSettings = components.tools.toolResultFilteringSettings
@@ -197,7 +195,7 @@ class TramaiEngine private constructor(
 ) : this(EngineComponentFactory.create(
     providerRegistry, structuredOutputHandler, toolRegistry, operationObserver, operationInterceptor, responseCache,
     modelRegistry, modelRegistrySettings, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, promptSanitizer,
-    chatMemory, conversationIdProvider, job, scope, policyEngine, dlpInterceptor, dlpRedactionAuditEmitter,
+    chatMemory, conversationIdProvider, policyEngine, dlpInterceptor, dlpRedactionAuditEmitter,
     toolResultFilteringSettings, engineEventObserver, toolFailureDiagnosticObserver, policyDecisionAuditEmitter,
     suspendedInvocationStore, approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator,
     approvalLifecycleAuditEmitter, clock,
@@ -295,8 +293,6 @@ class TramaiEngine private constructor(
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         conversationIdProvider = conversationIdProvider,
-        job = job,
-        scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
@@ -365,8 +361,6 @@ class TramaiEngine private constructor(
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         conversationIdProvider = conversationIdProvider,
-        job = job,
-        scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
@@ -435,8 +429,6 @@ class TramaiEngine private constructor(
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         conversationIdProvider = conversationIdProvider,
-        job = job,
-        scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
@@ -478,7 +470,6 @@ class TramaiEngine private constructor(
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
-            scope = scope,
             lifecycleJob = lifecycleJob,
             lifecycleScope = lifecycleScope,
             isClosed = closed,
@@ -547,7 +538,6 @@ class TramaiEngine private constructor(
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
             conversationIdProvider = conversationIdProvider,
-            scope = scope,
             lifecycleJob = lifecycleJob,
             lifecycleScope = lifecycleScope,
             isClosed = closed,
@@ -694,7 +684,6 @@ internal class TramaiInvocationHandler(
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
     private val conversationIdProvider: ConversationIdProvider,
-    private val scope: CoroutineScope,
     private val lifecycleJob: Job,
     private val lifecycleScope: CoroutineScope,
     private val isClosed: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
@@ -2299,7 +2288,7 @@ internal class TramaiInvocationHandler(
             return message.copy(
                 content = sanitizeToolText(
                     scope = scope,
-                    text = message.content,
+                            text = message.content,
                     contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                     authoritative = true,
                 ),
@@ -2440,8 +2429,8 @@ internal class TramaiInvocationHandler(
                 textRun.forEach(::append)
             }
             val sanitizedText = sanitizeToolText(
-                scope = scope,
-                text = combinedText,
+                    scope = scope,
+                    text = combinedText,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_TEXT_RUN,
                 authoritative = true,
             )
@@ -2473,8 +2462,8 @@ internal class TramaiInvocationHandler(
         if (allTextParts.size > 1) {
             val projectedText = allTextParts.joinToString("")
             val projectedResult = sanitizeToolText(
-                scope = scope,
-                text = projectedText,
+                    scope = scope,
+                    text = projectedText,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                 authoritative = false,
             )
@@ -2482,8 +2471,8 @@ internal class TramaiInvocationHandler(
                 sanitizedTextRuns.forEach(::append)
             }
             val combinedResanitized = sanitizeToolText(
-                scope = scope,
-                text = individualCombined,
+                    scope = scope,
+                    text = individualCombined,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                 authoritative = false,
             )

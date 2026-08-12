@@ -4,7 +4,7 @@
 
 ### Added
 
-- Refactored the engine's internal runtime composition into an immutable component snapshot; public API and runtime behaviour are unchanged. Partially configured approval suspension now fails at the engine component boundary.
+- Refactored the engine's internal runtime composition into an immutable component snapshot; zero public API change and no execution-semantic changes, except the intentional fail-fast rejection of invalid partial approval composition at the engine component boundary.
 
 - **Explicit runtime lifecycle ownership (PR #226).** `Tramai` and `SovereignTramai` are now `AutoCloseable` and own exactly one lazily-created runtime (one engine) shared by every `create()`/`runtime()` call — previously every `create()` leaked an unreachable engine. Closing is idempotent and concurrency-safe; after close, `create()`/`runtime()` and old proxies fail fast with a fixed `IllegalStateException` before any provider work. `TramaiEngine.close()` cancels once and awaits engine-hierarchy termination (self-close safe), and terminates in-flight suspend invocations; the caller continuation is always resumed exactly once. Spring closes the shared runtime via `destroyMethod = "close"`, so multiple `@AiService` beans share one owned engine. TramAI closes only resources it creates; externally supplied providers/stores/clients/observers remain caller-owned. API surface addition is additive: `Tramai`/`SovereignTramai` gain `close()`; all constructor descriptors remain byte-identical to 0.5.0 (note: adding the `AutoCloseable` supertype is source-compatible but affects compiled negative-`instanceof` checks). Epic 1.3 Runtime Lifecycle Ownership is complete.
 
