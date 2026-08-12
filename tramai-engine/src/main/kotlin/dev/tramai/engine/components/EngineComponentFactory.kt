@@ -32,7 +32,7 @@ internal object EngineComponentFactory {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
         val resolvedPolicy = policyEngine ?: LegacyPermissivePolicyEngine
         return EngineComponents(
-            ProviderComponents(providerRegistry), ToolComponents(toolRegistry, toolResultFilteringSettings),
+            ProviderComponents(providerRegistry.routingPlan), ToolComponents(toolRegistry, toolResultFilteringSettings),
             SecurityComponents(resolvedPolicy, policyEngine == null, promptSanitizer, modelRegistry, modelRegistrySettings, dlpInterceptor, dlpRedactionAuditEmitter, policyDecisionAuditEmitter),
             ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),

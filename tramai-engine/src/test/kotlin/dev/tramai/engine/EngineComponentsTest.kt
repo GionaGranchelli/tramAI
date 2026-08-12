@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.annotations.Operation
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
@@ -24,6 +25,7 @@ import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
+import dev.tramai.core.provider.resolveCandidates
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
@@ -118,12 +120,37 @@ class EngineComponentsTest {
             clock = Clock.systemUTC(),
         )
 
-        assertSame(registry, components.providers.providerRegistry)
+        assertSame(registry.routingPlan, components.providers.routingPlan)
         assertIs<ApprovalCapability.Disabled>(components.approvals.capability)
         assertTrue(components.security.isLegacyFallback)
         assertSame(LegacyPermissivePolicyEngine, components.security.resolvedPolicyEngine)
         assertSame(NoOpOperationObserver, components.observation.operationObserver)
         assertSame(NoOpOperationResponseCache, components.persistence.responseCache)
+    }
+
+    @Test
+    fun `frozen routing plan preserves primary fallback order and explicit provider resolution`() {
+        val registry = ProviderRegistry.builder()
+            .provider("primary", registryTestProvider())
+            .provider("fallback", registryTestProvider())
+            .provider("explicit", registryTestProvider())
+            .model("requested", "primary")
+            .fallbackModel("requested", "fallback-model", "fallback")
+            .build()
+
+        val components = createComponents(providerRegistry = registry)
+
+        assertSame(registry.routingPlan, components.providers.routingPlan)
+        assertEquals(
+            listOf("primary" to "requested", "fallback" to "fallback-model"),
+            components.providers.routingPlan.resolveCandidates(routingOperation("withFallbacks"))
+                .map { it.providerName to it.effectiveModelName },
+        )
+        assertEquals(
+            listOf("explicit" to "requested"),
+            components.providers.routingPlan.resolveCandidates(routingOperation("withExplicitProvider"))
+                .map { it.providerName to it.effectiveModelName },
+        )
     }
 
     @Test
@@ -217,6 +244,19 @@ class EngineComponentsTest {
     private fun registryTestProvider(): ModelProvider = object : ModelProvider {
         override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse(content = "test")
         override fun providerId(): String = "test-provider"
+    }
+
+    private fun routingOperation(methodName: String): Operation = RoutingService::class.java
+        .methods
+        .single { it.name == methodName }
+        .getAnnotation(Operation::class.java)
+
+    private interface RoutingService {
+        @Operation(model = "requested")
+        fun withFallbacks(): String
+
+        @Operation(model = "requested", provider = "explicit")
+        fun withExplicitProvider(): String
     }
 
     private inline fun <reified T> collaborator(): T {

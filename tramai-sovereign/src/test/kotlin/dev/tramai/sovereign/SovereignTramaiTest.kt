@@ -6,6 +6,7 @@ import dev.tramai.core.annotations.User
 import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.ModelNotRegisteredException
 import dev.tramai.core.exception.PolicyViolationException
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -250,8 +251,8 @@ class SovereignTramaiTest {
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "unknown-provider")
                 .build()
-        }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("routes to unknown provider")
+        }.isInstanceOf(ConfigurationException::class.java)
+            .hasMessageContaining("targets unknown provider")
     }
 
     @Test
@@ -280,7 +281,7 @@ class SovereignTramaiTest {
                 .provider(FakeProvider(), name = "local-provider")
                 .model("test-model", "local-provider")
                 .build()
-        }.isInstanceOf(IllegalArgumentException::class.java)
+        }.isInstanceOf(ConfigurationException::class.java)
             .hasMessageContaining("Duplicate provider")
     }
 

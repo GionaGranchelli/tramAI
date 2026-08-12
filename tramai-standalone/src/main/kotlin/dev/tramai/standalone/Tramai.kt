@@ -65,7 +65,7 @@ import kotlin.reflect.full.createType
  * caller-owned unless their own API explicitly transfers ownership.
  */
 class Tramai private constructor(
-    private val providerRegistry: ProviderRegistry,
+    internal val providerRegistry: ProviderRegistry,
     private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
     private val operationInterceptor: OperationInterceptor,
@@ -175,7 +175,7 @@ class Tramai private constructor(
      * Builder for the standalone Tramai composition module.
      */
     class Builder {
-        private val registryBuilder = ProviderRegistry.builder()
+        private val registryBuilder = dev.tramai.core.provider.ProviderRoutingPlan.builder()
         // Raw tools are kept until build() so the runtime is resolved against
         // a frozen snapshot of the builder state (immutability of the built
         // Tramai instance).
@@ -501,7 +501,7 @@ class Tramai private constructor(
             // snapshotted now, so mutating this builder after build() can never
             // redirect diagnostics of the built runtime.
             return Tramai(
-                providerRegistry = registryBuilder.build(),
+                providerRegistry = ProviderRegistry.from(registryBuilder.build()),
                 toolRegistry = ToolRegistry(
                     tools.mapValues { (_, tool) ->
                         createResolvedTool(tool, handler, toolFailureDiagnosticObserver)

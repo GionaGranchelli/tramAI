@@ -1995,6 +1995,20 @@ public final class dev/tramai/core/provider/BoundedProviderErrorBody {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/core/provider/ModelId {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/provider/ModelId;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
 public abstract interface class dev/tramai/core/provider/ModelProvider {
 	public abstract fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun providerId ()Ljava/lang/String;
@@ -2004,6 +2018,19 @@ public abstract interface class dev/tramai/core/provider/ModelProvider {
 public final class dev/tramai/core/provider/ModelProvider$DefaultImpls {
 	public static fun providerId (Ldev/tramai/core/provider/ModelProvider;)Ljava/lang/String;
 	public static fun supportsCapability (Ldev/tramai/core/provider/ModelProvider;Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/core/provider/PlannedProviderRoute {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-yuptCEU ()Ljava/lang/String;
+	public final fun component2-HAG__Ns ()Ljava/lang/String;
+	public final fun copy-l0_Qrn8 (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/PlannedProviderRoute;
+	public static synthetic fun copy-l0_Qrn8$default (Ldev/tramai/core/provider/PlannedProviderRoute;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/provider/PlannedProviderRoute;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEffectiveModelId-HAG__Ns ()Ljava/lang/String;
+	public final fun getProviderId-yuptCEU ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/provider/ProviderCapability : java/lang/Enum {
@@ -2035,9 +2062,24 @@ public final class dev/tramai/core/provider/ProviderFailuresKt {
 	public static synthetic fun safeProviderFailure$default (Ljava/lang/String;Ldev/tramai/core/exception/ProviderFailureCode;Ljava/lang/Integer;ZLjava/lang/Long;ILjava/lang/Object;)Ldev/tramai/core/exception/ProviderException;
 }
 
+public final class dev/tramai/core/provider/ProviderId {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/provider/ProviderId;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
 public final class dev/tramai/core/provider/ProviderRegistry {
 	public static final field Companion Ldev/tramai/core/provider/ProviderRegistry$Companion;
-	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ldev/tramai/core/provider/ProviderRoutingPlan;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getRoutingPlan ()Ldev/tramai/core/provider/ProviderRoutingPlan;
 	public final fun resolve (Ldev/tramai/core/annotations/Operation;)Ldev/tramai/core/provider/ModelProvider;
 	public final fun resolveCandidates (Ldev/tramai/core/annotations/Operation;)Ljava/util/List;
 }
@@ -2055,6 +2097,7 @@ public final class dev/tramai/core/provider/ProviderRegistry$Builder {
 
 public final class dev/tramai/core/provider/ProviderRegistry$Companion {
 	public final fun builder ()Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun from (Ldev/tramai/core/provider/ProviderRoutingPlan;)Ldev/tramai/core/provider/ProviderRegistry;
 	public final fun singleProvider (Ldev/tramai/core/provider/ModelProvider;)Ldev/tramai/core/provider/ProviderRegistry;
 }
 
@@ -2069,6 +2112,34 @@ public final class dev/tramai/core/provider/ProviderRoute {
 	public final fun getProviderName ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/provider/ProviderRoutingPlan {
+	public static final field Companion Ldev/tramai/core/provider/ProviderRoutingPlan$Companion;
+	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDefaultProvider-TfRv3Xo ()Ljava/lang/String;
+	public final fun getProviders ()Ljava/util/Map;
+	public final fun getRoutes ()Ljava/util/Map;
+}
+
+public final class dev/tramai/core/provider/ProviderRoutingPlan$Builder {
+	public fun <init> ()V
+	public final fun build ()Ldev/tramai/core/provider/ProviderRoutingPlan;
+	public final fun defaultProvider (Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+	public final fun fallbackModel (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+	public final fun fallbackProvider (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+	public final fun model (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+	public final fun provider (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;Z)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+	public static synthetic fun provider$default (Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;ZILjava/lang/Object;)Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+}
+
+public final class dev/tramai/core/provider/ProviderRoutingPlan$Companion {
+	public final fun builder ()Ldev/tramai/core/provider/ProviderRoutingPlan$Builder;
+}
+
+public final class dev/tramai/core/provider/ProviderRoutingPlanKt {
+	public static final fun resolve (Ldev/tramai/core/provider/ProviderRoutingPlan;Ldev/tramai/core/annotations/Operation;)Ldev/tramai/core/provider/ModelProvider;
+	public static final fun resolveCandidates (Ldev/tramai/core/provider/ProviderRoutingPlan;Ldev/tramai/core/annotations/Operation;)Ljava/util/List;
 }
 
 public final class dev/tramai/core/provider/ResolvedProviderRoute {
