@@ -43,6 +43,43 @@ import kotlin.test.Test
 class TramaiAutoConfigurationTest {
 
     @Test
+    fun `spring context destruction closes the runtime`() {
+        var tramai: Tramai? = null
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .run { context -> tramai = context.getBean(Tramai::class.java) }
+
+        assertThatThrownBy { tramai!!.runtime() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `multiple ai service beans share one runtime and all fail after context close`() {
+        lateinit var analyzer: TestInvoiceAnalyzer
+        lateinit var cached: CachedInvoiceAnalyzer
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .run { context ->
+                analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+                cached = context.getBean(CachedInvoiceAnalyzer::class.java)
+            }
+        // Context destroyed -> the shared Tramai bean runtime closed. If each
+        // factory bean had created a hidden independent engine, these proxies
+        // would still be usable; instead they must fail before provider work.
+        assertThatThrownBy { runBlocking { analyzer.analyze("invoice-1") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        assertThatThrownBy { runBlocking { cached.analyze("invoice-1") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
     fun `registers ai service beans and injects a custom provider bean`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(

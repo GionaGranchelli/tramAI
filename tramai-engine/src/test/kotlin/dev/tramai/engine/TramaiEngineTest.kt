@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.AiRange
 import dev.tramai.core.annotations.ConversationId
@@ -58,13 +59,18 @@ import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
@@ -121,6 +127,110 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `old proxy fails after close before provider executes`() {
+        val provider = RecordingProvider { ModelResponse(content = "unused") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+
+        engine.close()
+
+        assertThatThrownBy { runBlocking { service.analyze("invoice-123") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        assertThat(provider.requests).isEmpty()
+    }
+
+    @Test
+    fun `in flight suspend invocation terminates on close`() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val provider = RecordingProvider {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+        val call = async { runCatching { service.analyze("invoice-123") } }
+
+        started.await()
+        engine.close()
+
+        assertThat(call.await().exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
+    }
+
+    @Test
+    fun `self close from owned coroutine does not deadlock`() = runBlocking {
+        lateinit var engine: TramaiEngine
+        val provider = RecordingProvider {
+            engine.close()
+            ModelResponse(content = "unreachable")
+        }
+        engine = TramaiEngine(provider)
+        val service = engine.create<SuspendAnalyzer>()
+
+        val result = withTimeout(2_000) { runCatching { service.analyze("invoice-123") } }
+
+        assertThat(result.exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
+    }
+
+    @Test
+    fun `close racing a fast suspend invocation never leaves work against a closed engine`() = runBlocking {
+        repeat(100) {
+            val providerEntered = CompletableDeferred<Unit>()
+            val providerStartedAt = java.util.concurrent.atomic.AtomicLong(-1)
+            val provider = RecordingProvider {
+                providerStartedAt.set(System.nanoTime())
+                providerEntered.complete(Unit)
+                ModelResponse(content = "ok")
+            }
+            val engine = TramaiEngine(provider)
+            val service = engine.create<SuspendAnalyzer>()
+            val closeCompletedAt = java.util.concurrent.atomic.AtomicLong(-1)
+            val closeDone = CompletableDeferred<Unit>()
+            val outcome = CompletableDeferred<Throwable?>()
+            // Close immediately while the invocation is launched: either the
+            // launch won (tracked + cancelled/joined) or close won (launch
+            // rejected with the closed error). A TOCTOU miss would run the
+            // provider AFTER close() returned — the leak this test guards.
+            val closer = Thread {
+                engine.close()
+                closeCompletedAt.set(System.nanoTime())
+                closeDone.complete(Unit)
+            }
+            closer.start()
+            try {
+                service.analyze("invoice-1")
+                outcome.complete(null)
+            } catch (t: Throwable) {
+                outcome.complete(t)
+            }
+            // Suspend-await, never Thread.join: the continuation may resume on
+            // a Default worker (engine-owned invocation), and a blocking join
+            // there would deadlock against close() joining that same job.
+            closeDone.await()
+            closer.join()
+            val terminal = outcome.await()
+            val providerStarted = providerStartedAt.get()
+            val closeCompleted = closeCompletedAt.get()
+            if (terminal == null) {
+                // Success is only legal if the provider ran BEFORE close completed.
+                assertThat(providerStarted)
+                    .describedAs("iteration $it: provider must not run after close")
+                    .isNotNegative()
+                assertThat(providerStarted).isLessThan(closeCompleted)
+            } else {
+                // Close won the race (ISE via the in-lock re-check) or the
+                // invocation was cancelled in-flight / pre-start (CE via the
+                // exactly-once resume) — never a provider result delivered
+                // after close.
+                assertThat(terminal).satisfiesAnyOf(
+                    { assertThat(it).isInstanceOf(IllegalStateException::class.java).hasMessage("Tramai runtime is closed") },
+                    { assertThat(it).isInstanceOf(kotlinx.coroutines.CancellationException::class.java) },
+                )
+            }
+        }
+    }
+
+    @Test
     fun `renders classified document payloads into prompts without wrapper metadata`() {
         val provider = RecordingProvider { ModelResponse(content = "hardcoded response") }
         val engine = TramaiEngine(provider)
@@ -141,6 +251,339 @@ class TramaiEngineTest {
             .contains("secret content")
             .doesNotContain("ClassifiedDocument(")
             .doesNotContain("classification=")
+    }
+
+    @Test
+    fun `blocking invocation racing close never delivers a result from a closed engine`() {
+        val provider = RecordingProvider { ModelResponse(content = "summary") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<BlockingSummarizer>()
+
+        val closer = Thread { engine.close() }
+        closer.start()
+        val outcome = try {
+            val result = service.summarize("raw input")
+            "result:$result"
+        } catch (t: Throwable) {
+            "error:${t.javaClass.simpleName}:${t.message}"
+        }
+        closer.join()
+
+        // Either the call completed before close won the race (result), or it
+        // was rejected / cancelled by close (fixed lifecycle error, or a
+        // cancellation because the engine-owned blocking call was terminated
+        // mid-flight — the P1-1A guarantee). It must NEVER be a summary
+        // delivered from an engine that was already closed.
+        assertThat(outcome)
+            .describedAs("outcome: $outcome")
+            .satisfiesAnyOf(
+                { assertThat(it).startsWith("result:") },
+                { assertThat(it).isEqualTo("error:IllegalStateException:Tramai runtime is closed") },
+                { assertThat(it).startsWith("error:JobCancellationException") },
+                { assertThat(it).startsWith("error:CancellationException") },
+            )
+    }
+
+    @Test
+    fun `registerService and resumeApproval fail fast on a closed engine`() {
+        val engine = TramaiEngine(RecordingProvider { ModelResponse(content = "unused") })
+
+        engine.close()
+
+        assertThatThrownBy { engine.registerService(SuspendAnalyzer::class) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        // Guard fires before any store access, so placeholder command values suffice.
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = "any",
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = ApprovalToken.parsePresented("token"),
+                        resumedBy = "test",
+                    ),
+                )
+            }
+        }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `streaming flow collected after close fails before provider executes`() {
+        val provider = NamedStreamingProvider("p") {
+            flow { emit(StreamChunk.Token("unused")) }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val flow = service.stream("invoice-123")
+        engine.close()
+
+        assertThatThrownBy { runBlocking { flow.toList() } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+        assertThat(provider.streamRequests).isEmpty()
+    }
+
+    @Test
+    fun `mid-collection close terminates an in-flight stream`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                emit(StreamChunk.Token("first"))
+                gate.await()
+                emit(StreamChunk.Token("second"))
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val chunks = mutableListOf<StreamChunk>()
+        val firstChunkDelivered = CompletableDeferred<Unit>()
+        val collection = async {
+            try {
+                service.stream("invoice-123").collect {
+                    chunks += it
+                    firstChunkDelivered.complete(Unit)
+                }
+                null
+            } catch (t: Throwable) {
+                t
+            }
+        }
+        // Wait until the first chunk is delivered (provider is streaming).
+        firstChunkDelivered.await()
+        engine.close()
+        gate.complete(Unit)
+        val terminal = collection.await()
+
+        // The stream must not deliver the second chunk after close: either the
+        // collection failed with the fixed lifecycle error, or it stopped
+        // without the post-close chunk. The first chunk was provably delivered
+        // (firstChunkDelivered completes only after a chunk arrives).
+        assertThat(chunks.map { it }).contains(StreamChunk.Token("first"))
+        assertThat(chunks.map { it }).doesNotContain(StreamChunk.Token("second"))
+        if (terminal != null) {
+            // Either the engine-owned collection was cancelled (the stronger
+            // guarantee: close() cancels lifecycleJob, which terminates the
+            // provider stream's collection) or the per-chunk closed gate fired.
+            assertThat(terminal).satisfiesAnyOf(
+                { assertThat(it).isInstanceOf(IllegalStateException::class.java).hasMessage("Tramai runtime is closed") },
+                { assertThat(it).isInstanceOf(kotlinx.coroutines.CancellationException::class.java) },
+            )
+        }
+    }
+
+    @Test
+    fun `blocking invocation in long suspension is cancelled and joined by close`() = runBlocking {
+        val providerEntered = CompletableDeferred<Unit>()
+        val providerReleased = CompletableDeferred<Unit>()
+        val providerCleanedUp = CompletableDeferred<Unit>()
+        val provider = RecordingProvider {
+            providerEntered.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    providerCleanedUp.complete(Unit)
+                }
+            }
+        }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<BlockingSummarizer>()
+
+        val caller = Thread {
+            runCatching { service.summarize("raw") }
+        }
+        caller.start()
+        providerEntered.await()
+
+        engine.close()
+
+        // close() must terminate the in-flight blocking call (it is a child of
+        // the engine-owned lifecycle job) and wait for its cleanup.
+        providerCleanedUp.await() // completed within close()
+        caller.join(5_000)
+        assertThat(caller.isAlive).isFalse()
+        providerReleased.complete(Unit)
+    }
+
+    @Test
+    fun `streaming collection suspended indefinitely is cancelled and cleaned up by close`() = runBlocking {
+        val providerCleanedUp = CompletableDeferred<Unit>()
+        val firstChunkDelivered = CompletableDeferred<Unit>()
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                try {
+                    emit(StreamChunk.Token("first"))
+                    firstChunkDelivered.complete(Unit)
+                    awaitCancellation()
+                } finally {
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        providerCleanedUp.complete(Unit)
+                    }
+                }
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val collectionDone = CompletableDeferred<Unit>()
+        val collection = async {
+            runCatching { service.stream("invoice-123").collect {} }
+            collectionDone.complete(Unit)
+        }
+        // Deterministic admission gate: wait until the provider has emitted its
+        // first chunk and is suspended indefinitely, instead of a sleep.
+        firstChunkDelivered.await()
+        engine.close()
+        // close() cancels lifecycleJob -> the engine-owned collection job is
+        // cancelled -> the provider's finally runs -> the collection terminates.
+        collectionDone.await()
+        // Completed within close(): the engine-owned collection job was
+        // cancelled and the provider's NonCancellable cleanup ran.
+        providerCleanedUp.await()
+    }
+
+    @Test
+    fun `close does not deadlock when caller supplied its own job and scope`() {
+        runBlocking {
+            val provider = RecordingProvider { ModelResponse(content = "ok") }
+            val engine = TramaiEngine(
+                provider = provider,
+                job = requireNotNull(coroutineContext[Job]),
+                scope = this,
+            )
+            // No in-flight work: close() must cancel/join the engine-owned
+            // lifecycle job, never the caller's job — returning promptly.
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `self close from streaming owned coroutine does not deadlock`() = runBlocking {
+        lateinit var engine: TramaiEngine
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                engine.close()
+                emit(StreamChunk.Token("unreachable"))
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        // The provider runs inside the engine-owned streaming collection
+        // coroutine (lifecycleScope child) and re-enters close(). The engine
+        // thread marker is carried by the SCOPE, so close() skips the join and
+        // returns; the collection is then cancelled and the flow terminates
+        // instead of self-joining forever.
+        withTimeout(2_000) {
+            runCatching {
+                service.stream("invoice").collect {}
+            }
+        }
+    }
+
+    @Test
+    fun `stream start racing close never hangs the collector`() = runBlocking {
+        // Force the admission race deterministically: the flow's open check
+        // passes, then close() cancels lifecycleJob BEFORE the collection
+        // coroutine body begins executing. Channel termination must come from
+        // job completion (invokeOnCompletion), not from the body's finally.
+        repeat(200) { iteration ->
+            val provider = NamedStreamingProvider("p") {
+                flow {
+                    emit(StreamChunk.Token("first"))
+                    awaitCancellation()
+                }
+            }
+            val registry = ProviderRegistry.builder()
+                .provider("p", provider)
+                .model("claude-sonnet-4-20250514", "p")
+                .build()
+            val engine = TramaiEngine(providerRegistry = registry)
+            val service = engine.create<StreamingService>()
+
+            val collectionDone = CompletableDeferred<Unit>()
+            val collection = async {
+                runCatching { service.stream("invoice-$iteration").collect {} }
+                collectionDone.complete(Unit)
+            }
+            // Close immediately: either the collection won (tracked + joined)
+            // or close() won (launch rejected / cancelled pre-start). Either
+            // way the collector must terminate — never hang.
+            engine.close()
+            withTimeout(5_000) { collectionDone.await() }
+            collection.await()
+        }
+    }
+
+    @Test
+    fun `streaming bridge preserves backpressure when the collector is slow`() = runBlocking {
+        val attempted = java.util.concurrent.atomic.AtomicInteger(0)
+        val delivered = java.util.concurrent.atomic.AtomicInteger(0)
+        val collectorGate = CompletableDeferred<Unit>()
+        val provider = NamedStreamingProvider("p") {
+            flow {
+                var i = 0
+                while (true) {
+                    attempted.incrementAndGet()
+                    emit(StreamChunk.Token("chunk-${i++}"))
+                }
+            }
+        }
+        val registry = ProviderRegistry.builder()
+            .provider("p", provider)
+            .model("claude-sonnet-4-20250514", "p")
+            .build()
+        val engine = TramaiEngine(providerRegistry = registry)
+        val service = engine.create<StreamingService>()
+
+        val firstChunk = CompletableDeferred<Unit>()
+        val collection = async {
+            service.stream("invoice-123").collect {
+                delivered.incrementAndGet()
+                if (!firstChunk.isCompleted) firstChunk.complete(Unit)
+                collectorGate.await()
+            }
+        }
+        firstChunk.await()
+        // The collector is deliberately blocked after chunk 1. Prove
+        // backpressure deterministically (no sleeps): the provider must
+        // ATTEMPT chunk 2 (it got past chunk 1) and then STALL at the send —
+        // a rendezvous bridge holds the second chunk until the collector
+        // consumes it; UNLIMITED would let the provider race ahead past 2.
+        withTimeout(2_000) {
+            while (attempted.get() < 2) {
+                delay(10)
+            }
+        }
+        assertThat(attempted.get()).isEqualTo(2)
+        assertThat(delivered.get()).isEqualTo(1)
+        collectorGate.complete(Unit)
+        engine.close()
+        // Collection is terminated by close() (rendezvous bridge cancelled
+        // through lifecycleJob) — the CE is the expected termination signal.
+        runCatching { collection.await() }
     }
 
     @Test
@@ -3570,7 +4013,7 @@ private class NamedStreamingProvider(
 }
 
 private class RecordingObserver : OperationObserver {
-    val records = mutableListOf<Record>()
+    val records = java.util.Collections.synchronizedList(mutableListOf<Record>())
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         val record = Record(context = context)
@@ -3613,7 +4056,7 @@ private class RecordingObserver : OperationObserver {
         var providerFailure: Throwable? = null,
         var parseSuccess: Boolean? = null,
         var completionCount: Int = 0,
-        val engineEvents: MutableList<EngineEventRecord> = mutableListOf(),
+        val engineEvents: MutableList<EngineEventRecord> = java.util.Collections.synchronizedList(mutableListOf()),
         var cancelled: Boolean = false,
     )
 }
@@ -3624,7 +4067,7 @@ private data class EngineEventRecord(
 )
 
 private class RecordingEngineEventObserver : EngineEventObserver {
-    val events = mutableListOf<EngineEventRecord>()
+    val events = java.util.Collections.synchronizedList(mutableListOf<EngineEventRecord>())
 
     override fun onEngineEvent(
         name: String,

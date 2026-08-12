@@ -78,7 +78,7 @@ private data class TramaiBeanDependencies(
 @EnableConfigurationProperties(TramaiProperties::class)
 class TramaiAutoConfiguration {
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     fun tramai(
         properties: TramaiProperties,

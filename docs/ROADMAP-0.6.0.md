@@ -356,6 +356,8 @@ This phase is intentionally completed before large decomposition work.
 
 **Goal:** Ensure no convenience API creates an uncloseable runtime.
 
+> **Status:** ✅ Complete — PR #226. `Tramai`/`SovereignTramai` are `AutoCloseable` and own one runtime/engine; `close()` cancels and joins engine-owned work (blocking calls, suspend invocations, streaming collections) via an internal lifecycle job; caller-supplied `job`/`scope` are never cancelled/joined; Spring closes via `destroyMethod`; resource ownership documented.
+
 ### Tasks
 
 1. Make `Tramai` own one engine or one runtime session rather than constructing an unreachable engine per `create()` call.
@@ -372,6 +374,16 @@ This phase is intentionally completed before large decomposition work.
 - Runtime jobs are cancelled and joined according to documented semantics.
 - Repeated creation does not accidentally create independent hidden engines.
 - Spring context shutdown leaves no TramAI-owned jobs or hooks active.
+
+### Leak-test evidence matrix (roadmap task 6)
+
+| Requirement | Existing proof |
+|---|---|
+| Engine jobs | PR #226 lifecycle tests: `close() cancels and joins` blocking/suspend/streaming engine-owned work (`blocking invocation in long suspension is cancelled and joined by close`, `self close from owned coroutine does not deadlock`, `self close from streaming owned coroutine does not deadlock`, `stream start racing close never hangs the collector`, `close does not deadlock when caller supplied its own job and scope`) |
+| Worker jobs | Existing worker shutdown/cancellation tests in tramai-orchestration (`TramaiWorkerTest`, lease-drain and shutdown coverage from Epics 1.1/1.2) |
+| Subprocesses | PR #216/#221 cancellation contract (`SubprocessCancellationContractTest` in tramai-orchestration) |
+| HTTP response streams | Provider-level InputStream cleanup tests in tramai-openai `OpenAiProviderTest`: `stream closes response body after done marker`, `stream closes response body after malformed chunk`, `stream closes response body when collector stops after first token`, `mid stream io failure is retryable sanitized and observed`; plus #226 engine streaming lifecycle tests (`streaming collection suspended indefinitely is cancelled and cleaned up by close`, `mid-collection close terminates an in-flight stream`) and the springboot example E2E smoke test |
+| Shutdown hooks | `TramaiWorkerTest`: `close deregisters the JVM shutdown hook and retains no reference` — proves the registered hook is absent from `Runtime` after close (`removeShutdownHook` returns false) and the worker retains no `Thread` reference; plus Spring `destroyMethod` close + context-shutdown tests and `repeated close is harmless` idempotency test in tramai-standalone |
 
 ---
 

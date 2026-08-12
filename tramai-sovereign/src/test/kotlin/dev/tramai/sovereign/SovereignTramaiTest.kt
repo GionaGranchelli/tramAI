@@ -97,6 +97,39 @@ class SovereignTramaiTest {
         .provider(FakeProvider(), name = "local-provider", default = true)
         .model("test-model", "local-provider")
 
+    @Test
+    fun `sovereign create and runtime share one owned engine`() {
+        val tramai = validBuilder().build()
+
+        tramai.create<EchoService>()
+        val runtime = tramai.runtime()
+        runtime.create<EchoService>()
+
+        tramai.close()
+        assertThatThrownBy { tramai.create<EchoService>() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `sovereign runtime returns the same wrapper instance`() {
+        val tramai = validBuilder().build()
+
+        assertThat(tramai.runtime()).isSameAs(tramai.runtime())
+    }
+
+    @Test
+    fun `sovereign close propagates to the delegate runtime`() {
+        val tramai = validBuilder().build()
+        val runtime = tramai.runtime()
+
+        tramai.close()
+
+        assertThatThrownBy { runtime.create<EchoService>() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("Tramai runtime is closed")
+    }
+
     // =========================================================================
     // Composition Validation
     // =========================================================================

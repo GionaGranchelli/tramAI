@@ -79,19 +79,24 @@ class SovereignTramai private constructor(
     verificationReceipts: List<VerifiedLocalModelArtifact>,
     private val profile: SovereignProfileConfiguration,
     private val verificationSettings: ModelArtifactVerificationSettings,
-) {
+) : AutoCloseable {
     private val verificationReceipts: List<VerifiedLocalModelArtifact> =
         Collections.unmodifiableList(ArrayList(verificationReceipts))
+    /** One cached wrapper around the delegate's single owned runtime. */
+    private val ownedRuntime: SovereignTramaiRuntime by lazy { SovereignTramaiRuntime(delegate.runtime()) }
     /**
      * Creates a service proxy for the given service type.
      */
     fun <T : Any> create(serviceType: KClass<T>): T = delegate.create(serviceType)
 
     /**
-     * Creates a [SovereignTramaiRuntime] that owns exactly one engine and exposes
-     * both service creation and approval-resume operations.
+     * Returns the single [SovereignTramaiRuntime] wrapping the one owned
+     * engine; repeated calls return the same instance.
      */
-    fun runtime(): SovereignTramaiRuntime = SovereignTramaiRuntime(delegate.runtime())
+    fun runtime(): SovereignTramaiRuntime = ownedRuntime
+
+    /** Closes the owned standalone runtime and its engine. */
+    override fun close() = delegate.close()
 
     /**
      * Returns immutable verification receipts from build-time artifact verification.
