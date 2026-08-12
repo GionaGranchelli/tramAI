@@ -157,6 +157,7 @@ internal data class HttpWorkflowStep<S>(
             throw failure(workflowName, error, code, 1, false, failureDiagnosticObserver)
         }
         try {
+            enforceStepAllowlist(canonicalRequest.target)
             policy.validateTarget(canonicalRequest.target)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
@@ -186,8 +187,9 @@ internal data class HttpWorkflowStep<S>(
         while (true) {
             val attemptNumber = retryAttempt + 1
             val response = try {
-                // Every outbound attempt crosses the address-policy boundary: fresh DNS
-                // resolution and resolved-address admission per retry, not once per step.
+                // Every TramAI send/retry attempt crosses the address-policy boundary: hostname
+                // resolution is invoked again and the resulting addresses are re-evaluated before
+                // each attempt. JVM resolver caching may apply.
                 validateResolvedTargetAddresses(canonicalRequest.target, policy)
                 executeRequest(
                     HttpRequestExecution(
@@ -286,12 +288,18 @@ internal data class HttpWorkflowStep<S>(
                 execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address")
+                throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address", error)
             }
         }
         if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
-            sendResult.response.body().close()
-            throw HttpPolicyViolation("connected-address validation was not performed")
+            val rejection = HttpPolicyViolation("connected-address validation was not performed")
+            try {
+                sendResult.response.body().close()
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                rejection.addSuppressed(error)
+            }
+            throw rejection
         }
         val response = sendResult.response
         val bodyBytes = ByteArrayOutputStream(min(config.maxResponseBytes.toInt(), responseChunkSize))
@@ -393,6 +401,14 @@ internal data class HttpWorkflowStep<S>(
 
     private data class CanonicalHttpRequest(val uri: URI, val target: OutboundNetworkTarget)
 
+    private fun enforceStepAllowlist(target: OutboundNetworkTarget) {
+        // HttpStepConfig.allowedHosts is a framework-owned ceiling, independent of the
+        // pluggable policy: a workflow policy may narrow it but can never widen it.
+        target.allowedHostnames?.let { stepHosts ->
+            require(target.host in stepHosts) { "outbound host is not allowed by the HTTP step" }
+        }
+    }
+
     private fun validateResolvedTargetAddresses(target: OutboundNetworkTarget, policy: OutboundNetworkPolicy) {
         val resolved = try {
             resolveHostAddresses(target.host)
@@ -404,7 +420,7 @@ internal data class HttpWorkflowStep<S>(
             policy.validateTarget(target.copy(addresses = resolved))
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected target")
+            throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected target", error)
         }
     }
 
@@ -430,7 +446,7 @@ internal data class HttpWorkflowStep<S>(
     }
 }
 
-internal class HttpPolicyViolation(message: String) : IllegalArgumentException(message)
+private class HttpPolicyViolation(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 
 private class ExecutedHttpResponse(
     val status: Int,

@@ -30,8 +30,9 @@ data class OutboundNetworkTarget(
  * request, and implementations MUST support that:
  *
  * - *pre-DNS admission* once per step with `target.addresses` empty (scheme/hostname decision);
- * - *resolved-address admission* before EVERY network attempt (one per retry) with
- *   `target.addresses` containing all currently resolved addresses;
+ * - *resolved-address admission* before every TramAI send/retry attempt (one per retry) with
+ *   `target.addresses` containing all currently resolved addresses; JVM resolver caching may apply
+ *   between attempts;
  * - *connected-address admission* (only for transports that can prove the peer) with
  *   `target.addresses` containing the single connected address.
  *
@@ -41,6 +42,11 @@ data class OutboundNetworkTarget(
  * and do not hold mutable per-request state in the policy. Note that freezing the
  * policy at `build()` freezes the reference, not arbitrary mutable state inside a
  * custom implementation.
+ *
+ * `target.allowedHostnames` (the per-step `HttpStepConfig.allowedHosts` ceiling) is
+ * enforced by the framework BEFORE this method runs and is not part of the pluggable
+ * decision — implementations may ignore it, but any restriction they add is
+ * additional, never loosening.
  */
 interface OutboundNetworkPolicy {
     fun validateTarget(target: OutboundNetworkTarget)
@@ -76,9 +82,8 @@ private class DefaultOutboundNetworkPolicy(
 ) : OutboundNetworkPolicy {
     override fun validateTarget(target: OutboundNetworkTarget) {
         require(target.scheme in allowedHttpSchemes) { "unsupported outbound HTTP scheme: ${target.scheme}" }
-        val effectiveAllowedHosts = allowedHosts ?: target.allowedHostnames
-        require(effectiveAllowedHosts == null || target.host in effectiveAllowedHosts) {
-            "outbound host is not in the allowlist: ${target.host}"
+        allowedHosts?.let { hosts ->
+            require(target.host in hosts) { "outbound host is not in the allowlist: ${target.host}" }
         }
         require(allowPrivateDestinations ||
             (target.host != localhostHostName && target.addresses.none(::isPrivateOrRestrictedAddress))) {

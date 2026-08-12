@@ -579,6 +579,7 @@ class WorkflowHttpStepTest {
     @Test
     fun `every retry attempt crosses resolved address admission`() {
         val requests = AtomicInteger()
+        val diagnostics = mutableListOf<WorkflowStepFailureDiagnosticEvent>()
         val countingPolicy = object : OutboundNetworkPolicy {
             var addressValidations = 0
             override fun validateTarget(target: OutboundNetworkTarget) {
@@ -593,6 +594,7 @@ class WorkflowHttpStepTest {
             exchange.respond(503, "busy")
         }.use { server ->
             val workflow = workflow<HttpState>("per-attempt-admission") {
+                failureDiagnosticObserver = WorkflowStepFailureDiagnosticObserver { diagnostics += it }
                 outboundNetworkPolicy = countingPolicy
                 httpStep(
                     name = "fetch",
@@ -608,6 +610,80 @@ class WorkflowHttpStepTest {
                 .hasNoCause()
             assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
             assertThat(requests.get()).isEqualTo(1)
+            // Original custom-policy failure preserved for diagnostics (P2): the wrapped
+            // HttpPolicyViolation carries the policy's IllegalArgumentException as cause.
+            val diagnosticFailure = diagnostics.single().failure
+            assertThat(diagnosticFailure).isNotNull()
+            assertThat(diagnosticFailure!!.cause).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `governed workflow policy cannot widen a step allowlist`() {
+        // Mutation-sensitive: with a no-op transport and a resolvable host, removing the
+        // step-ceiling guard makes this workflow SUCCEED (governed override). With the
+        // guard, the step allowlist rejects before any network activity.
+        val workflow = workflow<HttpState>("governed-vs-step") {
+            outboundNetworkPolicy = OutboundNetworkPolicies.governed(setOf("example.com", "example.org"))
+            httpTransport = NoOpHttpTransport
+            httpStep(
+                name = "fetch",
+                config = HttpStepConfig(allowedHosts = setOf("example.org")),
+                request = { _, _ -> HttpRequest(method = "GET", url = "http://example.com/") },
+                merge = { state, _, _ -> state },
+            )
+        }.build { it }
+        assertPolicyRejectedRun(workflow)
+    }
+
+    @Test
+    fun `custom policy cannot bypass the step allowlist`() {
+        val allowAll = object : OutboundNetworkPolicy {
+            override fun validateTarget(target: OutboundNetworkTarget) = Unit
+        }
+        // Mutation-sensitive: an allow-all policy + no-op transport would SUCCEED without
+        // the framework-owned step ceiling; the ceiling rejects before any network activity.
+        val workflow = workflow<HttpState>("custom-vs-step") {
+            outboundNetworkPolicy = allowAll
+            httpTransport = NoOpHttpTransport
+            httpStep(
+                name = "fetch",
+                config = HttpStepConfig(allowedHosts = setOf("example.org")),
+                request = { _, _ -> HttpRequest(method = "GET", url = "http://example.com/") },
+                merge = { state, _, _ -> state },
+            )
+        }.build { it }
+        assertPolicyRejectedRun(workflow)
+    }
+
+    @Test
+    fun `connected address cleanup failure cannot mask policy rejection`() {
+        val diagnostics = mutableListOf<WorkflowStepFailureDiagnosticEvent>()
+        val throwing = ThrowingCloseInputStream(ByteArrayInputStream(ByteArray(0)))
+        val silentTransport = object : HttpTransport {
+            override val capability = HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION
+            override suspend fun send(
+                httpRequest: java.net.http.HttpRequest,
+                blockingDispatcher: CoroutineContext,
+                onConnected: (InetAddress) -> Unit,
+            ): ControlledSendResult = ControlledSendResult(fakeResponse(httpRequest, throwing))
+        }
+        val workflow = workflow<HttpState>("silent-connected-throwing-close") {
+            failureDiagnosticObserver = WorkflowStepFailureDiagnosticObserver { diagnostics += it }
+            httpTransport = silentTransport
+            httpStep("fetch", request = { _, _ -> HttpRequest("GET", "http://example.com/") },
+                merge = { state, _, _ -> state })
+        }.build { it }
+
+        val thrown = org.assertj.core.api.Assertions.catchThrowable { runBlocking { workflow.run(HttpState()) } }!!
+        assertThat(thrown).isInstanceOf(WorkflowHttpException::class.java)
+            .hasMessage("Workflow http step was rejected by policy")
+            .hasNoCause()
+        assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        val diagnosticFailure = diagnostics.single().failure
+        assertThat(diagnosticFailure).isNotNull()
+        assertThat(diagnosticFailure!!.suppressed).anySatisfy {
+            assertThat(it).isInstanceOf(java.io.IOException::class.java)
         }
     }
 
@@ -734,6 +810,15 @@ private class FakeConnectedAddressTransport(private val connected: InetAddress) 
     }
 }
 
+private object NoOpHttpTransport : HttpTransport {
+    override val capability = HttpTransportCapability.PRE_CONNECT_VALIDATION
+    override suspend fun send(
+        httpRequest: java.net.http.HttpRequest,
+        blockingDispatcher: CoroutineContext,
+        onConnected: (InetAddress) -> Unit,
+    ): ControlledSendResult = ControlledSendResult(fakeResponse(httpRequest))
+}
+
 private object SilentConnectedAddressTransport : HttpTransport {
     override val capability = HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION
     override suspend fun send(
@@ -764,6 +849,12 @@ private class TrackingCloseInputStream(delegate: InputStream) : java.io.FilterIn
     override fun close() {
         closed = true
         super.close()
+    }
+}
+
+private class ThrowingCloseInputStream(delegate: InputStream) : java.io.FilterInputStream(delegate) {
+    override fun close() {
+        throw java.io.IOException("close failed")
     }
 }
 
