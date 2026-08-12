@@ -211,7 +211,7 @@ class TramaiEngine private constructor(
     /**
      * Internally owned lifecycle job and scope. The engine's OWN work (blocking
      * calls, streaming collections) parents here — never to the caller-supplied
-     * [job]/[scope] constructor parameters, which remain for ABI compatibility
+     * legacy job / scope constructor parameters, which remain for ABI compatibility
      * only. close() cancels and joins [lifecycleJob], so it can prove that
      * engine-initiated work has terminated, regardless of where the caller's
      * job lives (and without risking the caller-job join deadlock).
@@ -456,43 +456,17 @@ class TramaiEngine private constructor(
             promptSanitizer = promptSanitizer,
         )
         val handler = TramaiInvocationHandler(
-            providerRegistry = providerRegistry,
-            structuredOutputHandler = structuredOutputHandler,
-            toolRegistry = toolRegistry,
-            operationObserver = operationObserver,
-            operationInterceptor = operationInterceptor,
-            responseCache = responseCache,
-            modelRegistry = modelRegistry,
-            modelRegistrySettings = modelRegistrySettings,
+            components = components,
             circuitBreaker = circuitBreaker,
             retryDelayPolicy = retryDelayPolicy,
-            tokenBudgetSettings = tokenBudgetSettings,
-            promptSanitizer = promptSanitizer,
-            chatMemory = chatMemory,
-            conversationIdProvider = conversationIdProvider,
+            migrationWarningGuard = migrationWarningGuard,
             lifecycleJob = lifecycleJob,
             lifecycleScope = lifecycleScope,
             isClosed = closed,
             engineThreadMarker = engineThreadMarker,
             activeInvocationJobs = activeInvocationJobs,
             serviceDefinition = definition,
-            policyEngine = resolvedPolicyEngine,
-            migrationWarningGuard = migrationWarningGuard,
-            isLegacyFallback = isLegacyFallback,
-            dlpInterceptor = dlpInterceptor,
-            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-            toolResultFilteringSettings = toolResultFilteringSettings,
-            engineEventObserver = engineEventObserver,
-            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
-            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
-            suspendedInvocationStore = suspendedInvocationStore,
-            approvalContinuationStore = approvalContinuationStore,
-            toolArgumentsDigester = toolArgumentsDigester,
-            approvalGateCoordinator = approvalGateCoordinator,
-            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
             resumeOperationRegistry = resumeOperationRegistry,
-            clock = clock,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -524,43 +498,17 @@ class TramaiEngine private constructor(
             promptSanitizer = promptSanitizer,
         )
         val handler = TramaiInvocationHandler(
-            providerRegistry = providerRegistry,
-            structuredOutputHandler = structuredOutputHandler,
-            toolRegistry = toolRegistry,
-            operationObserver = operationObserver,
-            operationInterceptor = operationInterceptor,
-            responseCache = responseCache,
-            modelRegistry = modelRegistry,
-            modelRegistrySettings = modelRegistrySettings,
+            components = components,
             circuitBreaker = circuitBreaker,
             retryDelayPolicy = retryDelayPolicy,
-            tokenBudgetSettings = tokenBudgetSettings,
-            promptSanitizer = promptSanitizer,
-            chatMemory = chatMemory,
-            conversationIdProvider = conversationIdProvider,
+            migrationWarningGuard = migrationWarningGuard,
             lifecycleJob = lifecycleJob,
             lifecycleScope = lifecycleScope,
             isClosed = closed,
             engineThreadMarker = engineThreadMarker,
             activeInvocationJobs = activeInvocationJobs,
             serviceDefinition = definition,
-            policyEngine = resolvedPolicyEngine,
-            migrationWarningGuard = migrationWarningGuard,
-            isLegacyFallback = isLegacyFallback,
-            dlpInterceptor = dlpInterceptor,
-            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-            toolResultFilteringSettings = toolResultFilteringSettings,
-            engineEventObserver = engineEventObserver,
-            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
-            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
-            suspendedInvocationStore = suspendedInvocationStore,
-            approvalContinuationStore = approvalContinuationStore,
-            toolArgumentsDigester = toolArgumentsDigester,
-            approvalGateCoordinator = approvalGateCoordinator,
-            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
             resumeOperationRegistry = resumeOperationRegistry,
-            clock = clock,
         )
         resumeOperationRegistry.registerAll(
             serviceDefinition = definition,
@@ -608,8 +556,8 @@ class TramaiEngine private constructor(
 
     /**
      * Cancels all engine-initiated work and, except from one of the engine's
-     * own coroutines, waits for it to terminate. The caller-supplied [job] and
-     * [scope] constructor parameters are NEVER cancelled or joined here — the
+     * own coroutines, waits for it to terminate. The caller-supplied legacy job /
+     * scope constructor parameters are NEVER cancelled or joined here — the
      * engine owns its own [lifecycleJob], so closing cannot deadlock a caller
      * that passed its current job. Dependencies supplied by callers are not
      * closed.
@@ -670,47 +618,46 @@ data class ResumeApprovalCommand(
 )
 
 internal class TramaiInvocationHandler(
-    private val providerRegistry: ProviderRegistry,
-    private val structuredOutputHandler: StructuredOutputHandler?,
-    private val toolRegistry: ToolRegistry,
-    private val operationObserver: OperationObserver,
-    private val operationInterceptor: OperationInterceptor,
-    private val responseCache: OperationResponseCache,
-    private val modelRegistry: ModelRegistry,
-    private val modelRegistrySettings: ModelRegistrySettings,
+    private val components: EngineComponents,
     private val circuitBreaker: ProviderCircuitBreaker,
     private val retryDelayPolicy: ProviderRetryDelayPolicy,
-    private val tokenBudgetSettings: TokenBudgetSettings,
-    private val promptSanitizer: PromptSanitizer?,
-    private val chatMemory: ChatMemory?,
-    private val conversationIdProvider: ConversationIdProvider,
+    private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
     private val lifecycleJob: Job,
     private val lifecycleScope: CoroutineScope,
     private val isClosed: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
     private val engineThreadMarker: ThreadLocal<Boolean> = ThreadLocal(),
     private val activeInvocationJobs: MutableSet<Job> = java.util.concurrent.ConcurrentHashMap.newKeySet(),
     private val serviceDefinition: ServiceDefinition,
-    policyEngine: PolicyEngine,
-    private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
-    isLegacyFallback: Boolean,
-    private val dlpInterceptor: DlpInterceptor,
-    private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
-    private val toolResultFilteringSettings: ToolResultFilteringSettings,
-    private val engineEventObserver: EngineEventObserver,
-    private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
-    private val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver,
-    private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
-    // Approval suspension dependencies
-    private val suspendedInvocationStore: SuspendedInvocationStore,
-    private val approvalContinuationStore: ApprovalContinuationStore?,
-    private val toolArgumentsDigester: ToolArgumentsDigester?,
-    private val approvalGateCoordinator: ApprovalGateCoordinator?,
-    private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
     private val resumeOperationRegistry: ResumeOperationRegistry,
-    private val clock: Clock,
 ) : InvocationHandler {
 
-    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
+    private val providerRegistry = components.providers.providerRegistry
+    private val structuredOutputHandler = components.execution.structuredOutputHandler
+    private val toolRegistry = components.tools.toolRegistry
+    private val operationObserver = components.observation.operationObserver
+    private val operationInterceptor = components.observation.operationInterceptor
+    private val responseCache = components.persistence.responseCache
+    private val modelRegistry = components.security.modelRegistry
+    private val modelRegistrySettings = components.security.modelRegistrySettings
+    private val tokenBudgetSettings = components.execution.tokenBudgetSettings
+    private val promptSanitizer = components.security.promptSanitizer
+    private val chatMemory = components.persistence.chatMemory
+    private val conversationIdProvider = components.persistence.conversationIdProvider
+    private val dlpInterceptor = components.security.dlpInterceptor
+    private val dlpRedactionAuditEmitter = components.security.dlpRedactionAuditEmitter
+    private val toolResultFilteringSettings = components.tools.toolResultFilteringSettings
+    private val engineEventObserver = components.observation.engineEventObserver
+    private val toolFailureDiagnosticObserver = components.observation.toolFailureDiagnosticObserver
+    private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
+    private val policyDecisionAuditEmitter = components.security.policyDecisionAuditEmitter
+    private val suspendedInvocationStore = components.approvals.suspendedInvocationStore
+    private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
+    private val clock = components.execution.clock
+    private val approvalContinuationStore = (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
+    private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
+    private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
+
+    private val policyHelper = PolicyEnforcementHelper(components.security.resolvedPolicyEngine, migrationWarningGuard, isLegacyFallback = components.security.isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
     private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
 
     private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
@@ -2288,7 +2235,7 @@ internal class TramaiInvocationHandler(
             return message.copy(
                 content = sanitizeToolText(
                     scope = scope,
-                            text = message.content,
+                    text = message.content,
                     contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                     authoritative = true,
                 ),
@@ -2429,8 +2376,8 @@ internal class TramaiInvocationHandler(
                 textRun.forEach(::append)
             }
             val sanitizedText = sanitizeToolText(
-                    scope = scope,
-                    text = combinedText,
+                scope = scope,
+                text = combinedText,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_TEXT_RUN,
                 authoritative = true,
             )
@@ -2462,8 +2409,8 @@ internal class TramaiInvocationHandler(
         if (allTextParts.size > 1) {
             val projectedText = allTextParts.joinToString("")
             val projectedResult = sanitizeToolText(
-                    scope = scope,
-                    text = projectedText,
+                scope = scope,
+                text = projectedText,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                 authoritative = false,
             )
@@ -2471,8 +2418,8 @@ internal class TramaiInvocationHandler(
                 sanitizedTextRuns.forEach(::append)
             }
             val combinedResanitized = sanitizeToolText(
-                    scope = scope,
-                    text = individualCombined,
+                scope = scope,
+                text = individualCombined,
                 contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
                 authoritative = false,
             )
