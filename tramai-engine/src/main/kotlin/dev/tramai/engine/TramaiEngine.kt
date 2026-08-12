@@ -120,6 +120,9 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.jvm.kotlinFunction
+import dev.tramai.engine.components.ApprovalCapability
+import dev.tramai.engine.components.EngineComponentFactory
+import dev.tramai.engine.components.EngineComponents
 
 private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
 private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
@@ -127,52 +130,83 @@ private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
  */
-class TramaiEngine(
-    private val providerRegistry: ProviderRegistry,
-    private val structuredOutputHandler: StructuredOutputHandler? = null,
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
-    private val operationObserver: OperationObserver = NoOpOperationObserver,
-    private val operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
-    private val responseCache: OperationResponseCache = NoOpOperationResponseCache,
-    private val modelRegistry: ModelRegistry = NoOpModelRegistry,
-    private val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
-    private val circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
-    private val retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
-    private val tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
-    private val promptSanitizer: PromptSanitizer? = null,
-    private val chatMemory: ChatMemory? = null,
-    private val conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
-    private val job: Job = SupervisorJob(),
-    private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
-    private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
-    private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
-    private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
-    private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
-    private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
-    private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
-    private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
-    // Approval suspension dependencies
-    private val suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
-    private val approvalContinuationStore: ApprovalContinuationStore? = null,
-    private val toolArgumentsDigester: ToolArgumentsDigester? = null,
-    private val approvalGateCoordinator: ApprovalGateCoordinator? = null,
-    private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-    private val clock: Clock = Clock.systemUTC(),
+class TramaiEngine private constructor(
+    private val components: EngineComponents,
 ) : AutoCloseable {
-    /**
-     * Structured-output failure diagnostic observer. Additive configuration
-     * (not a primary-constructor parameter — preserves the published JVM
-     * constructor descriptors); set via the observer-aware secondary
-     * constructor. Defaults to no-op.
-     */
-    private var structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
-        NoOpStructuredOutputFailureDiagnosticObserver
+    private val providerRegistry = components.providers.providerRegistry
+    private val structuredOutputHandler = components.execution.structuredOutputHandler
+    private val toolRegistry = components.tools.toolRegistry
+    private val operationObserver = components.observation.operationObserver
+    private val operationInterceptor = components.observation.operationInterceptor
+    private val responseCache = components.persistence.responseCache
+    private val modelRegistry = components.security.modelRegistry
+    private val modelRegistrySettings = components.security.modelRegistrySettings
+    private val circuitBreakerSettings = components.execution.circuitBreakerSettings
+    private val retryPolicySettings = components.execution.retryPolicySettings
+    private val tokenBudgetSettings = components.execution.tokenBudgetSettings
+    private val promptSanitizer = components.security.promptSanitizer
+    private val chatMemory = components.persistence.chatMemory
+    private val conversationIdProvider = components.persistence.conversationIdProvider
+    private val job = components.execution.job
+    private val scope = components.execution.scope
+    private val dlpInterceptor = components.security.dlpInterceptor
+    private val dlpRedactionAuditEmitter = components.security.dlpRedactionAuditEmitter
+    private val toolResultFilteringSettings = components.tools.toolResultFilteringSettings
+    private val engineEventObserver = components.observation.engineEventObserver
+    private val toolFailureDiagnosticObserver = components.observation.toolFailureDiagnosticObserver
+    private val policyDecisionAuditEmitter = components.security.policyDecisionAuditEmitter
+    private val suspendedInvocationStore = components.approvals.suspendedInvocationStore
+    private val approvalContinuationStore = (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
+    private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
+    private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
+    private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
+    private val clock = components.execution.clock
+    private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
+
+    constructor(
+        providerRegistry: ProviderRegistry,
+    structuredOutputHandler: StructuredOutputHandler? = null,
+    toolRegistry: ToolRegistry = ToolRegistry(),
+    operationObserver: OperationObserver = NoOpOperationObserver,
+    operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
+    responseCache: OperationResponseCache = NoOpOperationResponseCache,
+    modelRegistry: ModelRegistry = NoOpModelRegistry,
+    modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
+    circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
+    retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
+    tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+    promptSanitizer: PromptSanitizer? = null,
+    chatMemory: ChatMemory? = null,
+    conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
+    job: Job = SupervisorJob(),
+    scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+    policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+    dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+    dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+    toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+    engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+    toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
+    policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+    // Approval suspension dependencies
+    suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+    approvalContinuationStore: ApprovalContinuationStore? = null,
+    toolArgumentsDigester: ToolArgumentsDigester? = null,
+    approvalGateCoordinator: ApprovalGateCoordinator? = null,
+    approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+    clock: Clock = Clock.systemUTC(),
+) : this(EngineComponentFactory.create(
+    providerRegistry, structuredOutputHandler, toolRegistry, operationObserver, operationInterceptor, responseCache,
+    modelRegistry, modelRegistrySettings, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, promptSanitizer,
+    chatMemory, conversationIdProvider, job, scope, policyEngine, dlpInterceptor, dlpRedactionAuditEmitter,
+    toolResultFilteringSettings, engineEventObserver, toolFailureDiagnosticObserver, policyDecisionAuditEmitter,
+    suspendedInvocationStore, approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator,
+    approvalLifecycleAuditEmitter, clock,
+))
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val resolvedPolicyEngine: PolicyEngine = policyEngine
-        ?: LegacyPermissivePolicyEngine
-    private val isLegacyFallback: Boolean = policyEngine == null
+    private val resolvedPolicyEngine: PolicyEngine = components.security.resolvedPolicyEngine
+    private val isLegacyFallback: Boolean = components.security.isLegacyFallback
     private val resumeOperationRegistry: ResumeOperationRegistry = ResumeOperationRegistry()
     private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val engineThreadMarker = ThreadLocal<Boolean>()
@@ -316,8 +350,8 @@ class TramaiEngine(
         approvalGateCoordinator: ApprovalGateCoordinator? = null,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
         clock: Clock = Clock.systemUTC(),
-    ) : this(
-        provider = provider,
+    ) : this(EngineComponentFactory.create(
+        providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
         toolRegistry = toolRegistry,
         operationObserver = operationObserver,
@@ -346,9 +380,8 @@ class TramaiEngine(
         approvalGateCoordinator = approvalGateCoordinator,
         approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
         clock = clock,
-    ) {
-        this.structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver
-    }
+        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
+    ))
 
     /**
      * Additive configuration: creates an engine from a provider registry with
@@ -387,7 +420,7 @@ class TramaiEngine(
         approvalGateCoordinator: ApprovalGateCoordinator? = null,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
         clock: Clock = Clock.systemUTC(),
-    ) : this(
+    ) : this(EngineComponentFactory.create(
         providerRegistry = providerRegistry,
         structuredOutputHandler = structuredOutputHandler,
         toolRegistry = toolRegistry,
@@ -417,9 +450,8 @@ class TramaiEngine(
         approvalGateCoordinator = approvalGateCoordinator,
         approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
         clock = clock,
-    ) {
-        this.structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver
-    }
+        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
+    ))
 
     /**
      * Creates a proxy implementation for the given Tramai service interface.

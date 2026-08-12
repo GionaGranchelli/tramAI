@@ -481,7 +481,10 @@ class Tramai private constructor(
          *   (continuation store, digester, and coordinator must all be set or all be null).
          */
         fun build(): Tramai {
-            // Approval composition must be complete or absent
+            // Compatibility pre-flight: Tramai materializes its engine lazily, but partial
+            // approval composition has historically failed from Builder.build().
+            // EngineComponentFactory remains the authoritative runtime composition boundary.
+            // check() (IllegalStateException) preserves the pre-#228 public contract.
             val hasContinuation = approvalContinuationStore != null
             val hasDigester = toolArgumentsDigester != null
             val hasCoordinator = approvalGateCoordinator != null

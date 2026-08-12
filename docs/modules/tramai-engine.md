@@ -70,6 +70,7 @@ implementation("dev.tramai:tramai-engine")
 ### Quick usage
 
 The most common pattern: create a `TramaiEngine` with a single provider, then call `engine.create<T>()` to obtain a proxy.
+Public construction remains unchanged. Internally, each construction call validates and freezes an immutable component snapshot before runtime use.
 
 ```kotlin
 import dev.tramai.engine.TramaiEngine
