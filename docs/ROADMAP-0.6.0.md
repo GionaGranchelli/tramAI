@@ -387,19 +387,19 @@ This phase is intentionally completed before large decomposition work.
 
 ---
 
-## Epic 1.4: HTTP network-boundary correctness
+## Epic 1.4: HTTP network-boundary correctness ✅
 
-**Goal:** Remove unsupported security assumptions and strengthen outbound HTTP controls.
+**Goal:** Remove unsupported security assumptions and strengthen outbound HTTP controls. **Complete (PR #227).**
 
 ### Tasks
 
-1. Correct comments and documentation that imply one DNS lookup fully prevents rebinding.
-2. Define application-level URL validation as defence-in-depth rather than the sole egress boundary.
-3. Introduce a pluggable outbound-network policy or controlled transport abstraction.
-4. Expose the actual connected-address validation capability where technically possible.
-5. Require explicit allowlists for governed/sovereign HTTP steps.
-6. Document deployment-level firewall, proxy, service-mesh, or network-policy requirements.
-7. Add tests for:
+1. ✅ Correct comments and documentation that imply one DNS lookup fully prevents rebinding.
+2. ✅ Define application-level URL validation as defence-in-depth rather than the sole egress boundary.
+3. ✅ Introduce a pluggable outbound-network policy or controlled transport abstraction.
+4. ✅ Expose the actual connected-address validation capability where technically possible.
+5. ✅ Require explicit allowlists for governed/sovereign HTTP steps.
+6. ✅ Document deployment-level firewall, proxy, service-mesh, or network-policy requirements.
+7. ✅ Add tests for:
    - loopback;
    - RFC1918/private networks;
    - link-local;
@@ -411,9 +411,9 @@ This phase is intentionally completed before large decomposition work.
 
 ### Acceptance criteria
 
-- No documentation claims complete DNS-rebinding prevention from pre-resolution alone.
-- Governed profiles can require an explicit outbound transport policy.
-- Redirect behaviour remains deny-by-default unless explicitly configured.
+- ✅ No documentation claims complete DNS-rebinding prevention from pre-resolution alone.
+- ✅ Governed profiles can require an explicit outbound transport policy.
+- ✅ Redirect behaviour remains deny-by-default unless explicitly configured.
 
 ---
 

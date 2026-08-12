@@ -1,6 +1,8 @@
 package dev.tramai.examples.governed
 
 import dev.tramai.orchestration.WorkflowGateRejectedException
+import dev.tramai.orchestration.WorkflowHttpException
+import dev.tramai.orchestration.WorkflowStepFailureCode
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -67,5 +69,17 @@ class GovernedWorkflowTest {
             initialState = ClaimTriageState(claim = highRiskClaim, approved = true),
         )
         assertThat(result.status).isEqualTo("ready-for-review")
+    }
+
+    @Test
+    fun `governed network policy rejects a non-allowlisted http step`() {
+        val thrown = org.assertj.core.api.Assertions.catchThrowable {
+            runBlocking { buildGovernedNetworkPolicyWorkflow().run(Unit) }
+        }!!
+
+        assertThat(thrown).isInstanceOf(WorkflowHttpException::class.java)
+            .hasMessage("Workflow http step was rejected by policy")
+        assertThat((thrown as WorkflowHttpException).failureCode)
+            .isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
     }
 }

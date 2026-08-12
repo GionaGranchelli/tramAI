@@ -26,6 +26,8 @@
 
 - Canonical public API and resolved dependency baseline (PR #205). Replaced filesystem-only API dump discovery with module-catalog-aware probe. Replaced cache-path dependency parsing with Gradle's `Configuration.incoming.resolutionResult` traversal. New `ApiBaselineVerifier` and `DependencyBaselineVerifier` with 12 typed diagnostic codes. New `CanonicalGradleProbe` for isolated worktree measurement. Zero runtime changes.
 
+- **Outbound HTTP network boundary correctness (PR #227).** `httpStep` targets are governed by an explicit `OutboundNetworkPolicy` set per workflow and frozen at build (`outboundNetworkPolicy`, default `OutboundNetworkPolicies.defenceInDepth()`). The default policy allows public destinations and denies restricted IP space; governed policies additionally require an explicit hostname allowlist. Admission is two-phase: scheme and hostname decisions occur before DNS, then resolution and restricted-address filtering occur; DNS failure fails closed as a policy rejection. Redirect-following supplied clients are rejected before any request is sent. A transport that can prove its connected address re-validates it after connection but before request bytes are written and fails closed if it does not prove validation. JDK connect-time DNS resolution means application pre-resolution remains defence-in-depth, with firewall, proxy, service mesh, or Kubernetes NetworkPolicy as the authoritative egress boundary. `HttpStepConfig` and `httpStep` signatures are unchanged; the builder policy property is an additive public API.
+
 ## 0.5.0 - 2026-07-16
 
 ### Added

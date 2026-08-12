@@ -159,7 +159,7 @@ Structured output validation is a structural correctness guard, not a confidenti
 
 **Scenario:** A managed provider or HTTP tool attempts to reach an unauthorized external destination.
 
-**Control:** TramAI application-level egress policy denies the connection. Audit event records the attempt.
+**Control:** TramAI application-level egress policy denies the connection. For HTTP steps the `OutboundNetworkPolicy` rejects destinations resolving to loopback, private, link-local, CGNAT, IPv6-ULA, or metadata space before connection. Non-allowlisted hostnames are rejected by governed/strict policies and per-step `HttpStepConfig.allowedHosts`; the default policy allows any public hostname. Hostname pre-resolution is **defence-in-depth**: the JDK `HttpClient` re-resolves the hostname at connect time, so the application-level check is not a complete DNS-rebinding defense and the connected address cannot be proven by the default transport. Strong network isolation must be enforced at the infrastructure layer (firewall, Kubernetes NetworkPolicy, mandatory proxy, service mesh); governed deployments additionally require an explicit hostname allowlist (`OutboundNetworkPolicies.governed(...)`) and fail closed otherwise. Audit event records the attempt.
 
 ### AS-09b: Native/Subprocess Egress Bypass
 

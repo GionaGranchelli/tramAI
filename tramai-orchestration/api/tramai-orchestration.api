@@ -688,6 +688,37 @@ public final class dev/tramai/orchestration/NonReplayableStepStateUnknownExcepti
 	public final fun getStepName ()Ljava/lang/String;
 }
 
+public final class dev/tramai/orchestration/OutboundNetworkPolicies {
+	public static final field INSTANCE Ldev/tramai/orchestration/OutboundNetworkPolicies;
+	public final fun defenceInDepth (Z)Ldev/tramai/orchestration/OutboundNetworkPolicy;
+	public static synthetic fun defenceInDepth$default (Ldev/tramai/orchestration/OutboundNetworkPolicies;ZILjava/lang/Object;)Ldev/tramai/orchestration/OutboundNetworkPolicy;
+	public final fun governed (Ljava/util/Set;Z)Ldev/tramai/orchestration/OutboundNetworkPolicy;
+	public static synthetic fun governed$default (Ldev/tramai/orchestration/OutboundNetworkPolicies;Ljava/util/Set;ZILjava/lang/Object;)Ldev/tramai/orchestration/OutboundNetworkPolicy;
+}
+
+public abstract interface class dev/tramai/orchestration/OutboundNetworkPolicy {
+	public abstract fun validateTarget (Ldev/tramai/orchestration/OutboundNetworkTarget;)V
+}
+
+public final class dev/tramai/orchestration/OutboundNetworkTarget {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/util/List;Ljava/util/Set;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/Set;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/util/List;Ljava/util/Set;)Ldev/tramai/orchestration/OutboundNetworkTarget;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/OutboundNetworkTarget;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/util/List;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/orchestration/OutboundNetworkTarget;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAddresses ()Ljava/util/List;
+	public final fun getAllowedHostnames ()Ljava/util/Set;
+	public final fun getHost ()Ljava/lang/String;
+	public final fun getPort ()Ljava/lang/Integer;
+	public final fun getScheme ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class dev/tramai/orchestration/PartitionAssignmentStrategy {
 	public abstract fun ownsPartition (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
@@ -1077,8 +1108,10 @@ public final class dev/tramai/orchestration/WorkflowBuilder : dev/tramai/orchest
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/reflect/KType;)V
 	public final fun buildTyped (Ldev/tramai/orchestration/StopPolicy;Ljava/time/Clock;Ldev/tramai/orchestration/ExternalStepExecutorResolver;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/Workflow;
 	public final fun getFailureDiagnosticObserver ()Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;
+	public final fun getOutboundNetworkPolicy ()Ldev/tramai/orchestration/OutboundNetworkPolicy;
 	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
 	public final fun setFailureDiagnosticObserver (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;)V
+	public final fun setOutboundNetworkPolicy (Ldev/tramai/orchestration/OutboundNetworkPolicy;)V
 	public final fun setSchedule (Ldev/tramai/orchestration/WorkflowScheduleDefinition;)V
 }
 

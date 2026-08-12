@@ -1,6 +1,9 @@
 package dev.tramai.examples.governed
 
 import dev.tramai.orchestration.GateDecision
+import dev.tramai.orchestration.HttpRequest
+import dev.tramai.orchestration.HttpResponse
+import dev.tramai.orchestration.OutboundNetworkPolicies
 import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.workflow
 
@@ -47,3 +50,13 @@ fun buildClaimTriageWorkflow(
     }.build { state ->
         state.result ?: error("missing result")
     }
+
+fun buildGovernedNetworkPolicyWorkflow(): Workflow<Unit, Unit> =
+    workflow<Unit>(name = "governed-network-policy") {
+        outboundNetworkPolicy = OutboundNetworkPolicies.governed(setOf("api.example.com"))
+        httpStep(
+            name = "non-allowlisted-request",
+            request = { _, _ -> HttpRequest(method = "GET", url = "http://other.example.com/") },
+            merge = { state, _: HttpResponse, _ -> state },
+        )
+    }.build { it }

@@ -226,7 +226,10 @@ class Workflow<S, R> internal constructor(
     private val stopPolicy: StopPolicy,
     private val clock: Clock,
     private val externalStepExecutorResolver: ExternalStepExecutorResolver,
-    private val httpClient: HttpClient = WorkflowHttpClients.default, private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
+    private val httpClient: HttpClient = WorkflowHttpClients.default,
+    private val httpTransport: HttpTransport? = null,
+    private val outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(),
+    private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
         workflowName = name,
@@ -477,7 +480,9 @@ class Workflow<S, R> internal constructor(
                     state = state,
                     context = context,
                     observer = observer,
-                    httpClient = httpClient, failureDiagnosticObserver = failureDiagnosticObserver,
+                    transport = httpTransport ?: JdkHttpTransport(httpClient),
+                    policy = outboundNetworkPolicy,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is ShellWorkflowStep<S> -> step.execute(
                     workflowName = name,
@@ -568,6 +573,8 @@ class WorkflowBuilder<S> constructor(
     private val stateType: KType,
 ) : AbstractWorkflowBuilder<S>() {
     var schedule: WorkflowScheduleDefinition? = null
+    /** Outbound policy for every httpStep; frozen at build(). NOT on [AbstractWorkflowBuilder] so branch builders cannot set a policy the workflow ignores. */
+    var outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth()
     var failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver
 
     inline fun <reified R> build(
@@ -608,6 +615,8 @@ class WorkflowBuilder<S> constructor(
             stopPolicy = stopPolicy,
             clock = clock,
             externalStepExecutorResolver = externalStepExecutorResolver,
+            httpTransport = httpTransport,
+            outboundNetworkPolicy = outboundNetworkPolicy,
             failureDiagnosticObserver = failureDiagnosticObserver,
         )
     }
@@ -631,6 +640,7 @@ inline fun <reified S> workflow(
 }
 abstract class AbstractWorkflowBuilder<S> {
     private val steps = mutableListOf<InternalWorkflowStep<S>>()
+    internal var httpTransport: HttpTransport? = null
     fun localStep(
         name: String,
         transform: suspend (S, WorkflowContext) -> S,
@@ -733,12 +743,9 @@ abstract class AbstractWorkflowBuilder<S> {
             merge = merge,
         ))
     }
-    fun httpStep(
-        name: String,
-        config: HttpStepConfig = HttpStepConfig(),
-        request: suspend (S, WorkflowContext) -> HttpRequest,
-        merge: suspend (S, HttpResponse, WorkflowContext) -> S,
-    ) = apply {
+    /** Hostname pre-resolution is defence-in-depth only; the JDK transport cannot prove the connected peer address. Redirects are deny-by-default; deployments should enforce egress at the firewall, proxy, or service-mesh layer. */
+    fun httpStep(name: String, config: HttpStepConfig = HttpStepConfig(), request: suspend (S, WorkflowContext) -> HttpRequest,
+        merge: suspend (S, HttpResponse, WorkflowContext) -> S) = apply {
         appendStep(HttpWorkflowStep(
             name = name,
             requestBuilder = request,
@@ -934,22 +941,13 @@ abstract class AbstractWorkflowBuilder<S> {
 class BranchBuilder<S> {
     internal val branches = linkedMapOf<String, List<InternalWorkflowStep<S>>>()
     internal var defaultSteps: List<InternalWorkflowStep<S>>? = null
-    fun branch(
-        key: String,
-        configure: BranchWorkflowBuilder<S>.() -> Unit,
-    ) {
+    fun branch(key: String, configure: BranchWorkflowBuilder<S>.() -> Unit) {
         require(key.isNotBlank()) { "Workflow branch key must not be blank" }
-        require(!branches.containsKey(key)) {
-            "Workflow branch key '$key' is already configured"
-        }
+        require(!branches.containsKey(key)) { "Workflow branch key '$key' is already configured" }
         branches[key] = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
-    fun default(
-        configure: BranchWorkflowBuilder<S>.() -> Unit,
-    ) {
-        require(defaultSteps == null) {
-            "Workflow default branch is already configured"
-        }
+    fun default(configure: BranchWorkflowBuilder<S>.() -> Unit) {
+        require(defaultSteps == null) { "Workflow default branch is already configured" }
         defaultSteps = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
 }
