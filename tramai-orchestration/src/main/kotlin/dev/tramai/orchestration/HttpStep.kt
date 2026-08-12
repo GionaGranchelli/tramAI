@@ -89,7 +89,6 @@ internal enum class HttpTransportCapability {
 
 internal class ControlledSendResult(
     val response: java.net.http.HttpResponse<java.io.InputStream>,
-    val connectedAddress: InetAddress?,
 )
 
 internal interface HttpTransport {
@@ -97,6 +96,7 @@ internal interface HttpTransport {
     suspend fun send(
         httpRequest: java.net.http.HttpRequest,
         blockingDispatcher: CoroutineContext,
+        onConnected: (InetAddress) -> Unit,
     ): ControlledSendResult
 }
 
@@ -106,8 +106,12 @@ internal class JdkHttpTransport(private val httpClient: HttpClient) : HttpTransp
     override suspend fun send(
         httpRequest: java.net.http.HttpRequest,
         blockingDispatcher: CoroutineContext,
+        onConnected: (InetAddress) -> Unit,
     ): ControlledSendResult = withContext(blockingDispatcher) {
-        ControlledSendResult(httpClient.send(httpRequest, BodyHandlers.ofInputStream()), null)
+        if (httpClient.followRedirects() != HttpClient.Redirect.NEVER) {
+            throw HttpPolicyViolation("redirect-following HttpClient is not permitted for outbound HTTP steps")
+        }
+        ControlledSendResult(httpClient.send(httpRequest, BodyHandlers.ofInputStream()))
     }
 }
 
@@ -117,7 +121,6 @@ internal data class HttpWorkflowStep<S>(
     val merge: suspend (S, HttpResponse, WorkflowContext) -> S,
     val config: HttpStepConfig = HttpStepConfig(),
     val blockingDispatcher: CoroutineContext = Dispatchers.IO,
-    val policy: OutboundNetworkPolicy,
 ) : InternalWorkflowStep<S> {
     suspend fun execute(
         workflowName: String,
@@ -125,6 +128,7 @@ internal data class HttpWorkflowStep<S>(
         context: WorkflowContext,
         observer: WorkflowObserver,
         transport: HttpTransport,
+        policy: OutboundNetworkPolicy,
         failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val request = try {
@@ -154,6 +158,13 @@ internal data class HttpWorkflowStep<S>(
         }
         try {
             policy.validateTarget(canonicalRequest.target)
+            val resolved = try {
+                resolveHostAddresses(canonicalRequest.target.host)
+            } catch (error: java.net.UnknownHostException) {
+                error.rethrowIfCancellation()
+                throw HttpPolicyViolation("outbound host could not be resolved")
+            }
+            policy.validateTarget(canonicalRequest.target.copy(addresses = resolved))
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             observer.onWorkflowEvent(
@@ -258,7 +269,6 @@ internal data class HttpWorkflowStep<S>(
     private suspend fun executeRequest(execution: HttpRequestExecution): ExecutedHttpResponse {
         val request = execution.request
         val uri = execution.uri
-        val target = execution.target
         val method = execution.method
         val observer = execution.observer
         val workflowName = execution.workflowName
@@ -273,24 +283,20 @@ internal data class HttpWorkflowStep<S>(
                 }
             }
             .build()
-        val sendResult = execution.transport.send(httpRequest, blockingDispatcher)
-        val response = sendResult.response
-        try {
-            if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION &&
-                sendResult.connectedAddress != null
-            ) {
-                execution.policy.validateTarget(target.copy(addresses = listOf(sendResult.connectedAddress)))
+        var connectedValidated = false
+        val sendResult = execution.transport.send(httpRequest, blockingDispatcher) { address ->
+            connectedValidated = true
+            try {
+                execution.policy.validateTarget(execution.target.copy(addresses = listOf(address)))
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected connected address")
             }
-            // ponytail: post-hoc detection for hostile supplied clients; TramAI's own clients never follow redirects.
-            // Value equality, not identity: the JDK may return a distinct URI instance even for a
-            // non-followed response. A followed redirect yields a different URI value; a same-value
-            // redirect target is the same host the policy already validated.
-            require(response.request().uri() == uri) { "outbound HTTP redirect was followed" }
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            response.body().close()
-            throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected response")
         }
+        if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
+            throw HttpPolicyViolation("connected-address validation was not performed")
+        }
+        val response = sendResult.response
         val bodyBytes = ByteArrayOutputStream(min(config.maxResponseBytes.toInt(), responseChunkSize))
         var responseSizeBytes = 0L
         var truncated = false
@@ -371,7 +377,7 @@ internal data class HttpWorkflowStep<S>(
                 scheme = uri.scheme?.lowercase().orEmpty(),
                 host = normalizedHost,
                 port = uri.port.takeIf { it >= 0 },
-                addresses = resolveHostAddressesSafe(normalizedHost),
+                addresses = emptyList(),
                 allowedHostnames = config.allowedHosts?.map(::canonicalizeOutboundHost)?.toSet(),
             ),
         )
@@ -412,7 +418,7 @@ internal data class HttpWorkflowStep<S>(
     }
 }
 
-private class HttpPolicyViolation(message: String) : IllegalArgumentException(message)
+internal class HttpPolicyViolation(message: String) : IllegalArgumentException(message)
 
 private class ExecutedHttpResponse(
     val status: Int,
@@ -451,18 +457,6 @@ private fun String.stripQueryParameters(): String {
 private fun resolveHostAddresses(host: String): List<InetAddress> {
     parseAlternativeIpv4Literal(host)?.let { return listOf(it) }
     return InetAddress.getAllByName(host).distinctBy { it.hostAddress }
-}
-
-/**
- * DNS is defence-in-depth: a host that fails to resolve here must not pre-empt the
- * policy's allowlist decision (a non-allowlisted host is rejected regardless of
- * resolvability). With no allowlist the request proceeds and the JDK transport
- * resolves at connect time — the documented boundary is the network layer.
- */
-private fun resolveHostAddressesSafe(host: String): List<InetAddress> = try {
-    resolveHostAddresses(host)
-} catch (error: java.net.UnknownHostException) {
-    emptyList()
 }
 
 internal fun canonicalizeOutboundHost(host: String): String {

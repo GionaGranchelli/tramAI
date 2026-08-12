@@ -44,10 +44,10 @@ This document defines what TramAI enforces and what the deploying organization m
 
 | Concern | TramAI Responsibility | Organization Responsibility |
 |---------|----------------------|----------------------------|
-| Application-level egress | Deny-by-default for managed destinations (providers, HTTP tools). HTTP steps: `OutboundNetworkPolicy` rejects non-allowlisted hostnames and restricted address space (loopback, private, link-local, CGNAT, ULA, metadata); hostname pre-resolution is defence-in-depth, not a complete DNS-rebinding defense | Configure the outbound policy (`OutboundNetworkPolicies.governed(...)` for strict allowlists), enforce the stronger egress boundary at the infrastructure layer (firewall, NetworkPolicy, mandatory proxy) |
+| Application-level egress | HTTP steps default to `defenceInDepth()`: any public hostname is allowed and restricted IP space (loopback, private, link-local, CGNAT, ULA, metadata) is denied. `governed(...)` policies additionally require an explicit hostname allowlist. Provider destinations remain deny-by-default through the provider registry. The JDK transport re-resolves DNS at connect time, so application pre-resolution is defence-in-depth only. | Firewall, NetworkPolicy, or proxy remains the authoritative egress boundary; configure `governed(...)` where strict hostname allowlists are required. |
 | Infrastructure-level egress | Not enforceable from JVM | Firewall rules, Kubernetes NetworkPolicy, mandatory proxy, container policies |
 | Native/subprocess egress | Not enforceable from JVM | Sandboxing, seccomp, AppArmor, SELinux |
-| DNS leakage prevention | Verifies no DNS calls from managed code | DNS policy, split-horizon DNS, firewall rules |
+| DNS leakage prevention | Documents DNS behaviour for managed HTTP steps: pre-resolution at policy phase 2 and JDK re-resolution at connect; no DNS occurs during policy phase 1. | DNS policy, split-horizon DNS, firewall rules |
 | Zero-egress verification | Automated zero-egress test suite | Run tests in target environment, validate results |
 
 ### Audit and Evidence

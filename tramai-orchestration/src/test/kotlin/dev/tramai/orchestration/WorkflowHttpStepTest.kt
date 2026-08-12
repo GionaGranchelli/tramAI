@@ -208,7 +208,7 @@ class WorkflowHttpStepTest {
     }
 
     @Test
-    fun `http step rejects non-http schemes and records validation failure`() {
+    fun `http step rejects non-http schemes without a hostname as validation failure`() {
         val observer = RecordingHttpWorkflowObserver()
         val workflow = workflow<HttpState>("http-invalid-scheme") {
             httpStep(
@@ -527,7 +527,7 @@ class WorkflowHttpStepTest {
                         { state, response, _ -> state.copy(status = response.status) })
                 }.build { it }
                 assertPolicyRejectedRun(workflow)
-                assertThat(privateRequests.get()).isPositive()
+                assertThat(privateRequests.get()).isZero()
             }
         }
     }
@@ -542,6 +542,38 @@ class WorkflowHttpStepTest {
         }.build { it }
         assertPolicyRejectedRun(workflow)
         assertThat(merged).isFalse()
+    }
+
+    @Test
+    fun `connected address validation fails closed when transport stays silent`() {
+        val workflow = workflow<HttpState>("silent-connected-address") {
+            httpTransport = SilentConnectedAddressTransport
+            httpStep("fetch", request = { _, _ -> HttpRequest("GET", "http://example.com/") },
+                merge = { state, _, _ -> state })
+        }.build { it }
+
+        assertPolicyRejectedRun(workflow)
+    }
+
+    @Test
+    fun `policy configured after http step declaration still applies`() {
+        val workflow = workflow<HttpState>("frozen-policy") {
+            httpStep("fetch", request = { _, _ -> HttpRequest("GET", "http://other.example.com/") },
+                merge = { state, _, _ -> state })
+            outboundNetworkPolicy = OutboundNetworkPolicies.governed(setOf("api.example.com"))
+        }.build { it }
+
+        assertPolicyRejectedRun(workflow)
+    }
+
+    @Test
+    fun `scheme rejection happens before any DNS resolution`() {
+        assertPolicyRejected("ftp://example.com/", policy = OutboundNetworkPolicies.governed(setOf("api.example.com")))
+    }
+
+    @Test
+    fun `unresolvable host fails closed under default policy`() {
+        assertPolicyRejected("http://this-host-does-not-exist.invalid/")
     }
 
     @Test
@@ -636,8 +668,23 @@ private fun assertPolicyRejectedRun(workflow: Workflow<HttpState, HttpState>) {
 
 private class FakeConnectedAddressTransport(private val connected: InetAddress) : HttpTransport {
     override val capability = HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION
-    override suspend fun send(httpRequest: java.net.http.HttpRequest, blockingDispatcher: CoroutineContext): ControlledSendResult =
-        ControlledSendResult(fakeResponse(httpRequest), connected)
+    override suspend fun send(
+        httpRequest: java.net.http.HttpRequest,
+        blockingDispatcher: CoroutineContext,
+        onConnected: (InetAddress) -> Unit,
+    ): ControlledSendResult {
+        onConnected(connected)
+        return ControlledSendResult(fakeResponse(httpRequest))
+    }
+}
+
+private object SilentConnectedAddressTransport : HttpTransport {
+    override val capability = HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION
+    override suspend fun send(
+        httpRequest: java.net.http.HttpRequest,
+        blockingDispatcher: CoroutineContext,
+        onConnected: (InetAddress) -> Unit,
+    ): ControlledSendResult = ControlledSendResult(fakeResponse(httpRequest))
 }
 
 private fun fakeResponse(request: java.net.http.HttpRequest): JdkHttpResponse<InputStream> = object : JdkHttpResponse<InputStream> {

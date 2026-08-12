@@ -226,7 +226,9 @@ class Workflow<S, R> internal constructor(
     private val stopPolicy: StopPolicy,
     private val clock: Clock,
     private val externalStepExecutorResolver: ExternalStepExecutorResolver,
-    private val httpClient: HttpClient = WorkflowHttpClients.default, private val httpTransport: HttpTransport? = null,
+    private val httpClient: HttpClient = WorkflowHttpClients.default,
+    private val httpTransport: HttpTransport? = null,
+    private val outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(),
     private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
@@ -478,7 +480,9 @@ class Workflow<S, R> internal constructor(
                     state = state,
                     context = context,
                     observer = observer,
-                    transport = httpTransport ?: JdkHttpTransport(httpClient), failureDiagnosticObserver = failureDiagnosticObserver,
+                    transport = httpTransport ?: JdkHttpTransport(httpClient),
+                    policy = outboundNetworkPolicy,
+                    failureDiagnosticObserver = failureDiagnosticObserver,
                 )
                 is ShellWorkflowStep<S> -> step.execute(
                     workflowName = name,
@@ -610,6 +614,7 @@ class WorkflowBuilder<S> constructor(
             clock = clock,
             externalStepExecutorResolver = externalStepExecutorResolver,
             httpTransport = httpTransport,
+            outboundNetworkPolicy = outboundNetworkPolicy,
             failureDiagnosticObserver = failureDiagnosticObserver,
         )
     }
@@ -633,7 +638,12 @@ inline fun <reified S> workflow(
 }
 abstract class AbstractWorkflowBuilder<S> {
     private val steps = mutableListOf<InternalWorkflowStep<S>>()
-    internal var outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(); internal var httpTransport: HttpTransport? = null
+    /**
+     * Outbound network policy applied to every httpStep in this workflow. Frozen at build();
+     * configuring it after httpStep declarations still applies to all steps.
+     */
+    var outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth()
+    internal var httpTransport: HttpTransport? = null
     fun localStep(
         name: String,
         transform: suspend (S, WorkflowContext) -> S,
@@ -744,7 +754,6 @@ abstract class AbstractWorkflowBuilder<S> {
             requestBuilder = request,
             merge = merge,
             config = config,
-            policy = outboundNetworkPolicy,
         ))
     }
     fun shellStep(
@@ -903,7 +912,7 @@ abstract class AbstractWorkflowBuilder<S> {
         select: (S) -> String,
         configure: BranchBuilder<S>.() -> Unit,
     ) = apply {
-        val builder = BranchBuilder<S>().apply { inheritedPolicy = outboundNetworkPolicy; inheritedTransport = httpTransport }.apply(configure)
+        val builder = BranchBuilder<S>().apply(configure)
         appendStep(BranchWorkflowStep(
             name = name,
             select = select,
@@ -933,18 +942,16 @@ abstract class AbstractWorkflowBuilder<S> {
     internal fun stepsSnapshot(): List<InternalWorkflowStep<S>> = steps.toList()
 }
 class BranchBuilder<S> {
-    internal var inheritedPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth()
-    internal var inheritedTransport: HttpTransport? = null
     internal val branches = linkedMapOf<String, List<InternalWorkflowStep<S>>>()
     internal var defaultSteps: List<InternalWorkflowStep<S>>? = null
     fun branch(key: String, configure: BranchWorkflowBuilder<S>.() -> Unit) {
         require(key.isNotBlank()) { "Workflow branch key must not be blank" }
         require(!branches.containsKey(key)) { "Workflow branch key '$key' is already configured" }
-        branches[key] = BranchWorkflowBuilder<S>().apply { outboundNetworkPolicy = inheritedPolicy; httpTransport = inheritedTransport }.apply(configure).stepsSnapshot()
+        branches[key] = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
     fun default(configure: BranchWorkflowBuilder<S>.() -> Unit) {
         require(defaultSteps == null) { "Workflow default branch is already configured" }
-        defaultSteps = BranchWorkflowBuilder<S>().apply { outboundNetworkPolicy = inheritedPolicy; httpTransport = inheritedTransport }.apply(configure).stepsSnapshot()
+        defaultSteps = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
 }
 class BranchWorkflowBuilder<S> : AbstractWorkflowBuilder<S>() {

@@ -7,7 +7,8 @@ import java.net.InetAddress
 /**
  * Canonical, policy-ready view of an outbound HTTP target. Canonicalization happens
  * before policy evaluation: scheme lowercased, host ASCII-lowercased without trailing
- * dot or IPv6 brackets, IDN converted to ASCII. [addresses] are the pre-resolved
+ * dot or IPv6 brackets. IDN hosts parsed by java.net.URI are converted to ASCII;
+ * raw Unicode reg-names are rejected (fail closed). [addresses] are the pre-resolved
  * addresses (defence-in-depth — NOT a guarantee the transport connects to them) plus,
  * when the transport can prove it, the actual connected address.
  */
