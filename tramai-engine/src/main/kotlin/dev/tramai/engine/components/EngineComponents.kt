@@ -97,7 +97,7 @@ internal data class ObservationComponents(
     val structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver,
 )
 
-/** Execution mechanics owned by the engine. The engine owns scope/job and close() cancels them. */
+/** Execution mechanics owned by the engine; caller-supplied job/scope are retained for ABI compatibility only — close() cancels the engine's internally owned lifecycle job. */
 internal data class ExecutionComponents(
     val structuredOutputHandler: StructuredOutputHandler?,
     val circuitBreakerSettings: CircuitBreakerSettings,

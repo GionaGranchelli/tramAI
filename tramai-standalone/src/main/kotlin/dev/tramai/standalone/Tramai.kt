@@ -479,6 +479,9 @@ class Tramai private constructor(
          *
          * @throws IllegalStateException if approval composition is partially configured
          *   (continuation store, digester, and coordinator must all be set or all be null).
+         *   Note: the engine component boundary reports the same misconfiguration as
+         *   [IllegalArgumentException]; this guard intentionally preserves the historical
+         *   builder contract until the lazy-materialization compatibility guard is retired.
          */
         fun build(): Tramai {
             // Compatibility pre-flight: Tramai materializes its engine lazily, but partial
