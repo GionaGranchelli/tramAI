@@ -556,6 +556,62 @@ class WorkflowHttpStepTest {
     }
 
     @Test
+    fun `connected address validation failure closes the returned response body`() {
+        val tracking = TrackingCloseInputStream(ByteArrayInputStream(ByteArray(0)))
+        val silentTransport = object : HttpTransport {
+            override val capability = HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION
+            override suspend fun send(
+                httpRequest: java.net.http.HttpRequest,
+                blockingDispatcher: CoroutineContext,
+                onConnected: (InetAddress) -> Unit,
+            ): ControlledSendResult = ControlledSendResult(fakeResponse(httpRequest, tracking))
+        }
+        val workflow = workflow<HttpState>("silent-connected-close") {
+            httpTransport = silentTransport
+            httpStep("fetch", request = { _, _ -> HttpRequest("GET", "http://example.com/") },
+                merge = { state, _, _ -> state })
+        }.build { it }
+
+        assertPolicyRejectedRun(workflow)
+        assertThat(tracking.closed).isTrue()
+    }
+
+    @Test
+    fun `every retry attempt crosses resolved address admission`() {
+        val requests = AtomicInteger()
+        val countingPolicy = object : OutboundNetworkPolicy {
+            var addressValidations = 0
+            override fun validateTarget(target: OutboundNetworkTarget) {
+                if (target.addresses.isNotEmpty()) {
+                    addressValidations++
+                    if (addressValidations >= 2) throw IllegalArgumentException("second admission rejected")
+                }
+            }
+        }
+        httpServer { exchange ->
+            requests.incrementAndGet()
+            exchange.respond(503, "busy")
+        }.use { server ->
+            val workflow = workflow<HttpState>("per-attempt-admission") {
+                outboundNetworkPolicy = countingPolicy
+                httpStep(
+                    name = "fetch",
+                    config = HttpStepConfig(retryOnStatus = setOf(503), maxRetries = 1),
+                    request = { _, _ -> HttpRequest(method = "GET", url = server.url("/")) },
+                    merge = { state, _, _ -> state },
+                )
+            }.build { it }
+
+            val thrown = org.assertj.core.api.Assertions.catchThrowable { runBlocking { workflow.run(HttpState()) } }!!
+            assertThat(thrown).isInstanceOf(WorkflowHttpException::class.java)
+                .hasMessage("Workflow http step was rejected by policy")
+                .hasNoCause()
+            assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+            assertThat(requests.get()).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun `policy configured after http step declaration still applies`() {
         val workflow = workflow<HttpState>("frozen-policy") {
             httpStep("fetch", request = { _, _ -> HttpRequest("GET", "http://other.example.com/") },
@@ -687,15 +743,28 @@ private object SilentConnectedAddressTransport : HttpTransport {
     ): ControlledSendResult = ControlledSendResult(fakeResponse(httpRequest))
 }
 
-private fun fakeResponse(request: java.net.http.HttpRequest): JdkHttpResponse<InputStream> = object : JdkHttpResponse<InputStream> {
+private fun fakeResponse(
+    request: java.net.http.HttpRequest,
+    body: InputStream = ByteArrayInputStream(ByteArray(0)),
+): JdkHttpResponse<InputStream> = object : JdkHttpResponse<InputStream> {
     override fun statusCode() = 200
     override fun request() = request
     override fun previousResponse(): Optional<JdkHttpResponse<InputStream>> = Optional.empty()
     override fun headers(): HttpHeaders = HttpHeaders.of(emptyMap()) { _, _ -> true }
-    override fun body(): InputStream = ByteArrayInputStream(ByteArray(0))
+    override fun body(): InputStream = body
     override fun sslSession(): Optional<SSLSession> = Optional.empty()
     override fun uri(): URI = request.uri()
     override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+}
+
+private class TrackingCloseInputStream(delegate: InputStream) : java.io.FilterInputStream(delegate) {
+    var closed = false
+        private set
+
+    override fun close() {
+        closed = true
+        super.close()
+    }
 }
 
 private data class HttpState(

@@ -12,7 +12,6 @@ public abstract class dev/tramai/orchestration/AbstractWorkflowBuilder {
 	public static synthetic fun codexStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/CodexStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public final fun delayStep (Ljava/lang/String;JLjava/util/concurrent/TimeUnit;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public final fun gateStep (Ljava/lang/String;Lkotlin/jvm/functions/Function3;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
-	public final fun getOutboundNetworkPolicy ()Ldev/tramai/orchestration/OutboundNetworkPolicy;
 	public final fun hermesStep (Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public final fun hermesStep (Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public static synthetic fun hermesStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
@@ -29,7 +28,6 @@ public abstract class dev/tramai/orchestration/AbstractWorkflowBuilder {
 	public final fun pluginStep (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public static synthetic fun pluginStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public static synthetic fun pluginStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
-	public final fun setOutboundNetworkPolicy (Ldev/tramai/orchestration/OutboundNetworkPolicy;)V
 	public final fun shellStep (Ljava/lang/String;Ldev/tramai/orchestration/ShellStepConfig;Ldev/tramai/orchestration/ShellCommandDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 	public static synthetic fun shellStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/ShellStepConfig;Ldev/tramai/orchestration/ShellCommandDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
 }
@@ -1110,8 +1108,10 @@ public final class dev/tramai/orchestration/WorkflowBuilder : dev/tramai/orchest
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/reflect/KType;)V
 	public final fun buildTyped (Ldev/tramai/orchestration/StopPolicy;Ljava/time/Clock;Ldev/tramai/orchestration/ExternalStepExecutorResolver;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/Workflow;
 	public final fun getFailureDiagnosticObserver ()Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;
+	public final fun getOutboundNetworkPolicy ()Ldev/tramai/orchestration/OutboundNetworkPolicy;
 	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
 	public final fun setFailureDiagnosticObserver (Ldev/tramai/orchestration/WorkflowStepFailureDiagnosticObserver;)V
+	public final fun setOutboundNetworkPolicy (Ldev/tramai/orchestration/OutboundNetworkPolicy;)V
 	public final fun setSchedule (Ldev/tramai/orchestration/WorkflowScheduleDefinition;)V
 }
 

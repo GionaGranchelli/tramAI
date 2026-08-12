@@ -25,6 +25,22 @@ data class OutboundNetworkTarget(
  * scheme allowlisting, hostname allowlisting, and prohibited-address-range rejection.
  * Throw an IllegalArgumentException (or subtype) to reject; a rejection maps to
  * WorkflowStepFailureCode.POLICY_REJECTED with a fixed safe public message.
+ *
+ * **Invocation contract** — `validateTarget` is called multiple times per logical
+ * request, and implementations MUST support that:
+ *
+ * - *pre-DNS admission* once per step with `target.addresses` empty (scheme/hostname decision);
+ * - *resolved-address admission* before EVERY network attempt (one per retry) with
+ *   `target.addresses` containing all currently resolved addresses;
+ * - *connected-address admission* (only for transports that can prove the peer) with
+ *   `target.addresses` containing the single connected address.
+ *
+ * Implementations must therefore be **thread-safe** (potentially called concurrently
+ * across workflow executions and branches), **safe for repeated invocation**, and
+ * **side-effect-free/idempotent**. Do not assume one complete target per invocation,
+ * and do not hold mutable per-request state in the policy. Note that freezing the
+ * policy at `build()` freezes the reference, not arbitrary mutable state inside a
+ * custom implementation.
  */
 interface OutboundNetworkPolicy {
     fun validateTarget(target: OutboundNetworkTarget)

@@ -158,13 +158,6 @@ internal data class HttpWorkflowStep<S>(
         }
         try {
             policy.validateTarget(canonicalRequest.target)
-            val resolved = try {
-                resolveHostAddresses(canonicalRequest.target.host)
-            } catch (error: java.net.UnknownHostException) {
-                error.rethrowIfCancellation()
-                throw HttpPolicyViolation("outbound host could not be resolved")
-            }
-            policy.validateTarget(canonicalRequest.target.copy(addresses = resolved))
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             observer.onWorkflowEvent(
@@ -193,6 +186,9 @@ internal data class HttpWorkflowStep<S>(
         while (true) {
             val attemptNumber = retryAttempt + 1
             val response = try {
+                // Every outbound attempt crosses the address-policy boundary: fresh DNS
+                // resolution and resolved-address admission per retry, not once per step.
+                validateResolvedTargetAddresses(canonicalRequest.target, policy)
                 executeRequest(
                     HttpRequestExecution(
                         request = request,
@@ -294,6 +290,7 @@ internal data class HttpWorkflowStep<S>(
             }
         }
         if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION && !connectedValidated) {
+            sendResult.response.body().close()
             throw HttpPolicyViolation("connected-address validation was not performed")
         }
         val response = sendResult.response
@@ -395,6 +392,21 @@ internal data class HttpWorkflowStep<S>(
     }
 
     private data class CanonicalHttpRequest(val uri: URI, val target: OutboundNetworkTarget)
+
+    private fun validateResolvedTargetAddresses(target: OutboundNetworkTarget, policy: OutboundNetworkPolicy) {
+        val resolved = try {
+            resolveHostAddresses(target.host)
+        } catch (error: java.net.UnknownHostException) {
+            error.rethrowIfCancellation()
+            throw HttpPolicyViolation("outbound host could not be resolved")
+        }
+        try {
+            policy.validateTarget(target.copy(addresses = resolved))
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected target")
+        }
+    }
 
     private suspend fun failure(
         workflowName: String,

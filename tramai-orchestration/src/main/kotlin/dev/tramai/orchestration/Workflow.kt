@@ -573,6 +573,8 @@ class WorkflowBuilder<S> constructor(
     private val stateType: KType,
 ) : AbstractWorkflowBuilder<S>() {
     var schedule: WorkflowScheduleDefinition? = null
+    /** Outbound policy for every httpStep; frozen at build(). NOT on [AbstractWorkflowBuilder] so branch builders cannot set a policy the workflow ignores. */
+    var outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth()
     var failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver
 
     inline fun <reified R> build(
@@ -638,11 +640,6 @@ inline fun <reified S> workflow(
 }
 abstract class AbstractWorkflowBuilder<S> {
     private val steps = mutableListOf<InternalWorkflowStep<S>>()
-    /**
-     * Outbound network policy applied to every httpStep in this workflow. Frozen at build();
-     * configuring it after httpStep declarations still applies to all steps.
-     */
-    var outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth()
     internal var httpTransport: HttpTransport? = null
     fun localStep(
         name: String,
