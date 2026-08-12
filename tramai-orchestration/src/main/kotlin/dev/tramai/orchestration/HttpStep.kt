@@ -6,9 +6,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.io.ByteArrayOutputStream
-import java.net.Inet4Address
-import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.IDN
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest.BodyPublishers
@@ -47,6 +46,15 @@ data class HttpStepConfig(
     }
 }
 
+/**
+ * Public failure type for failed HTTP workflow steps.
+ *
+ * The public constructor is for application-facing construction and takes the
+ * caller's own [redactedUrl] verbatim — callers are responsible for redaction.
+ * Failures produced by TramAI itself always use the internal safe factory,
+ * which emits the fixed safe message with a `<redacted>` URL and no cause, so
+ * raw URLs, hostnames, and policy details never cross the public boundary.
+ */
 class WorkflowHttpException : RuntimeException {
     val stepName: String
     val redactedUrl: String
@@ -74,19 +82,49 @@ internal object WorkflowHttpClients {
         .build()
 }
 
+internal enum class HttpTransportCapability {
+    PRE_CONNECT_VALIDATION,
+    CONNECTED_ADDRESS_VALIDATION,
+}
+
+internal class ControlledSendResult(
+    val response: java.net.http.HttpResponse<java.io.InputStream>,
+    val connectedAddress: InetAddress?,
+)
+
+internal interface HttpTransport {
+    val capability: HttpTransportCapability
+    suspend fun send(
+        httpRequest: java.net.http.HttpRequest,
+        blockingDispatcher: CoroutineContext,
+    ): ControlledSendResult
+}
+
+internal class JdkHttpTransport(private val httpClient: HttpClient) : HttpTransport {
+    override val capability = HttpTransportCapability.PRE_CONNECT_VALIDATION
+
+    override suspend fun send(
+        httpRequest: java.net.http.HttpRequest,
+        blockingDispatcher: CoroutineContext,
+    ): ControlledSendResult = withContext(blockingDispatcher) {
+        ControlledSendResult(httpClient.send(httpRequest, BodyHandlers.ofInputStream()), null)
+    }
+}
+
 internal data class HttpWorkflowStep<S>(
     override val name: String,
     val requestBuilder: suspend (S, WorkflowContext) -> HttpRequest,
     val merge: suspend (S, HttpResponse, WorkflowContext) -> S,
     val config: HttpStepConfig = HttpStepConfig(),
     val blockingDispatcher: CoroutineContext = Dispatchers.IO,
+    val policy: OutboundNetworkPolicy,
 ) : InternalWorkflowStep<S> {
     suspend fun execute(
         workflowName: String,
         state: S,
         context: WorkflowContext,
         observer: WorkflowObserver,
-        httpClient: HttpClient,
+        transport: HttpTransport,
         failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
     ): S {
         val request = try {
@@ -97,9 +135,9 @@ internal data class HttpWorkflowStep<S>(
         }
         val method = request.method.trim().uppercase()
         val redactedUrl = "<redacted>"
-        val uri = try {
+        val canonicalRequest = try {
             validateMethod(method, request.method)
-            validateRequestUri(request.url)
+            canonicalizeRequestUri(request.url)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             val code = WorkflowStepFailureCode.VALIDATION_FAILED
@@ -113,6 +151,21 @@ internal data class HttpWorkflowStep<S>(
                 context = context,
             )
             throw failure(workflowName, error, code, 1, false, failureDiagnosticObserver)
+        }
+        try {
+            policy.validateTarget(canonicalRequest.target)
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            observer.onWorkflowEvent(
+                workflowName = workflowName,
+                name = "tramai.workflow.http.request.policy.rejected",
+                attributes = mapOf(
+                    "step_name" to name,
+                    "failure_code" to WorkflowStepFailureCode.POLICY_REJECTED.value,
+                ),
+                context = context,
+            )
+            throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, 1, false, failureDiagnosticObserver)
         }
 
         observer.onWorkflowEvent(
@@ -132,21 +185,34 @@ internal data class HttpWorkflowStep<S>(
                 executeRequest(
                     HttpRequestExecution(
                         request = request,
-                        uri = uri,
+                        uri = canonicalRequest.uri,
+                        target = canonicalRequest.target,
                         method = method,
                         observer = observer,
                         workflowName = workflowName,
                         context = context,
-                        httpClient = httpClient,
+                        transport = transport,
+                        policy = policy,
                         redactedUrl = redactedUrl,
                     ),
                 )
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
-                val code = if (error is java.net.http.HttpTimeoutException) {
-                    WorkflowStepFailureCode.TIMEOUT
-                } else {
-                    WorkflowStepFailureCode.TRANSPORT_FAILED
+                val code = when (error) {
+                    is HttpPolicyViolation -> WorkflowStepFailureCode.POLICY_REJECTED
+                    is java.net.http.HttpTimeoutException -> WorkflowStepFailureCode.TIMEOUT
+                    else -> WorkflowStepFailureCode.TRANSPORT_FAILED
+                }
+                if (code == WorkflowStepFailureCode.POLICY_REJECTED) {
+                    observer.onWorkflowEvent(
+                        workflowName = workflowName,
+                        name = "tramai.workflow.http.request.policy.rejected",
+                        attributes = mapOf(
+                            "step_name" to name,
+                            "failure_code" to code.value,
+                        ),
+                        context = context,
+                    )
                 }
                 throw failure(workflowName, error, code, attemptNumber, false, failureDiagnosticObserver)
             }
@@ -192,11 +258,11 @@ internal data class HttpWorkflowStep<S>(
     private suspend fun executeRequest(execution: HttpRequestExecution): ExecutedHttpResponse {
         val request = execution.request
         val uri = execution.uri
+        val target = execution.target
         val method = execution.method
         val observer = execution.observer
         val workflowName = execution.workflowName
         val context = execution.context
-        val httpClient = execution.httpClient
         val bodyPublisher = request.body?.let(BodyPublishers::ofString) ?: BodyPublishers.noBody()
         val httpRequest = java.net.http.HttpRequest.newBuilder(uri)
             .timeout(Duration.ofSeconds(config.timeoutSeconds))
@@ -207,8 +273,23 @@ internal data class HttpWorkflowStep<S>(
                 }
             }
             .build()
-        val response = withContext(blockingDispatcher) {
-            httpClient.send(httpRequest, BodyHandlers.ofInputStream())
+        val sendResult = execution.transport.send(httpRequest, blockingDispatcher)
+        val response = sendResult.response
+        try {
+            if (execution.transport.capability == HttpTransportCapability.CONNECTED_ADDRESS_VALIDATION &&
+                sendResult.connectedAddress != null
+            ) {
+                execution.policy.validateTarget(target.copy(addresses = listOf(sendResult.connectedAddress)))
+            }
+            // ponytail: post-hoc detection for hostile supplied clients; TramAI's own clients never follow redirects.
+            // Value equality, not identity: the JDK may return a distinct URI instance even for a
+            // non-followed response. A followed redirect yields a different URI value; a same-value
+            // redirect target is the same host the policy already validated.
+            require(response.request().uri() == uri) { "outbound HTTP redirect was followed" }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            response.body().close()
+            throw HttpPolicyViolation(error.message ?: "outbound HTTP policy rejected response")
         }
         val bodyBytes = ByteArrayOutputStream(min(config.maxResponseBytes.toInt(), responseChunkSize))
         var responseSizeBytes = 0L
@@ -261,11 +342,13 @@ internal data class HttpWorkflowStep<S>(
     private data class HttpRequestExecution(
         val request: HttpRequest,
         val uri: URI,
+        val target: OutboundNetworkTarget,
         val method: String,
         val observer: WorkflowObserver,
         val workflowName: String,
         val context: WorkflowContext,
-        val httpClient: HttpClient,
+        val transport: HttpTransport,
+        val policy: OutboundNetworkPolicy,
         val redactedUrl: String,
     )
 
@@ -275,31 +358,37 @@ internal data class HttpWorkflowStep<S>(
         }
     }
 
-    private fun validateRequestUri(url: String): URI {
+    private fun canonicalizeRequestUri(url: String): CanonicalHttpRequest {
         val uri = URI.create(url)
-        val scheme = uri.scheme?.lowercase()
-        require(scheme in allowedHttpSchemes) {
-            "Workflow HTTP step '$name' only supports http and https URLs"
-        }
+        require(uri.userInfo == null) { "Workflow HTTP step '$name' does not allow URL user-info" }
         val host = uri.host?.trim()?.takeIf { it.isNotEmpty() }
+            ?: alternativeIpv4HostFromAuthority(uri)
             ?: throw IllegalArgumentException("Workflow HTTP step '$name' requires a URL with a non-empty hostname")
-        val normalizedHost = host.lowercase()
-        val resolvedAddresses = resolveHostAddresses(host)
-        val allowedHosts = config.allowedHosts?.map { it.lowercase() }?.toSet()
-        val isExplicitlyAllowed = allowedHosts != null && normalizedHost in allowedHosts
-
-        // Reject hosts that resolve to loopback, private, link-local, or other
-        // restricted addresses regardless of the allowlist, to prevent SSRF
-        // attacks via DNS rebinding or attacker-controlled domains.
-        // Skip this check if the host is explicitly in the allowlist.
-        if (!isExplicitlyAllowed &&
-            (normalizedHost == localhostHostName || resolvedAddresses.any(::isPrivateOrRestrictedAddress))
-        ) throw HttpPolicyViolation("host rejected by private/restricted-address policy: $normalizedHost")
-        if (allowedHosts != null) {
-            if (normalizedHost !in allowedHosts) throw HttpPolicyViolation("host not in allowlist: $normalizedHost")
-        }
-        return uri
+        val normalizedHost = canonicalizeOutboundHost(host)
+        return CanonicalHttpRequest(
+            uri = uri,
+            target = OutboundNetworkTarget(
+                scheme = uri.scheme?.lowercase().orEmpty(),
+                host = normalizedHost,
+                port = uri.port.takeIf { it >= 0 },
+                addresses = resolveHostAddressesSafe(normalizedHost),
+                allowedHostnames = config.allowedHosts?.map(::canonicalizeOutboundHost)?.toSet(),
+            ),
+        )
     }
+
+    /**
+     * Java's URI.getHost() returns null for non-canonical IPv4 literals (e.g. `127.1`,
+     * `127.0.1`, `0x7f.0.0.1`) even though the authority is a valid reg-name. Recover
+     * the literal from the raw authority so the alternative-encoding parsing can run.
+     */
+    private fun alternativeIpv4HostFromAuthority(uri: URI): String? {
+        val authority = uri.rawAuthority ?: return null
+        val hostCandidate = authority.substringBefore(':').removeSuffix(".")
+        return parseAlternativeIpv4Literal(hostCandidate)?.hostAddress
+    }
+
+    private data class CanonicalHttpRequest(val uri: URI, val target: OutboundNetworkTarget)
 
     private suspend fun failure(
         workflowName: String,
@@ -339,9 +428,9 @@ private class ExecutedHttpResponse(
 }
 
 private val supportedHttpMethods = setOf("GET", "POST", "PUT", "DELETE", "PATCH")
-private val allowedHttpSchemes = setOf("http", "https")
+internal val allowedHttpSchemes = setOf("http", "https")
 private const val responseChunkSize = 8_192
-private const val localhostHostName = "localhost"
+internal const val localhostHostName = "localhost"
 
 private fun String.safeStripQueryParameters(): String = runCatching {
     stripQueryParameters()
@@ -364,15 +453,31 @@ private fun resolveHostAddresses(host: String): List<InetAddress> {
     return InetAddress.getAllByName(host).distinctBy { it.hostAddress }
 }
 
+/**
+ * DNS is defence-in-depth: a host that fails to resolve here must not pre-empt the
+ * policy's allowlist decision (a non-allowlisted host is rejected regardless of
+ * resolvability). With no allowlist the request proceeds and the JDK transport
+ * resolves at connect time — the documented boundary is the network layer.
+ */
+private fun resolveHostAddressesSafe(host: String): List<InetAddress> = try {
+    resolveHostAddresses(host)
+} catch (error: java.net.UnknownHostException) {
+    emptyList()
+}
+
+internal fun canonicalizeOutboundHost(host: String): String {
+    val unbracketed = host.removePrefix("[").removeSuffix("]").removeSuffix(".")
+    require(unbracketed.isNotEmpty()) { "outbound hostname must not be empty" }
+    val asciiHost = try {
+        if (unbracketed.contains(':')) unbracketed else IDN.toASCII(unbracketed, IDN.ALLOW_UNASSIGNED)
+    } catch (error: IllegalArgumentException) {
+        throw IllegalArgumentException("invalid outbound hostname", error)
+    }
+    return parseAlternativeIpv4Literal(asciiHost)?.hostAddress ?: asciiHost.lowercase()
+}
+
 private fun jitteredDelayMillis(attempt: Int): Long =
     ((1_000L shl attempt) * (0.5 + ThreadLocalRandom.current().nextDouble() * 0.5)).toLong()
-
-private fun isPrivateOrRestrictedAddress(address: InetAddress): Boolean = address.isAnyLocalAddress ||
-    address.isLoopbackAddress ||
-    address.isLinkLocalAddress ||
-    address.isSiteLocalAddress ||
-    address.isCarrierGradeNatIpv4() ||
-    address.isUniqueLocalIpv6()
 
 private fun parseAlternativeIpv4Literal(host: String): InetAddress? {
     if (host.contains(':')) {
@@ -421,20 +526,4 @@ private fun parseIpv4Component(component: String): Long? {
         component.length > 1 && component.startsWith('0') -> component.toLongOrNull(8)
         else -> component.toLongOrNull()
     }
-}
-
-private fun InetAddress.isCarrierGradeNatIpv4(): Boolean {
-    if (this !is Inet4Address) {
-        return false
-    }
-    val bytes = address
-    return bytes[0].toInt() and 0xff == 100 &&
-        (bytes[1].toInt() and 0b1100_0000) == 0b0100_0000
-}
-
-private fun InetAddress.isUniqueLocalIpv6(): Boolean {
-    if (this !is Inet6Address) {
-        return false
-    }
-    return address[0].toInt() and 0xfe == 0xfc
 }

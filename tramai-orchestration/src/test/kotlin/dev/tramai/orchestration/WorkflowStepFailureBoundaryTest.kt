@@ -30,6 +30,27 @@ import kotlin.test.Test
 
 class WorkflowStepFailureBoundaryTest {
     @Test
+    fun `policy rejection diagnostic observer receives details while public error is fixed`() {
+        val diagnostics = BoundaryDiagnosticObserver()
+        val workflow = workflow<BoundaryState>("policy-diagnostics") {
+            failureDiagnosticObserver = diagnostics
+            httpStep(
+                name = "fetch",
+                request = { _, _ -> HttpRequest("GET", "http://127.0.0.1/secret") },
+                merge = { state, _, _ -> state },
+            )
+        }.build { it }
+
+        val thrown = catchThrowable { runBlocking { workflow.run(BoundaryState()) } }
+
+        assertThat(thrown).isInstanceOf(WorkflowHttpException::class.java)
+            .hasMessage("Workflow http step was rejected by policy")
+            .hasNoCause()
+        assertThat(workflowFailureCode(thrown!!)).isEqualTo(WorkflowStepFailureCode.POLICY_REJECTED)
+        assertThat(diagnostics.single().detailPreview).contains("127.0.0.1")
+    }
+
+    @Test
     fun `every external step family exposes only its fixed failure contract`() {
         WorkflowStepKind.entries.forEach { kind ->
             WorkflowStepFailureCode.entries.forEach { code ->
@@ -226,6 +247,7 @@ class WorkflowStepFailureBoundaryTest {
         val diagnostics = BoundaryDiagnosticObserver()
         val workflow = workflow<BoundaryState>("http-transport-failure") {
             failureDiagnosticObserver = diagnostics
+            outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
             httpStep(
                 name = "fetch",
                 config = HttpStepConfig(allowedHosts = setOf("127.0.0.1"), maxRetries = 3),
@@ -254,6 +276,7 @@ class WorkflowStepFailureBoundaryTest {
         }.use { server ->
             val workflow = workflow<BoundaryState>("http-status-retry") {
                 failureDiagnosticObserver = diagnostics
+                outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
                 httpStep(
                     name = "fetch",
                     config = HttpStepConfig(
@@ -288,6 +311,7 @@ class WorkflowStepFailureBoundaryTest {
             exchange.respond(503, "busy")
         }.use { server ->
             val workflow = workflow<BoundaryState>("http-no-retry") {
+                outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
                 httpStep(
                     name = "fetch",
                     config = HttpStepConfig(maxRetries = 3, allowedHosts = setOf("127.0.0.1")),

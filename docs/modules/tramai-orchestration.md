@@ -185,7 +185,7 @@ All step types are defined as **private** data classes (`InternalWorkflowStep<S>
 |----------------|-----------|---------|
 | `localStep(name, transform)` | `LocalWorkflowStep` | Pure state transformation `(S, WorkflowContext) -> S` |
 | `aiStep(name, input, invoke, merge)` | `AiWorkflowStep` | AI call: extract `I` from state, invoke LLM to get `O`, merge `O` back into state |
-| `httpStep(name, config, request, merge)` | `HttpWorkflowStep` | HTTP request with retry, URL validation, and response size limits |
+| `httpStep(name, config, request, merge)` | `HttpWorkflowStep` | HTTP request with retry, outbound network policy, and response size limits |
 | `shellStep(name, config, definition, command, merge)` | `ShellWorkflowStep` | Shell command execution with sandboxing, timeouts, and output limits |
 | `hermesStep(name, config, prompt, merge)` | `HermesWorkflowStep` | Invoke Hermes agent CLI (streaming agent output) |
 | `codexStep(name, config, prompt, merge)` | `CodexWorkflowStep` | Invoke Codex agent CLI |
@@ -881,7 +881,22 @@ TramaiWorker.start()
 | `maxResponseBytes` | `Long` | `1_048_576` | Max response body size (1 MB) |
 | `retryOnStatus` | `Set<Int>` | `emptySet()` | HTTP status codes that trigger retry |
 | `maxRetries` | `Int` | `0` | Max retry attempts |
-| `allowedHosts` | `Set<String>?` | `null` | Allowlist of hostnames (null = allow all) |
+| `allowedHosts` | `Set<String>?` | `null` | Hostname allowlist (null = allow all hostnames). Filters **which hostnames** may be called; it does **not** lift restricted-address (SSRF) filtering. Private/loopback/link-local/CGNAT/ULA/metadata destinations require `allowPrivateDestinations = true` on the workflow's outbound policy. |
+
+#### Outbound HTTP network policy
+
+Every `httpStep` request is subject to an explicit `OutboundNetworkPolicy` before any connection is attempted. The policy is set once per workflow via the `outboundNetworkPolicy` builder property (default: `OutboundNetworkPolicies.defenceInDepth()`).
+
+**Security contract (Epic 1.4):**
+
+- **Hostname pre-resolution is defence-in-depth, not a complete DNS-rebinding defense.** The step resolves the hostname and rejects targets that already resolve to loopback, private, link-local, CGNAT, IPv6-ULA, or cloud-metadata space. The JDK `HttpClient` re-resolves the hostname at connect time, so the validated address is not guaranteed to be the connected address. The stronger egress boundary belongs at the deployment layer (firewall, proxy, service mesh, Kubernetes NetworkPolicy).
+- **Hostname allowlisting and private-destination permission are separate concepts.** An allowlisted hostname does **not** bypass restricted-address filtering. Reaching private/loopback destinations requires an explicit, separately expressed decision: `OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)`.
+- **Governed deployments fail closed.** `OutboundNetworkPolicies.governed(allowedHosts)` requires a non-empty hostname allowlist (fails at construction otherwise) and overrides any per-step `HttpStepConfig.allowedHosts`.
+- **Redirects are deny-by-default.** TramAI's own transport never follows redirects (`HttpClient.Redirect.NEVER`). If a supplied client follows a redirect, the transport detects it (final request URI differs) and the step fails closed as a policy rejection. Redirect following is never delegated to `HttpClient.Redirect.ALWAYS`.
+- **Transport capability is explicit.** The JDK transport reports only `PRE_CONNECT_VALIDATION` — it cannot prove the connected peer address. Transports that can expose the actual connected address re-run the policy against that address after the connection.
+- **Targets are canonicalized before policy evaluation.** Scheme, hostname case, trailing dots, IDN/ASCII representation, IPv4/IPv6 literals, and alternative IPv4 encodings (decimal, octal, hex, shortened) are normalized; `user@host` authorities and malformed authorities are rejected outright.
+
+Policy rejections surface as `WorkflowHttpException` with the fixed safe message *"Workflow http step was rejected by policy"*, failure code `POLICY_REJECTED`, no raw URL/host/details, and a `tramai.workflow.http.request.policy.rejected` workflow event carrying typed metadata only. Detailed target/policy information flows only to a configured `failureDiagnosticObserver`.
 
 **`ShellStepConfig`:**
 
