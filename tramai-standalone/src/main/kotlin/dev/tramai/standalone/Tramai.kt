@@ -217,6 +217,7 @@ class Tramai private constructor(
             default: Boolean = false,
         ): Builder = apply {
             registryBuilder.provider(name, provider, default)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -243,6 +244,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.model(modelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -254,6 +256,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.fallbackModel(requestedModelName, fallbackModelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -264,6 +267,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.fallbackProvider(modelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -271,6 +275,7 @@ class Tramai private constructor(
          */
         fun defaultProvider(providerName: String): Builder = apply {
             registryBuilder.defaultProvider(providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -480,11 +485,20 @@ class Tramai private constructor(
          * for the current builder state. The returned instance is exactly the plan later
          * installed in the built [Tramai] runtime — callers (e.g. sovereign validation) can
          * validate this same instance before [build] is invoked, without reaching through
-         * internal members. Subsequent builder mutations have no effect on a returned or
-         * already-built plan.
+         * internal members. The cache is invalidated by every routing mutation, so the next
+         * call reflects the builder's current routing state.
          */
         fun buildRoutingPlan(): dev.tramai.core.provider.ProviderRoutingPlan =
             builtRoutingPlan ?: registryBuilder.build().also { builtRoutingPlan = it }
+
+        /**
+         * Drops the cached routing plan. Called by every routing mutator so a builder can
+         * be reused: the previously built runtime keeps its immutable plan while the next
+         * [buildRoutingPlan]/[build] sees the new routing state.
+         */
+        private fun invalidateRoutingPlan() {
+            builtRoutingPlan = null
+        }
 
         /**
          * Builds an immutable standalone Tramai instance.

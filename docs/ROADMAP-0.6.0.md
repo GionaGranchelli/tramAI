@@ -480,7 +480,7 @@ class ProviderRoutingPlan private constructor(
 )
 ```
 
-`ProviderRegistry` is a compatibility façade over the plan (public API unchanged, including `ProviderRoute`/`ResolvedProviderRoute` DTO shapes). The engine freezes the plan into `ProviderComponents`; standalone composes through the plan builder; sovereign validates the same plan via `SovereignRoutingValidationPolicy` (no shadow maps); Spring resolves bean-over-property precedence before the plan builder so the canonical model never observes a duplicate.
+`ProviderRegistry` is a compatibility façade over the plan (existing public API preserved; additive routing-plan APIs introduced — `ProviderRoutingPlan`, `ProviderId`/`ModelId`, `PlannedProviderRoute`, `ProviderRegistry.from(...)`, `ProviderRegistry.routingPlan`, `Tramai.Builder.buildRoutingPlan()`). The engine freezes the plan into `ProviderComponents`; standalone composes through the plan builder; sovereign validates the same plan via `SovereignRoutingValidationPolicy` (no shadow maps); Spring resolves bean-over-property precedence before the plan builder so the canonical model never observes a duplicate.
 
 ### Tasks
 

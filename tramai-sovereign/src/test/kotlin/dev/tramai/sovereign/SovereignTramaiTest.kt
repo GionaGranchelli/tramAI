@@ -113,6 +113,33 @@ class SovereignTramaiTest {
     }
 
     @Test
+    fun `sovereign validation failure does not poison builder reuse`() {
+        // Profile allows two models; the builder only registers one, so the first
+        // build fails sovereign validation AFTER generic plan construction caches
+        // the incomplete plan.
+        val profile = defaultConfig.copy(
+            allowedModels = setOf("test-model", "extra-model"),
+        )
+        val builder = SovereignTramai.builder()
+            .profile(profile)
+            .modelRegistry(defaultRegistry)
+            .auditStore(InMemoryAuditStore())
+            .provider(FakeProvider(), name = "local-provider", default = true)
+            .model("test-model", "local-provider")
+
+        assertThatThrownBy { builder.build() }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("has no primary route")
+
+        // Add the missing route and retry: the cached plan must be invalidated by the
+        // routing mutation, so the retry validates and installs the complete plan.
+        builder.model("extra-model", "local-provider")
+
+        val retried = builder.build()
+        retried.close()
+    }
+
+    @Test
     fun `sovereign runtime returns the same wrapper instance`() {
         val tramai = validBuilder().build()
 

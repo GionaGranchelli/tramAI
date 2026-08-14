@@ -133,6 +133,44 @@ class TramaiComponentCompositionTest {
     }
 
     @Test
+    fun `builder routing mutation after build is visible to a later build`() {
+        val providerACalls = AtomicInteger()
+        val providerA = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse =
+                ModelResponse(content = "provider-a:${providerACalls.incrementAndGet()}")
+
+            override fun providerId(): String = "primary"
+        }
+        val providerBCalls = AtomicInteger()
+        val providerB = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse =
+                ModelResponse(content = "provider-b:${providerBCalls.incrementAndGet()}")
+
+            override fun providerId(): String = "other"
+        }
+
+        val builder = Tramai.builder()
+            .provider(providerA, default = true)
+
+        val runtimeA = builder.build()
+
+        // Mutate routing after the first build: runtime A stays frozen on provider A,
+        // but the next build must reflect the new routing state (not a cached plan).
+        builder
+            .provider(providerB, default = true)
+
+        val runtimeB = builder.build()
+
+        val serviceA = runtimeA.create<GreetingService>()
+        assertThat(runBlocking { serviceA.greet("world") }).isEqualTo("provider-a:1")
+
+        val serviceB = runtimeB.create<GreetingService>()
+        assertThat(runBlocking { serviceB.greet("world") }).isEqualTo("provider-b:1")
+        assertThat(providerACalls.get()).isEqualTo(1)
+        assertThat(providerBCalls.get()).isEqualTo(1)
+    }
+
+    @Test
     fun `no-op default behaviour remains unchanged`() {
         val tramai = baseBuilder().build()
 

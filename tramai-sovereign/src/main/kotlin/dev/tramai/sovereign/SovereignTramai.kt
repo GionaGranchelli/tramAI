@@ -186,8 +186,9 @@ class SovereignTramai private constructor(
         /**
          * Registers a provider with an optional explicit [name].
          *
-         * @throws IllegalArgumentException if the provider name is blank,
-         *   has surrounding whitespace, or is a duplicate.
+         * Routing validation (blank/whitespace names, duplicates, unknown providers,
+         * invalid defaults) is deferred to [build], which throws
+         * [dev.tramai.core.exception.ConfigurationException] for invalid routing.
          */
         fun provider(
             provider: ModelProvider,

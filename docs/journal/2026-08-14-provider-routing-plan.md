@@ -19,7 +19,7 @@ PR #229: **refactor(routing): introduce authoritative provider routing plan** (E
 
 ## Current State
 
-- Branch `refactor/0.6.0-provider-routing-plan`, commit 2407b4d1, pushed.
+- Branch `refactor/0.6.0-provider-routing-plan`, pushed (fix-round commits applied after initial review).
 - Local gates: 757 module tests / 0 failures, apiCheck (tramai modules) PASS, verifyPr PASS (268 tasks), verifyCancellationSafety PASS (292=292).
 - agy review: merge-ready, 0 P1/P2.
 - PR #229 open: https://github.com/GionaGranchelli/tramAI/pull/229 — CI running, awaiting review.

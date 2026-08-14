@@ -51,7 +51,7 @@ deviations:
     scope: ":tramai-core"
     baseline: 3
     allowed: 4
-    reason: "Provider registration is inherently global. Migration to injectable registry planned for 0.7.0. PR #229 added ProviderRoutingPlan builder mutable collections (requestedModelId, seenFallbacks) as part of the authoritative routing plan; resolved in the 0.7.0 registry migration."
+    reason: "Provider registration is inherently global. Migration to injectable registry planned for 0.7.0. PR #229's new ProviderRoutingPlan adds two mutable-collection findings in its builder/validation path (the per-model fallback staging list and the duplicate-detection set), matching the pre-existing mutable-collection pattern in the same module; resolved in the 0.7.0 registry migration."
     acceptedAt: "2026-07-18"
     targetPhase: "0.7.0"
     owner: "GionaGranchelli"
