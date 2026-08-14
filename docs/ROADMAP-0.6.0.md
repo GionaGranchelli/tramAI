@@ -505,35 +505,42 @@ class ProviderRoutingPlan private constructor(
 
 ## Epic 3.1: Characterize the execution pipeline
 
+> **Status: ✅ Complete — PR #230** (`test(engine): characterize execution pipeline semantics`)
+
 **Goal:** Protect exact behaviour before moving code.
-
-### Required characterization coverage
-
-- Request and prompt construction
-- Memory injection and persistence
-- Cache lookup and provenance checks
-- Policy ordering
-- Provider resolution
-- Model registry authorization
-- Retry and fallback ordering
-- Circuit breaker transitions
-- DLP inspection and sanitisation
-- Structured-output repair retries
-- Tool exposure policy
-- Tool execution policy
-- Tool approval suspension
-- Tool reinjection filtering
-- Approval resume and replay
-- Observer callbacks
-- Audit/evidence ordering
-- Cancellation and timeout behaviour
-- Streaming startup and terminal behaviour
 
 ### Deliverable
 
-A deterministic execution-trace test fixture that records ordered semantic events and compares them with approved traces.
+A deterministic execution-trace test fixture that records ordered semantic events and compares them with approved traces, under `tramai-engine/src/test/kotlin/dev/tramai/engine/characterization/`:
 
-### Acceptance criteria
+- `ExecutionTrace.kt` / `ExecutionTraceSink.kt` — semantic event model (`TraceEvent(type, attributes)`) written by recording test doubles.
+- `ExecutionTraceFixture.kt` — builds a `TramaiEngine` with recording doubles for observer, memory, cache, policy + audit, model registry, DLP, tool registry, approval collaborators, and streaming provider; fixed values (`conversation-1`, `logical-model`, `primary`, `call-1`) and `id=*` normalization for generated identifiers.
+- Approved trace fixtures under `tramai-engine/src/test/resources/characterization/` compared via `containsExactlyElementsOf` — no snapshot-library dependency.
+- Scenario suites: `ExecutionPipelineCharacterizationTest` (1-7), `ExecutionPipelineResilienceCharacterizationTest` (8-14), `ExecutionPipelineApprovalStreamingCharacterizationTest` (15-20).
+
+### Required characterization coverage
+
+- ✅ Request and prompt construction sequencing (scenarios 1, 7 — freezes ordering, not prompt content)
+- ✅ Memory injection and persistence (scenario 2)
+- ✅ Cache lookup and provenance checks (scenarios 3, 4)
+- ✅ Policy ordering (scenarios 5, 6)
+- ✅ Provider resolution (scenario 7)
+- ✅ Model registry authorization (scenario 7)
+- ✅ Retry and fallback ordering (scenarios 8, 9)
+- ✅ Circuit breaker transitions (scenario 10)
+- ✅ DLP inspection and sanitisation (scenarios 12, 17)
+- ✅ Structured-output repair retries (scenario 11)
+- ✅ Tool exposure policy (scenarios 12, 13)
+- ✅ Tool execution policy (scenarios 12, 14)
+- ✅ Tool approval suspension (scenario 15)
+- ✅ Tool reinjection filtering (scenario 17)
+- ✅ Approval resume and replay (scenario 16)
+- ✅ Observer callbacks (all scenarios — provider.start/success/failure/complete)
+- ✅ Audit/evidence ordering (scenarios 15, 16, 17)
+- ✅ Cancellation during provider execution (scenario 20 — trace-level; deep contracts owned by the dedicated cancellation suites; timeout behaviour is covered by the dedicated timeout contract tests, not this suite)
+- ✅ Streaming startup and terminal behaviour (scenarios 18, 19)
+
+### Ongoing requirement for extraction PRs
 
 - Each extraction PR proves trace equivalence for affected scenarios.
 - Security-sensitive ordering is tested directly, not inferred from final output.

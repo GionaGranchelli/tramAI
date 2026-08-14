@@ -1,0 +1,6 @@
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+policy.evaluate point=BEFORE_TOOL_EXPOSURE
+policy.deny point=BEFORE_TOOL_EXPOSURE
+policy.audit.emit point=BEFORE_TOOL_EXPOSURE
