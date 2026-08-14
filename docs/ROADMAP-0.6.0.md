@@ -460,34 +460,44 @@ The exact API may differ, but each group must have one responsibility and explic
 
 ## Epic 2.2: Create one provider-routing plan
 
+> **Status:** ✅ Complete — PR #229 (refactor(routing): introduce authoritative provider routing plan).
+
 **Goal:** Eliminate shadow configuration across standalone, sovereign, Spring, and provider-registry builders.
 
-### Proposed model
+### Implemented model
+
+`ProviderRoutingPlan` is the single frozen source of configured provider routing:
 
 ```kotlin
-data class ProviderRoutingPlan(
+@JvmInline value class ProviderId(val value: String)
+@JvmInline value class ModelId(val value: String)
+data class PlannedProviderRoute(val providerId: ProviderId, val effectiveModelId: ModelId)
+
+class ProviderRoutingPlan private constructor(
     val providers: Map<ProviderId, ModelProvider>,
-    val routes: Map<ModelId, List<ProviderRoute>>, 
+    val routes: Map<ModelId, List<PlannedProviderRoute>>,
     val defaultProvider: ProviderId?,
 )
 ```
 
+`ProviderRegistry` is a compatibility façade over the plan (existing public API preserved; additive routing-plan APIs introduced — `ProviderRoutingPlan`, `ProviderId`/`ModelId`, `PlannedProviderRoute`, `ProviderRegistry.from(...)`, `ProviderRegistry.routingPlan`, `Tramai.Builder.buildRoutingPlan()`). The engine freezes the plan into `ProviderComponents`; standalone composes through the plan builder; sovereign validates the same plan via `SovereignRoutingValidationPolicy` (no shadow maps); Spring resolves bean-over-property precedence before the plan builder so the canonical model never observes a duplicate.
+
 ### Tasks
 
-1. Add typed provider and model identifiers or validated value classes.
-2. Make duplicate provider registration fail rather than silently replace.
-3. Validate blank names, unknown providers, duplicate routes, invalid defaults, and fallback loops during construction.
-4. Expose an immutable routing-plan snapshot for validation and evidence generation.
-5. Apply additional sovereign constraints as validation policies over the same plan.
-6. Make Spring construct the same routing plan rather than reimplementing route logic.
-7. Remove sovereign builder shadow maps after migration.
+1. ✅ Add typed provider and model identifiers or validated value classes (`ProviderId`, `ModelId`).
+2. ✅ Make duplicate provider registration fail rather than silently replace (fail-fast at plan build).
+3. ✅ Validate blank names, unknown providers, duplicate routes, invalid defaults, and degenerate route structures during construction. (Deliberately NOT recursive fallback routing/graph-cycle detection: `fallbackProvider()` keeps the same effective model on another provider and is not a self-loop.)
+4. ✅ Expose an immutable routing-plan snapshot for validation and evidence generation.
+5. ✅ Apply additional sovereign constraints as validation policies over the same plan (`SovereignRoutingValidationPolicy`).
+6. ✅ Make Spring construct the same routing plan rather than reimplementing route logic (property providers + beans merged into one unique set; no Spring-side route validator).
+7. ✅ Remove sovereign builder shadow maps after migration (`registeredProviders`, `primaryModelRoutes`, `fallbackRoutes`, `defaultProviderName`, `FallbackRoute` deleted).
 
 ### Acceptance criteria
 
-- One authoritative object represents configured provider routing.
-- Standalone and sovereign modes differ through validation policy, not duplicated state.
-- Evidence generation and runtime execution consume the same immutable plan.
-- Invalid routes fail before service creation.
+- ✅ One authoritative object represents configured provider routing.
+- ✅ Standalone and sovereign modes differ through validation policy, not duplicated state.
+- ✅ Evidence generation and runtime execution consume the same immutable plan.
+- ✅ Invalid routes fail before service creation.
 
 ---
 

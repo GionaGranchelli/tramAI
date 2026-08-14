@@ -6,6 +6,7 @@ import dev.tramai.core.annotations.User
 import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.ModelNotRegisteredException
 import dev.tramai.core.exception.PolicyViolationException
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -109,6 +110,33 @@ class SovereignTramaiTest {
         assertThatThrownBy { tramai.create<EchoService>() }
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessage("Tramai runtime is closed")
+    }
+
+    @Test
+    fun `sovereign validation failure does not poison builder reuse`() {
+        // Profile allows two models; the builder only registers one, so the first
+        // build fails sovereign validation AFTER generic plan construction caches
+        // the incomplete plan.
+        val profile = defaultConfig.copy(
+            allowedModels = setOf("test-model", "extra-model"),
+        )
+        val builder = SovereignTramai.builder()
+            .profile(profile)
+            .modelRegistry(defaultRegistry)
+            .auditStore(InMemoryAuditStore())
+            .provider(FakeProvider(), name = "local-provider", default = true)
+            .model("test-model", "local-provider")
+
+        assertThatThrownBy { builder.build() }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("has no primary route")
+
+        // Add the missing route and retry: the cached plan must be invalidated by the
+        // routing mutation, so the retry validates and installs the complete plan.
+        builder.model("extra-model", "local-provider")
+
+        val retried = builder.build()
+        retried.close()
     }
 
     @Test
@@ -250,8 +278,8 @@ class SovereignTramaiTest {
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "unknown-provider")
                 .build()
-        }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("routes to unknown provider")
+        }.isInstanceOf(ConfigurationException::class.java)
+            .hasMessageContaining("targets unknown provider")
     }
 
     @Test
@@ -280,7 +308,7 @@ class SovereignTramaiTest {
                 .provider(FakeProvider(), name = "local-provider")
                 .model("test-model", "local-provider")
                 .build()
-        }.isInstanceOf(IllegalArgumentException::class.java)
+        }.isInstanceOf(ConfigurationException::class.java)
             .hasMessageContaining("Duplicate provider")
     }
 

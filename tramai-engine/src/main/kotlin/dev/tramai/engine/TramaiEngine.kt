@@ -123,6 +123,7 @@ import kotlin.reflect.jvm.kotlinFunction
 import dev.tramai.engine.components.ApprovalCapability
 import dev.tramai.engine.components.EngineComponentFactory
 import dev.tramai.engine.components.EngineComponents
+import dev.tramai.core.provider.resolveCandidates
 
 private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
 private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
@@ -133,7 +134,7 @@ private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
 class TramaiEngine private constructor(
     private val components: EngineComponents,
 ) : AutoCloseable {
-    private val providerRegistry = components.providers.providerRegistry
+    private val routingPlan = components.providers.routingPlan
     private val structuredOutputHandler = components.execution.structuredOutputHandler
     private val toolRegistry = components.tools.toolRegistry
     private val operationObserver = components.observation.operationObserver
@@ -631,7 +632,7 @@ internal class TramaiInvocationHandler(
     private val resumeOperationRegistry: ResumeOperationRegistry,
 ) : InvocationHandler {
 
-    private val providerRegistry = components.providers.providerRegistry
+    private val routingPlan = components.providers.routingPlan
     private val structuredOutputHandler = components.execution.structuredOutputHandler
     private val toolRegistry = components.tools.toolRegistry
     private val operationObserver = components.observation.operationObserver
@@ -843,7 +844,7 @@ internal class TramaiInvocationHandler(
                 try {
                     val correlationId = java.util.UUID.randomUUID().toString()
                     enforceBeforeProviderResolution(operation, correlationId, securityContext)
-                    val candidates = providerRegistry.resolveCandidates(operation.operation)
+                    val candidates = routingPlan.resolveCandidates(operation.operation)
                     var lastFailure: Throwable? = null
                     var lastCircuitOpen: CircuitBreakerOpenException? = null
                     val attemptCounter = AttemptCounter()
@@ -2499,7 +2500,7 @@ internal class TramaiInvocationHandler(
         var lastCircuitOpen: CircuitBreakerOpenException? = null
 
         enforceBeforeProviderResolution(operation, correlationId, securityContext)
-        val candidates = providerRegistry.resolveCandidates(operation.operation)
+        val candidates = routingPlan.resolveCandidates(operation.operation)
 
         for ((routeIndex, route) in candidates.withIndex()) {
             val circuitOpen = handleCircuitBreakerOpenRoute(

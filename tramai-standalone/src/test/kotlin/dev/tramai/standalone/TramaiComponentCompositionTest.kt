@@ -5,6 +5,7 @@ import dev.tramai.core.annotations.Operation
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.NoOpOperationObservation
@@ -23,6 +24,32 @@ import org.junit.jupiter.api.Test
  * builder API unchanged.
  */
 class TramaiComponentCompositionTest {
+
+    @Test
+    fun `invalid provider routing fails at build`() {
+        val provider = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse(content = "unused")
+
+            override fun providerId(): String = "primary"
+        }
+
+        assertThatThrownBy {
+            Tramai.builder()
+                .provider(provider, name = "duplicate")
+                .provider(provider, name = "duplicate")
+                .build()
+        }
+            .isInstanceOf(ConfigurationException::class.java)
+            .hasMessage("Duplicate provider 'duplicate'")
+
+        assertThatThrownBy {
+            Tramai.builder()
+                .defaultProvider("missing")
+                .build()
+        }
+            .isInstanceOf(ConfigurationException::class.java)
+            .hasMessage("Default provider 'missing' is not registered")
+    }
 
     @Test
     fun `partial approval configuration fails at build`() {
@@ -70,7 +97,7 @@ class TramaiComponentCompositionTest {
             override suspend fun complete(request: ModelRequest): ModelResponse =
                 ModelResponse(content = "provider-a:${providerACalls.incrementAndGet()}")
 
-            override fun providerId(): String = "mock"
+            override fun providerId(): String = "primary"
         }
         val observerACalls = AtomicInteger()
         val observerA = OperationObserver {
@@ -78,8 +105,9 @@ class TramaiComponentCompositionTest {
             NoOpOperationObservation
         }
 
-        val builder = baseBuilder()
+        val builder = Tramai.builder()
             .provider(providerA, default = true)
+            .model("mock-model", "primary")
             .observer(observerA)
 
         val runtimeA = builder.build()
@@ -102,6 +130,44 @@ class TramaiComponentCompositionTest {
         assertThat(result).isEqualTo("provider-a:1")
         assertThat(providerBCalls.get()).isZero()
         assertThat(observerACalls.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `builder routing mutation after build is visible to a later build`() {
+        val providerACalls = AtomicInteger()
+        val providerA = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse =
+                ModelResponse(content = "provider-a:${providerACalls.incrementAndGet()}")
+
+            override fun providerId(): String = "primary"
+        }
+        val providerBCalls = AtomicInteger()
+        val providerB = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse =
+                ModelResponse(content = "provider-b:${providerBCalls.incrementAndGet()}")
+
+            override fun providerId(): String = "other"
+        }
+
+        val builder = Tramai.builder()
+            .provider(providerA, default = true)
+
+        val runtimeA = builder.build()
+
+        // Mutate routing after the first build: runtime A stays frozen on provider A,
+        // but the next build must reflect the new routing state (not a cached plan).
+        builder
+            .provider(providerB, default = true)
+
+        val runtimeB = builder.build()
+
+        val serviceA = runtimeA.create<GreetingService>()
+        assertThat(runBlocking { serviceA.greet("world") }).isEqualTo("provider-a:1")
+
+        val serviceB = runtimeB.create<GreetingService>()
+        assertThat(runBlocking { serviceB.greet("world") }).isEqualTo("provider-b:1")
+        assertThat(providerACalls.get()).isEqualTo(1)
+        assertThat(providerBCalls.get()).isEqualTo(1)
     }
 
     @Test

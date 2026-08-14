@@ -419,13 +419,12 @@ class SovereignTramaiArtifactVerificationTest {
     }
 
     @Test
-    fun `LOCAL primary and LOCAL fallback referencing same pair verifies once`() {
-        val registeredModel = localRegisteredModel(
-            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
-        )
-
+    fun `fallback identical to primary is rejected before artifact verification`() {
+        // A fallback identical to the primary (same provider, same effective model) is a
+        // degenerate route — under the canonical plan it is rejected at build, so artifact
+        // verification never sees it. This is the fail-fast contract of Epic 2.2.
         val registry = InMemoryModelRegistry.builder()
-            .register(registeredModel)
+            .register(localRegisteredModel(artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}")))
             .build()
 
         val profile = SovereignProfileConfiguration(
@@ -435,35 +434,23 @@ class SovereignTramaiArtifactVerificationTest {
             providerZones = mapOf("local-provider" to ProviderTrustZone.LOCAL),
         )
 
-        val seenModels = mutableListOf<RegisteredModel>()
-        val verifier = RecordingVerifier { model ->
-            seenModels += model
-            VerifiedLocalModelArtifact(
-                registryEntryId = model.registryEntryId,
-                manifestDigest = model.artifactDigest!!,
-                modelName = model.modelName,
-                verifiedAt = fixedClock.instant(),
-                artifactCount = 1,
-                totalSizeBytes = 512,
-            )
+        assertThatThrownBy {
+            SovereignTramai.builder()
+                .profile(profile)
+                .modelRegistry(registry)
+                .auditStore(InMemoryAuditStore())
+                .provider(FakeProvider("local-provider"), name = "local-provider", default = true)
+                .model("test-model", "local-provider")
+                .fallbackProvider("test-model", "local-provider")
+                .clock(fixedClock)
+                .modelArtifactVerifier(RecordingVerifier { error("verifier should not be invoked") })
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
         }
-
-        val tramai = SovereignTramai.builder()
-            .profile(profile)
-            .modelRegistry(registry)
-            .auditStore(InMemoryAuditStore())
-            .provider(FakeProvider("local-provider"), name = "local-provider", default = true)
-            .model("test-model", "local-provider")
-            .fallbackProvider("test-model", "local-provider")
-            .clock(fixedClock)
-            .modelArtifactVerifier(verifier)
-            .modelArtifactVerificationSettings(
-                ModelArtifactVerificationSettings(enabled = true),
-            )
-            .build()
-
-        assertThat(seenModels).hasSize(1)
-        assertThat(tramai.verificationReceipts()).hasSize(1)
+            .isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("duplicates its primary route")
     }
 
     @Test

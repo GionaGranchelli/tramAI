@@ -175,7 +175,8 @@ class Tramai private constructor(
      * Builder for the standalone Tramai composition module.
      */
     class Builder {
-        private val registryBuilder = ProviderRegistry.builder()
+        private val registryBuilder = dev.tramai.core.provider.ProviderRoutingPlan.builder()
+        private var builtRoutingPlan: dev.tramai.core.provider.ProviderRoutingPlan? = null
         // Raw tools are kept until build() so the runtime is resolved against
         // a frozen snapshot of the builder state (immutability of the built
         // Tramai instance).
@@ -216,6 +217,7 @@ class Tramai private constructor(
             default: Boolean = false,
         ): Builder = apply {
             registryBuilder.provider(name, provider, default)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -242,6 +244,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.model(modelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -253,6 +256,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.fallbackModel(requestedModelName, fallbackModelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -263,6 +267,7 @@ class Tramai private constructor(
             providerName: String,
         ): Builder = apply {
             registryBuilder.fallbackProvider(modelName, providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -270,6 +275,7 @@ class Tramai private constructor(
          */
         fun defaultProvider(providerName: String): Builder = apply {
             registryBuilder.defaultProvider(providerName)
+            invalidateRoutingPlan()
         }
 
         /**
@@ -475,6 +481,26 @@ class Tramai private constructor(
         }
 
         /**
+         * Freezes and returns the authoritative [dev.tramai.core.provider.ProviderRoutingPlan]
+         * for the current builder state. The returned instance is exactly the plan later
+         * installed in the built [Tramai] runtime — callers (e.g. sovereign validation) can
+         * validate this same instance before [build] is invoked, without reaching through
+         * internal members. The cache is invalidated by every routing mutation, so the next
+         * call reflects the builder's current routing state.
+         */
+        fun buildRoutingPlan(): dev.tramai.core.provider.ProviderRoutingPlan =
+            builtRoutingPlan ?: registryBuilder.build().also { builtRoutingPlan = it }
+
+        /**
+         * Drops the cached routing plan. Called by every routing mutator so a builder can
+         * be reused: the previously built runtime keeps its immutable plan while the next
+         * [buildRoutingPlan]/[build] sees the new routing state.
+         */
+        private fun invalidateRoutingPlan() {
+            builtRoutingPlan = null
+        }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          *
          * @throws IllegalStateException if approval composition is partially configured
@@ -501,7 +527,7 @@ class Tramai private constructor(
             // snapshotted now, so mutating this builder after build() can never
             // redirect diagnostics of the built runtime.
             return Tramai(
-                providerRegistry = registryBuilder.build(),
+                providerRegistry = ProviderRegistry.from(buildRoutingPlan()),
                 toolRegistry = ToolRegistry(
                     tools.mapValues { (_, tool) ->
                         createResolvedTool(tool, handler, toolFailureDiagnosticObserver)

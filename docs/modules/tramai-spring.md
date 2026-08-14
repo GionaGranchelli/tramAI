@@ -283,10 +283,11 @@ The module is activated by either:
        │    1. Binds TramaiProperties from application.yml
        │    2. Resolves secret values (env, file, Vault, AWS)
        │    3. Calls AiToolScanner.fromApplicationContext() → discovers @AiTool beans
-       │    4. Registers property-defined providers (Anthropic, OpenAI, Ollama, OpenAI-compatible)
+       │    4. Resolves property-defined providers (Anthropic, OpenAI, Ollama, OpenAI-compatible)
        │    5. Collects user-defined ModelProvider beans via ObjectProvider
-       │    6. Configures model routing, fallbacks, cache, interceptors
-       │    7. Builds and returns Tramai instance
+       │    6. Merges providers by id; an explicit bean replaces a same-id property provider
+       │    7. Registers the unique provider set, then configures model routing, fallbacks, cache, interceptors
+       │    8. Builds and returns Tramai instance
        │
        └─ @Bean "aiServiceBeanDefinitionRegistrar" (AiServiceBeanDefinitionRegistrar)
             implements BeanDefinitionRegistryPostProcessor

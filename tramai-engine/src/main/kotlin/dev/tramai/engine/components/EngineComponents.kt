@@ -13,7 +13,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.ToolFailureDiagnosticObserver
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.core.provider.ProviderRegistry
+import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
@@ -45,7 +45,7 @@ internal data class EngineComponents(
 )
 
 /** Runtime snapshot of provider routing. The snapshot reference is immutable; supplied providers retain their existing ownership and thread-safety contracts. */
-internal data class ProviderComponents(val providerRegistry: ProviderRegistry)
+internal data class ProviderComponents(val routingPlan: ProviderRoutingPlan)
 
 /** Runtime snapshot of tool resolution and filtering settings. Caller-supplied registries remain caller-owned. */
 internal data class ToolComponents(val toolRegistry: ToolRegistry, val toolResultFilteringSettings: ToolResultFilteringSettings)

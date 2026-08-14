@@ -147,26 +147,12 @@ class SovereignTramai private constructor(
         fun builder(): Builder = Builder()
     }
 
-    /**
-     * Describes a fallback route configured during builder assembly.
-     */
-    private data class FallbackRoute(
-        val requestedModelName: String,
-        val fallbackModelName: String,
-        val providerName: String,
-    )
-
     class Builder {
         private var profileConfiguration: SovereignProfileConfiguration? = null
         private var modelRegistry: ModelRegistry? = null
         private var auditStore: AuditStore? = null
         private val standaloneBuilder = Tramai.builder()
 
-        // Tracking state for build-time validation
-        private val registeredProviders = linkedSetOf<String>()
-        private val primaryModelRoutes = linkedMapOf<String, String>()
-        private val fallbackRoutes = mutableListOf<FallbackRoute>()
-        private var defaultProviderName: String? = null
         private var clock: Clock = Clock.systemUTC()
         private var modelArtifactVerifier: ModelArtifactVerifier? = null
         private var verificationSettings: ModelArtifactVerificationSettings =
@@ -195,24 +181,20 @@ class SovereignTramai private constructor(
             this.auditStore = store
         }
 
-        // --- Delegated standalone builder methods with tracking ---
+        // --- Delegated standalone builder methods ---
 
         /**
          * Registers a provider with an optional explicit [name].
          *
-         * @throws IllegalArgumentException if the provider name is blank,
-         *   has surrounding whitespace, or is a duplicate.
+         * Routing validation (blank/whitespace names, duplicates, unknown providers,
+         * invalid defaults) is deferred to [build], which throws
+         * [dev.tramai.core.exception.ConfigurationException] for invalid routing.
          */
         fun provider(
             provider: ModelProvider,
             name: String = provider.providerId(),
             default: Boolean = false,
         ): Builder = apply {
-            require(name.isNotBlank()) { "Provider name must not be blank" }
-            require(name == name.trim()) { "Provider name must not have surrounding whitespace" }
-            require(name !in registeredProviders) { "Duplicate provider registration: $name" }
-            registeredProviders.add(name)
-            if (default) defaultProviderName = name
             standaloneBuilder.provider(provider, name, default)
         }
 
@@ -223,7 +205,6 @@ class SovereignTramai private constructor(
             modelName: String,
             providerName: String,
         ): Builder = apply {
-            primaryModelRoutes[modelName] = providerName
             standaloneBuilder.model(modelName, providerName)
         }
 
@@ -248,7 +229,6 @@ class SovereignTramai private constructor(
             fallbackModelName: String,
             providerName: String,
         ): Builder = apply {
-            fallbackRoutes.add(FallbackRoute(requestedModelName, fallbackModelName, providerName))
             standaloneBuilder.fallbackModel(requestedModelName, fallbackModelName, providerName)
         }
 
@@ -262,7 +242,6 @@ class SovereignTramai private constructor(
         )
 
         fun defaultProvider(providerName: String): Builder = apply {
-            this.defaultProviderName = providerName
             standaloneBuilder.defaultProvider(providerName)
         }
 
@@ -384,87 +363,6 @@ class SovereignTramai private constructor(
                 "ModelRegistry is required for sovereign profile"
             }
 
-            // Build-time provider and route validation
-            require(registeredProviders.isNotEmpty()) {
-                "At least one provider must be registered"
-            }
-
-            // Every registered provider must be explicitly allowed
-            for (p in registeredProviders) {
-                require(p in profile.allowedProviders) {
-                    "Registered provider '$p' is not in allowedProviders"
-                }
-            }
-
-            // Every allowed provider must be registered
-            for (p in profile.allowedProviders) {
-                require(p in registeredProviders) {
-                    "Allowed provider '$p' has not been registered"
-                }
-            }
-
-            // Every registered provider must have an explicit trust zone
-            for (p in registeredProviders) {
-                require(p in profile.providerZones) {
-                    "Registered provider '$p' has no trust zone configured"
-                }
-            }
-
-            // Every allowed model must have an explicit primary route
-            for (m in profile.allowedModels) {
-                require(m in primaryModelRoutes) {
-                    "Allowed model '$m' has no primary route"
-                }
-            }
-
-            // Every primary route must target a registered allowed provider
-            for ((modelName, providerName) in primaryModelRoutes) {
-                require(modelName in profile.allowedModels) {
-                    "Primary route for '$modelName' routes a model not in allowedModels"
-                }
-                require(providerName in registeredProviders) {
-                    "Model '$modelName' routes to unknown provider '$providerName'"
-                }
-                require(providerName in profile.allowedProviders) {
-                    "Model '$modelName' routes to non-allowed provider '$providerName'"
-                }
-            }
-
-            // Fallback routes must target registered providers
-            for (fb in fallbackRoutes) {
-                require(fb.requestedModelName in profile.allowedModels) {
-                    "Fallback source model '${fb.requestedModelName}' is not in allowedModels"
-                }
-                require(fb.providerName in registeredProviders) {
-                    "Fallback route for '${fb.requestedModelName}' targets unknown provider '${fb.providerName}'"
-                }
-                require(fb.providerName in profile.allowedFallbackProviders) {
-                    "Fallback provider '${fb.providerName}' is not in allowedFallbackProviders"
-                }
-                require(fb.fallbackModelName in profile.allowedModels) {
-                    "Fallback model '${fb.fallbackModelName}' is not in allowedModels"
-                }
-            }
-
-            // Default provider must be registered and allowed
-            val defaultName = defaultProviderName
-            if (defaultName != null) {
-                require(defaultName in registeredProviders) {
-                    "Default provider '$defaultName' is not registered"
-                }
-                require(defaultName in profile.allowedProviders) {
-                    "Default provider '$defaultName' is not in allowedProviders"
-                }
-            }
-
-            // Offline deployment validation — before registry lookup
-            validateOfflineDeployment(profile)
-
-            val verificationReceipts = verifyLocalModelArtifacts(
-                profile = profile,
-                modelRegistry = modelRegistry!!,
-            )
-
             val policyConfig: PolicyConfiguration = profile.toPolicyConfiguration()
             val policyEngine = DefaultPolicyEngine(policyConfig)
             val auditEng = AuditEngine(store = auditStore!!, clock = clock)
@@ -477,10 +375,21 @@ class SovereignTramai private constructor(
                 .modelRegistry(modelRegistry!!)
                 .modelRegistrySettings(ModelRegistrySettings(enabled = true))
                 .approvalLifecycleAudit(approvalLifecycleEmitter)
-                .build()
+
+            // Freeze the authoritative routing plan and validate it against the sovereign
+            // profile BEFORE constructing the tramai instance, so an invalid routing
+            // configuration fails at build without leaving a partially-built runtime.
+            val plan = tramai.buildRoutingPlan()
+            SovereignRoutingValidationPolicy.validate(plan, profile)
+
+            val verificationReceipts = verifyLocalModelArtifacts(
+                profile = profile,
+                modelRegistry = modelRegistry!!,
+                plan = plan,
+            )
 
             return SovereignTramai(
-                delegate = tramai,
+                delegate = tramai.build(),
                 verificationReceipts = verificationReceipts,
                 profile = profile,
                 verificationSettings = verificationSettings,
@@ -490,6 +399,7 @@ class SovereignTramai private constructor(
         private fun verifyLocalModelArtifacts(
             profile: SovereignProfileConfiguration,
             modelRegistry: ModelRegistry,
+            plan: dev.tramai.core.provider.ProviderRoutingPlan,
         ): List<VerifiedLocalModelArtifact> {
             if (!verificationSettings.enabled) {
                 return emptyList()
@@ -504,20 +414,10 @@ class SovereignTramai private constructor(
                     profile = profile,
                     modelRegistry = modelRegistry,
                     verifier = verifier,
-                    verificationTargets = collectVerificationTargets(),
+                    verificationTargets = plan.verificationTargets(),
                 )
             }
         }
-
-        private fun collectVerificationTargets(): Set<Pair<String, String>> =
-            buildSet {
-                primaryModelRoutes.forEach { (modelName, providerName) ->
-                    add(providerName to modelName)
-                }
-                fallbackRoutes.forEach { route ->
-                    add(route.providerName to route.fallbackModelName)
-                }
-            }
 
         private suspend fun verifyByProviderZone(
             profile: SovereignProfileConfiguration,
@@ -602,37 +502,6 @@ class SovereignTramai private constructor(
             } ?: throw IllegalStateException("artifact-manifest-not-found")
         }
 
-        private fun validateOfflineDeployment(
-            profile: SovereignProfileConfiguration,
-        ) {
-            if (profile.deploymentMode != SovereignDeploymentMode.OFFLINE) {
-                return
-            }
-
-            for (providerName in registeredProviders) {
-                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
-                    "offline-profile-non-local-provider-rejected"
-                }
-            }
-
-            for ((_, providerName) in primaryModelRoutes) {
-                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
-                    "offline-profile-non-local-primary-route-rejected"
-                }
-            }
-
-            for (fallback in fallbackRoutes) {
-                require(profile.providerZones.getValue(fallback.providerName) == ProviderTrustZone.LOCAL) {
-                    "offline-profile-non-local-fallback-rejected"
-                }
-            }
-
-            defaultProviderName?.let { providerName ->
-                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
-                    "offline-profile-non-local-default-provider-rejected"
-                }
-            }
-        }
     }
 }
 

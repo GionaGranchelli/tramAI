@@ -151,40 +151,52 @@ class TramaiAutoConfiguration {
             ?: ModelRegistrySettings(enabled = properties.security.modelRegistry.enabled)
         builder.modelRegistrySettings(settings)
 
-        // Register property-backed providers first so explicit provider beans can override them when needed.
-        resolveSecret(
-            directValue = properties.providers.anthropic.apiKey,
-            secretRef = properties.providers.anthropic.apiKeySecretRef,
-            fieldName = "tramai.providers.anthropic.apiKey",
-            secretResolver = secretResolver,
-        )?.let { apiKey ->
-            builder.provider(
-                provider = AnthropicProvider(
+        val propertyProviders = listOfNotNull(
+            resolveSecret(
+                directValue = properties.providers.anthropic.apiKey,
+                secretRef = properties.providers.anthropic.apiKeySecretRef,
+                fieldName = "tramai.providers.anthropic.apiKey",
+                secretResolver = secretResolver,
+            )?.let { apiKey ->
+                "anthropic" to AnthropicProvider(
                     apiKey = apiKey,
                     baseUrl = properties.providers.anthropic.baseUrl ?: "https://api.anthropic.com",
-                ),
-                name = "anthropic",
-            )
-        }
+                )
+            },
+            resolveOpenAiProvider(properties.providers.openai, secretResolver)?.let { provider ->
+                provider.providerId() to provider
+            },
+            resolveOpenAiCompatibleProvider(properties.providers.openaiCompatible, secretResolver)?.let { provider ->
+                provider.providerId() to provider
+            },
+            properties.providers.ollama.baseUrl?.takeIf { it.isNotBlank() }?.let { baseUrl ->
+                "ollama" to OllamaProvider(baseUrl = baseUrl)
+            },
+        )
 
-        resolveOpenAiProvider(properties.providers.openai, secretResolver)?.let { provider ->
-            builder.provider(provider = provider, name = provider.providerId())
-        }
+        val beanProviders = dependencies.modelProviders.orderedStream().toList()
+        val beanProviderCounts = beanProviders.groupingBy { it.providerId() }.eachCount()
+        // Unique beans override property-backed providers; genuine user duplicates are
+        // registered as-is so the canonical plan builder rejects them deterministically.
+        val uniqueBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) == 1 }
+        val duplicateBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) > 1 }
 
-        resolveOpenAiCompatibleProvider(properties.providers.openaiCompatible, secretResolver)?.let { provider ->
-            builder.provider(provider = provider, name = provider.providerId())
-        }
+        // Only bean-over-property precedence is intentional. A property-vs-property
+        // duplicate (e.g. OpenAI plus an openai-compatible provider explicitly named
+        // "openai") must NOT be silently collapsed — pass both through so the canonical
+        // plan builder rejects the collision deterministically.
+        val propertyProviderCounts = propertyProviders.groupingBy { it.first }.eachCount()
+        val duplicatePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) > 1 }
+        val uniquePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) == 1 }
 
-        properties.providers.ollama.baseUrl?.takeIf { it.isNotBlank() }?.let { baseUrl ->
-            builder.provider(
-                provider = OllamaProvider(baseUrl = baseUrl),
-                name = "ollama",
-            )
+        val providersById = uniquePropertyProviders.toMap() + uniqueBeanProviders.associate { it.providerId() to it }
+        providersById.forEach { (providerId, provider) ->
+            builder.provider(provider, name = providerId)
         }
-
-        dependencies.modelProviders.orderedStream().forEach { provider ->
-            builder.provider(provider, name = provider.providerId())
+        duplicatePropertyProviders.forEach { (providerId, provider) ->
+            builder.provider(provider, name = providerId)
         }
+        duplicateBeanProviders.forEach { provider -> builder.provider(provider, name = provider.providerId()) }
 
         properties.models.forEach { (model, providerName) ->
             builder.model(model, providerName)

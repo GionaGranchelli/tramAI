@@ -130,7 +130,7 @@ val receipts = tramai.verificationReceipts()
 
 ## Build-Time Validation
 
-`SovereignTramai.Builder.build()` validates at construction time:
+`SovereignTramai.Builder.build()` validates the immutable provider routing plan at construction time:
 
 - Profile configuration is present
 - Model registry is present

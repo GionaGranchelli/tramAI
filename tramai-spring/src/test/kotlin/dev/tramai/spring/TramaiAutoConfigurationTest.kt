@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.TokenBudgetExceededException
@@ -101,6 +102,57 @@ class TramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `property providers with colliding ids fail deterministically instead of collapsing`() {
+        // OpenAI plus an openai-compatible provider explicitly named "openai" must NOT
+        // silently collapse into one (last-wins). Both reach the canonical plan builder,
+        // which rejects the duplicate provider id.
+        val server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/chat/completions") { exchange ->
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "gpt-5.1-chat-latest",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "unused"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            )
+        }
+        server.start()
+
+        try {
+            val contextRunner = ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                )
+                .withUserConfiguration(TestApplication::class.java)
+                .withPropertyValues(
+                    "tramai.models.gpt-5.1-chat-latest=openai",
+                    "tramai.providers.openai.apiKey=test-openai-key",
+                    "tramai.providers.openai.baseUrl=http://localhost:${server.address.port}/v1",
+                    "tramai.providers.openai-compatible.baseUrl=http://localhost:${server.address.port}/v1",
+                    "tramai.providers.openai-compatible.providerName=openai",
+                    "tramai.providers.openai-compatible.apiKey=test-compatible-key",
+                )
+
+            contextRunner.run { context ->
+                assertThat(context).hasFailed()
+                assertThat(context.startupFailure?.message).contains("Duplicate provider 'openai'")
+            }
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun `creates an openai provider from configuration properties`() {
         var capturedAuthorization = ""
         val server = HttpServer.create(InetSocketAddress(0), 0)
@@ -151,6 +203,61 @@ class TramaiAutoConfigurationTest {
             }
         } finally {
             server.stop(0)
+        }
+    }
+
+    @Test
+    fun `custom provider bean overrides property backed provider with the same id`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withUserConfiguration(TestApplication::class.java)
+            .withBean("openAiOverrideProvider", ModelProvider::class.java, Supplier { OpenAiOverrideProvider() })
+            .withPropertyValues(
+                "tramai.default-provider=openai",
+                "tramai.models.gpt-5.1-chat-latest=openai",
+                "tramai.providers.openai.apiKey=property-openai-key",
+            )
+
+        contextRunner.run { context ->
+            val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+
+            assertThat(runBlocking { analyzer.analyze("invoice-123") }).isEqualTo("bean override")
+        }
+    }
+
+    @Test
+    fun `duplicate custom provider bean ids fail during context construction`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withUserConfiguration(TestApplication::class.java)
+            .withBean("firstDuplicateProvider", ModelProvider::class.java, Supplier { FixedProvider("duplicate") })
+            .withBean("secondDuplicateProvider", ModelProvider::class.java, Supplier { FixedProvider("duplicate") })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(ConfigurationException::class.java)
+                .hasRootCauseMessage("Duplicate provider 'duplicate'")
+        }
+    }
+
+    @Test
+    fun `invalid fallback route fails during context construction`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues(
+                "tramai.models.gpt-5.1-chat-latest=stub",
+                "tramai.fallbacks.gpt-5.1-chat-latest[0].provider=missing",
+            )
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(ConfigurationException::class.java)
+                .hasRootCauseMessage(
+                    "Fallback route for model 'gpt-5.1-chat-latest' targets unknown provider 'missing'",
+                )
         }
     }
 
@@ -979,6 +1086,18 @@ class PrimaryFailingProvider : ModelProvider {
     }
 
     override fun providerId(): String = "primary"
+}
+
+class OpenAiOverrideProvider : ModelProvider {
+    override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse(content = "bean override")
+
+    override fun providerId(): String = "openai"
+}
+
+class FixedProvider(private val id: String) : ModelProvider {
+    override suspend fun complete(request: ModelRequest): ModelResponse = ModelResponse(content = id)
+
+    override fun providerId(): String = id
 }
 
 class FallbackSuccessProvider : ModelProvider {
