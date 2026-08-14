@@ -102,6 +102,57 @@ class TramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `property providers with colliding ids fail deterministically instead of collapsing`() {
+        // OpenAI plus an openai-compatible provider explicitly named "openai" must NOT
+        // silently collapse into one (last-wins). Both reach the canonical plan builder,
+        // which rejects the duplicate provider id.
+        val server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/chat/completions") { exchange ->
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "gpt-5.1-chat-latest",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "unused"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            )
+        }
+        server.start()
+
+        try {
+            val contextRunner = ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                )
+                .withUserConfiguration(TestApplication::class.java)
+                .withPropertyValues(
+                    "tramai.models.gpt-5.1-chat-latest=openai",
+                    "tramai.providers.openai.apiKey=test-openai-key",
+                    "tramai.providers.openai.baseUrl=http://localhost:${server.address.port}/v1",
+                    "tramai.providers.openai-compatible.baseUrl=http://localhost:${server.address.port}/v1",
+                    "tramai.providers.openai-compatible.providerName=openai",
+                    "tramai.providers.openai-compatible.apiKey=test-compatible-key",
+                )
+
+            contextRunner.run { context ->
+                assertThat(context).hasFailed()
+                assertThat(context.startupFailure?.message).contains("Duplicate provider 'openai'")
+            }
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun `creates an openai provider from configuration properties`() {
         var capturedAuthorization = ""
         val server = HttpServer.create(InetSocketAddress(0), 0)

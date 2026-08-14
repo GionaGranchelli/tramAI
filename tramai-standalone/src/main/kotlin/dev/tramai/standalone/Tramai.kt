@@ -65,7 +65,7 @@ import kotlin.reflect.full.createType
  * caller-owned unless their own API explicitly transfers ownership.
  */
 class Tramai private constructor(
-    internal val providerRegistry: ProviderRegistry,
+    private val providerRegistry: ProviderRegistry,
     private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
     private val operationInterceptor: OperationInterceptor,
@@ -176,6 +176,7 @@ class Tramai private constructor(
      */
     class Builder {
         private val registryBuilder = dev.tramai.core.provider.ProviderRoutingPlan.builder()
+        private var builtRoutingPlan: dev.tramai.core.provider.ProviderRoutingPlan? = null
         // Raw tools are kept until build() so the runtime is resolved against
         // a frozen snapshot of the builder state (immutability of the built
         // Tramai instance).
@@ -475,6 +476,17 @@ class Tramai private constructor(
         }
 
         /**
+         * Freezes and returns the authoritative [dev.tramai.core.provider.ProviderRoutingPlan]
+         * for the current builder state. The returned instance is exactly the plan later
+         * installed in the built [Tramai] runtime — callers (e.g. sovereign validation) can
+         * validate this same instance before [build] is invoked, without reaching through
+         * internal members. Subsequent builder mutations have no effect on a returned or
+         * already-built plan.
+         */
+        fun buildRoutingPlan(): dev.tramai.core.provider.ProviderRoutingPlan =
+            builtRoutingPlan ?: registryBuilder.build().also { builtRoutingPlan = it }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          *
          * @throws IllegalStateException if approval composition is partially configured
@@ -501,7 +513,7 @@ class Tramai private constructor(
             // snapshotted now, so mutating this builder after build() can never
             // redirect diagnostics of the built runtime.
             return Tramai(
-                providerRegistry = ProviderRegistry.from(registryBuilder.build()),
+                providerRegistry = ProviderRegistry.from(buildRoutingPlan()),
                 toolRegistry = ToolRegistry(
                     tools.mapValues { (_, tool) ->
                         createResolvedTool(tool, handler, toolFailureDiagnosticObserver)

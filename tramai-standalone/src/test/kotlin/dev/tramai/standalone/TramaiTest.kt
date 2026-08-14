@@ -229,7 +229,6 @@ class TramaiTest {
         val tramai = Tramai {
             provider(a, name = "a")
             provider(b, name = "b", default = true)
-            model("m", "a")
             model("m", "b")
         }
         val service = tramai.create<SuspendService>()

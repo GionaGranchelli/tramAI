@@ -2,6 +2,7 @@ package dev.tramai.core.provider
 
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ConfigurationException
+import java.util.Collections
 
 @JvmInline
 value class ProviderId(val value: String)
@@ -20,9 +21,12 @@ class ProviderRoutingPlan private constructor(
     routes: Map<ModelId, List<PlannedProviderRoute>>,
     val defaultProvider: ProviderId?,
 ) {
-    val providers: Map<ProviderId, ModelProvider> = providers.toMap()
-    val routes: Map<ModelId, List<PlannedProviderRoute>> =
-        routes.mapValues { (_, configuredRoutes) -> configuredRoutes.toList() }
+    val providers: Map<ProviderId, ModelProvider> = Collections.unmodifiableMap(providers.toMap())
+    val routes: Map<ModelId, List<PlannedProviderRoute>> = Collections.unmodifiableMap(
+        routes.mapValues { (_, configuredRoutes) ->
+            Collections.unmodifiableList(configuredRoutes.toList())
+        },
+    )
 
     companion object {
         fun builder(): Builder = Builder()
@@ -30,8 +34,10 @@ class ProviderRoutingPlan private constructor(
 
     class Builder {
         private val providers = linkedMapOf<ProviderId, ModelProvider>()
-        private val routes = linkedMapOf<ModelId, List<PlannedProviderRoute>>()
+        private val primaryRoutes = linkedMapOf<ModelId, PlannedProviderRoute>()
+        private val fallbackRoutes = linkedMapOf<ModelId, MutableList<PlannedProviderRoute>>()
         private val duplicateProviderIds = linkedSetOf<ProviderId>()
+        private val duplicatePrimaryModels = linkedSetOf<ModelId>()
         private var defaultProvider: ProviderId? = null
 
         fun provider(name: String, provider: ModelProvider, default: Boolean = false): Builder = apply {
@@ -41,11 +47,12 @@ class ProviderRoutingPlan private constructor(
             if (default) defaultProvider = providerId
         }
 
-        // Re-registering a primary route intentionally replaces only that route and retains fallbacks.
+        // Registers the explicit primary route for a model. A second primary for the
+        // same model is a duplicate configuration error, not a silent replacement.
         fun model(modelName: String, providerName: String): Builder = apply {
             val modelId = ModelId(modelName)
-            val existingFallbacks = routes[modelId]?.drop(1).orEmpty()
-            routes[modelId] = listOf(PlannedProviderRoute(ProviderId(providerName), modelId)) + existingFallbacks
+            if (modelId in primaryRoutes) duplicatePrimaryModels += modelId
+            primaryRoutes[modelId] = PlannedProviderRoute(ProviderId(providerName), modelId)
         }
 
         fun fallbackModel(
@@ -54,7 +61,7 @@ class ProviderRoutingPlan private constructor(
             providerName: String,
         ): Builder = apply {
             val requestedModelId = ModelId(requestedModelName)
-            routes[requestedModelId] = routes.getOrPut(requestedModelId) { emptyList() } +
+            fallbackRoutes.getOrPut(requestedModelId) { mutableListOf() } +=
                 PlannedProviderRoute(ProviderId(providerName), ModelId(fallbackModelName))
         }
 
@@ -67,26 +74,52 @@ class ProviderRoutingPlan private constructor(
 
         fun build(): ProviderRoutingPlan {
             validate()
-            return ProviderRoutingPlan(providers, routes, defaultProvider)
+            val composedRoutes = linkedMapOf<ModelId, List<PlannedProviderRoute>>()
+            primaryRoutes.forEach { (modelId, primary) ->
+                composedRoutes[modelId] = listOf(primary) + fallbackRoutes[modelId].orEmpty()
+            }
+            return ProviderRoutingPlan(providers, composedRoutes, defaultProvider)
         }
 
         private fun validate() {
-            providers.keys.forEach { providerId -> validateProviderId(providerId) }
+            providers.keys.forEach { validateProviderId(it) }
             if (duplicateProviderIds.isNotEmpty()) {
                 throw ConfigurationException("Duplicate provider '${duplicateProviderIds.first().value}'")
             }
-            routes.forEach { (requestedModelId, configuredRoutes) ->
-                validateModelId(requestedModelId)
+            if (duplicatePrimaryModels.isNotEmpty()) {
+                throw ConfigurationException("Duplicate primary route for model '${duplicatePrimaryModels.first().value}'")
+            }
+            // Every model with fallback routes must have an explicit primary. A fallback-only
+            // route list would otherwise let a fallback masquerade as the primary at index 0.
+            fallbackRoutes.keys.forEach { modelId ->
+                if (modelId !in primaryRoutes) {
+                    throw ConfigurationException("Model '${modelId.value}' has fallback routes but no primary route")
+                }
+            }
+            primaryRoutes.forEach { (modelId, primary) ->
+                validateModelId(modelId)
+                validateProviderId(primary.providerId)
+                validateModelId(primary.effectiveModelId)
+                if (primary.providerId !in providers) {
+                    throw ConfigurationException("Primary route for model '${modelId.value}' targets unknown provider '${primary.providerId.value}'")
+                }
+                fallbackRoutes[modelId].orEmpty().forEach { fallback ->
+                    if (fallback == primary) {
+                        throw ConfigurationException("Fallback route for model '${modelId.value}' duplicates its primary route")
+                    }
+                }
+            }
+            fallbackRoutes.forEach { (modelId, configuredRoutes) ->
+                validateModelId(modelId)
                 val seenFallbacks = mutableSetOf<PlannedProviderRoute>()
-                configuredRoutes.forEachIndexed { index, route ->
+                configuredRoutes.forEach { route ->
                     validateProviderId(route.providerId)
                     validateModelId(route.effectiveModelId)
                     if (route.providerId !in providers) {
-                        val kind = if (index == 0) "Primary" else "Fallback"
-                        throw ConfigurationException("$kind route for model '${requestedModelId.value}' targets unknown provider '${route.providerId.value}'")
+                        throw ConfigurationException("Fallback route for model '${modelId.value}' targets unknown provider '${route.providerId.value}'")
                     }
-                    if (index > 0 && !seenFallbacks.add(route)) {
-                        throw ConfigurationException("Duplicate fallback route for model '${requestedModelId.value}'")
+                    if (!seenFallbacks.add(route)) {
+                        throw ConfigurationException("Duplicate fallback route for model '${modelId.value}'")
                     }
                 }
             }
@@ -107,6 +140,9 @@ class ProviderRoutingPlan private constructor(
 
         private fun validateModelId(modelId: ModelId) {
             if (modelId.value.isBlank()) throw ConfigurationException("Model name must not be blank")
+            if (modelId.value != modelId.value.trim()) {
+                throw ConfigurationException("Model name '${modelId.value}' must not have surrounding whitespace")
+            }
         }
     }
 }

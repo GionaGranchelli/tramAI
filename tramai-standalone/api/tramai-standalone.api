@@ -13,6 +13,7 @@ public final class dev/tramai/standalone/Tramai$Builder {
 	public final fun approvalGateCoordinator (Ldev/tramai/core/approval/ApprovalGateCoordinator;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun approvalLifecycleAudit (Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun build ()Ldev/tramai/standalone/Tramai;
+	public final fun buildRoutingPlan ()Ldev/tramai/core/provider/ProviderRoutingPlan;
 	public final fun cache (Ldev/tramai/engine/OperationResponseCache;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun circuitBreaker (Ldev/tramai/engine/CircuitBreakerSettings;)Ldev/tramai/standalone/Tramai$Builder;
 	public final fun clock (Ljava/time/Clock;)Ldev/tramai/standalone/Tramai$Builder;

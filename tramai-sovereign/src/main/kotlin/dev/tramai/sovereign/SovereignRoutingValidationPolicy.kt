@@ -38,6 +38,9 @@ internal object SovereignRoutingValidationPolicy {
                 require(modelName in profile.allowedModels) {
                     "Primary route for '$modelName' routes a model not in allowedModels"
                 }
+                require(primary.effectiveModelId.value in profile.allowedModels) {
+                    "Primary route for '$modelName' targets unapproved effective model '${primary.effectiveModelId.value}'"
+                }
                 require(providerName in registeredProviders) {
                     "Model '$modelName' routes to unknown provider '$providerName'"
                 }

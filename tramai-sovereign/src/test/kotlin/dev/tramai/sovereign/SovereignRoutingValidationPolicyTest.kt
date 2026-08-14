@@ -55,6 +55,21 @@ class SovereignRoutingValidationPolicyTest {
         )
     }
 
+    @Test
+    fun `policy rejects fallback-only routing configuration`() {
+        // A fallback registered without an explicit primary is a sovereign-regression
+        // vector (the fallback would masquerade as a primary and execute an unapproved
+        // effective model). The canonical plan must reject it at build.
+        assertThatThrownBy {
+            ProviderRoutingPlan.builder()
+                .provider("local-provider", FakeProvider("local-provider"), default = true)
+                .fallbackModel("approved-model", "NOT-APPROVED", "local-provider")
+                .build()
+        }
+            .isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("no primary route")
+    }
+
     private fun profile(allowedProviders: Set<String>) = SovereignProfileConfiguration(
         allowedModels = setOf("test-model", "fallback-model"),
         allowedProviders = allowedProviders,

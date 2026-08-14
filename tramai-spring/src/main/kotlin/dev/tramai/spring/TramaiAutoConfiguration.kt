@@ -181,8 +181,19 @@ class TramaiAutoConfiguration {
         val uniqueBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) == 1 }
         val duplicateBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) > 1 }
 
-        val providersById = propertyProviders.toMap() + uniqueBeanProviders.associate { it.providerId() to it }
+        // Only bean-over-property precedence is intentional. A property-vs-property
+        // duplicate (e.g. OpenAI plus an openai-compatible provider explicitly named
+        // "openai") must NOT be silently collapsed — pass both through so the canonical
+        // plan builder rejects the collision deterministically.
+        val propertyProviderCounts = propertyProviders.groupingBy { it.first }.eachCount()
+        val duplicatePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) > 1 }
+        val uniquePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) == 1 }
+
+        val providersById = uniquePropertyProviders.toMap() + uniqueBeanProviders.associate { it.providerId() to it }
         providersById.forEach { (providerId, provider) ->
+            builder.provider(provider, name = providerId)
+        }
+        duplicatePropertyProviders.forEach { (providerId, provider) ->
             builder.provider(provider, name = providerId)
         }
         duplicateBeanProviders.forEach { provider -> builder.provider(provider, name = provider.providerId()) }

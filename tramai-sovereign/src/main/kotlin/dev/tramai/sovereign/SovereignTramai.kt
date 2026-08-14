@@ -374,10 +374,11 @@ class SovereignTramai private constructor(
                 .modelRegistry(modelRegistry!!)
                 .modelRegistrySettings(ModelRegistrySettings(enabled = true))
                 .approvalLifecycleAudit(approvalLifecycleEmitter)
-                .build()
 
-            @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
-            val plan = tramai.providerRegistry.routingPlan
+            // Freeze the authoritative routing plan and validate it against the sovereign
+            // profile BEFORE constructing the tramai instance, so an invalid routing
+            // configuration fails at build without leaving a partially-built runtime.
+            val plan = tramai.buildRoutingPlan()
             SovereignRoutingValidationPolicy.validate(plan, profile)
 
             val verificationReceipts = verifyLocalModelArtifacts(
@@ -387,7 +388,7 @@ class SovereignTramai private constructor(
             )
 
             return SovereignTramai(
-                delegate = tramai,
+                delegate = tramai.build(),
                 verificationReceipts = verificationReceipts,
                 profile = profile,
                 verificationSettings = verificationSettings,

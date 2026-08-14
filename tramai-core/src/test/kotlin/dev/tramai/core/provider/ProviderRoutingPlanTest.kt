@@ -81,6 +81,72 @@ class ProviderRoutingPlanTest {
         assertThat(plan.routes.getValue(ModelId("model"))).hasSize(2)
     }
 
+    @Test
+    fun `plan collections reject mutation after build`() {
+        val plan = ProviderRoutingPlan.builder()
+            .provider("one", NamedProvider("one"))
+            .model("model", "one")
+            .build()
+
+        assertThatThrownBy {
+            (plan.providers as MutableMap<ProviderId, ModelProvider>)[ProviderId("x")] = NamedProvider("x")
+        }.isInstanceOf(UnsupportedOperationException::class.java)
+
+        assertThatThrownBy {
+            (plan.routes[ModelId("model")] as MutableList<PlannedProviderRoute>).add(
+                PlannedProviderRoute(ProviderId("x"), ModelId("x")),
+            )
+        }.isInstanceOf(UnsupportedOperationException::class.java)
+    }
+
+    @Test
+    fun `fallback routes without a primary are rejected at build`() = assertThatThrownBy {
+        ProviderRoutingPlan.builder().provider("one", NamedProvider("one"))
+            .fallbackModel("model", "alternate", "one").build()
+    }.isInstanceOf(ConfigurationException::class.java)
+        .hasMessageContaining("no primary route")
+
+    @Test
+    fun `duplicate primary route is rejected`() = assertThatThrownBy {
+        ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).provider("two", NamedProvider("two"))
+            .model("model", "one").model("model", "two").build()
+    }.isInstanceOf(ConfigurationException::class.java)
+        .hasMessageContaining("Duplicate primary route")
+
+    @Test
+    fun `fallback identical to primary is rejected`() = assertThatThrownBy {
+        ProviderRoutingPlan.builder().provider("one", NamedProvider("one"))
+            .model("model", "one").fallbackProvider("model", "one").build()
+    }.isInstanceOf(ConfigurationException::class.java)
+        .hasMessageContaining("duplicates its primary route")
+
+    @Test
+    fun `model ids with surrounding whitespace are rejected`() {
+        assertThatThrownBy {
+            ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).model(" model ", "one").build()
+        }.isInstanceOf(ConfigurationException::class.java)
+            .hasMessageContaining("whitespace")
+        assertThatThrownBy {
+            ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).model("model", "one")
+                .fallbackModel("model", " fallback ", "one").build()
+        }.isInstanceOf(ConfigurationException::class.java)
+            .hasMessageContaining("whitespace")
+    }
+
+    @Test
+    fun `fallback registered before primary is preserved`() {
+        val plan = ProviderRoutingPlan.builder()
+            .provider("one", NamedProvider("one"))
+            .provider("two", NamedProvider("two"))
+            .fallbackProvider("model", "two")
+            .model("model", "one")
+            .build()
+        assertThat(plan.routes.getValue(ModelId("model"))).containsExactly(
+            PlannedProviderRoute(ProviderId("one"), ModelId("model")),
+            PlannedProviderRoute(ProviderId("two"), ModelId("model")),
+        )
+    }
+
     private class NamedProvider(private val name: String) : ModelProvider {
         override suspend fun complete(request: ModelRequest): ModelResponse = error("unused")
         override fun providerId(): String = name
