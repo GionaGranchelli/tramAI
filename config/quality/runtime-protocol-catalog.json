@@ -1,5 +1,5 @@
 {
-  "description" : "Starter catalog — 69 entries identified",
+  "description" : "Starter catalog — 68 entries identified",
   "entries" : [ {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_EVENT_NAME",
@@ -305,13 +305,6 @@
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.request.completed",
     "value" : "tramai.workflow.http.request.completed",
-    "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ],
-    "stability" : "unclassified"
-  }, {
-    "category" : "runtime-protocol",
-    "name" : "tramai.workflow.http.request.policy.rejected",
-    "value" : "tramai.workflow.http.request.policy.rejected",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
     "consumers" : [ ],
     "stability" : "unclassified"
