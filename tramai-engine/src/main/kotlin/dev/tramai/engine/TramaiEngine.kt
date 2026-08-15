@@ -117,9 +117,6 @@ import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
-import kotlin.reflect.KFunction
-import kotlin.reflect.KParameter
-import kotlin.reflect.jvm.kotlinFunction
 import dev.tramai.engine.components.ApprovalCapability
 import dev.tramai.engine.components.EngineComponentFactory
 import dev.tramai.engine.components.EngineComponents
@@ -1510,6 +1507,7 @@ internal class TramaiInvocationHandler(
         val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
+            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
         )
 
         cacheKey?.let { key ->
@@ -1609,6 +1607,7 @@ internal class TramaiInvocationHandler(
         val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
+            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
         )
 
         cacheKey?.let { key ->
@@ -4751,13 +4750,14 @@ data class OperationDefinition(
     internal fun buildCacheKey(
         digestSource: List<Message>,
         securityPartition: CacheSecurityPartition,
+        operationFingerprint: String? = null,
     ): OperationCacheKey = OperationCacheKey(
         serviceInterface = method.declaringClass.name,
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
         requestDigest = sha256Hex(CanonicalMessageEncoder.encode(digestSource)),
-        operationFingerprint = OperationFingerprintFactory().create(toolDefinitions, operation),
+        operationFingerprint = operationFingerprint ?: OperationFingerprintFactory().create(toolDefinitions, operation),
         securityPartition = securityPartition,
     )
 
@@ -4768,6 +4768,10 @@ data class OperationDefinition(
     )
 
     companion object {
+        /**
+         * Public compatibility façade. The reflection/validation implementation
+         * lives in [dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition].
+         */
         fun create(
             method: Method,
             operation: Operation,
@@ -4776,119 +4780,15 @@ data class OperationDefinition(
             userAnnotations: List<String> = emptyList(),
             toolDefinitions: List<ToolDefinition> = emptyList(),
             promptSanitizer: PromptSanitizer? = null,
-        ): OperationDefinition {
-            validateOperationAnnotation(method, operation)
-            warnOnSystemPromptShadowing(method, systemAnnotations, classLevelSystemPrompt)
-
-            val kotlinFunction = runCatching { method.kotlinFunction }.getOrNull()
-            val isSuspend = kotlinFunction?.isSuspend ?: method.isSuspendSignature()
-            val parameterNames = resolveParameterNames(method, kotlinFunction)
-            val returnType = resolveReturnType(kotlinFunction)
-            val returnKind = resolveReturnKind(method, isSuspend, returnType)
-            val returnTypeDescription = resolveReturnTypeDescription(method, returnType)
-
-            return OperationDefinition(
-                method = method,
-                operation = operation,
-                classLevelSystemPrompt = classLevelSystemPrompt,
-                systemAnnotations = systemAnnotations,
-                userAnnotations = userAnnotations,
-                isSuspend = isSuspend,
-                parameterNames = parameterNames,
-                returnKind = returnKind,
-                returnType = returnType,
-                returnTypeDescription = returnTypeDescription,
-                toolDefinitions = toolDefinitions,
-                promptSanitizer = promptSanitizer,
-            )
-        }
-
-        /**
-         * Validates operation annotation values before building executable metadata.
-         */
-        private fun validateOperationAnnotation(method: Method, operation: Operation) {
-            require(operation.maxRetries >= 0) {
-                "@Operation(maxRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
-            }
-            require(operation.providerRetries >= 0) {
-                "@Operation(providerRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
-            }
-            require(operation.timeoutMillis > 0) {
-                "@Operation(timeoutMillis) must be greater than zero for ${method.declaringClass.name}.${method.name}"
-            }
-            require(!operation.cacheable || operation.cacheTtlMillis > 0) {
-                "@Operation(cacheTtlMillis) must be greater than zero when caching is enabled for ${method.declaringClass.name}.${method.name}"
-            }
-        }
-
-        /**
-         * Emits the precedence warning when method-level system messages shadow the class prompt.
-         */
-        private fun warnOnSystemPromptShadowing(
-            method: Method,
-            systemAnnotations: List<String>,
-            classLevelSystemPrompt: String?,
-        ) {
-            if (systemAnnotations.isEmpty() || classLevelSystemPrompt.isNullOrBlank()) {
-                return
-            }
-            val logger = System.getLogger("dev.tramai.engine.OperationDefinition")
-            logger.log(
-                System.Logger.Level.WARNING,
-                "@System on ${method.declaringClass.name}.${method.name} takes precedence over @SystemPrompt on the class",
-            )
-        }
-
-        private fun resolveParameterNames(
-            method: Method,
-            kotlinFunction: KFunction<*>?,
-        ): List<String> {
-            val valueParameters = kotlinFunction?.parameters
-                ?.filter { it.kind == KParameter.Kind.VALUE }
-                ?.map { it.name ?: "arg${it.index}" }
-            if (valueParameters != null) {
-                return valueParameters
-            }
-
-            return method.parameters.mapIndexed { index, parameter ->
-                parameter.name?.takeIf { it.isNotBlank() } ?: "arg$index"
-            }
-        }
-
-        private fun resolveReturnKind(
-            method: Method,
-            isSuspend: Boolean,
-            returnType: kotlin.reflect.KType?,
-        ): ReturnKind {
-            val classifier = returnType?.classifier
-            return when (classifier) {
-                String::class -> ReturnKind.STRING
-                Unit::class -> ReturnKind.UNIT
-                kotlinx.coroutines.flow.Flow::class -> ReturnKind.STREAMING
-                null -> when {
-                    isSuspend -> throw ConfigurationException(
-                        "Suspend method ${method.declaringClass.name}.${method.name} requires Kotlin reflection metadata to inspect its return type",
-                    )
-                    method.returnType == String::class.java -> ReturnKind.STRING
-                    method.returnType == Void.TYPE -> ReturnKind.UNIT
-                    kotlinx.coroutines.flow.Flow::class.java.isAssignableFrom(method.returnType) -> ReturnKind.STREAMING
-                    else -> ReturnKind.STRUCTURED
-                }
-                else -> ReturnKind.STRUCTURED
-            }
-        }
-
-        private fun resolveReturnType(
-            kotlinFunction: KFunction<*>?,
-        ) = kotlinFunction?.returnType
-
-        private fun resolveReturnTypeDescription(
-            method: Method,
-            returnType: kotlin.reflect.KType?,
-        ): String = returnType?.toString() ?: method.genericReturnType.typeName
-
-        private fun Method.isSuspendSignature(): Boolean =
-            parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
+        ): OperationDefinition = dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition(
+            method = method,
+            operation = operation,
+            classLevelSystemPrompt = classLevelSystemPrompt,
+            systemAnnotations = systemAnnotations,
+            userAnnotations = userAnnotations,
+            toolDefinitions = toolDefinitions,
+            promptSanitizer = promptSanitizer,
+        )
     }
 }
 
