@@ -111,12 +111,14 @@ class ProviderCancellationContractTest {
     }
 
     @Test
-    fun `authorization cancellation invokes no provider and no policies`() {
+    fun `authorization cancellation cancels observation and invokes no provider or policies`() {
         var calls = 0
+        val observation = RecordingObservation()
         val retryPolicy = CountingRetryPolicy()
         val fallbackPolicy = CountingFallbackPolicy()
         val cancellation = CancellationException("auth")
         val attemptExecutor = executor(
+            observation = observation,
             retryPolicy = retryPolicy,
             authorization = authorization { throw cancellation },
         )
@@ -143,6 +145,9 @@ class ProviderCancellationContractTest {
         assertThat(calls).isZero()
         assertThat(retryPolicy.decideCalls.get()).isZero()
         assertThat(fallbackPolicy.decideCalls.get()).isZero()
+        assertThat(observation.cancelled).isEqualTo(1)
+        assertThat(observation.completed).isZero()
+        assertThat(observation.failures).isZero()
     }
 
     private fun coordinator(

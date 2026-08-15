@@ -26,7 +26,11 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 
 internal data class ProviderCallResult(val response: ModelResponse, val observation: OperationObservation, val providerId: String, val modelName: String, val approvedModel: RegisteredModel?)
-internal class AttemptCounter { private var attempt = 0; fun next(): Int = attempt++ }
+internal class AttemptCounter {
+    private var attempt = 0
+
+    fun next(): Int = attempt++
+}
 internal fun interface ProviderInvocationGate { suspend fun invoke(providerId: String, modelName: String, correlationId: String, securityContext: ExecutionSecurityContext) }
 internal fun interface ProviderResponseSanitizer { suspend fun sanitize(response: ModelResponse, operation: OperationDefinition, providerId: String, modelName: String, correlationId: String, securityContext: ExecutionSecurityContext, observation: OperationObservation): ModelResponse }
 
@@ -80,7 +84,15 @@ internal class ProviderAttemptExecutor(
         val intercepted = request.request.copy(messages = operationInterceptor.interceptRequest(context, request.request.messages))
         val observation = operationObserver.onCallStarted(context)
         observation.onEngineEvent("tramai.route.selected", mapOf("provider_id" to request.providerId, "effective_model" to request.request.model, "route_index" to request.routeIndex, "is_fallback" to (request.routeIndex > 0)))
-        val approvedModel = try { authorizationService.authorize(request.providerId, request.request.model) } catch (error: ModelRegistryException) { observation.onCallCompleted(parseSuccess = null); throw error }
+        val approvedModel = try {
+            authorizationService.authorize(request.providerId, request.request.model)
+        } catch (error: CancellationException) {
+            observation.completeCancellation(error)
+            throw error
+        } catch (error: ModelRegistryException) {
+            observation.onCallCompleted(parseSuccess = null)
+            throw error
+        }
         return ProviderRetryAttempt(context, intercepted, observation, approvedModel)
     }
 
@@ -103,5 +115,9 @@ internal data class ProviderRetryRequest(val providerId: String, val provider: M
 private data class ProviderRetryAttempt(val context: OperationCallContext, val request: ModelRequest, val observation: OperationObservation, val approvedModel: RegisteredModel?)
 
 private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
-    try { onCallCancelled() } catch (observerError: Throwable) { cancellation.addSuppressed(observerError) }
+    try {
+        onCallCancelled()
+    } catch (observerError: Throwable) {
+        cancellation.addSuppressed(observerError)
+    }
 }

@@ -59,8 +59,12 @@ internal class ProviderExecutionCoordinator(
 
     private suspend fun transition(error: Throwable, route: ResolvedProviderRoute, next: ResolvedProviderRoute?, reason: ProviderFallbackReason, request: ProviderExecutionRequest) {
         if (next == null) return
-        try { fallbackGate.transition(request.correlationId, route.providerName, route.effectiveModelName, next.providerName, fallbackPolicy.reasonString(reason), request.securityContext) }
-        catch (policyError: PolicyViolationException) { policyError.addSuppressed(error); throw policyError }
+        try {
+            fallbackGate.transition(request.correlationId, route.providerName, route.effectiveModelName, next.providerName, fallbackPolicy.reasonString(reason), request.securityContext)
+        } catch (policyError: PolicyViolationException) {
+            policyError.addSuppressed(error)
+            throw policyError
+        }
     }
 
     private fun routeRequest(route: ResolvedProviderRoute, routeIndex: Int, request: ProviderExecutionRequest) = ProviderRetryRequest(
