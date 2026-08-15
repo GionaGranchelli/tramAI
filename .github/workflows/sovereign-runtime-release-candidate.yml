@@ -73,6 +73,7 @@ jobs:
           echo "Resolved version: ${RESOLVED_VERSION}"
 
       - name: Verify sovereign runtime release candidate
+        timeout-minutes: 30
         run: ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 
       - name: Upload test reports on failure
