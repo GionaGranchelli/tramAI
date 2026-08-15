@@ -556,7 +556,7 @@ A deterministic execution-trace test fixture that records ordered semantic event
 ### Components
 
 - `ServiceDefinitionCompiler` — service validation, `@SystemPrompt` extraction, method enumeration
-- `OperationDefinitionCompiler` — tool resolution + plan construction (delegates to public `OperationDefinition.create`)
+- `OperationDefinitionCompiler` — authoritative operation reflection/metadata compiler; `OperationDefinition.create()` is a public compatibility façade delegating to it
 - `OperationExecutionPlan` — internal immutable plan (definition + fingerprint + service/method identity)
 - `OperationFingerprintFactory` — canonical cache fingerprint, byte-identical to pre-extraction
 
