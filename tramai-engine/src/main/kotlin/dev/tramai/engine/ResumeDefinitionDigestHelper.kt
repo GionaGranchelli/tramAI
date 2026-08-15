@@ -1,6 +1,7 @@
 package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.engine.planning.ServiceDefinition
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 

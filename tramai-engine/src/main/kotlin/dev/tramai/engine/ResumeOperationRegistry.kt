@@ -1,6 +1,7 @@
 package dev.tramai.engine
 
 import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.engine.planning.ServiceDefinition
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /**
@@ -96,7 +97,8 @@ internal class ResumeOperationRegistry {
         serviceDefinition: ServiceDefinition,
         handler: TramaiInvocationHandler,
     ) = withWriteLock {
-        val entries = serviceDefinition.operations.entries.map { (_, operation) ->
+        val entries = serviceDefinition.operations.entries.map { (_, plan) ->
+            val operation = plan.definition
             val key = createKey(serviceDefinition, operation)
             val reference = ResumeOperationReference(
                 serviceInterface = key.serviceInterface,

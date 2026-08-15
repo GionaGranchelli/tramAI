@@ -117,12 +117,13 @@ import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
-import kotlin.reflect.KFunction
-import kotlin.reflect.KParameter
-import kotlin.reflect.jvm.kotlinFunction
 import dev.tramai.engine.components.ApprovalCapability
 import dev.tramai.engine.components.EngineComponentFactory
 import dev.tramai.engine.components.EngineComponents
+import dev.tramai.engine.planning.OperationDefinitionCompiler
+import dev.tramai.engine.planning.OperationFingerprintFactory
+import dev.tramai.engine.planning.ServiceDefinition
+import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.core.provider.resolveCandidates
 
 private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
@@ -146,6 +147,11 @@ class TramaiEngine private constructor(
     private val retryPolicySettings = components.execution.retryPolicySettings
     private val tokenBudgetSettings = components.execution.tokenBudgetSettings
     private val promptSanitizer = components.security.promptSanitizer
+    private val serviceDefinitionCompiler by lazy {
+        ServiceDefinitionCompiler(
+            OperationDefinitionCompiler(toolRegistry, promptSanitizer, OperationFingerprintFactory()),
+        )
+    }
     private val chatMemory = components.persistence.chatMemory
     private val conversationIdProvider = components.persistence.conversationIdProvider
     private val dlpInterceptor = components.security.dlpInterceptor
@@ -451,11 +457,7 @@ class TramaiEngine private constructor(
      */
     fun <T : Any> create(serviceType: KClass<T>): T {
         check(!closed.get()) { "Tramai runtime is closed" }
-        val definition = ServiceDefinition.create(
-            serviceType = serviceType,
-            toolRegistry = toolRegistry,
-            promptSanitizer = promptSanitizer,
-        )
+        val definition = serviceDefinitionCompiler.compile(serviceType)
         val handler = TramaiInvocationHandler(
             components = components,
             circuitBreaker = circuitBreaker,
@@ -493,11 +495,7 @@ class TramaiEngine private constructor(
      */
     fun registerService(serviceType: KClass<*>) {
         check(!closed.get()) { "Tramai runtime is closed" }
-        val definition = ServiceDefinition.create(
-            serviceType = serviceType,
-            toolRegistry = toolRegistry,
-            promptSanitizer = promptSanitizer,
-        )
+        val definition = serviceDefinitionCompiler.compile(serviceType)
         val handler = TramaiInvocationHandler(
             components = components,
             circuitBreaker = circuitBreaker,
@@ -702,8 +700,9 @@ internal class TramaiInvocationHandler(
 
         check(!isClosed.get()) { "Tramai runtime is closed" }
 
-        val operation = serviceDefinition.operations[method]
+        val plan = serviceDefinition.operations[method]
             ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
+        val operation = plan.definition
 
         val conversationId = if (chatMemory != null) resolveConversationId(method, args.orEmpty()) else null
         return if (operation.isSuspend) {
@@ -1508,6 +1507,7 @@ internal class TramaiInvocationHandler(
         val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
+            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
         )
 
         cacheKey?.let { key ->
@@ -1607,6 +1607,7 @@ internal class TramaiInvocationHandler(
         val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
+            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
         )
 
         cacheKey?.let { key ->
@@ -4548,85 +4549,6 @@ internal class TramaiInvocationHandler(
             dlpInterceptor === NoOpDlpInterceptor
 }
 
-internal data class ServiceDefinition(
-    val serviceType: KClass<*>,
-    val systemPrompt: String?,
-    val operations: Map<Method, OperationDefinition>,
-) {
-    companion object {
-        fun create(
-            serviceType: KClass<*>,
-            toolRegistry: ToolRegistry,
-            promptSanitizer: PromptSanitizer?,
-        ): ServiceDefinition {
-            val javaType = validateServiceType(serviceType)
-
-            val systemPrompt = serviceType.java.getAnnotation(SystemPrompt::class.java)?.value?.takeIf { it.isNotBlank() }
-            val operations = javaType.methods
-                .filterNot { it.declaringClass == Any::class.java }
-                .associateWith { method ->
-                    createOperationDefinition(javaType, method, systemPrompt, toolRegistry, promptSanitizer)
-                }
-
-            return ServiceDefinition(
-                serviceType = serviceType,
-                systemPrompt = systemPrompt,
-                operations = operations,
-            )
-        }
-
-        /**
-         * Validates that a service type can be proxied by the runtime.
-         */
-        private fun validateServiceType(serviceType: KClass<*>): Class<*> {
-            val javaType = serviceType.java
-            if (!javaType.isInterface) {
-                throw ConfigurationException("${javaType.name} must be an interface")
-            }
-            if (!javaType.isAnnotationPresent(AiService::class.java)) {
-                throw ConfigurationException("${javaType.name} must be annotated with @AiService")
-            }
-            return javaType
-        }
-
-        /**
-         * Builds an operation definition from method annotations and resolved tool metadata.
-         */
-        private fun createOperationDefinition(
-            javaType: Class<*>,
-            method: Method,
-            systemPrompt: String?,
-            toolRegistry: ToolRegistry,
-            promptSanitizer: PromptSanitizer?,
-        ): OperationDefinition {
-            val operation = method.getAnnotation(Operation::class.java)
-                ?: throw ConfigurationException("${javaType.name}.${method.name} must be annotated with @Operation")
-            return OperationDefinition.create(
-                method = method,
-                operation = operation,
-                classLevelSystemPrompt = systemPrompt,
-                systemAnnotations = method.getAnnotationsByType(SystemMessage::class.java).map { it.value },
-                userAnnotations = method.getAnnotationsByType(UserMessage::class.java).map { it.value },
-                toolDefinitions = resolveToolDefinitions(method, operation, toolRegistry),
-                promptSanitizer = promptSanitizer,
-            )
-        }
-
-        /**
-         * Converts declared tool names into provider-facing definitions.
-         */
-        private fun resolveToolDefinitions(
-            method: Method,
-            operation: Operation,
-            toolRegistry: ToolRegistry,
-        ): List<ToolDefinition> = operation.tools.map { toolName ->
-            val tool = toolRegistry.resolve(toolName)
-                ?: throw ConfigurationException("Tool '$toolName' requested by ${method.name} is not registered in the engine")
-            ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
-        }
-    }
-}
-
 data class OperationDefinition(
     val method: Method,
     val operation: Operation,
@@ -4828,31 +4750,16 @@ data class OperationDefinition(
     internal fun buildCacheKey(
         digestSource: List<Message>,
         securityPartition: CacheSecurityPartition,
+        operationFingerprint: String? = null,
     ): OperationCacheKey = OperationCacheKey(
         serviceInterface = method.declaringClass.name,
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
         requestDigest = sha256Hex(CanonicalMessageEncoder.encode(digestSource)),
-        operationFingerprint = operationFingerprint(),
+        operationFingerprint = operationFingerprint ?: OperationFingerprintFactory().create(toolDefinitions, operation),
         securityPartition = securityPartition,
     )
-
-    private fun operationFingerprint(): String {
-        val canonical = buildString {
-            append("tools_count=").append(toolDefinitions.size).append('\n')
-            toolDefinitions.forEachIndexed { index, tool ->
-                append("tool_").append(index).append("_name_len=").append(tool.name.length).append('\n')
-                append(tool.name).append('\n')
-                append("tool_").append(index).append("_schema_len=").append(tool.inputSchemaJson.length).append('\n')
-                append(tool.inputSchemaJson).append('\n')
-            }
-            append("timeout_millis=").append(operation.timeoutMillis).append('\n')
-            append("cacheable=").append(operation.cacheable).append('\n')
-            append("cache_ttl_millis=").append(operation.cacheTtlMillis).append('\n')
-        }
-        return sha256Hex(canonical)
-    }
 
     fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
         requireNotNull(returnType) {
@@ -4861,6 +4768,10 @@ data class OperationDefinition(
     )
 
     companion object {
+        /**
+         * Public compatibility façade. The reflection/validation implementation
+         * lives in [dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition].
+         */
         fun create(
             method: Method,
             operation: Operation,
@@ -4869,119 +4780,15 @@ data class OperationDefinition(
             userAnnotations: List<String> = emptyList(),
             toolDefinitions: List<ToolDefinition> = emptyList(),
             promptSanitizer: PromptSanitizer? = null,
-        ): OperationDefinition {
-            validateOperationAnnotation(method, operation)
-            warnOnSystemPromptShadowing(method, systemAnnotations, classLevelSystemPrompt)
-
-            val kotlinFunction = runCatching { method.kotlinFunction }.getOrNull()
-            val isSuspend = kotlinFunction?.isSuspend ?: method.isSuspendSignature()
-            val parameterNames = resolveParameterNames(method, kotlinFunction)
-            val returnType = resolveReturnType(kotlinFunction)
-            val returnKind = resolveReturnKind(method, isSuspend, returnType)
-            val returnTypeDescription = resolveReturnTypeDescription(method, returnType)
-
-            return OperationDefinition(
-                method = method,
-                operation = operation,
-                classLevelSystemPrompt = classLevelSystemPrompt,
-                systemAnnotations = systemAnnotations,
-                userAnnotations = userAnnotations,
-                isSuspend = isSuspend,
-                parameterNames = parameterNames,
-                returnKind = returnKind,
-                returnType = returnType,
-                returnTypeDescription = returnTypeDescription,
-                toolDefinitions = toolDefinitions,
-                promptSanitizer = promptSanitizer,
-            )
-        }
-
-        /**
-         * Validates operation annotation values before building executable metadata.
-         */
-        private fun validateOperationAnnotation(method: Method, operation: Operation) {
-            require(operation.maxRetries >= 0) {
-                "@Operation(maxRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
-            }
-            require(operation.providerRetries >= 0) {
-                "@Operation(providerRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
-            }
-            require(operation.timeoutMillis > 0) {
-                "@Operation(timeoutMillis) must be greater than zero for ${method.declaringClass.name}.${method.name}"
-            }
-            require(!operation.cacheable || operation.cacheTtlMillis > 0) {
-                "@Operation(cacheTtlMillis) must be greater than zero when caching is enabled for ${method.declaringClass.name}.${method.name}"
-            }
-        }
-
-        /**
-         * Emits the precedence warning when method-level system messages shadow the class prompt.
-         */
-        private fun warnOnSystemPromptShadowing(
-            method: Method,
-            systemAnnotations: List<String>,
-            classLevelSystemPrompt: String?,
-        ) {
-            if (systemAnnotations.isEmpty() || classLevelSystemPrompt.isNullOrBlank()) {
-                return
-            }
-            val logger = System.getLogger("dev.tramai.engine.OperationDefinition")
-            logger.log(
-                System.Logger.Level.WARNING,
-                "@System on ${method.declaringClass.name}.${method.name} takes precedence over @SystemPrompt on the class",
-            )
-        }
-
-        private fun resolveParameterNames(
-            method: Method,
-            kotlinFunction: KFunction<*>?,
-        ): List<String> {
-            val valueParameters = kotlinFunction?.parameters
-                ?.filter { it.kind == KParameter.Kind.VALUE }
-                ?.map { it.name ?: "arg${it.index}" }
-            if (valueParameters != null) {
-                return valueParameters
-            }
-
-            return method.parameters.mapIndexed { index, parameter ->
-                parameter.name?.takeIf { it.isNotBlank() } ?: "arg$index"
-            }
-        }
-
-        private fun resolveReturnKind(
-            method: Method,
-            isSuspend: Boolean,
-            returnType: kotlin.reflect.KType?,
-        ): ReturnKind {
-            val classifier = returnType?.classifier
-            return when (classifier) {
-                String::class -> ReturnKind.STRING
-                Unit::class -> ReturnKind.UNIT
-                kotlinx.coroutines.flow.Flow::class -> ReturnKind.STREAMING
-                null -> when {
-                    isSuspend -> throw ConfigurationException(
-                        "Suspend method ${method.declaringClass.name}.${method.name} requires Kotlin reflection metadata to inspect its return type",
-                    )
-                    method.returnType == String::class.java -> ReturnKind.STRING
-                    method.returnType == Void.TYPE -> ReturnKind.UNIT
-                    kotlinx.coroutines.flow.Flow::class.java.isAssignableFrom(method.returnType) -> ReturnKind.STREAMING
-                    else -> ReturnKind.STRUCTURED
-                }
-                else -> ReturnKind.STRUCTURED
-            }
-        }
-
-        private fun resolveReturnType(
-            kotlinFunction: KFunction<*>?,
-        ) = kotlinFunction?.returnType
-
-        private fun resolveReturnTypeDescription(
-            method: Method,
-            returnType: kotlin.reflect.KType?,
-        ): String = returnType?.toString() ?: method.genericReturnType.typeName
-
-        private fun Method.isSuspendSignature(): Boolean =
-            parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
+        ): OperationDefinition = dev.tramai.engine.planning.OperationDefinitionCompiler.compileDefinition(
+            method = method,
+            operation = operation,
+            classLevelSystemPrompt = classLevelSystemPrompt,
+            systemAnnotations = systemAnnotations,
+            userAnnotations = userAnnotations,
+            toolDefinitions = toolDefinitions,
+            promptSanitizer = promptSanitizer,
+        )
     }
 }
 
@@ -4993,14 +4800,12 @@ internal fun buildOperationCacheKeyForTesting(
     promptSanitizer: PromptSanitizer? = null,
     toolRegistry: ToolRegistry = ToolRegistry(),
 ): OperationCacheKey {
-    val definition = ServiceDefinition.create(
-        serviceType = serviceType,
-        toolRegistry = toolRegistry,
-        promptSanitizer = promptSanitizer,
-    )
+    val definition = ServiceDefinitionCompiler(
+        OperationDefinitionCompiler(toolRegistry, promptSanitizer, OperationFingerprintFactory()),
+    ).compile(serviceType)
     val method = serviceType.java.methods.firstOrNull { it.name == methodName }
         ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
-    val operation = definition.operations[method]
+    val operation = definition.operations[method]?.definition
         ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
     return operation.buildCacheKey(
         digestSource = operation.initialMessages(arguments, schemaJson),
@@ -5259,7 +5064,7 @@ private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityP
 
 internal fun buildRequestDigest(messages: List<Message>): String = sha256Hex(CanonicalMessageEncoder.encode(messages))
 
-private fun sha256Hex(input: String): String {
+internal fun sha256Hex(input: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(StandardCharsets.UTF_8))
     return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
