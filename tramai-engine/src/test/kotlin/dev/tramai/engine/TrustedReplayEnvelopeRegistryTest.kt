@@ -2,6 +2,9 @@ package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.engine.components.EngineComponentFactory
+import dev.tramai.engine.planning.OperationExecutionPlan
+import dev.tramai.engine.planning.OperationFingerprintFactory
+import dev.tramai.engine.planning.ServiceDefinition
 import dev.tramai.core.memory.UuidConversationIdProvider
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
@@ -202,7 +205,7 @@ class TrustedReplayEnvelopeRegistryTest {
             toolDefinitions = emptyTools, promptSanitizer = null,
         )
 
-        val fooOnlySvc = ServiceDefinition(svcClass.kotlin, null, mapOf(fooMethod to origFooDef))
+        val fooOnlySvc = ServiceDefinition(svcClass.kotlin, null, mapOf(fooMethod to plan(origFooDef)))
         val handler = dummyHandler(fooOnlySvc, registry)
 
         // Register foo with the original definition
@@ -210,8 +213,8 @@ class TrustedReplayEnvelopeRegistryTest {
 
         // RegisterAll with foo (conflicting) + bar (new)
         val bulkSvc = ServiceDefinition(svcClass.kotlin, null, mapOf(
-            fooMethod to conflictFooDef,
-            barMethod to barDef,
+            fooMethod to plan(conflictFooDef),
+            barMethod to plan(barDef),
         ))
         val bulkHandler = dummyHandler(bulkSvc, registry)
 
@@ -261,8 +264,8 @@ class TrustedReplayEnvelopeRegistryTest {
             toolDefinitions = emptyTools, promptSanitizer = null,
         )
         val svcDef = ServiceDefinition(svcClass.kotlin, null, mapOf(
-            fooMethod to fooDef,
-            barMethod to barDef,
+            fooMethod to plan(fooDef),
+            barMethod to plan(barDef),
         ))
         val handler = dummyHandler(svcDef, registry)
 
@@ -410,4 +413,11 @@ class TrustedReplayEnvelopeRegistryTest {
             resumeOperationRegistry = registry,
         )
     }
+
+    private fun plan(definition: OperationDefinition) = OperationExecutionPlan(
+        definition = definition,
+        fingerprint = OperationFingerprintFactory().create(definition.toolDefinitions, definition.operation),
+        serviceInterface = definition.method.declaringClass.name,
+        methodName = definition.method.name,
+    )
 }

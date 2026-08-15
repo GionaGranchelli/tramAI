@@ -549,22 +549,29 @@ A deterministic execution-trace test fixture that records ordered semantic event
 
 ## Epic 3.2: Extract operation planning
 
+> **Status: ✅ Complete — PR #232** (`refactor(engine): extract operation planning`)
+
 **Goal:** Separate reflection and operation-definition work from runtime execution.
 
 ### Components
 
-- `ServiceDefinitionCompiler`
-- `OperationDefinitionCompiler`
-- `OperationExecutionPlan`
-- `OperationFingerprintFactory`
+- `ServiceDefinitionCompiler` — service validation, `@SystemPrompt` extraction, method enumeration
+- `OperationDefinitionCompiler` — tool resolution + plan construction (delegates to public `OperationDefinition.create`)
+- `OperationExecutionPlan` — internal immutable plan (definition + fingerprint + service/method identity)
+- `OperationFingerprintFactory` — canonical cache fingerprint, byte-identical to pre-extraction
 
 ### Tasks
 
-1. Move service and operation metadata compilation out of the engine file.
-2. Make operation plans immutable.
-3. Cache safe reusable metadata where appropriate.
-4. Keep reflection failures explicit and deterministic.
-5. Preserve Java and Kotlin interop behaviour.
+1. ✅ Move service and operation metadata compilation out of the engine file (`tramai-engine/.../planning/`).
+2. ✅ Make operation plans immutable (`OperationExecutionPlan` internal data class).
+3. ⏸️ Cache safe reusable metadata — deferred: no process-global reflection cache per 0.6.0 goals; engine-scoped compiler instance only. Revisit after benchmark evidence.
+4. ✅ Keep reflection failures explicit and deterministic (compiler throws `ConfigurationException`/`IllegalArgumentException` identically to pre-extraction).
+5. ✅ Preserve Java and Kotlin interop behaviour (Java fixture `JavaPlanningService` + Kotlin service tests through the compiler).
+
+### Merge gate
+
+- 20 characterization traces byte-identical (no `.trace` changes).
+- `OperationDefinition` public API unchanged (`:tramai-engine:apiCheck` clean).
 
 ---
 
