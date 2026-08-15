@@ -1,0 +1,16 @@
+memory.load conversation=conversation-1
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+provider.start provider=primary model=logical-model attempt=1
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+provider.success provider=primary
+policy.evaluate point=BEFORE_RESPONSE_RETURN
+policy.allow point=BEFORE_RESPONSE_RETURN
+policy.audit.emit point=BEFORE_RESPONSE_RETURN
+memory.persist conversation=conversation-1
+operation.complete outcome=success

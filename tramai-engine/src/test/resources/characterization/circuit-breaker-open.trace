@@ -1,0 +1,13 @@
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+provider.start provider=primary model=logical-model attempt=1
+engine.event name=tramai.route.selected
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+provider.failure provider=primary
+operation.complete outcome=failure
+engine.event name=tramai.circuit.opened

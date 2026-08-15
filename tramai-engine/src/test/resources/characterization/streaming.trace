@@ -1,0 +1,15 @@
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+provider.start provider=primary model=logical-model attempt=1
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_RESPONSE_RETURN
+policy.allow point=BEFORE_RESPONSE_RETURN
+policy.audit.emit point=BEFORE_RESPONSE_RETURN
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+streaming.start provider=primary
+streaming.terminal provider=primary outcome=success
+provider.success provider=primary
+operation.complete outcome=success

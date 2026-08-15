@@ -1,0 +1,42 @@
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+policy.evaluate point=BEFORE_TOOL_EXPOSURE
+policy.allow point=BEFORE_TOOL_EXPOSURE
+policy.audit.emit point=BEFORE_TOOL_EXPOSURE
+provider.start provider=primary model=logical-model attempt=1
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+dlp.request.inspect location=MODEL_RESPONSE_CONTENT
+provider.success provider=primary
+policy.evaluate point=BEFORE_TOOL_EXECUTION
+policy.allow point=BEFORE_TOOL_EXECUTION
+policy.audit.emit point=BEFORE_TOOL_EXECUTION
+tool.execute.start tool=payment call=call-1
+tool.execute.success tool=payment
+policy.evaluate point=BEFORE_TOOL_RESULT_REINJECTION
+policy.allow point=BEFORE_TOOL_RESULT_REINJECTION
+policy.audit.emit point=BEFORE_TOOL_RESULT_REINJECTION
+dlp.tool-result.inspect location=TOOL_MESSAGE_CONTENT
+operation.complete outcome=success
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+policy.evaluate point=BEFORE_TOOL_EXPOSURE
+policy.allow point=BEFORE_TOOL_EXPOSURE
+policy.audit.emit point=BEFORE_TOOL_EXPOSURE
+provider.start provider=primary model=logical-model attempt=2
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+dlp.request.inspect location=MODEL_RESPONSE_CONTENT
+provider.success provider=primary
+policy.evaluate point=BEFORE_RESPONSE_RETURN
+policy.allow point=BEFORE_RESPONSE_RETURN
+policy.audit.emit point=BEFORE_RESPONSE_RETURN
+operation.complete outcome=success

@@ -1,0 +1,37 @@
+policy.evaluate point=BEFORE_PROVIDER_RESOLUTION
+policy.allow point=BEFORE_PROVIDER_RESOLUTION
+policy.audit.emit point=BEFORE_PROVIDER_RESOLUTION
+provider.start provider=primary model=logical-model attempt=1
+engine.event name=tramai.route.selected
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+provider.failure provider=primary
+operation.complete outcome=failure
+engine.event name=tramai.retry.scheduled
+provider.start provider=primary model=logical-model attempt=2
+engine.event name=tramai.route.selected
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=primary model=logical-model
+provider.failure provider=primary
+operation.complete outcome=failure
+policy.evaluate point=BEFORE_FALLBACK
+policy.allow point=BEFORE_FALLBACK
+policy.audit.emit point=BEFORE_FALLBACK
+provider.start provider=fallback model=logical-model attempt=3
+engine.event name=tramai.route.selected
+model.authorize model=logical-model
+policy.evaluate point=BEFORE_PROVIDER_INVOCATION
+policy.allow point=BEFORE_PROVIDER_INVOCATION
+policy.audit.emit point=BEFORE_PROVIDER_INVOCATION
+provider.execute provider=fallback model=logical-model
+provider.success provider=fallback
+policy.evaluate point=BEFORE_RESPONSE_RETURN
+policy.allow point=BEFORE_RESPONSE_RETURN
+policy.audit.emit point=BEFORE_RESPONSE_RETURN
+operation.complete outcome=success
