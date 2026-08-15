@@ -90,6 +90,7 @@ jobs:
         run: ./gradlew :examples:spring-sovereign-starter:e2eTest
 
       - name: Verify Sovereign Runtime closure
+        timeout-minutes: 30
         run: ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
 
       - name: Upload SBOM
