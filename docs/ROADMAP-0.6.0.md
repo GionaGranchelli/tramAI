@@ -577,22 +577,34 @@ A deterministic execution-trace test fixture that records ordered semantic event
 
 ## Epic 3.3: Extract provider execution
 
+> **Status: ✅ Complete — PR #233** (`refactor(engine): extract provider execution`)
+
 **Goal:** Give routing, retries, fallbacks, circuit breaking, authorization, and provider observation one cohesive owner.
 
-### Proposed components
+### Components
 
-- `ProviderExecutionCoordinator`
-- `ProviderAttemptExecutor`
-- `ProviderRetryPolicy`
-- `ProviderFallbackPolicy`
-- `ProviderAuthorizationService`
+- `ProviderExecutionCoordinator` — route-level state machine: `BEFORE_PROVIDER_RESOLUTION` gate, candidate resolution, circuit-breaker `beforeCall`, circuit-open fallback transition, fallback gates, route sequencing. Owner of route ordering; delegates one-provider attempts to the executor.
+- `ProviderAttemptExecutor` — one provider attempt and its observation lifecycle: request interceptor → start observation → route-selected event → model authorization → `BEFORE_PROVIDER_INVOCATION` gate → provider invocation → response interceptor → provider-output DLP gate → `onProviderResponse`. Cancellation → `completeCancellation` exactly once; DLP failure is not a provider failure; success transfers observation ownership to the caller.
+- `ProviderRetryPolicy` — typed `ProviderRetryDecision.Retry/Stop`; owns retryable classification, attempt exhaustion, Retry-After, backoff/jitter, delay-source classification. No delay, observation, circuit-breaker, or event side effects.
+- `ProviderFallbackPolicy` — typed `ProviderFallbackDecision.Continue/Stop` + `ProviderFallbackReason`; maps enum back to legacy event strings (`provider-failure`, `circuit-breaker-open`).
+- `ProviderAuthorizationService` — model-registry authorization only; observation lifecycle stays in the executor.
 
-### Acceptance criteria
+### Tasks
 
-- Provider execution can be tested without tools, approvals, memory, or structured output.
-- Retry and fallback decisions are typed results rather than scattered booleans.
-- Cancellation never enters retry/fallback policy.
-- Attempt observations are always completed exactly once.
+1. ✅ Move non-streaming provider execution out of `TramaiInvocationHandler` into `tramai-engine/.../provider/`.
+2. ✅ Replace retry/fallback boolean branches with typed decisions.
+3. ✅ Keep cancellation entirely outside retry/fallback classification and circuit-breaker failure recording.
+4. ✅ Preserve the observation-ownership semantic on successful calls (observation stays alive for tool/structured processing).
+5. ✅ Keep tool exposure as an injected `ProviderRouteGate` (replaced by `ToolExposureCoordinator` in Epic 3.4).
+6. ✅ Add dedicated component tests (6 files, 27 tests) constructing provider components without tools, approvals, memory, or structured output.
+7. ⏸️ Streaming execution (`executeStreaming`, `executeStreamingRoute`, `collectStreamingRoute`, chunk state, backpressure, streaming terminal semantics) stays in place — reserved for `StreamingExecutionCoordinator` in Epic 3.6.
+
+### Merge gate
+
+- 20 characterization traces byte-for-byte identical (no `.trace` changes).
+- `tramai-engine.api` unchanged (`:tramai-engine:apiCheck` clean).
+- `verifyCancellationSafety` no new critical/high findings.
+- `verifyPr -PchangeClass=runtime-behaviour` green.
 
 ---
 
