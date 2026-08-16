@@ -58,12 +58,34 @@ internal class ApprovalSuspensionCoordinator(
             approvalLifecycleAuditEmitter.onToolExecutionSuspended(challenge.approvalId, request.identity.workflowRunId, request.tool.name, request.toolCall.id, request.correlationId, request.argumentsDigest, challenge.expiresAt)
             throw ApprovalSuspendedException(challenge, challenge.approvalId, request.identity.workflowRunId, request.toolCall.id, request.tool.name, continuation.version)
         } catch (failure: Exception) {
-            failure.rethrowIfCancellation(); if (failure is ApprovalSuspendedException) throw failure
+            failure.rethrowIfCancellation()
+            if (failure is ApprovalSuspendedException) throw failure
             createdChallengeId?.let { approvalId ->
-                try { suspendedInvocationStore.remove(approvalId) } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) { e.rethrowIfCancellation() }
-                runCatching { approvalContinuationStore.cancel(approvalId, createdContinuationVersion) }
-                runCatching { approvalGateCoordinator.cancelApproval(approvalId, 0L, "suspension-compensation") }
-            }; throw failure
+                try {
+                    suspendedInvocationStore.remove(approvalId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                }
+                try {
+                    approvalContinuationStore.cancel(approvalId, createdContinuationVersion)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    // best-effort cleanup
+                }
+                try {
+                    approvalGateCoordinator.cancelApproval(approvalId, 0L, "suspension-compensation")
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    // best-effort cleanup
+                }
+            }
+            throw failure
         }
     }
 }

@@ -1,12 +1,14 @@
 package dev.tramai.engine.approval
 
 import dev.tramai.core.approval.*
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.engine.*
+import kotlinx.coroutines.CancellationException
 
 private fun PolicyContextBuilder.applyApprovalSecurityContext(
     securityContext: ExecutionSecurityContext,
@@ -32,7 +34,21 @@ internal class ReplayAuthorizationService(
     suspend fun cancelState(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata, store: ApprovalContinuationStore, reason: String) { store.cancel(command.approvalId, command.continuationExpectedVersion); suspendedInvocationStore.remove(command.approvalId); approvalLifecycleAuditEmitter.onSuspensionCancelled(command.approvalId, metadata.identity.workflowRunId, metadata.toolName, reason) }
     fun emitAuthorizationReplayed(replayed: Boolean, command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata) {
         if (!replayed) return
-        try { engineEventObserver.onEngineEvent("tramai.approval.authorization_replayed", mapOf("approvalId" to command.approvalId, "workflowRunId" to metadata.identity.workflowRunId, "toolName" to metadata.toolName)) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+        try {
+            engineEventObserver.onEngineEvent(
+                name = "tramai.approval.authorization_replayed",
+                attributes = mapOf(
+                    "approvalId" to command.approvalId,
+                    "workflowRunId" to metadata.identity.workflowRunId,
+                    "toolName" to metadata.toolName,
+                ),
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Engine-event observer failures must not prevent resume completion.
+        }
     }
     private fun requireApprovalGateCoordinator(): ApprovalGateCoordinator = approvalGateCoordinator ?: throw ConfigurationException("ApprovalGateCoordinator is required for resume")
 }
