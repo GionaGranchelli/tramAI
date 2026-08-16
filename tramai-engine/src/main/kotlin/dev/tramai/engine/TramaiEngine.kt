@@ -78,6 +78,17 @@ import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.IdempotencyKeyUtil
+import dev.tramai.engine.provider.AttemptCounter
+import dev.tramai.engine.provider.ProviderAttemptExecutor
+import dev.tramai.engine.provider.ProviderAuthorizationService
+import dev.tramai.engine.provider.ProviderExecutionCoordinator
+import dev.tramai.engine.provider.ProviderExecutionRequest
+import dev.tramai.engine.provider.ProviderFallbackGate
+import dev.tramai.engine.provider.ProviderFallbackPolicy
+import dev.tramai.engine.provider.ProviderInvocationGate
+import dev.tramai.engine.provider.ProviderResolutionGate
+import dev.tramai.engine.provider.ProviderResponseSanitizer
+import dev.tramai.engine.provider.ProviderRetryPolicy
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
@@ -128,6 +139,9 @@ import dev.tramai.core.provider.resolveCandidates
 
 private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
 private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
+
+/** Compatibility alias for internal characterization fixtures; implementation lives in provider. */
+internal typealias ProviderRetryDelayPolicy = dev.tramai.engine.provider.ProviderRetryDelayPolicy
 
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
@@ -658,6 +672,23 @@ internal class TramaiInvocationHandler(
 
     private val policyHelper = PolicyEnforcementHelper(components.security.resolvedPolicyEngine, migrationWarningGuard, isLegacyFallback = components.security.isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
     private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
+    private val providerExecutionCoordinator = ProviderExecutionCoordinator(
+        routingPlan = routingPlan,
+        circuitBreaker = circuitBreaker,
+        attemptExecutor = ProviderAttemptExecutor(
+            serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+            operationObserver = operationObserver,
+            operationInterceptor = operationInterceptor,
+            circuitBreaker = circuitBreaker,
+            retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
+            authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
+            beforeProviderInvocation = ProviderInvocationGate { providerId, modelName, correlationId, securityContext -> enforceBeforeProviderInvocation(providerId, modelName, correlationId, securityContext) },
+            responseSanitizer = ProviderResponseSanitizer { response, operation, providerId, modelName, correlationId, securityContext, observation -> sanitizeProviderResponse(response, operation, providerId, modelName, correlationId, securityContext, observation) },
+        ),
+        fallbackPolicy = ProviderFallbackPolicy(),
+        beforeResolution = ProviderResolutionGate { operation, correlationId, securityContext -> enforceBeforeProviderResolution(operation, correlationId, securityContext) },
+        fallbackGate = ProviderFallbackGate { correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext -> enforceFallbackTransition(correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext) },
+    )
 
     private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
         try {
@@ -1541,7 +1572,7 @@ internal class TramaiInvocationHandler(
             ),
         )
 
-        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
+        // DLP is already applied inside ProviderAttemptExecutor — use the sanitized response directly
 
         // Enforce BEFORE_RESPONSE_RETURN
         policyHelper.enforce(
@@ -1722,7 +1753,7 @@ internal class TramaiInvocationHandler(
             ),
         )
 
-        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
+        // DLP is already applied inside ProviderAttemptExecutor — use the sanitized response directly
 
         val analysis = try {
             handler.analyze(
@@ -1975,12 +2006,15 @@ internal class TramaiInvocationHandler(
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
         repeat(maxToolLoops) {
-            val result = callProviderWithFallbacks(
-                operation = operation,
-                messages = messages,
-                attemptCounter = attemptCounter,
-                correlationId = correlationId,
-                securityContext = securityContext,
+            val result = providerExecutionCoordinator.execute(
+                ProviderExecutionRequest(
+                    operation = operation,
+                    messages = messages,
+                    attemptCounter = attemptCounter,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    beforeRoute = { enforceToolExposure(operation, correlationId, securityContext) },
+                ),
             )
             try {
                 enforceTokenBudget(
@@ -2490,256 +2524,6 @@ internal class TramaiInvocationHandler(
         }
     }
 
-    private suspend fun callProviderWithFallbacks(
-        operation: OperationDefinition,
-        messages: List<Message>,
-        attemptCounter: AttemptCounter,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-    ): ProviderCallResult {
-        var lastFallbackFailure: Throwable? = null
-        var lastCircuitOpen: CircuitBreakerOpenException? = null
-
-        enforceBeforeProviderResolution(operation, correlationId, securityContext)
-        val candidates = routingPlan.resolveCandidates(operation.operation)
-
-        for ((routeIndex, route) in candidates.withIndex()) {
-            val circuitOpen = handleCircuitBreakerOpenRoute(
-                route = route,
-                nextRoute = candidates.getOrNull(routeIndex + 1),
-                correlationId = correlationId,
-                securityContext = securityContext,
-            )
-            if (circuitOpen != null) {
-                lastCircuitOpen = circuitOpen
-                continue
-            }
-
-            try {
-                enforceToolExposure(operation, correlationId, securityContext)
-                return callProviderWithRetries(providerRetryRequest(route, routeIndex, operation, messages, attemptCounter, correlationId, securityContext))
-            } catch (error: Throwable) {
-                error.rethrowIfCancellation()
-                if (!shouldFallbackFrom(error)) {
-                    throw error
-                }
-                enforceProviderFallbackAfterFailure(
-                    error = error,
-                    route = route,
-                    nextRoute = candidates.getOrNull(routeIndex + 1),
-                    correlationId = correlationId,
-                    securityContext = securityContext,
-                )
-                lastFallbackFailure = error
-            }
-        }
-
-        throw lastFallbackFailure
-            ?: lastCircuitOpen
-            ?: ProviderException(
-                message = "No available provider route for model '${operation.operation.model}'",
-                retryable = true,
-            )
-    }
-
-    private fun providerRetryRequest(
-        route: ResolvedProviderRoute,
-        routeIndex: Int,
-        operation: OperationDefinition,
-        messages: List<Message>,
-        attemptCounter: AttemptCounter,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-    ) = ProviderRetryRequest(
-        providerId = route.providerName,
-        provider = route.provider,
-        request = ModelRequest(
-            model = route.effectiveModelName,
-            messages = messages.toList(),
-            tools = operation.toolDefinitions.takeIf { it.isNotEmpty() },
-            timeoutMillis = operation.operation.timeoutMillis,
-            operationInterface = operation.method.declaringClass.name,
-            operationMethod = operation.method.name,
-        ),
-        operation = operation,
-        attemptCounter = attemptCounter,
-        routeIndex = routeIndex,
-        correlationId = correlationId,
-        securityContext = securityContext,
-    )
-
-    private suspend fun enforceProviderFallbackAfterFailure(
-        error: Throwable,
-        route: ResolvedProviderRoute,
-        nextRoute: ResolvedProviderRoute?,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-    ) {
-        if (nextRoute == null) return
-        try {
-            enforceFallbackTransition(
-                correlationId = correlationId,
-                previousProviderId = route.providerName,
-                previousModelName = route.effectiveModelName,
-                nextProviderId = nextRoute.providerName,
-                reason = "provider-failure",
-                securityContext = securityContext,
-            )
-        } catch (policyError: PolicyViolationException) {
-            policyError.addSuppressed(error)
-            throw policyError
-        }
-    }
-
-    private suspend fun callProviderWithRetries(retry: ProviderRetryRequest): ProviderCallResult {
-        val maxAttempts = retry.operation.operation.providerRetries + 1
-
-        repeat(maxAttempts) { retryIndex ->
-            val attempt = startProviderRetryAttempt(retry)
-
-            try {
-                return executeProviderRetryAttempt(attempt, retry)
-            } catch (error: dev.tramai.core.security.DlpInspectionException) {
-                // DLP failures propagate directly — NOT a provider failure.
-                // Do NOT call observation.onProviderFailure, circuitBreaker.onFailure,
-                // or retry. Record call completion once.
-                attempt.observation.onCallCompleted(parseSuccess = null)
-                throw error
-            } catch (error: CancellationException) {
-                attempt.observation.completeCancellation(error)
-                throw error
-            } catch (error: Throwable) {
-                error.rethrowIfCancellation()
-                handleProviderRetryFailure(error, retry, attempt.observation, retryIndex, maxAttempts)
-            }
-        }
-
-        error("Provider retry loop exited without returning or throwing")
-    }
-
-    private data class ProviderRetryAttempt(
-        val callContext: OperationCallContext,
-        val interceptedRequest: ModelRequest,
-        val observation: OperationObservation,
-        val approvedModel: dev.tramai.core.model.RegisteredModel?,
-    )
-
-    private suspend fun startProviderRetryAttempt(retry: ProviderRetryRequest): ProviderRetryAttempt {
-        val callContext = OperationCallContext(
-            serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-            methodName = retry.operation.method.name,
-            providerId = retry.providerId,
-            requestedModel = retry.operation.operation.model,
-            attempt = retry.attemptCounter.next(),
-        )
-        val interceptedRequest = retry.request.copy(
-            messages = operationInterceptor.interceptRequest(callContext, retry.request.messages),
-        )
-        val observation = operationObserver.onCallStarted(callContext)
-        observation.onEngineEvent(
-            name = EVENT_ROUTE_SELECTED,
-            attributes = routeSelectedAttributes(
-                ResolvedProviderRoute(
-                    providerName = retry.providerId,
-                    provider = retry.provider,
-                    requestedModelName = retry.operation.operation.model,
-                    effectiveModelName = retry.request.model,
-                ),
-                routeIndex = retry.routeIndex,
-            ),
-        )
-        val approvedModel = authorizeProviderRetryModel(retry.providerId, retry.request.model, observation)
-        return ProviderRetryAttempt(callContext, interceptedRequest, observation, approvedModel)
-    }
-
-    private suspend fun authorizeProviderRetryModel(
-        providerId: String,
-        modelName: String,
-        observation: OperationObservation,
-    ): dev.tramai.core.model.RegisteredModel? = try {
-        modelRegistryEnforcer.authorize(providerId, modelName)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: ModelRegistryException) {
-        observation.onCallCompleted(parseSuccess = null)
-        throw e
-    }
-
-    private suspend fun executeProviderRetryAttempt(
-        attempt: ProviderRetryAttempt,
-        retry: ProviderRetryRequest,
-    ): ProviderCallResult {
-        enforceBeforeProviderInvocation(
-            providerId = retry.providerId,
-            modelName = retry.request.model,
-            correlationId = retry.correlationId,
-            securityContext = retry.securityContext,
-        )
-        val rawResponse = callProviderOnce(retry.providerId, retry.provider, attempt.interceptedRequest, retry.operation)
-        val interceptedResponse = operationInterceptor.interceptResponse(attempt.callContext, rawResponse)
-        val sanitizedResponse = sanitizeProviderResponse(
-            interceptedResponse = interceptedResponse,
-            operation = retry.operation,
-            providerId = retry.providerId,
-            modelName = retry.request.model,
-            correlationId = retry.correlationId,
-            securityContext = retry.securityContext,
-            observation = attempt.observation,
-        )
-        attempt.observation.onProviderResponse(sanitizedResponse)
-        return ProviderCallResult(
-            response = sanitizedResponse,
-            observation = attempt.observation,
-            providerId = retry.providerId,
-            modelName = retry.request.model,
-            approvedModel = attempt.approvedModel,
-        )
-    }
-
-    private suspend fun handleProviderRetryFailure(
-        error: Throwable,
-        retry: ProviderRetryRequest,
-        observation: OperationObservation,
-        retryIndex: Int,
-        maxAttempts: Int,
-    ) {
-        observation.onProviderFailure(error)
-        observation.onCallCompleted(parseSuccess = null)
-
-        if (!shouldRetryProviderCall(error, retryIndex, maxAttempts)) {
-            val opened = circuitBreaker.onFailure(retry.providerId, error)
-            if (opened) {
-                observation.onEngineEvent(
-                    name = EVENT_CIRCUIT_OPENED,
-                    attributes = mapOf(ATTR_PROVIDER_ID to retry.providerId),
-                )
-            }
-            throw error
-        }
-
-        val delayMillis = providerRetryDelayMillis(retryIndex, error)
-        observation.onEngineEvent(
-            name = "tramai.retry.scheduled",
-            attributes = mapOf(
-                ATTR_PROVIDER_ID to retry.providerId,
-                ATTR_RETRY_INDEX to retryIndex,
-                ATTR_DELAY_MILLIS to delayMillis,
-                ATTR_DELAY_SOURCE to retryDelaySource(error),
-            ),
-        )
-        delay(delayMillis)
-    }
-
-    private data class ProviderRetryRequest(
-        val providerId: String,
-        val provider: ModelProvider,
-        val request: ModelRequest,
-        val operation: OperationDefinition,
-        val attemptCounter: AttemptCounter,
-        val routeIndex: Int,
-        val correlationId: String,
-        val securityContext: ExecutionSecurityContext,
-    )
 
     /**
      * Applies authoritative DLP inspection to model output without marking failures as provider failures.
@@ -3278,69 +3062,6 @@ internal class TramaiInvocationHandler(
         val historySize: Int = 0,
     )
 
-    private suspend fun callProviderOnce(
-        providerId: String,
-        provider: ModelProvider,
-        request: ModelRequest,
-        operation: OperationDefinition,
-    ): ModelResponse = try {
-        val timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis
-        // Check capability: does the provider support images?
-        if (request.messages.any { it.hasImage() } && !provider.supportsCapability(ProviderCapability.VISION)) {
-            throw ProviderCapabilityException(
-                providerId = provider.providerId(),
-                capability = "VISION",
-            )
-        }
-        withTimeout(timeoutMillis) {
-            provider.complete(request)
-        }
-    } catch (error: Throwable) {
-        if (error is TimeoutCancellationException) {
-            currentCoroutineContext().ensureActive()
-            throw TimeoutException(
-                message = buildTimeoutMessage(
-                    providerId = providerId,
-                    operation = operation,
-                    timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis,
-                ),
-                cause = error,
-            )
-        }
-        error.rethrowIfCancellation()
-        throw when (error) {
-            is ProviderException -> error
-
-            else -> ProviderException(
-                message = "Provider $providerId failed while invoking ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
-                cause = error,
-            )
-        }
-    }
-
-    private fun shouldRetryProviderCall(
-        error: Throwable,
-        retryIndex: Int,
-        maxAttempts: Int,
-    ): Boolean {
-        if (retryIndex >= maxAttempts - 1) {
-            return false
-        }
-
-        return when (error) {
-            is TimeoutException -> true
-            is ProviderException -> error.retryable
-            else -> false
-        }
-    }
-
-    private fun providerRetryDelayMillis(
-        retryIndex: Int,
-        error: Throwable,
-    ): Long = retryDelayPolicy.delayMillis(
-        error = error,
-        fallbackDelayMillis = minOf(INITIAL_PROVIDER_RETRY_DELAY_MILLIS shl retryIndex, MAX_PROVIDER_RETRY_DELAY_MILLIS),
-    )
 
     private fun buildTimeoutMessage(
         providerId: String,
@@ -3369,11 +3090,6 @@ internal class TramaiInvocationHandler(
         else -> false
     }
 
-    private fun retryDelaySource(error: Throwable): String = if (error is ProviderException && error.retryAfterMillis != null) {
-        "retry_after"
-    } else {
-        "backoff"
-    }
 
     private fun enforceTokenBudget(
         tracker: TokenBudgetTracker,
@@ -4813,13 +4529,7 @@ internal fun buildOperationCacheKeyForTesting(
     )
 }
 
-private data class ProviderCallResult(
-    val response: ModelResponse,
-    val observation: OperationObservation,
-    val providerId: String,
-    val modelName: String,
-    val approvedModel: RegisteredModel?,
-)
+private typealias ProviderCallResult = dev.tramai.engine.provider.ProviderCallResult
 
 private sealed class StreamingRouteResult {
     data class Completed(
@@ -4839,13 +4549,9 @@ private class StreamingRouteFinished(
     val result: StreamingRouteResult,
 ) : RuntimeException(null, null, false, false)
 
-private class AttemptCounter {
-    private var attempt = 0
+private typealias AttemptCounter = dev.tramai.engine.provider.AttemptCounter
 
-    fun next(): Int = attempt++
-}
-
-internal class ProviderCircuitBreaker(
+internal open class ProviderCircuitBreaker(
     private val settings: CircuitBreakerSettings,
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) {
@@ -4890,7 +4596,7 @@ internal class ProviderCircuitBreaker(
     }
 
     @Synchronized
-    fun onFailure(
+    open fun onFailure(
         providerId: String,
         error: Throwable,
     ): Boolean {
@@ -4920,30 +4626,6 @@ private data class ProviderCircuitState(
     var openUntilMillis: Long? = null,
 )
 
-internal class ProviderRetryDelayPolicy(
-    private val settings: RetryPolicySettings,
-    private val randomDouble: () -> Double = { kotlin.random.Random.nextDouble() },
-) {
-    fun delayMillis(
-        error: Throwable,
-        fallbackDelayMillis: Long,
-    ): Long {
-        val cappedBaseDelay = when (error) {
-            is ProviderException -> {
-                val retryAfterMillis = error.retryAfterMillis
-                if (retryAfterMillis != null) {
-                    minOf(retryAfterMillis, settings.maxRetryAfterMillis)
-                } else {
-                    fallbackDelayMillis
-                }
-            }
-            else -> fallbackDelayMillis
-        }
-
-        val jitter = (cappedBaseDelay * settings.jitterRatio * randomDouble()).toLong()
-        return cappedBaseDelay + jitter
-    }
-}
 
 private class TokenBudgetTracker(
     private val settings: TokenBudgetSettings,
@@ -5069,8 +4751,6 @@ internal fun sha256Hex(input: String): String {
     return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
 
-private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L
-private const val MAX_PROVIDER_RETRY_DELAY_MILLIS = 1_000L
 private const val IDEMPOTENT_TOOL_MAX_ATTEMPTS = 2
 
 private const val ATTR_PROVIDER_ID = "provider_id"
