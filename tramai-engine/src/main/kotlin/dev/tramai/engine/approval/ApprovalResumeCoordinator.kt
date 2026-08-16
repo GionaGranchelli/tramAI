@@ -30,7 +30,21 @@ internal class ApprovalResumeCoordinator(
         val authorization = authorizationService.authorize(command, metadata, existingContinuation); authorizationService.emitAuthorizationReplayed(authorization.replayed, command, metadata)
         val claimed = claimService.claim(command.approvalId, command.continuationExpectedVersion, command.resumedBy)
         val uncertainOutcome = ResumeUncertainOutcome(); val context = ResumeExecutionContext(command, metadata, registered, resolvedTool, uncertainOutcome)
-        return try { executeClaimedResume(context, claimed, store) } catch (e: NestedApprovalNotSupportedException) { emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported"); throw e } catch (e: StructuredOutputException) { emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "structured-parse-failed: ${e::class.simpleName ?: "unknown"}"); throw e } catch (e: CancellationException) { throw e } catch (e: Exception) { e.rethrowIfCancellation(); emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}"); throw e }
+        return try {
+            executeClaimedResume(context, claimed, store)
+        } catch (e: NestedApprovalNotSupportedException) {
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported")
+            throw e
+        } catch (e: StructuredOutputException) {
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "structured-parse-failed: ${e::class.simpleName ?: "unknown"}")
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
+            throw e
+        }
     }
     private suspend fun executeClaimedResume(context: ResumeExecutionContext, claimed: ClaimedApprovalContinuation, store: ApprovalContinuationStore): Any? {
         val command = context.command; val metadata = context.metadata
@@ -51,8 +65,51 @@ internal class ApprovalResumeCoordinator(
         if (actualArgsDigest != expectedArgsDigest) { emitResumeUncertainOutcomeOnce(marker, command, metadata, "payload-integrity-mismatch"); throw ConfigurationException("Claimed continuation payload integrity mismatch") }; return expectedArgsDigest
     }
     private suspend fun completeClaimedResume(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata, claimed: ClaimedApprovalContinuation, store: ApprovalContinuationStore) { store.complete(command.approvalId, claimed.continuation.version, command.resumedBy); removeSuspendedInvocationAfterResume(command, metadata); emitResumeCompletionAudit(command, metadata) }
-    private suspend fun removeSuspendedInvocationAfterResume(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata) { try { suspendedInvocationStore.remove(command.approvalId) } catch (e: CancellationException) { throw e } catch (e: Exception) { e.rethrowIfCancellation(); runCatching { engineEventObserver.onEngineEvent("resume-suspended-context-cleanup-failure", mapOf("approvalId" to command.approvalId, "toolName" to metadata.toolName)) } } }
-    private suspend fun emitResumeCompletionAudit(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata) { try { approvalLifecycleAuditEmitter.onToolExecutionCompleted(command.approvalId, metadata.identity.workflowRunId, metadata.toolName, command.resumedBy) } catch (e: CancellationException) { throw e } catch (e: Exception) { e.rethrowIfCancellation(); runCatching { engineEventObserver.onEngineEvent("resume-completion-audit-failure", mapOf("approvalId" to command.approvalId, "toolName" to metadata.toolName)) } } }
+    private suspend fun removeSuspendedInvocationAfterResume(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata) {
+        try {
+            suspendedInvocationStore.remove(command.approvalId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            try {
+                engineEventObserver.onEngineEvent(
+                    name = "resume-suspended-context-cleanup-failure",
+                    attributes = mapOf("approvalId" to command.approvalId, "toolName" to metadata.toolName),
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (observerError: Exception) {
+                observerError.rethrowIfCancellation()
+                // best-effort observer cleanup failure
+            }
+        }
+    }
+    private suspend fun emitResumeCompletionAudit(command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata) {
+        try {
+            approvalLifecycleAuditEmitter.onToolExecutionCompleted(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                completedBy = command.resumedBy,
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            try {
+                engineEventObserver.onEngineEvent(
+                    name = "resume-completion-audit-failure",
+                    attributes = mapOf("approvalId" to command.approvalId, "toolName" to metadata.toolName),
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (observerError: Exception) {
+                observerError.rethrowIfCancellation()
+                // best-effort observer cleanup failure
+            }
+        }
+    }
     private suspend fun emitResumeUncertainOutcomeOnce(marker: ResumeUncertainOutcome, command: ResumeApprovalCommand, metadata: SuspendedInvocationMetadata, reason: String) { if (marker.emitted) return; marker.emitted = true; approvalLifecycleAuditEmitter.onUncertainOutcome(command.approvalId, metadata.identity.workflowRunId, metadata.toolName, reason) }
     private fun requireApprovalContinuationStore(): ApprovalContinuationStore = approvalContinuationStore ?: throw ConfigurationException("ApprovalContinuationStore is required for resume")
     private fun requireToolArgumentsDigester(): ToolArgumentsDigester = requireNotNull(toolArgumentsDigester) { "ToolArgumentsDigester is required for payload integrity verification" }
