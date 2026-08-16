@@ -1,6 +1,5 @@
 package dev.tramai.engine.tool
 
-import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.engine.PolicyEnforcementHelper

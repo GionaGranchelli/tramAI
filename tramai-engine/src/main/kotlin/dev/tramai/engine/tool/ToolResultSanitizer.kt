@@ -36,7 +36,7 @@ internal class ToolResultSanitizer(
         is ToolResult.Success -> createToolSuccessMessage(toolResult, toolCallId)
         is ToolResult.InvalidInput -> Message(role = MessageRole.TOOL, content = "Error: ${toolResult.message}", toolCallId = toolCallId)
         is ToolResult.PermanentFailure -> Message(role = MessageRole.TOOL, content = "Permanent error: ${toolResult.message}", toolCallId = toolCallId)
-        is ToolResult.TransientFailure -> error("TransientFailure should be resolved inside executeTool")
+        is ToolResult.TransientFailure -> error("TransientFailure must be resolved before tool result formatting")
     }
 
     private data class ToolReinjectionDlpScope(val canonicalToolName: String, val safeToolLabel: String, val dlpContext: DlpContext, val aggregateTextLimit: Long, val correlationId: String)
