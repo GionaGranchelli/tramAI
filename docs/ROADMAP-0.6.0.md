@@ -608,25 +608,32 @@ A deterministic execution-trace test fixture that records ordered semantic event
 
 ---
 
-## Epic 3.4: Extract tool execution
+## Epic 3.4: Extract tool execution — ✅ Complete
 
 **Goal:** Give tool exposure, authorization, execution, retry, filtering, DLP, formatting, and reinjection explicit boundaries.
 
-### Proposed components
+**Status:** Shipped in PR #234 (2026-08-16, merge commit `8a14027f`). All acceptance criteria met; 20/20 characterization traces byte-identical; `tramai-engine.api` unchanged.
 
-- `ToolExposureCoordinator`
-- `ToolAuthorizationCoordinator`
-- `ToolInvocationExecutor`
-- `ToolResultSanitizer`
-- `ToolReinjectionCoordinator`
+### Shipped components (all internal, `dev.tramai.engine.tool`)
+
+- `ToolExposureCoordinator` — ordered tool-definition exposure, `BEFORE_TOOL_EXPOSURE`, unknown-tool semantics preserved
+- `ToolAuthorizationCoordinator` — pure typed `ToolAuthorizationDecision` (Allow/Deny/RequireApproval) from `BEFORE_TOOL_EXECUTION`
+- `ToolRetryPolicy` — retryability ≠ idempotency, structurally explicit (adds a sixth component to the roadmap's five)
+- `ToolInvocationExecutor` — authorize → gate → attempt → classify → retry → terminal result; owns the `ToolApprovalGate` seam
+- `ToolResultSanitizer` — format + DLP/size filtering + cross-boundary detection + audit consistency
+- `ToolReinjectionCoordinator` — batch/one-shot/resume reinjection with preserved ordering
 
 ### Acceptance criteria
 
-- Tool exposure and tool execution are independently testable.
-- Idempotency and retryability are distinct.
-- Model-visible tool messages use safe typed failures.
-- DLP and size limits remain fail-closed where configured.
-- Tool evidence remains ordered and complete.
+- ✅ Tool exposure and tool execution are independently testable (40 component tests incl. 7-point mutation-sensitive cancellation contract)
+- ✅ Idempotency and retryability are distinct (`ToolRetryPolicy` decision matrix)
+- ✅ Model-visible tool messages use safe typed failures
+- ✅ DLP and size limits remain fail-closed where configured
+- ✅ Tool evidence remains ordered and complete
+
+### Non-goals preserved
+
+Approval state machines stay handler-owned behind `ToolApprovalGate` (Epic 3.5). Streaming extraction (Epic 3.6) and tool-loop orchestration (Epic 3.7) untouched. `ProviderRouteGate` kept; `ToolExposureCoordinator` wired into it at composition time.
 
 ---
 
