@@ -150,12 +150,13 @@ class StreamingExecutionCoordinatorTest {
         budgetSettings: TokenBudgetSettings = defaultBudget,
         circuitBreaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = circuitEnabled, failureThreshold = 1)),
         closed: AtomicBoolean = AtomicBoolean(false),
+        qualifiedServiceName: String? = "test.StreamingService",
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
         fun denied() = PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
         return StreamingExecutionCoordinator(
-            routingPlan, circuitBreaker, CoroutineScope(Dispatchers.Default), closed, "test.StreamingService", "test.StreamingService", observer,
+            routingPlan, circuitBreaker, CoroutineScope(Dispatchers.Default), closed, "test.StreamingService", qualifiedServiceName, observer,
             NoOpOperationInterceptor,
             ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
             ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }), TokenBudgetCoordinator(budgetSettings),
@@ -291,6 +292,30 @@ class StreamingExecutionCoordinatorTest {
         val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink).execute(request()).toList()
         val error = chunks.single() as StreamChunk.Error
         assertThat(error.cause).isInstanceOf(ProviderException::class.java); assertThat(error.cause.message).isEqualTo("boom"); assertThat(sink.events).contains("observation.provider-failure", "observation.complete:null")
+        }
+    }
+
+    @Test fun `null qualified service name renders null in normalized streaming error`() {
+        runBlocking {
+        // Guards P1-A: normalizeStreamingError must interpolate the raw nullable
+        // qualifiedName, not the normalized serviceTypeName fallback. A thrown
+        // non-Tramai failure (anonymous class → null qualified name) must render
+        // "null.stream" exactly as master did.
+        val provider = RecordingProvider("p") { flow { throw IllegalStateException("boom") } }
+        val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), qualifiedServiceName = null).execute(request()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+        assertThat(error.cause.message).contains("failed while streaming null.stream")
+        }
+    }
+
+    @Test fun `null qualified service name renders null in unterminated stream message`() {
+        runBlocking {
+        // The unterminated-stream path builds its message from qualifiedServiceName too.
+        val provider = RecordingProvider("p") { flow { } }
+        val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), qualifiedServiceName = null).execute(request()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause.message).contains("ended streaming without a terminal chunk while invoking null.stream")
         }
     }
 
