@@ -1,7 +1,6 @@
 package dev.tramai.engine.cache
 
 import dev.tramai.core.annotations.Operation
-import dev.tramai.core.exception.CachedModelProvenanceMismatchException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelRegistrySettings
@@ -71,6 +70,7 @@ class OperationCacheCoordinatorTest {
         tools: List<ToolDefinition> = emptyList(),
         digestSource: List<dev.tramai.core.model.Message> = listOf(dev.tramai.core.model.Message(dev.tramai.core.model.MessageRole.USER, "hi")),
         requestedModel: String = "model-x",
+        conversationId: String? = null,
     ) = OperationCacheKeyRequest(
         digestSource = digestSource,
         securityPartition = partition,
@@ -82,6 +82,7 @@ class OperationCacheCoordinatorTest {
         toolDefinitions = tools,
         operation = opWith(cacheable = cacheable),
         returnKind = returnKind,
+        conversationId = conversationId,
     )
 
     private fun lookupRequest(
@@ -203,6 +204,13 @@ class OperationCacheCoordinatorTest {
     fun `dlp interceptor yields no key`() {
         val c = coordinator(dlpInterceptor = dlp())
         assertThat(c.createKey(keyRequest())).isNull()
+    }
+
+    @Test
+    fun `conversation memory in scope yields no key without computing digest`() {
+        val c = coordinator()
+        val k = c.createKey(keyRequest(conversationId = "cid"))
+        assertThat(k).isNull()
     }
 
     @Test

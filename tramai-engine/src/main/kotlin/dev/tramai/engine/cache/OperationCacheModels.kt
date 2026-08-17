@@ -20,6 +20,7 @@ internal data class OperationCacheKeyRequest(
     val toolDefinitions: List<ToolDefinition>,
     val operation: Operation,
     val returnKind: ReturnKind,
+    val conversationId: String?,
 )
 
 internal data class OperationCacheLookupRequest(

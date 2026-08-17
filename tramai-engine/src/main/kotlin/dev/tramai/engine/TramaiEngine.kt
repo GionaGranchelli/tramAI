@@ -1588,6 +1588,7 @@ internal class TramaiInvocationHandler(
                 toolDefinitions = operation.toolDefinitions,
                 operation = operation.operation,
                 returnKind = operation.returnKind,
+                conversationId = conversationId,
             ),
         )
         if (cacheKey != null) {
@@ -1684,6 +1685,7 @@ internal class TramaiInvocationHandler(
                 toolDefinitions = operation.toolDefinitions,
                 operation = operation.operation,
                 returnKind = operation.returnKind,
+                conversationId = conversationId,
             ),
         )
         if (cacheKey != null) {

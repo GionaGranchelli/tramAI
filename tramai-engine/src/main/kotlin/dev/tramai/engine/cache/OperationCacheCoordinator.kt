@@ -28,6 +28,12 @@ internal class OperationCacheCoordinator(
     private val policyHelper: PolicyEnforcementHelper,
 ) {
     fun createKey(request: OperationCacheKeyRequest): OperationCacheKey? {
+        if (request.conversationId != null) {
+            // Conversation memory makes a cache hit unsafe (it would skip the
+            // chatMemory.add a fresh execution performs). Short-circuit before
+            // computing the request digest / operation fingerprint.
+            return null
+        }
         if (!request.operation.cacheable ||
             request.returnKind == ReturnKind.STREAMING ||
             request.toolDefinitions.isNotEmpty() ||
@@ -96,7 +102,13 @@ internal class OperationCacheCoordinator(
         if (!modelRegistrySettings.enabled) return
         val current = modelRegistryEnforcer.authorize(provenance.providerId, provenance.modelName)
             ?: error("ModelRegistryEnforcer.authorize returned null when registry is enabled")
-        if (current.registryEntryId != provenance.modelRegistryEntryId || current.revision != provenance.modelRevision || current.artifactDigest != provenance.modelArtifactDigest) throw CachedModelProvenanceMismatchException()
+        if (
+            current.registryEntryId != provenance.modelRegistryEntryId ||
+            current.revision != provenance.modelRevision ||
+            current.artifactDigest != provenance.modelArtifactDigest
+        ) {
+            throw CachedModelProvenanceMismatchException()
+        }
     }
 
     private suspend fun enforceCacheReusePolicies(cacheKey: OperationCacheKey, cached: CachedOperationResult, securityContext: ExecutionSecurityContext, correlationId: String) {

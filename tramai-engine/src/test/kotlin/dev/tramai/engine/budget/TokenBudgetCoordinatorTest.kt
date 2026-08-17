@@ -3,10 +3,7 @@ package dev.tramai.engine.budget
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationObservation
-import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.TokenBudgetSettings
-import dev.tramai.engine.TokenBudgetSnapshot
-import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
