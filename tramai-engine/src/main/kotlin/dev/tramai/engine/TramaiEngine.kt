@@ -102,6 +102,15 @@ import dev.tramai.engine.approval.ClaimedResumeExecutor
 import dev.tramai.engine.approval.ContinuationClaimService
 import dev.tramai.engine.approval.ReplayAuthorizationService
 import dev.tramai.engine.approval.ResumeOperationRegistry as ApprovalResumeOperationRegistry
+import dev.tramai.engine.budget.TokenBudgetCoordinator
+import dev.tramai.engine.cache.OperationCacheCoordinator
+import dev.tramai.engine.cache.OperationCacheKeyRequest
+import dev.tramai.engine.cache.OperationCacheLookupRequest
+import dev.tramai.engine.cache.OperationCacheLookupResult
+import dev.tramai.engine.cache.OperationCacheStoreRequest
+import dev.tramai.engine.memory.ConversationMemoryCoordinator
+import dev.tramai.engine.memory.PersistConversationTurnRequest
+import dev.tramai.engine.memory.PersistStructuredConversationTurnRequest
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
@@ -715,6 +724,19 @@ internal class TramaiInvocationHandler(
         fallbackGate = ProviderFallbackGate { correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext -> enforceFallbackTransition(correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext) },
     )
     private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
+    private val conversationMemoryCoordinator = ConversationMemoryCoordinator(
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
+    )
+    private val operationCacheCoordinator = OperationCacheCoordinator(
+        responseCache = responseCache,
+        operationInterceptor = operationInterceptor,
+        dlpInterceptor = dlpInterceptor,
+        modelRegistrySettings = modelRegistrySettings,
+        modelRegistryEnforcer = modelRegistryEnforcer,
+        policyHelper = policyHelper,
+    )
+    private val tokenBudgetCoordinator = TokenBudgetCoordinator(tokenBudgetSettings)
     private val toolResultSanitizer = ToolResultSanitizer(
         toolRegistry = toolRegistry,
         dlpInterceptor = dlpInterceptor,
@@ -793,7 +815,11 @@ internal class TramaiInvocationHandler(
             ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
         val operation = plan.definition
 
-        val conversationId = if (chatMemory != null) resolveConversationId(method, args.orEmpty()) else null
+        val conversationId = if (chatMemory != null) {
+            conversationMemoryCoordinator.resolveConversationId(method, args.orEmpty())
+        } else {
+            null
+        }
         return if (operation.isSuspend) {
             invokeSuspend(operation, args.orEmpty(), conversationId)
         } else {
@@ -882,7 +908,7 @@ internal class TramaiInvocationHandler(
         arguments: List<Any?>,
         conversationId: String?,
     ): Any? {
-        val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+        val tokenBudgetTracker = tokenBudgetCoordinator.createTracker()
         val workflowRunId = java.util.UUID.randomUUID().toString()
         val workflowDigest = WorkflowDigestHelper.compute(operation, serviceDefinition)
         val identity = EngineExecutionIdentity(
@@ -911,8 +937,9 @@ internal class TramaiInvocationHandler(
     ): Flow<StreamChunk> {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         val initialMessages = operation.initialMessages(arguments)
-        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
-            ?: (emptyList<Message>() to initialMessages)
+        val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, conversationId)
+        val history = prepared?.history ?: emptyList()
+        val effectiveMessages = prepared?.effectiveMessages ?: initialMessages
 
         return flow {
             check(!isClosed.get()) { "Tramai runtime is closed" }
@@ -968,15 +995,14 @@ internal class TramaiInvocationHandler(
                             )
                         ) {
                             is StreamingRouteResult.Completed -> {
-                                if (chatMemory != null && conversationId != null) {
+                                if (conversationId != null) {
                                     val assistantMessage = Message(
                                         role = MessageRole.ASSISTANT,
                                         content = result.fullText,
                                     )
-                                    val turnMessages = effectiveMessages
-                                        .drop(history.size)
-                                        .filter { it.role != MessageRole.SYSTEM }
-                                    chatMemory.add(conversationId, turnMessages + assistantMessage)
+                                    conversationMemoryCoordinator.persistTurn(
+                                        PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
+                                    )
                                 }
                                 return@launch
                             }
@@ -1405,7 +1431,7 @@ internal class TramaiInvocationHandler(
         observation.onProviderResponse(interceptedResponse)
 
         try {
-            enforceTokenBudget(
+            tokenBudgetCoordinator.enforce(
                 tracker = tokenBudgetTracker,
                 response = interceptedResponse,
                 observation = observation,
@@ -1536,31 +1562,6 @@ internal class TramaiInvocationHandler(
         throw StreamingRouteFinished(result)
     }
 
-    private fun injectMemoryMessages(
-        operation: OperationDefinition,
-        arguments: List<Any?>,
-        conversationId: String?,
-    ): Pair<List<Message>, List<Message>>? = injectMemoryMessages(
-        initialMessages = operation.initialMessages(arguments),
-        conversationId = conversationId,
-    )
-
-    private fun injectMemoryMessages(
-        initialMessages: List<Message>,
-        conversationId: String?,
-    ): Pair<List<Message>, List<Message>>? {
-        if (chatMemory == null || conversationId == null) return null
-        val history = chatMemory.get(conversationId)
-        if (history.isEmpty()) return null
-        val currentSystem = initialMessages.firstOrNull { it.role == MessageRole.SYSTEM }
-        val deduped = if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
-            initialMessages.filter { it.role != MessageRole.SYSTEM }
-        } else {
-            initialMessages
-        }
-        return history to (history + deduped)
-    }
-
     private suspend fun executeRaw(
         operation: OperationDefinition,
         arguments: List<Any?>,
@@ -1572,27 +1573,29 @@ internal class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
         val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments)
-        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
-            ?: (emptyList<Message>() to initialMessages)
-        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
-            digestSource = effectiveMessages,
-            securityPartition = securityContext.toCacheSecurityPartition(),
-            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
+        val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, conversationId)
+        val history = prepared?.history ?: emptyList()
+        val effectiveMessages = prepared?.effectiveMessages ?: initialMessages
+        val cacheKey = operationCacheCoordinator.createKey(
+            OperationCacheKeyRequest(
+                digestSource = effectiveMessages,
+                securityPartition = securityContext.toCacheSecurityPartition(),
+                operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
+                requestedModel = operation.operation.model,
+                explicitProvider = operation.operation.provider.takeIf { it.isNotBlank() },
+                serviceInterface = operation.method.declaringClass.name,
+                methodName = operation.method.name,
+                toolDefinitions = operation.toolDefinitions,
+                operation = operation.operation,
+                returnKind = operation.returnKind,
+            ),
         )
-
-        cacheKey?.let { key ->
-            operation.cachedValue(key, conversationId)?.let { cached ->
-                try {
-                    authorizeCachedResult(
-                        cacheKey = key,
-                        cached = cached,
-                        securityContext = securityContext,
-                        correlationId = correlationId,
-                    )
-                    return cached.value as String
-                } catch (_: CachedModelProvenanceMismatchException) {
-                    responseCache.invalidate(key)
-                }
+        if (cacheKey != null) {
+            when (val cached = operationCacheCoordinator.lookup(
+                OperationCacheLookupRequest(cacheKey, securityContext, correlationId, conversationId),
+            )) {
+                is OperationCacheLookupResult.Hit -> return cached.value as String
+                is OperationCacheLookupResult.Miss -> Unit
             }
         }
 
@@ -1625,28 +1628,22 @@ internal class TramaiInvocationHandler(
         )
 
         // Memory: persist response if chatMemory is configured
-        if (chatMemory != null && conversationId != null) {
+        if (conversationId != null) {
             val assistantMessage = Message(
                 role = MessageRole.ASSISTANT,
                 content = result.response.content,
                 toolCalls = result.response.toolCalls,
             )
-            // Persist non-system messages from this turn (tool rounds + final assistant)
-            val turnMessages = effectiveMutableMessages.drop(history.size).filter { it.role != MessageRole.SYSTEM }
-            chatMemory.add(conversationId, turnMessages + assistantMessage)
+            conversationMemoryCoordinator.persistTurn(
+                PersistConversationTurnRequest(conversationId, effectiveMutableMessages, history.size, assistantMessage),
+            )
         }
 
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also {
             cacheKey?.let { key ->
-                operation.cacheValue(
-                    key = key,
-                    value = it,
-                    providerId = result.providerId,
-                    modelName = result.modelName,
-                    securityContext = securityContext,
-                    conversationId = conversationId,
-                    approvedModel = result.approvedModel,
+                operationCacheCoordinator.store(
+                    OperationCacheStoreRequest(key, it, result.providerId, result.modelName, securityContext, conversationId, result.approvedModel, operation.operation.cacheTtlMillis),
                 )
             }
         }
@@ -1672,27 +1669,29 @@ internal class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
         val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
-        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
-            ?: (emptyList<Message>() to initialMessages)
-        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
-            digestSource = effectiveMessages,
-            securityPartition = securityContext.toCacheSecurityPartition(),
-            operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
+        val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, conversationId)
+        val history = prepared?.history ?: emptyList()
+        val effectiveMessages = prepared?.effectiveMessages ?: initialMessages
+        val cacheKey = operationCacheCoordinator.createKey(
+            OperationCacheKeyRequest(
+                digestSource = effectiveMessages,
+                securityPartition = securityContext.toCacheSecurityPartition(),
+                operationFingerprint = serviceDefinition.operations[operation.method]?.fingerprint,
+                requestedModel = operation.operation.model,
+                explicitProvider = operation.operation.provider.takeIf { it.isNotBlank() },
+                serviceInterface = operation.method.declaringClass.name,
+                methodName = operation.method.name,
+                toolDefinitions = operation.toolDefinitions,
+                operation = operation.operation,
+                returnKind = operation.returnKind,
+            ),
         )
-
-        cacheKey?.let { key ->
-            operation.cachedValue(key, conversationId)?.let { cached ->
-                try {
-                    authorizeCachedResult(
-                        cacheKey = key,
-                        cached = cached,
-                        securityContext = securityContext,
-                        correlationId = correlationId,
-                    )
-                    return cached.value
-                } catch (_: CachedModelProvenanceMismatchException) {
-                    responseCache.invalidate(key)
-                }
+        if (cacheKey != null) {
+            when (val cached = operationCacheCoordinator.lookup(
+                OperationCacheLookupRequest(cacheKey, securityContext, correlationId, conversationId),
+            )) {
+                is OperationCacheLookupResult.Hit -> return cached.value
+                is OperationCacheLookupResult.Miss -> Unit
             }
         }
 
@@ -1824,22 +1823,24 @@ internal class TramaiInvocationHandler(
 
                 result.observation.onCallCompleted(parseSuccess = true)
 
-                persistStructuredSuccess(
-                    result = result,
-                    messages = messages,
-                    historySize = historySize,
-                    conversationId = conversationId,
-                    messagesBeforeCall = messagesBeforeCall,
-                )
+                if (conversationId != null) {
+                    conversationMemoryCoordinator.persistStructuredTurn(
+                        PersistStructuredConversationTurnRequest(
+                            conversationId = conversationId,
+                            messages = messages,
+                            historySize = historySize,
+                            messagesBeforeCall = messagesBeforeCall,
+                            assistantMessage = Message(
+                                role = MessageRole.ASSISTANT,
+                                content = result.response.content,
+                                toolCalls = result.response.toolCalls,
+                            ),
+                        ),
+                    )
+                }
                 cacheKey?.let { key ->
-                    operation.cacheValue(
-                        key = key,
-                        value = analysis.value,
-                        providerId = result.providerId,
-                        modelName = result.modelName,
-                        securityContext = securityContext,
-                        conversationId = conversationId,
-                        approvedModel = result.approvedModel,
+                    operationCacheCoordinator.store(
+                        OperationCacheStoreRequest(key, analysis.value, result.providerId, result.modelName, securityContext, conversationId, result.approvedModel, operation.operation.cacheTtlMillis),
                     )
                 }
 
@@ -1857,47 +1858,6 @@ internal class TramaiInvocationHandler(
                 null
             }
         }
-    }
-
-    private fun persistStructuredSuccess(
-        result: ProviderCallResult,
-        messages: MutableList<Message>,
-        historySize: Int,
-        conversationId: String?,
-        messagesBeforeCall: Int,
-    ) {
-        if (chatMemory == null || conversationId == null) return
-        val content = result.response.content
-        val assistantMessage = Message(
-            role = MessageRole.ASSISTANT,
-            content = content,
-            toolCalls = result.response.toolCalls,
-        )
-        val userPrompt = messages.subList(historySize, messagesBeforeCall)
-            .filter { it.role != MessageRole.SYSTEM }
-        val toolMessages = messages.drop(messagesBeforeCall)
-        chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
-    }
-
-    /**
-     * Persists the assistant response and this turn's non-system messages to chat memory.
-     * Shared by [finalizeResumedOperation] for STRING/UNIT paths and by
-     * [resumeStructuredResult] for the STRUCTURED path.
-     */
-    private fun persistMemory(
-        loopResult: ProviderCallResult,
-        messages: List<Message>,
-        historySize: Int,
-        conversationId: String?,
-    ) {
-        if (chatMemory == null || conversationId == null) return
-        val assistantMessage = Message(
-            role = MessageRole.ASSISTANT,
-            content = loopResult.response.content,
-            toolCalls = loopResult.response.toolCalls,
-        )
-        val turnMessages = messages.drop(historySize).filter { it.role != MessageRole.SYSTEM }
-        chatMemory.add(conversationId, turnMessages + assistantMessage)
     }
 
     private suspend fun handleStructuredFailure(
@@ -2056,7 +2016,7 @@ internal class TramaiInvocationHandler(
                 ),
             )
             try {
-                enforceTokenBudget(
+                tokenBudgetCoordinator.enforce(
                     tracker = tokenBudgetTracker,
                     response = result.response,
                     observation = result.observation,
@@ -2282,54 +2242,6 @@ internal class TramaiInvocationHandler(
     }
 
 
-    private fun enforceTokenBudget(
-        tracker: TokenBudgetTracker,
-        response: ModelResponse,
-        observation: OperationObservation,
-        providerId: String,
-        modelName: String,
-    ) {
-        when (val result = tracker.observe(response)) {
-            is TokenBudgetCheckResult.Ok -> Unit
-            is TokenBudgetCheckResult.UsageUnavailable -> observation.onEngineEvent(
-                name = "tramai.token_budget.usage_unavailable",
-                attributes = mapOf(
-                    ATTR_PROVIDER_ID to providerId,
-                    ATTR_EFFECTIVE_MODEL to modelName,
-                ),
-            )
-            is TokenBudgetCheckResult.SoftLimitExceeded -> observation.onEngineEvent(
-                name = "tramai.token_budget.soft_limit_exceeded",
-                attributes = mapOf(
-                    ATTR_PROVIDER_ID to providerId,
-                    ATTR_EFFECTIVE_MODEL to modelName,
-                    ATTR_LIMIT_TOKENS to result.limitTokens,
-                    ATTR_OBSERVED_TOKENS to result.observedTokens,
-                    ATTR_SCOPE to "operation",
-                ),
-            )
-            is TokenBudgetCheckResult.HardLimitExceeded -> {
-                observation.onEngineEvent(
-                    name = "tramai.token_budget.hard_limit_exceeded",
-                    attributes = mapOf(
-                        ATTR_PROVIDER_ID to providerId,
-                        ATTR_EFFECTIVE_MODEL to modelName,
-                        ATTR_LIMIT_TOKENS to result.limitTokens,
-                        ATTR_OBSERVED_TOKENS to result.observedTokens,
-                        ATTR_SCOPE to result.scope,
-                    ),
-                )
-                throw TokenBudgetExceededException(
-                    scope = result.scope,
-                    limitTokens = result.limitTokens,
-                    observedTokens = result.observedTokens,
-                    providerId = providerId,
-                    modelName = modelName,
-                )
-            }
-        }
-    }
-
     private fun routeSelectedAttributes(
         route: ResolvedProviderRoute,
         routeIndex: Int,
@@ -2340,15 +2252,10 @@ internal class TramaiInvocationHandler(
         ATTR_IS_FALLBACK to (routeIndex > 0),
     )
 
-    private fun restoredTokenBudgetTracker(metadata: SuspendedInvocationMetadata): TokenBudgetTracker =
-        TokenBudgetTracker(tokenBudgetSettings).also { tracker ->
-            metadata.tokenBudgetSnapshot?.let { tracker.restore(it) }
-        }
-
     override suspend fun execute(request: ClaimedResumeExecutionRequest): Any? {
         val metadata = request.metadata
         val registered = request.registered
-        val tokenBudgetTracker = restoredTokenBudgetTracker(metadata)
+        val tokenBudgetTracker = tokenBudgetCoordinator.restoreTracker(metadata.tokenBudgetSnapshot)
         val toolResult = executeResumedTool(
             request = request,
             tokenBudgetTracker = tokenBudgetTracker,
@@ -2464,7 +2371,20 @@ internal class TramaiInvocationHandler(
                         .build()
                 )
                 // Memory persistence + observation + return (once)
-                persistMemory(loopResult, messages, historySize, conversationId)
+                if (conversationId != null) {
+                    conversationMemoryCoordinator.persistTurn(
+                        PersistConversationTurnRequest(
+                            conversationId,
+                            messages,
+                            historySize,
+                            Message(
+                                role = MessageRole.ASSISTANT,
+                                content = loopResult.response.content,
+                                toolCalls = loopResult.response.toolCalls,
+                            ),
+                        ),
+                    )
+                }
                 loopResult.observation.onCallCompleted(parseSuccess = null)
                 return loopResult.response.content
             }
@@ -2479,7 +2399,20 @@ internal class TramaiInvocationHandler(
                         .applySecurityContext(securityContext)
                         .build()
                 )
-                persistMemory(loopResult, messages, historySize, conversationId)
+                if (conversationId != null) {
+                    conversationMemoryCoordinator.persistTurn(
+                        PersistConversationTurnRequest(
+                            conversationId,
+                            messages,
+                            historySize,
+                            Message(
+                                role = MessageRole.ASSISTANT,
+                                content = loopResult.response.content,
+                                toolCalls = loopResult.response.toolCalls,
+                            ),
+                        ),
+                    )
+                }
                 loopResult.observation.onCallCompleted(parseSuccess = null)
                 loopResult.response.content // consume it
                 return Unit
@@ -2559,7 +2492,20 @@ internal class TramaiInvocationHandler(
                         .applySecurityContext(securityContext)
                         .build()
                 )
-                persistMemory(loopResult, messages, historySize, conversationId)
+                if (conversationId != null) {
+                    conversationMemoryCoordinator.persistTurn(
+                        PersistConversationTurnRequest(
+                            conversationId,
+                            messages,
+                            historySize,
+                            Message(
+                                role = MessageRole.ASSISTANT,
+                                content = loopResult.response.content,
+                                toolCalls = loopResult.response.toolCalls,
+                            ),
+                        ),
+                    )
+                }
                 loopResult.observation.onCallCompleted(parseSuccess = true)
                 analysis.value
             }
@@ -2735,216 +2681,6 @@ internal class TramaiInvocationHandler(
         else -> throw UnsupportedOperationException("Unsupported Object method: ${method.name}")
     }
 
-    private fun resolveConversationId(method: Method, args: Array<out Any?>): String {
-        val parameters = method.parameters
-        for (i in parameters.indices) {
-            if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
-                val argument = args[i]
-                    ?: throw IllegalArgumentException("@ConversationId parameter '${parameters[i].name}' at index $i is null")
-                return argument.toString()
-            }
-        }
-        return conversationIdProvider.resolve()
-    }
-
-    private suspend fun authorizeCachedResult(
-        cacheKey: OperationCacheKey,
-        cached: CachedOperationResult,
-        securityContext: ExecutionSecurityContext,
-        correlationId: String,
-    ) {
-        validateCachedEntry(cacheKey, cached)
-        authorizeCachedModelProvenance(cached.provenance)
-        enforceCacheReusePolicies(cacheKey, cached, securityContext, correlationId)
-    }
-
-    /**
-     * Re-authorizes cached model provenance against the current registry entry.
-     */
-    private suspend fun authorizeCachedModelProvenance(provenance: CachedResponseProvenance) {
-        if (!modelRegistrySettings.enabled) {
-            return
-        }
-        val current = modelRegistryEnforcer.authorize(provenance.providerId, provenance.modelName)
-            ?: error("ModelRegistryEnforcer.authorize returned null when registry is enabled")
-        if (current.registryEntryId != provenance.modelRegistryEntryId ||
-            current.revision != provenance.modelRevision ||
-            current.artifactDigest != provenance.modelArtifactDigest
-        ) {
-            throw CachedModelProvenanceMismatchException()
-        }
-    }
-
-    /**
-     * Applies the same policy gates that a fresh provider call would cross on a cache hit.
-     */
-    private suspend fun enforceCacheReusePolicies(
-        cacheKey: OperationCacheKey,
-        cached: CachedOperationResult,
-        securityContext: ExecutionSecurityContext,
-        correlationId: String,
-    ) {
-        enforceCacheReuseProviderResolution(cacheKey, securityContext, correlationId)
-        enforceCacheReuseProviderInvocation(cached.provenance, securityContext, correlationId)
-        enforceCacheReuseResponseReturn(cached.provenance, securityContext, correlationId)
-    }
-
-    /**
-     * Enforces provider-resolution policy for a reused cached response.
-     */
-    private suspend fun enforceCacheReuseProviderResolution(
-        cacheKey: OperationCacheKey,
-        securityContext: ExecutionSecurityContext,
-        correlationId: String,
-    ) {
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
-                correlationId = correlationId,
-            ).modelName(cacheKey.requestedModel)
-                .applySecurityContext(securityContext)
-                .attribute("cacheReuse", "true")
-                .build()
-        )
-    }
-
-    /**
-     * Enforces provider-invocation policy for a reused cached response.
-     */
-    private suspend fun enforceCacheReuseProviderInvocation(
-        provenance: CachedResponseProvenance,
-        securityContext: ExecutionSecurityContext,
-        correlationId: String,
-    ) {
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
-                correlationId = correlationId,
-            ).providerId(provenance.providerId)
-                .modelName(provenance.modelName)
-                .applySecurityContext(securityContext)
-                .attribute("cacheReuse", "true")
-                .build()
-        )
-    }
-
-    /**
-     * Enforces response-return policy for a reused cached response.
-     */
-    private suspend fun enforceCacheReuseResponseReturn(
-        provenance: CachedResponseProvenance,
-        securityContext: ExecutionSecurityContext,
-        correlationId: String,
-    ) {
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                correlationId = correlationId,
-            ).providerId(provenance.providerId)
-                .modelName(provenance.modelName)
-                .applySecurityContext(securityContext)
-                .attribute("cacheReuse", "true")
-                .build()
-        )
-    }
-
-    private fun validateCachedEntry(
-        key: OperationCacheKey,
-        cached: CachedOperationResult,
-    ) {
-        val provenance = cached.provenance
-        check(provenance.hasProviderEnvelope()) { "Cached entry envelope has blank provider provenance" }
-        check(provenance.matchesSecurityPartition(key.securityPartition)) {
-            cachedPartitionMismatchMessage(key.securityPartition, provenance)
-        }
-    }
-
-    /**
-     * Checks that cached provenance carries the provider identity needed for reuse policy gates.
-     */
-    private fun CachedResponseProvenance.hasProviderEnvelope(): Boolean =
-        providerId.isNotBlank() && modelName.isNotBlank()
-
-    /**
-     * Checks that cached data cannot cross security classification partitions.
-     */
-    private fun CachedResponseProvenance.matchesSecurityPartition(partition: CacheSecurityPartition): Boolean =
-        dataClassification == partition.dataClassification &&
-            classificationSource == partition.classificationSource
-
-    /**
-     * Builds the explicit cache partition mismatch diagnostic.
-     */
-    private fun cachedPartitionMismatchMessage(
-        partition: CacheSecurityPartition,
-        provenance: CachedResponseProvenance,
-    ): String =
-        "Cached entry envelope mismatch: key partition " +
-            "$partition != cached provenance partition " +
-            "(${provenance.dataClassification}, ${provenance.classificationSource})"
-
-    private fun OperationDefinition.cachedValue(
-        key: OperationCacheKey,
-        conversationId: String?,
-    ): CachedOperationResult? = if (isSafeCacheEligible(this, conversationId)) {
-        responseCache.get(key)
-    } else {
-        null
-    }
-
-    private fun OperationDefinition.cacheValue(
-        key: OperationCacheKey,
-        value: Any,
-        providerId: String,
-        modelName: String,
-        securityContext: ExecutionSecurityContext,
-        conversationId: String?,
-        approvedModel: RegisteredModel?,
-    ) {
-        if (!isSafeCacheEligible(this, conversationId)) {
-            return
-        }
-        responseCache.put(
-            key = key,
-            value = CachedOperationResult(
-                value = value,
-                provenance = CachedResponseProvenance(
-                    providerId = providerId,
-                    modelName = modelName,
-                    dataClassification = securityContext.dataClassification,
-                    classificationSource = securityContext.classificationSource,
-                    modelRegistryEntryId = approvedModel?.registryEntryId,
-                    modelRevision = approvedModel?.revision,
-                    modelArtifactDigest = approvedModel?.artifactDigest,
-                ),
-            ),
-            ttlMillis = operation.cacheTtlMillis,
-        )
-    }
-
-    /**
-     * Cache eligibility including the conversation-memory and custom-interceptor
-     * gates. Both gates are engine-scoped, not operation-scoped, so they live
-     * on the handler.
-     *
-     * - **No chat memory** in scope: a cache hit would skip the
-     *   `chatMemory.add(...)` that a fresh execution performs.
-     * - **No custom interceptor**: a cache hit would skip
-     *   `operationInterceptor.interceptRequest(...)` and
-     *   `operationInterceptor.interceptResponse(...)`, allowing stale
-     *   redacted/audited responses to bypass current rules.
-     *
-     * Interceptor-aware caching is deferred to a follow-up that introduces a
-     * dedicated cache-aware interceptor SPI.
-     */
-    private fun isSafeCacheEligible(
-        operation: OperationDefinition,
-        conversationId: String?,
-    ): Boolean =
-        operation.isOperationCacheEligible() &&
-            conversationId == null &&
-            operationInterceptor === NoOpOperationInterceptor &&
-            dlpInterceptor === NoOpDlpInterceptor
 }
 
 data class OperationDefinition(
@@ -2965,9 +2701,9 @@ data class OperationDefinition(
      * Operation-static cache eligibility (no chat memory, no tools, no streaming,
      * no custom [dev.tramai.core.observation.OperationInterceptor]).
      *
-     * The interceptor-aware portion of the check lives on the invocation handler
+     * The interceptor-aware portion of the check lives on the cache coordinator
      * because the interceptor is engine-scoped, not operation-scoped. Use the
-     * handler's [isSafeCacheEligible] when evaluating an actual cache read/write.
+     * coordinator when evaluating an actual cache read/write.
      */
     fun isOperationCacheEligible(): Boolean =
         operation.cacheable &&
@@ -3307,108 +3043,6 @@ private data class ProviderCircuitState(
     var consecutiveFailures: Int = 0,
     var openUntilMillis: Long? = null,
 )
-
-
-internal class TokenBudgetTracker(
-    private val settings: TokenBudgetSettings,
-) {
-    private var totalInputTokensObserved: Long = 0
-    private var totalOutputTokensObserved: Long = 0
-    private var totalInputCostObserved: Double = 0.0
-    private var totalOutputCostObserved: Double = 0.0
-    private var softLimitReported: Boolean = false
-
-    /**
-     * Capture a snapshot of the current budget state for suspension.
-     */
-    fun snapshot(): TokenBudgetSnapshot = TokenBudgetSnapshot(
-        totalInputTokens = totalInputTokensObserved,
-        totalOutputTokens = totalOutputTokensObserved,
-        totalInputCost = totalInputCostObserved,
-        totalOutputCost = totalOutputCostObserved,
-        warnIfExceeded = !softLimitReported,
-    )
-
-    /**
-     * Restore budget state from a snapshot taken at suspension time.
-     */
-    fun restore(snapshot: TokenBudgetSnapshot) {
-        totalInputTokensObserved = snapshot.totalInputTokens
-        totalOutputTokensObserved = snapshot.totalOutputTokens
-        totalInputCostObserved = snapshot.totalInputCost
-        totalOutputCostObserved = snapshot.totalOutputCost
-        softLimitReported = !snapshot.warnIfExceeded
-    }
-
-    fun observe(response: ModelResponse): TokenBudgetCheckResult {
-        if (!isEnabled()) {
-            return TokenBudgetCheckResult.Ok
-        }
-
-        val attemptInputTokens = response.inputTokens?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
-        val attemptOutputTokens = response.outputTokens?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
-        val attemptTokens = attemptInputTokens + attemptOutputTokens
-        totalInputTokensObserved += attemptInputTokens
-        totalOutputTokensObserved += attemptOutputTokens
-
-        settings.hardMaxTokensPerAttempt?.let { limit ->
-            if (attemptTokens > limit) {
-                return TokenBudgetCheckResult.HardLimitExceeded(
-                    scope = "attempt",
-                    limitTokens = limit,
-                    observedTokens = attemptTokens,
-                )
-            }
-        }
-
-        settings.hardMaxTokensPerOperation?.let { limit ->
-            val totalTokensObserved = totalInputTokensObserved + totalOutputTokensObserved
-            if (totalTokensObserved > limit) {
-                return TokenBudgetCheckResult.HardLimitExceeded(
-                    scope = "operation",
-                    limitTokens = limit,
-                    observedTokens = totalTokensObserved,
-                )
-            }
-        }
-
-        settings.softMaxTokensPerOperation?.let { limit ->
-            val totalTokensObserved = totalInputTokensObserved + totalOutputTokensObserved
-            if (!softLimitReported && totalTokensObserved > limit) {
-                softLimitReported = true
-                return TokenBudgetCheckResult.SoftLimitExceeded(
-                    limitTokens = limit,
-                    observedTokens = totalTokensObserved,
-                )
-            }
-        }
-
-        return TokenBudgetCheckResult.Ok
-    }
-
-    private fun isEnabled(): Boolean =
-        settings.hardMaxTokensPerAttempt != null ||
-            settings.hardMaxTokensPerOperation != null ||
-            settings.softMaxTokensPerOperation != null
-}
-
-internal sealed class TokenBudgetCheckResult {
-    data object Ok : TokenBudgetCheckResult()
-
-    data object UsageUnavailable : TokenBudgetCheckResult()
-
-    data class SoftLimitExceeded(
-        val limitTokens: Long,
-        val observedTokens: Long,
-    ) : TokenBudgetCheckResult()
-
-    data class HardLimitExceeded(
-        val scope: String,
-        val limitTokens: Long,
-        val observedTokens: Long,
-    ) : TokenBudgetCheckResult()
-}
-
 enum class ReturnKind {
     STRING,
     UNIT,
