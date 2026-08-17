@@ -633,28 +633,38 @@ A deterministic execution-trace test fixture that records ordered semantic event
 
 ### Non-goals preserved
 
-Approval state machines stay handler-owned behind `ToolApprovalGate` (Epic 3.5). Streaming extraction (Epic 3.6) and tool-loop orchestration (Epic 3.7) untouched. `ProviderRouteGate` kept; `ToolExposureCoordinator` wired into it at composition time.
+Streaming extraction (Epic 3.6) and tool-loop orchestration (Epic 3.7) untouched. `ProviderRouteGate` kept; `ToolExposureCoordinator` wired into it at composition time.
 
 ---
 
 ## Epic 3.5: Extract approval suspension and resume
 
+**Status:** ✅ COMPLETE — PR #235 (merged `b495bd22`, 2026-08-17)
+
 **Goal:** Isolate approval state transitions from general invocation dispatch.
 
-### Proposed components
+### Delivered components
 
-- `ApprovalSuspensionCoordinator`
+- `ApprovalSuspensionCoordinator` (implements `ToolApprovalGate`)
 - `ApprovalResumeCoordinator`
 - `ContinuationClaimService`
 - `ReplayAuthorizationService`
 - `ResumeOperationRegistry`
+- `ClaimedResumeExecutor` (temporary bridge seam into remaining invocation machinery)
 
-### Acceptance criteria
+### Acceptance criteria — met
 
-- Suspension and resume each have a clear state-transition model.
-- Store calls, token validation, version checks, claim, execution, completion, and cleanup order are explicit.
-- Every terminal and retryable failure has a documented state effect.
-- Replay tests remain deterministic across restart scenarios.
+- ✅ Suspension and resume each have a clear state-transition model.
+- ✅ Store calls, token validation, version checks, claim, execution, completion, and cleanup order are explicit (recorded observable sequence asserted in `ApprovalResumeCoordinatorTest`).
+- ✅ Every terminal and retryable failure has a documented state effect (uncertain-outcome marker; CE never converted to uncertain outcome).
+- ✅ Replay tests remain deterministic across restart scenarios; 20/20 characterization traces byte-identical.
+
+### Verification
+
+- `verifyCancellationSafety`: 294/294, zero new critical/high; two genuine CE-swallowing `runCatching` defects found and fixed during the audit.
+- `:tramai-engine:apiCheck`: zero public API diff (`tramai-engine.api` unchanged; `ResumeOperationRegistry` internal).
+- 80/80 approval component tests; full engine suite green.
+- `approval/` has zero `TramaiInvocationHandler` references.
 
 ---
 
