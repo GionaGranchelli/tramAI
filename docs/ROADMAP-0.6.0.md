@@ -670,13 +670,15 @@ Streaming extraction (Epic 3.6) and tool-loop orchestration (Epic 3.7) untouched
 
 ## Epic 3.6: Extract structured response, memory, cache, budget, and streaming coordinators
 
-### Proposed components
+Status: 🟡 IN PROGRESS — 3.6a complete via PR #236 (merged 37a5ef55, 2026-08-17); 3.6b structured response next (#237); 3.6c streaming follows (#238).
 
-- `StructuredResponseCoordinator`
-- `ConversationMemoryCoordinator`
-- `OperationCacheCoordinator`
-- `TokenBudgetCoordinator`
-- `StreamingExecutionCoordinator`
+### Components
+
+- ⏭️ `StructuredResponseCoordinator` — 3.6b / #237
+- ✅ `ConversationMemoryCoordinator` — 3.6a / #236
+- ✅ `OperationCacheCoordinator` — 3.6a / #236
+- ✅ `TokenBudgetCoordinator` + `TokenBudgetTracker` — 3.6a / #236
+- ⏭️ `StreamingExecutionCoordinator` — 3.6c / #238
 
 ### Acceptance criteria
 
