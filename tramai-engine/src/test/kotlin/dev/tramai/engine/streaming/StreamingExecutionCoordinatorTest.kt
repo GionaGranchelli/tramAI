@@ -155,7 +155,7 @@ class StreamingExecutionCoordinatorTest {
         val policy = PolicyEngine { PolicyDecision.Allow }
         fun denied() = PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
         return StreamingExecutionCoordinator(
-            routingPlan, circuitBreaker, CoroutineScope(Dispatchers.Default), closed, "test.StreamingService", observer,
+            routingPlan, circuitBreaker, CoroutineScope(Dispatchers.Default), closed, "test.StreamingService", "test.StreamingService", observer,
             NoOpOperationInterceptor,
             ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
             ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }), TokenBudgetCoordinator(budgetSettings),
@@ -216,7 +216,8 @@ class StreamingExecutionCoordinatorTest {
         val memory = RecordingMemory(sink).also { it.history = listOf(Message(MessageRole.USER, "old")) }; val observer = RecordingOperationObserver(sink)
         coordinator(plan("p" to provider), observer, sink, memory).execute(request("cid")).toList()
         assertThat(memory.stored.single().second.last()).isEqualTo(Message(MessageRole.ASSISTANT, "hello world"))
-        assertThat(sink.events.join()).containsSubsequence("provider.stream:p", "observation.complete:null", "memory.persist")
+        // completion is recorded before memory persistence — swapping would fail
+        assertThat(sink.events.takeLast(2)).containsExactly("observation.complete:null", "memory.persist")
         }
     }
 

@@ -746,6 +746,7 @@ internal class TramaiInvocationHandler(
         lifecycleScope = lifecycleScope,
         isClosed = isClosed,
         serviceTypeName = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+        qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
         operationObserver = operationObserver,
         operationInterceptor = operationInterceptor,
         toolExposureCoordinator = toolExposureCoordinator,

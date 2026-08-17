@@ -43,7 +43,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -59,6 +58,7 @@ internal class StreamingExecutionCoordinator(
     private val lifecycleScope: CoroutineScope,
     private val isClosed: AtomicBoolean,
     private val serviceTypeName: String,
+    private val qualifiedServiceName: String?,
     private val operationObserver: OperationObserver,
     private val operationInterceptor: OperationInterceptor,
     private val toolExposureCoordinator: ToolExposureCoordinator,
@@ -337,14 +337,14 @@ internal class StreamingExecutionCoordinator(
     }
 
     private fun handleStreamingTerminationWithoutTerminalChunk(route: ResolvedProviderRoute, operation: OperationDefinition, observation: OperationObservation, emittedAnyTokens: Boolean): Nothing {
-        val error = ProviderException(message = "Provider ${route.providerName} ended streaming without a terminal chunk while invoking $serviceTypeName.${operation.method.name}")
+        val error = ProviderException(message = "Provider ${route.providerName} ended streaming without a terminal chunk while invoking $qualifiedServiceName.${operation.method.name}")
         observation.onProviderFailure(error)
         finishStreamingRoute(handleFallbackResult(error, emittedAnyTokens, route.providerName, observation))
     }
 
     private fun normalizeStreamingError(error: Throwable, providerName: String, operation: OperationDefinition): TramaiException = when (error) {
         is TramaiException -> error
-        else -> ProviderException(message = "Provider $providerName failed while streaming $serviceTypeName.${operation.method.name}", cause = error)
+        else -> ProviderException(message = "Provider $providerName failed while streaming $qualifiedServiceName.${operation.method.name}", cause = error)
     }
 
     private fun recordCircuitBreakerFailure(providerName: String, error: Throwable, observation: OperationObservation) {
@@ -372,7 +372,7 @@ internal class StreamingExecutionCoordinator(
         else -> false
     }
 
-    private fun buildTimeoutMessage(providerId: String, operation: OperationDefinition, timeoutMillis: Long): String = "Provider $providerId timed out after ${timeoutMillis}ms while invoking $serviceTypeName.${operation.method.name}"
+    private fun buildTimeoutMessage(providerId: String, operation: OperationDefinition, timeoutMillis: Long): String = "Provider $providerId timed out after ${timeoutMillis}ms while invoking $qualifiedServiceName.${operation.method.name}"
 
     private fun routeSelectedAttributes(route: ResolvedProviderRoute, routeIndex: Int): Map<String, Any?> = mapOf(ATTR_PROVIDER_ID to route.providerName, ATTR_EFFECTIVE_MODEL to route.effectiveModelName, ATTR_ROUTE_INDEX to routeIndex, ATTR_IS_FALLBACK to (routeIndex > 0))
 
