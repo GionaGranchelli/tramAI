@@ -48,9 +48,7 @@ import dev.tramai.engine.provider.ProviderCallResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -98,7 +96,14 @@ class StructuredResponseCoordinatorTest {
 
     private fun response(content: String) = ModelResponse(content = content)
 
-    private class RecordingObservation : OperationObservation {
+    private class OrderedSink {
+        val events = mutableListOf<String>()
+        fun record(name: String) {
+            events += name
+        }
+    }
+
+    private class RecordingObservation(private val sink: OrderedSink? = null) : OperationObservation {
         val completions = mutableListOf<Boolean?>()
         val parseFailures = mutableListOf<String>()
         val engineEvents = mutableListOf<Pair<String, Map<String, Any?>>>()
@@ -111,6 +116,7 @@ class StructuredResponseCoordinatorTest {
             engineEvents += name to attributes
         }
         override fun onCallCompleted(parseSuccess: Boolean?) {
+            sink?.record("observation.complete:$parseSuccess")
             completions += parseSuccess
         }
     }
@@ -142,17 +148,22 @@ class StructuredResponseCoordinatorTest {
     private fun failure(feedback: String = "fix it", failure: Throwable? = null): StructuredOutputResult.Failure =
         StructuredOutputResult.Failure("raw-bad", "compat summary", feedback).also { it.failure = failure }
 
-    private class RecordingAttemptExecutor : StructuredAttemptExecutor {
+    private class RecordingAttemptExecutor(private val sink: OrderedSink? = null) : StructuredAttemptExecutor {
         val calls = mutableListOf<StructuredAttemptExecutionRequest>()
+        /** Snapshot of [StructuredAttemptExecutionRequest.messages] at invocation time —
+         *  the shared list is mutated between attempts, so a post-hoc look at
+         *  [calls] would observe the FINAL list, not the attempt-time one. */
+        val messageSnapshots = mutableListOf<List<Message>>()
         var result: ProviderCallResult = ProviderCallResult(
             response = ModelResponse(content = "raw-ok"),
-            observation = RecordingObservation(),
+            observation = RecordingObservation(sink),
             providerId = "p1",
             modelName = "logical-model",
             approvedModel = null,
         )
         override suspend fun execute(request: StructuredAttemptExecutionRequest): ProviderCallResult {
             calls += request
+            messageSnapshots += request.messages.toList()
             return result
         }
     }
@@ -166,23 +177,25 @@ class StructuredResponseCoordinatorTest {
         }
     }
 
-    private class RecordingMemory : ChatMemory {
+    private class RecordingMemory(private val sink: OrderedSink? = null) : ChatMemory {
         val stored = mutableListOf<Pair<String, List<Message>>>()
         var history: List<Message> = emptyList()
         override fun get(conversationId: String): List<Message> = history
         override fun add(conversationId: String, messages: List<Message>) {
+            sink?.record("memory.persist")
             stored += conversationId to messages
         }
         override fun add(conversationId: String, message: Message) = add(conversationId, listOf(message))
         override fun clear(conversationId: String) = Unit
     }
 
-    private class RecordingCache : OperationResponseCache {
+    private class RecordingCache(private val sink: OrderedSink? = null) : OperationResponseCache {
         val stored = mutableListOf<Pair<OperationCacheKey, CachedOperationResult>>()
         val invalidated = mutableListOf<OperationCacheKey>()
         var hit: CachedOperationResult? = null
         override fun get(key: OperationCacheKey): CachedOperationResult? = hit
         override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
+            sink?.record("cache.store")
             stored += key to value
         }
         override fun invalidate(key: OperationCacheKey) {
@@ -191,12 +204,14 @@ class StructuredResponseCoordinatorTest {
     }
 
     private class RecordingPolicyEngine(
+        private val sink: OrderedSink? = null,
         private val denyAt: dev.tramai.core.policy.EnforcementPoint? = null,
         private val cancelAt: dev.tramai.core.policy.EnforcementPoint? = null,
         private val cancel: CancellationException = CancellationException("policy-cancel"),
     ) : PolicyEngine {
         val evaluated = mutableListOf<String>()
         override suspend fun evaluate(context: dev.tramai.core.policy.PolicyContext): PolicyDecision {
+            sink?.record("policy.${context.enforcementPoint.name}")
             evaluated += context.enforcementPoint.name
             if (cancelAt == context.enforcementPoint) throw cancel
             return if (denyAt == context.enforcementPoint) {
@@ -214,7 +229,6 @@ class StructuredResponseCoordinatorTest {
         memory: RecordingMemory = RecordingMemory(),
         cache: RecordingCache = RecordingCache(),
         policyEngine: RecordingPolicyEngine = RecordingPolicyEngine(),
-        conversationId: String? = null,
     ) = StructuredResponseCoordinator(
         structuredOutputHandler = handler,
         structuredOutputFailureDiagnosticObserver = diagnostics,
@@ -309,76 +323,69 @@ class StructuredResponseCoordinatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `first attempt success enforces policy then completes observation then persists and caches`() = runTest {
+    fun `first attempt success with conversation enforces policy before completion before memory persist`() = runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        executor.result = ProviderCallResult(response( "raw-ok"), RecordingObservation(), "p1", "logical-model", null)
-        val memory = RecordingMemory()
-        val cache = RecordingCache()
-        val policy = RecordingPolicyEngine()
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        executor.result = ProviderCallResult(response("raw-ok"), RecordingObservation(sink), "p1", "logical-model", null)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink)
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
+
+        val result = c.execute(executeRequest(op, conversationId = "cid"))
+
+        assertThat(result).isEqualTo(StructuredValue("ok"))
+        assertThat(sink.events).containsExactly(
+            "policy.BEFORE_RESPONSE_RETURN",
+            "observation.complete:true",
+            "memory.persist",
+        )
+    }
+
+    @Test
+    fun `first attempt success without conversation stores cache after completion`() = runTest {
+        val op = operation("cached")
+        val handler = RecordingHandler(mutableListOf(success()))
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        executor.result = ProviderCallResult(response("raw-ok"), RecordingObservation(sink), "p1", "logical-model", null)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink)
         val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
 
         val result = c.execute(executeRequest(op))
 
         assertThat(result).isEqualTo(StructuredValue("ok"))
-        // BEFORE_RESPONSE_RETURN was evaluated
-        assertThat(policy.evaluated).containsExactly("BEFORE_RESPONSE_RETURN")
-        // conversationId null → no memory, no cache
-        assertThat(memory.stored).isEmpty()
-        assertThat(cache.stored).isEmpty()
-    }
-
-    @Test
-    fun `first attempt success with conversation persists structured turn and disables cache`() = runTest {
-        val op = operation("cached")
-        val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        val memory = RecordingMemory()
-        memory.history = listOf(Message(MessageRole.USER, "old"))
-        val cache = RecordingCache()
-        val c = coordinator(handler, executor, memory = memory, cache = cache, conversationId = "cid")
-
-        val result = c.execute(executeRequest(op, conversationId = "cid"))
-
-        assertThat(result).isEqualTo(StructuredValue("ok"))
-        assertThat(memory.stored.single().first).isEqualTo("cid")
-        // conversation memory makes caching ineligible → no cache write
-        assertThat(cache.stored).isEmpty()
-    }
-
-    @Test
-    fun `first attempt success without conversation stores cache`() = runTest {
-        val op = operation("cached")
-        val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        val memory = RecordingMemory()
-        val cache = RecordingCache()
-        val c = coordinator(handler, executor, memory = memory, cache = cache)
-
-        val result = c.execute(executeRequest(op))
-
-        assertThat(result).isEqualTo(StructuredValue("ok"))
-        assertThat(memory.stored).isEmpty()
-        assertThat(cache.stored).hasSize(1)
+        assertThat(sink.events).containsExactly(
+            "policy.BEFORE_RESPONSE_RETURN",
+            "observation.complete:true",
+            "cache.store",
+        )
     }
 
     @Test
     fun `completion true is recorded before memory persistence`() = runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        val obs = RecordingObservation()
-        executor.result = ProviderCallResult(response("raw-ok"), obs, "p1", "logical-model", null)
-        val memory = RecordingMemory()
-        val cache = RecordingCache()
-        val c = coordinator(handler, executor, memory = memory, cache = cache, conversationId = "cid")
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        executor.result = ProviderCallResult(response("raw-ok"), RecordingObservation(sink), "p1", "logical-model", null)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink)
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
 
         c.execute(executeRequest(op, conversationId = "cid"))
 
         // completion true happens first; memory persistence follows (order frozen, not "fixed")
-        assertThat(obs.completions).containsExactly(true)
-        assertThat(memory.stored).hasSize(1)
+        assertThat(sink.events).containsExactly(
+            "policy.BEFORE_RESPONSE_RETURN",
+            "observation.complete:true",
+            "memory.persist",
+        )
         assertThat(cache.stored).isEmpty()
     }
 
@@ -397,8 +404,14 @@ class StructuredResponseCoordinatorTest {
 
         assertThat(result).isEqualTo(StructuredValue("ok"))
         assertThat(handler.analyzeCalls.get()).isEqualTo(2)
-        // repair messages were appended to the shared message list
-        assertThat(executor.calls[1].messages.takeLast(2)).containsExactly(
+        // repair messages are snapshotted at attempt time: attempt 1 has none,
+        // attempt 2 sees raw assistant + user repair feedback appended
+        assertThat(executor.messageSnapshots).hasSize(2)
+        assertThat(executor.messageSnapshots[0].takeLast(2)).doesNotContain(
+            Message(MessageRole.ASSISTANT, "raw-bad"),
+            Message(MessageRole.USER, "fix it"),
+        )
+        assertThat(executor.messageSnapshots[1].takeLast(2)).containsExactly(
             Message(MessageRole.ASSISTANT, "raw-bad"),
             Message(MessageRole.USER, "fix it"),
         )
@@ -510,19 +523,37 @@ class StructuredResponseCoordinatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `BEFORE_RESPONSE_RETURN deny prevents persistence and cache store`() = runTest {
-        val op = operation("cached")
+    fun `BEFORE_RESPONSE_RETURN deny with conversation prevents memory persistence`() = runTest {
+        val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        val memory = RecordingMemory()
-        val cache = RecordingCache()
-        val policy = RecordingPolicyEngine(denyAt = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN)
-        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy, conversationId = "cid")
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink, denyAt = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN)
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.execute(executeRequest(op, conversationId = "cid")) } }
             .isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
         assertThat(memory.stored).isEmpty()
+        assertThat(sink.events).containsExactly("policy.BEFORE_RESPONSE_RETURN")
+    }
+
+    @Test
+    fun `BEFORE_RESPONSE_RETURN deny without conversation prevents cache store`() = runTest {
+        val op = operation("cached")
+        val handler = RecordingHandler(mutableListOf(success()))
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink, denyAt = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN)
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
+
+        assertThatThrownBy { kotlinx.coroutines.runBlocking { c.execute(executeRequest(op)) } }
+            .isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
         assertThat(cache.stored).isEmpty()
+        assertThat(sink.events).containsExactly("policy.BEFORE_RESPONSE_RETURN")
     }
 
     // ------------------------------------------------------------------
@@ -533,19 +564,31 @@ class StructuredResponseCoordinatorTest {
     fun `resumed success is single attempt with policy memory and observation`() = runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
-        val executor = RecordingAttemptExecutor()
-        val obs = RecordingObservation()
-        val memory = RecordingMemory()
-        val policy = RecordingPolicyEngine()
-        val c = coordinator(handler, executor, memory = memory, policyEngine = policy, conversationId = "cid")
+        val sink = OrderedSink()
+        val executor = RecordingAttemptExecutor(sink)
+        val obs = RecordingObservation(sink)
+        val memory = RecordingMemory(sink)
+        val cache = RecordingCache(sink)
+        val policy = RecordingPolicyEngine(sink)
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
 
-        val result = c.finalizeResumed(resumedRequest(op, loopResult = ProviderCallResult(response("raw-ok"), obs, "p1", "logical-model", null), conversationId = "cid"))
+        val result = c.finalizeResumed(
+            resumedRequest(
+                op,
+                loopResult = ProviderCallResult(response("raw-ok"), obs, "p1", "logical-model", null),
+                conversationId = "cid",
+            ),
+        )
 
         assertThat(result).isEqualTo(StructuredValue("ok"))
         assertThat(handler.analyzeCalls.get()).isEqualTo(1)
         assertThat(executor.calls).isEmpty() // no attempt executor on resume
-        assertThat(policy.evaluated).containsExactly("BEFORE_RESPONSE_RETURN")
-        assertThat(obs.completions).containsExactly(true)
+        // resumed ordering deliberately differs from ordinary path: policy → memory → complete
+        assertThat(sink.events).containsExactly(
+            "policy.BEFORE_RESPONSE_RETURN",
+            "memory.persist",
+            "observation.complete:true",
+        )
         assertThat(memory.stored.single().first).isEqualTo("cid")
     }
 
@@ -557,7 +600,7 @@ class StructuredResponseCoordinatorTest {
         val memory = RecordingMemory()
         val cache = RecordingCache()
         val policy = RecordingPolicyEngine()
-        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy, conversationId = "cid")
+        val c = coordinator(handler, executor, memory = memory, cache = cache, policyEngine = policy)
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.finalizeResumed(resumedRequest(op, conversationId = "cid")) } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { e ->
