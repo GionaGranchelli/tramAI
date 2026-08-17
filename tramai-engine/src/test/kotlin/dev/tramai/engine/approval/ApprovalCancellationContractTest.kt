@@ -323,7 +323,6 @@ class ApprovalCancellationContractTest {
             approvalContinuationStore = store,
             suspendedInvocationStore = suspended,
             resumeOperationRegistry = registry,
-            approvalGateCoordinator = gate,
             toolRegistry = ToolRegistry(mapOf(toolName to tool)),
             toolArgumentsDigester = digester,
             approvalLifecycleAuditEmitter = audit,

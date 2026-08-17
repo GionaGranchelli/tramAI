@@ -57,8 +57,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * bindings validate → tool resolve → token validate → policy evaluate →
  * token authorize → continuation claim → replay reveal → replay verify →
  * arguments verify → executor execute → continuation complete →
- * metadata remove → audit complete. These tests record every collaborator
- * call and assert the EXACT sequence, not just final output.
+ * metadata remove → audit complete. These tests record the externally
+ * observable collaborator sequence (in-process validation steps such as
+ * registry resolve, binding validation, tool resolution and digest checks
+ * are asserted by their dedicated component tests) and assert the EXACT
+ * recorded order, not just final output.
  */
 class ApprovalResumeCoordinatorTest {
 
@@ -151,7 +154,6 @@ class ApprovalResumeCoordinatorTest {
             approvalContinuationStore = store,
             suspendedInvocationStore = suspended,
             resumeOperationRegistry = registry,
-            approvalGateCoordinator = gate,
             toolRegistry = ToolRegistry(mapOf(toolName to tool)),
             toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalLifecycleAuditEmitter = audit,
@@ -163,7 +165,7 @@ class ApprovalResumeCoordinatorTest {
     }
 
     @Test
-    fun `happy resume records the exact 16-step security sequence`() = runTest {
+    fun `happy resume preserves exact observable security sequence`() = runTest {
         val (coordinator, events, executor) = harness()
 
         val result = coordinator.resume(command)
@@ -198,7 +200,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -220,7 +222,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -304,7 +306,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -331,7 +333,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -363,7 +365,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -417,7 +419,7 @@ class ApprovalResumeCoordinatorTest {
         val audit = RecordingAuditEmitter(events)
         val observer = RecordingObserver(events)
         val coordinator = ApprovalResumeCoordinator(
-            store, suspended, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
         )
@@ -428,7 +430,7 @@ class ApprovalResumeCoordinatorTest {
             override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? = throw cancelled
         }
         val coordinatorCe = ApprovalResumeCoordinator(
-            store, suspendedCe, registry, gate, ToolRegistry(mapOf(toolName to tool)),
+            store, suspendedCe, registry, ToolRegistry(mapOf(toolName to tool)),
             Sha256ToolArgumentsDigester(), audit, observer,
             ContinuationClaimService(store), ReplayAuthorizationService(gate, suspendedCe, audit, policy, observer),
         )
@@ -450,7 +452,6 @@ class ApprovalResumeCoordinatorTest {
             approvalContinuationStore = null,
             suspendedInvocationStore = RecordingSuspendedStore(events, metadata(), prepared.envelope),
             resumeOperationRegistry = ResumeOperationRegistry(),
-            approvalGateCoordinator = null,
             toolRegistry = ToolRegistry(),
             toolArgumentsDigester = null,
             approvalLifecycleAuditEmitter = RecordingAuditEmitter(events),

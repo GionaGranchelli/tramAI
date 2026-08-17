@@ -260,7 +260,6 @@ class TramaiEngine private constructor(
         approvalContinuationStore = approvalContinuationStore,
         suspendedInvocationStore = suspendedInvocationStore,
         resumeOperationRegistry = resumeOperationRegistry,
-        approvalGateCoordinator = approvalGateCoordinator,
         toolRegistry = toolRegistry,
         toolArgumentsDigester = toolArgumentsDigester,
         approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
