@@ -678,7 +678,7 @@ Status: 🟡 IN PROGRESS — 3.6a complete via PR #236 (merged 37a5ef55, 2026-08
 - ✅ `ConversationMemoryCoordinator` — 3.6a / #236
 - ✅ `OperationCacheCoordinator` — 3.6a / #236
 - ✅ `TokenBudgetCoordinator` + `TokenBudgetTracker` — 3.6a / #236
-- ⏭️ `StreamingExecutionCoordinator` — 3.6c / #238
+- ⏭️ `StreamingExecutionCoordinator` — 3.6c / #239
 
 ### Acceptance criteria
 
