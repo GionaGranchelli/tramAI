@@ -36,9 +36,14 @@ object CancellationDeltaComparator {
 
         diagnostics.add("verifyCancellationSafety: ${currentCatches.size} current, ${baseCatches.size} base findings")
 
-        // Group by (module, file, function, catchType) — same coarse group
+        // Group by (module, function, catchType) — deliberately NOT file.
+        // A finding that moves to another file (same function, catchType and
+        // risk) is a relocation, not a new finding; including the file in the
+        // identity made every refactor that moves a broad catch read as a new
+        // critical finding. Population/risk matching still catches genuinely
+        // new findings (the current group has more entries than the base).
         val groupKey: (CancellationCatchFinding) -> String = {
-            "${it.module}::${it.file}::${it.function}::${it.catchType}"
+            "${it.module}::${it.function}::${it.catchType}"
         }
 
         val baseByGroup = baseCatches.groupBy(groupKey)

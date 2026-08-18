@@ -159,6 +159,45 @@ class CancellationDeltaComparatorTest {
     }
 
     @Test
+    fun `finding moved to another file is unchanged`() {
+        val base = listOf(
+            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertTrue(result.newCriticalHigh.isEmpty(), "Moved finding is not new")
+        assertTrue(result.worsened.isEmpty(), "No worsenings")
+        assertEquals(1, result.unchanged, "1 unchanged (same function/catchType/risk, file differs)")
+        assertFalse(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should pass"
+        )
+    }
+
+    @Test
+    fun `new finding with same function in different file is still flagged`() {
+        // Base has op1 in A.kt; current gains an ADDITIONAL op1 in B.kt — the
+        // population grew, so this must still fail even though the group key
+        // ignores the file component.
+        val base = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1"),
+            finding("critical", module = "modA", file = "B.kt", function = "op1")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Genuinely new finding must be flagged")
+        assertEquals("B.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
     fun `duplicate high findings with different source lines`() {
         val base = listOf(finding("high", function = "op1", sourceLine = 10))
         val current = listOf(
