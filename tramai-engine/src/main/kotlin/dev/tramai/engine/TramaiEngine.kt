@@ -293,9 +293,9 @@ class TramaiEngine private constructor(
     // coroutine (provider/interceptor/observer re-entering close) skips the
     // join and cannot self-deadlock. Encoding ownership once at the scope
     // level is stronger than decorating individual launches.
-    private var suspendDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private var lifecycleDispatcher: CoroutineDispatcher = Dispatchers.Default
     private val lifecycleScope: CoroutineScope by lazy { CoroutineScope(
-        lifecycleJob + suspendDispatcher + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
+        lifecycleJob + lifecycleDispatcher + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
             // Engine-owned background work can outlive its caller (e.g. a
             // streaming collection abandoned mid-flight). Its failure is
             // already surfaced to the caller's continuation when one exists.
@@ -317,12 +317,18 @@ class TramaiEngine private constructor(
      */
     private val activeInvocationJobs = java.util.concurrent.ConcurrentHashMap.newKeySet<Job>()
 
-    /** Internal deterministic-dispatch seam for suspend invocation lifecycle tests. */
+    /**
+     * Internal deterministic-dispatch seam for the engine-owned lifecycle
+     * scope. Controls ALL engine-owned work scheduled on [lifecycleScope]:
+     * suspend-invocation execution AND streaming collection — not just one
+     * path. Defaults to [Dispatchers.Default]; tests may inject a controlled
+     * dispatcher to manufacture scheduler states deterministically.
+     */
     internal constructor(
         provider: ModelProvider,
-        suspendDispatcher: CoroutineDispatcher,
+        lifecycleDispatcher: CoroutineDispatcher,
     ) : this(provider) {
-        this.suspendDispatcher = suspendDispatcher
+        this.lifecycleDispatcher = lifecycleDispatcher
     }
 
     /**
