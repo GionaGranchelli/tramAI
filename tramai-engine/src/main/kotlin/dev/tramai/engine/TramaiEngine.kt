@@ -124,6 +124,7 @@ import dev.tramai.core.model.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asContextElement
@@ -292,8 +293,9 @@ class TramaiEngine private constructor(
     // coroutine (provider/interceptor/observer re-entering close) skips the
     // join and cannot self-deadlock. Encoding ownership once at the scope
     // level is stronger than decorating individual launches.
-    private val lifecycleScope: CoroutineScope = CoroutineScope(
-        lifecycleJob + Dispatchers.Default + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
+    private var suspendDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val lifecycleScope: CoroutineScope by lazy { CoroutineScope(
+        lifecycleJob + suspendDispatcher + engineThreadMarker.asContextElement(true) + CoroutineExceptionHandler { _, error ->
             // Engine-owned background work can outlive its caller (e.g. a
             // streaming collection abandoned mid-flight). Its failure is
             // already surfaced to the caller's continuation when one exists.
@@ -307,13 +309,21 @@ class TramaiEngine private constructor(
                 "Engine-owned coroutine failed after close or abandonment (type: ${error::class.qualifiedName})",
             )
         },
-    )
+    ) }
     /**
      * Suspend-invocation jobs launched for caller continuations. They are
      * children of the CALLER's job (so parent cancellation propagates), but the
      * engine tracks them so close() terminates in-flight work it owns.
      */
     private val activeInvocationJobs = java.util.concurrent.ConcurrentHashMap.newKeySet<Job>()
+
+    /** Internal deterministic-dispatch seam for suspend invocation lifecycle tests. */
+    internal constructor(
+        provider: ModelProvider,
+        suspendDispatcher: CoroutineDispatcher,
+    ) : this(provider) {
+        this.suspendDispatcher = suspendDispatcher
+    }
 
     /**
      * Creates an engine backed by a single provider.
