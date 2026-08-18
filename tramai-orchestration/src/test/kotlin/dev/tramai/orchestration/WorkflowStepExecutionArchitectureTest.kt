@@ -53,16 +53,16 @@ private fun stepClassDeclaresTopLevelCheckpoint(stepClass: Class<*>): Boolean {
 }
 
 /**
- * Collects every class the compiled [Workflow.executeStep] (and its suspend
- * state-machine helper classes) references. If central concrete dispatch is
- * reintroduced, the step classes appear here and the guard fails.
+ * Collects every class the compiled [WorkflowStepExecutor.executeStep] (and its
+ * suspend state-machine helper classes) references. If central concrete
+ * dispatch is reintroduced, the step classes appear here and the guard fails.
  */
 private fun executeStepReferencedClasses(): Set<String> {
     val referenced = linkedSetOf<String>()
-    val workflowClass = Workflow::class.java
+    val executorClass = WorkflowStepExecutor::class.java
     val targets = buildList {
-        add(workflowClass)
-        workflowClass.declaredClasses.forEach { nested ->
+        add(executorClass)
+        executorClass.declaredClasses.forEach { nested ->
             if (nested.simpleName.startsWith("executeStep")) add(nested)
         }
     }
@@ -99,9 +99,9 @@ private fun executeStepReferencedClasses(): Set<String> {
 }
 
 /**
- * Architectural assertions for Epic 4.1: runtime step execution is
+ * Architectural assertions for Epic 4.1/4.2: runtime step execution is
  * polymorphic through [InternalWorkflowStep.execute], and
- * [Workflow]'s step wrapper contains no concrete-step dispatch.
+ * [WorkflowStepExecutor]'s step wrapper contains no concrete-step dispatch.
  */
 class WorkflowStepExecutionArchitectureTest {
 

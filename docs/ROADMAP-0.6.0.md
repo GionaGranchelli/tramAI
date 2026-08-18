@@ -772,7 +772,7 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ### Non-goals (deferred to #247+)
 
-- Splitting `Workflow.kt` into runner/builder/step-executor files (Epic 4.2).
+- Splitting `Workflow.kt` into runner/builder/step-executor files (Epic 4.2) — ✅ done in #247.
 - Concrete dispatch in replay descriptors / canonical rendering / static validation (definition-level, deliberately untouched).
 - Worker bindings, replay/retry semantics, public plugin API.
 
@@ -780,26 +780,35 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ## Epic 4.2: Split `Workflow.kt`
 
+✅ **COMPLETE — PR #247**
+
 ### Target files/components
 
-- `Workflow.kt` — immutable public definition
-- `WorkflowRunner.kt` — run and resume coordination
-- `WorkflowStepExecutor.kt` — common step wrapper
-- `WorkflowBuilder.kt` — DSL
+- `Workflow.kt` — immutable public definition (1923 → ~200 lines; `workflow()` + `DEFAULT_WORKFLOW_DEFINITION_VERSION` retained for WorkflowKt JVM ABI)
+- `WorkflowRunner.kt` — run and resume coordination (lifecycle, top-level/nested iteration, checkpoint-after-step, completion/suspension/failure/cancellation)
+- `WorkflowStepExecutor.kt` — common step wrapper (single shared wrapper; frozen ordering; no concrete dispatch)
+- `WorkflowBuilder.kt` — DSL + build validation (duplicate names, static command policies, nested-suspension rejection)
 - `WorkflowObservation.kt` — observer contracts and event model
 - `WorkflowErrors.kt` — exception taxonomy
-- `WorkflowDefinitionCompatibility.kt`
-- `WorkflowPersistenceSession.kt`
-- `WorkflowBranchExecutor.kt`
-- `WorkflowParallelExecutor.kt`
-- `WorkflowDelayCoordinator.kt`
+- `WorkflowDefinitionCompatibility.kt` — canonical rendering, digest, metadata (verbatim move; digest frozen by golden test)
+- `WorkflowPersistenceSession.kt` — checkpoint/lease/abort session
+- `WorkflowBranchExecutor.kt` — branch selection + nested routing through shared wrapper
+- `WorkflowParallelExecutor.kt` — bounded async execution
+- `WorkflowDelayCoordinator.kt` — delay suspension/checkpoint mechanics
 
 ### Acceptance criteria
 
-- Files align with one primary reason to change.
-- The public DSL remains source-compatible where feasible.
-- Definition compatibility remains deterministic.
-- Persistence checkpoints retain backward compatibility or provide an explicit migration.
+- ✅ Files align with one primary reason to change.
+- ✅ Public DSL remains source-compatible — `apiCheck` reports ZERO public API diff.
+- ✅ Definition compatibility remains deterministic — golden digest `45936b12…` unchanged across the split.
+- ✅ Persistence checkpoints retain backward compatibility — metadata keys and checkpoint format untouched.
+
+### Verification
+
+- `:tramai-orchestration:test` + `apiCheck` + `verifyCancellationSafety` + `verifyChangePolicy` + `verifyMaintainabilityBaseline` all green.
+- `WorkflowDecompositionArchitectureTest` (6 tests, mutation-verified): facade declares no orchestration methods; runner owns run/resume; step executor invokes only the polymorphic contract; no concrete-step refs in runner or executor bytecode; branch nested execution crosses the shared wrapper.
+- `WorkflowStepExecutionArchitectureTest` updated to scan `WorkflowStepExecutor` (wrapper moved out of `Workflow`).
+- `WorkflowDefinitionDigestGoldenTest` freezes digest + delay metadata keys.
 
 ---
 
