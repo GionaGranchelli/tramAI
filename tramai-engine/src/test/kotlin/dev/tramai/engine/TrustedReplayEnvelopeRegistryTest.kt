@@ -2,6 +2,7 @@ package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.engine.components.EngineComponentFactory
+import dev.tramai.engine.invocation.InvocationExecutionCoordinator
 import dev.tramai.engine.planning.OperationExecutionPlan
 import dev.tramai.engine.planning.OperationFingerprintFactory
 import dev.tramai.engine.planning.ServiceDefinition
@@ -371,8 +372,8 @@ class TrustedReplayEnvelopeRegistryTest {
         ) as dev.tramai.core.annotations.Operation
     }
 
-    /** Creates a [TramaiInvocationHandler] with minimal viable defaults (never dereferenced during registration). */
-    private fun dummyHandler(svcDef: ServiceDefinition, registry: ResumeOperationRegistry): TramaiInvocationHandler {
+    /** Creates a [InvocationExecutionCoordinator] with minimal viable defaults (never dereferenced during registration). */
+    private fun dummyHandler(svcDef: ServiceDefinition, registry: ResumeOperationRegistry): InvocationExecutionCoordinator {
         val components = EngineComponentFactory.create(
             providerRegistry = ProviderRegistry.builder().build(),
             structuredOutputHandler = null,
@@ -402,12 +403,11 @@ class TrustedReplayEnvelopeRegistryTest {
             approvalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
             clock = Clock.systemUTC(),
         )
-        return TramaiInvocationHandler(
+        return InvocationExecutionCoordinator(
             components = components,
             circuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
             retryDelayPolicy = ProviderRetryDelayPolicy(RetryPolicySettings()),
             migrationWarningGuard = AtomicBoolean(false),
-            lifecycleJob = kotlinx.coroutines.SupervisorJob(),
             lifecycleScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
             serviceDefinition = svcDef,
             resumeOperationRegistry = registry,
