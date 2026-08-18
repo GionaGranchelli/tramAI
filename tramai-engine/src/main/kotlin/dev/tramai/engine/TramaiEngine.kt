@@ -1008,7 +1008,16 @@ internal class TramaiInvocationHandler(
             job
         }
         launched.invokeOnCompletion { cause ->
-            activeInvocationJobs -= launched
+            // Registry mutations obey the same monitor: launch+add (above) and
+            // close()'s snapshot (in close()) are synchronized on
+            // activeInvocationJobs, so removal must be too. An unsynchronized
+            // removal can race Kotlin's toList() size-1 fast path inside the
+            // snapshot (size()==1, then remove, then iterator().next() throws
+            // NoSuchElementException), making close() throw and the closer
+            // thread die silently — the original CI hang.
+            synchronized(activeInvocationJobs) {
+                activeInvocationJobs -= launched
+            }
             if (resumed.get() == null) {
                 // Block never ran (e.g. cancelled before the dispatcher started
                 // it): resume so the caller's suspension does not freeze.
