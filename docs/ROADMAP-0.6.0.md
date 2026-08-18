@@ -670,7 +670,7 @@ Streaming extraction (Epic 3.6) and tool-loop orchestration (Epic 3.7) untouched
 
 ## Epic 3.6: Extract structured response, memory, cache, budget, and streaming coordinators
 
-Status: 🟡 IN PROGRESS — 3.6a complete via PR #236 (merged 37a5ef55, 2026-08-17); 3.6b complete via PR #237 (merged 6fa4243e, 2026-08-17); 3.6c streaming next (#238).
+Status: ✅ COMPLETE — 3.6a via PR #236 (merged `37a5ef55`, 2026-08-17); 3.6b via PR #237 (merged `6fa4243e`, 2026-08-17); 3.6c streaming via PR #239 (merged `ac398604`, 2026-08-18).
 
 ### Components
 
@@ -678,7 +678,7 @@ Status: 🟡 IN PROGRESS — 3.6a complete via PR #236 (merged 37a5ef55, 2026-08
 - ✅ `ConversationMemoryCoordinator` — 3.6a / #236
 - ✅ `OperationCacheCoordinator` — 3.6a / #236
 - ✅ `TokenBudgetCoordinator` + `TokenBudgetTracker` — 3.6a / #236
-- ⏭️ `StreamingExecutionCoordinator` — 3.6c / #239
+- ✅ `StreamingExecutionCoordinator` — 3.6c / #239 (merged `ac398604`, 2026-08-18)
 
 ### Acceptance criteria
 
@@ -689,6 +689,13 @@ Status: 🟡 IN PROGRESS — 3.6a complete via PR #236 (merged 37a5ef55, 2026-08
 ---
 
 ## Epic 3.7: Reduce the invocation handler to an adapter
+
+**Status:** ⏳ NEXT — the next feature PR (expected #243). Note: earlier bookkeeping
+referenced "3.7 = #240" and "3.7 = #241"; those numbers were consumed by the
+close-race test-hardening PR (#240, merged `5578a1a5`, 2026-08-18) and the CI
+containment PR (#241, merged `c190d0fc`, 2026-08-18). PR #242 is the
+suspend-handshake negative-result reproducer. Epic 3.7 lands as the next
+feature PR after #242.
 
 **Target responsibility:**
 
