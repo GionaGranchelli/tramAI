@@ -194,9 +194,16 @@ class TramaiEngineTest {
             // rejected with the closed error). A TOCTOU miss would run the
             // provider AFTER close() returned — the leak this test guards.
             val closer = Thread {
-                engine.close()
-                closeCompletedAt.set(System.nanoTime())
-                closeDone.complete(Unit)
+                try {
+                    engine.close()
+                    closeCompletedAt.set(System.nanoTime())
+                } catch (t: Throwable) {
+                    // Never let close() die silently in the thread: surface it
+                    // as the terminal outcome so the test fails with the cause.
+                    outcome.complete(t)
+                } finally {
+                    closeDone.complete(Unit)
+                }
             }
             closer.start()
             try {
