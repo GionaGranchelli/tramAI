@@ -1,6 +1,10 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.runBlocking
+import net.bytebuddy.jar.asm.ClassReader
+import net.bytebuddy.jar.asm.ClassVisitor
+import net.bytebuddy.jar.asm.MethodVisitor
+import net.bytebuddy.jar.asm.Opcodes
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Clock
@@ -11,6 +15,88 @@ import kotlin.coroutines.Continuation
 
 private fun sealedStepClasses(): List<Class<*>> =
     InternalWorkflowStep::class.java.permittedSubclasses?.toList() ?: emptyList()
+
+private fun stepClassResource(stepClass: Class<*>): java.io.InputStream? =
+    stepClass.getResourceAsStream("/${stepClass.name.replace('.', '/')}.class")
+
+/**
+ * Inspects the compiled [getSuspensionMode] body of a step class: reports
+ * true only when the getter directly returns the [WorkflowStepSuspensionMode.TOP_LEVEL_CHECKPOINT]
+ * constant (GETSTATIC), i.e. the class declares the capability itself rather
+ * than inheriting the interface default. Never instantiates the step, so a
+ * class cannot silently disappear from the assertion.
+ */
+private fun stepClassDeclaresTopLevelCheckpoint(stepClass: Class<*>): Boolean {
+    var declares = false
+    ClassReader(stepClassResource(stepClass)).accept(object : ClassVisitor(Opcodes.ASM9) {
+        override fun visitMethod(
+            access: Int,
+            name: String,
+            descriptor: String,
+            signature: String?,
+            exceptions: Array<out String>?,
+        ): MethodVisitor? {
+            if (name != "getSuspensionMode") return super.visitMethod(access, name, descriptor, signature, exceptions)
+            return object : MethodVisitor(Opcodes.ASM9) {
+                override fun visitFieldInsn(opcode: Int, owner: String, fieldName: String, descriptor: String) {
+                    if (opcode == Opcodes.GETSTATIC &&
+                        owner == "dev/tramai/orchestration/WorkflowStepSuspensionMode" &&
+                        fieldName == "TOP_LEVEL_CHECKPOINT"
+                    ) {
+                        declares = true
+                    }
+                }
+            }
+        }
+    }, 0)
+    return declares
+}
+
+/**
+ * Collects every class the compiled [Workflow.executeStep] (and its suspend
+ * state-machine helper classes) references. If central concrete dispatch is
+ * reintroduced, the step classes appear here and the guard fails.
+ */
+private fun executeStepReferencedClasses(): Set<String> {
+    val referenced = linkedSetOf<String>()
+    val workflowClass = Workflow::class.java
+    val targets = buildList {
+        add(workflowClass)
+        workflowClass.declaredClasses.forEach { nested ->
+            if (nested.simpleName.startsWith("executeStep")) add(nested)
+        }
+    }
+    targets.forEach { target ->
+        val resource = target.getResourceAsStream("/${target.name.replace('.', '/')}.class")
+            ?: return@forEach
+        ClassReader(resource).accept(object : ClassVisitor(Opcodes.ASM9) {
+            override fun visitMethod(
+                access: Int,
+                name: String,
+                descriptor: String,
+                signature: String?,
+                exceptions: Array<out String>?,
+            ): MethodVisitor? {
+                return object : MethodVisitor(Opcodes.ASM9) {
+                    override fun visitTypeInsn(opcode: Int, type: String) {
+                        referenced += type
+                    }
+
+                    override fun visitMethodInsn(
+                        opcode: Int,
+                        owner: String,
+                        methodName: String,
+                        descriptor: String,
+                        isInterface: Boolean,
+                    ) {
+                        referenced += owner
+                    }
+                }
+            }
+        }, 0)
+    }
+    return referenced
+}
 
 /**
  * Architectural assertions for Epic 4.1: runtime step execution is
@@ -33,29 +119,21 @@ class WorkflowStepExecutionArchitectureTest {
     }
 
     @Test
-    fun `only delay reports TOP_LEVEL_CHECKPOINT`() {
-        val actual = sealedStepClasses().mapNotNull { stepClass ->
-            val ctor = stepClass.declaredConstructors.first()
-            ctor.isAccessible = true
-            val instance = try {
-                ctor.newInstance(*Array(ctor.parameterCount) { i ->
-                    when (ctor.parameterTypes[i]) {
-                        java.lang.String::class.java -> "s"
-                        java.lang.Long.TYPE -> 0L as Any
-                        java.lang.Integer.TYPE -> 0 as Any
-                        java.util.concurrent.TimeUnit::class.java -> java.util.concurrent.TimeUnit.SECONDS
-                        else -> null
-                    }
-                })
-            } catch (e: Exception) {
-                return@mapNotNull null
-            }
-            val mode = runCatching {
-                stepClass.getMethod("getSuspensionMode").invoke(instance) as WorkflowStepSuspensionMode
-            }.getOrNull()
-            if (mode != null) stepClass.simpleName to mode else null
-        }
-        assertThat(actual).containsExactly("DelayWorkflowStep" to WorkflowStepSuspensionMode.TOP_LEVEL_CHECKPOINT)
+    fun `only delay declares TOP_LEVEL_CHECKPOINT`() {
+        val declaring = sealedStepClasses()
+            .filter { stepClassDeclaresTopLevelCheckpoint(it) }
+            .map { it.simpleName }
+        assertThat(declaring).containsExactly("DelayWorkflowStep")
+    }
+
+    @Test
+    fun `executeStep has no concrete-step dispatch`() {
+        val stepClassNames = sealedStepClasses()
+            .map { it.name.replace('.', '/') }
+            .toSet()
+        val referenced = executeStepReferencedClasses()
+        val dispatchRefs = referenced.filter { it in stepClassNames }
+        assertThat(dispatchRefs).isEmpty()
     }
 
     @Test

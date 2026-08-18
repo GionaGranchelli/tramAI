@@ -479,7 +479,7 @@ class Workflow<S, R> internal constructor(
             when (val result = executeStep(step, request)) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
                 WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
-                    "Workflow '$name' suspended at nested step '${step.name}', but nested delay checkpointing is not supported",
+                    "Workflow '$name' suspended at nested step '${step.name}', but nested checkpoint suspension is not supported",
                 )
             }
         }
