@@ -187,6 +187,7 @@ class TramaiEngineTest {
             val engine = TramaiEngine(provider)
             val service = engine.create<SuspendAnalyzer>()
             val closeCompletedAt = java.util.concurrent.atomic.AtomicLong(-1)
+            val closeFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
             val closeDone = CompletableDeferred<Unit>()
             val outcome = CompletableDeferred<Throwable?>()
             // Close immediately while the invocation is launched: either the
@@ -198,9 +199,11 @@ class TramaiEngineTest {
                     engine.close()
                     closeCompletedAt.set(System.nanoTime())
                 } catch (t: Throwable) {
-                    // Never let close() die silently in the thread: surface it
-                    // as the terminal outcome so the test fails with the cause.
-                    outcome.complete(t)
+                    // Record ONLY in closeFailure. The close outcome is an
+                    // independent channel from the invocation outcome: an
+                    // accepted invocation result (CE/ISE) must never mask a
+                    // close() failure.
+                    closeFailure.set(t)
                 } finally {
                     closeDone.complete(Unit)
                 }
@@ -217,6 +220,12 @@ class TramaiEngineTest {
             // there would deadlock against close() joining that same job.
             closeDone.await()
             closer.join()
+            // Invocation outcome and close outcome are independent channels.
+            // close() throwing is a production defect regardless of what the
+            // invocation did; surface it with the original cause/stack trace.
+            closeFailure.get()?.let { failure ->
+                throw AssertionError("iteration $it: engine.close() threw", failure)
+            }
             val terminal = outcome.await()
             val providerStarted = providerStartedAt.get()
             val closeCompleted = closeCompletedAt.get()
