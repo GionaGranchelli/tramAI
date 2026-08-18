@@ -1,6 +1,11 @@
 package dev.tramai.engine.invocation
 
 import dev.tramai.engine.approval.ClaimedResumeExecutor
+import dev.tramai.engine.provider.ProviderExecutionCoordinator
+import dev.tramai.engine.streaming.StreamingExecutionCoordinator
+import dev.tramai.engine.structured.StructuredResponseCoordinator
+import dev.tramai.engine.tool.ToolInvocationExecutor
+import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.lang.reflect.InvocationHandler
@@ -25,21 +30,23 @@ class TramaiInvocationHandlerArchitectureTest {
     @Test
     fun `handler owns no execution algorithms`() {
         val methods = TramaiInvocationHandler::class.java.declaredMethods.map { it.name }.toSet()
-        val fieldTypes = TramaiInvocationHandler::class.java.declaredFields.map { it.type.name }.toSet()
+        val fieldTypes = TramaiInvocationHandler::class.java.declaredFields.map { it.type }.toSet()
 
         // Top-level execution algorithms must live in coordinators, not the handler.
         listOf("executeRaw", "executeWithTools", "sanitizeProviderResponse", "applyProviderOutputDlp").forEach { algorithm ->
             assertThat(methods).describedAs("handler must not declare $algorithm").doesNotContain(algorithm)
         }
         // The handler must not hold execution coordinators as collaborators.
+        // Compare the actual Class objects, not name strings, so a renamed or
+        // qualified declaration cannot silently pass.
         listOf(
-            "ProviderExecutionCoordinator",
-            "ToolInvocationExecutor",
-            "StructuredResponseCoordinator",
-            "StreamingExecutionCoordinator",
-            "ToolReinjectionCoordinator",
-            "ToolLoopCoordinator",
-            "RawResponseCoordinator",
+            ProviderExecutionCoordinator::class.java,
+            ToolInvocationExecutor::class.java,
+            StructuredResponseCoordinator::class.java,
+            StreamingExecutionCoordinator::class.java,
+            ToolReinjectionCoordinator::class.java,
+            ToolLoopCoordinator::class.java,
+            RawResponseCoordinator::class.java,
         ).forEach { coordinator ->
             assertThat(fieldTypes).describedAs("handler must not hold $coordinator").doesNotContain(coordinator)
         }

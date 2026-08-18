@@ -690,12 +690,12 @@ Status: ✅ COMPLETE — 3.6a via PR #236 (merged `37a5ef55`, 2026-08-17); 3.6b 
 
 ## Epic 3.7: Reduce the invocation handler to an adapter
 
-**Status:** ⏳ NEXT — the next feature PR (expected #245). The numbers 240–244
-were consumed by the close-race saga: #240 (test hardening, `5578a1a5`), #241
-(CI containment, `c190d0fc`), #239 (streaming extraction, `ac398604`), #243
-(close() failure surfacing, `7156d296`), #244 (invocation-registry lock fix,
-`670055ae` — root cause of the recurring CI hang), #242 (lifecycle-dispatcher
-contracts, `317af2da`). Epic 3.7 lands as the next feature PR after those.
+**Status:** ✅ COMPLETE — PR #245 (2026-08-18, open at writing; expected merge
+squash). The numbers 240–244 were consumed by the close-race saga: #240 (test
+hardening, `5578a1a5`), #241 (CI containment, `c190d0fc`), #239 (streaming
+extraction, `ac398604`), #243 (close() failure surfacing, `7156d296`), #244
+(invocation-registry lock fix, `670055ae` — root cause of the recurring CI
+hang), #242 (lifecycle-dispatcher contracts, `317af2da`).
 
 **Target responsibility:**
 
@@ -719,8 +719,18 @@ return result
 - `TramaiInvocationHandler` is understandable in one review session.
 - Execution behaviour is located by responsibility, not by searching a multi-thousand-line file.
 - No public API regression is introduced unintentionally.
+- ✅ `TramaiInvocationHandler` is a thin JVM adapter (no execution algorithms, no policy/DLP enforcement, not a `ClaimedResumeExecutor`).
+- ✅ `InvocationExecutionCoordinator` sequences return-kind dispatch and builds the execution graph; it delegates DLP to `ProviderResponseDlpSanitizer` and the post-claim approval path to `ClaimedResumeExecutionCoordinator`.
+- ✅ 20/20 characterization traces byte-identical; 589+ engine tests green; zero public API diff.
 
 ---
+
+# Phase 3 — ✅ COMPLETE (Epic 3.1–3.7, PRs #230–#245)
+
+Phase 3 (invocation-layer decomposition) is complete: the invocation handler,
+structured response, memory, cache, budget, streaming, tool-loop, DLP, and
+claimed-resume approval execution all live in dedicated coordinators under
+`tramai-engine/src/main/kotlin/dev/tramai/engine/{invocation,streaming,structured,tool,provider}`.
 
 # Phase 4 — Workflow and Worker Decomposition
 
