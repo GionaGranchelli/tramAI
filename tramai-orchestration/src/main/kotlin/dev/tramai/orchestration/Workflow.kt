@@ -406,22 +406,33 @@ class Workflow<S, R> internal constructor(
         resumedCheckpointMetadata: Map<String, String>?,
     ): S {
         var currentState = state
+        val services = executionServices()
         for (index in startIndex until steps.size) {
             val step = steps[index]
-            when (val result = executeStep(
-                StepExecutionRequest(
-                    step = step,
-                    state = currentState,
-                    context = context,
-                    observer = observer,
-                    stepCounter = stepCounter,
-                    persistenceSession = persistenceSession,
-                    topLevelStepIndex = index,
-                    resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
-                ),
-            )) {
-                is StepExecutionResult.Completed -> currentState = result.state
-                StepExecutionResult.Suspended -> throw WorkflowSuspendedException(
+            val request = WorkflowStepExecutionRequest(
+                workflowName = name,
+                state = currentState,
+                context = context,
+                observer = observer,
+                stepCounter = stepCounter,
+                persistenceSession = persistenceSession,
+                topLevelStepIndex = index,
+                resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
+                services = services,
+                executeNestedSteps = { nestedSteps, nestedState ->
+                    executeSteps(
+                        steps = nestedSteps,
+                        state = nestedState,
+                        context = context,
+                        observer = observer,
+                        stepCounter = stepCounter,
+                        services = services,
+                    )
+                },
+            )
+            when (val result = executeStep(step, request)) {
+                is WorkflowStepExecutionResult.Completed -> currentState = result.state
+                WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
                     "Workflow '$name' suspended at step '${step.name}' for workflowId='${context.workflowId}'",
                 )
             }
@@ -440,132 +451,66 @@ class Workflow<S, R> internal constructor(
         context: WorkflowContext,
         observer: WorkflowObserver,
         stepCounter: StepCounter,
+        services: WorkflowStepExecutionServices,
     ): S {
         var currentState = state
         for (step in steps) {
-            when (val result = executeStep(
-                StepExecutionRequest(
-                    step = step,
-                    state = currentState,
-                    context = context,
-                    observer = observer,
-                    stepCounter = stepCounter,
-                    persistenceSession = null,
-                    topLevelStepIndex = null,
-                    resumedCheckpointMetadata = null,
-                ),
-            )) {
-                is StepExecutionResult.Completed -> currentState = result.state
-                StepExecutionResult.Suspended -> throw WorkflowSuspendedException(
+            val request = WorkflowStepExecutionRequest(
+                workflowName = name,
+                state = currentState,
+                context = context,
+                observer = observer,
+                stepCounter = stepCounter,
+                persistenceSession = null,
+                topLevelStepIndex = null,
+                resumedCheckpointMetadata = null,
+                services = services,
+                executeNestedSteps = { nestedSteps, nestedState ->
+                    executeSteps(
+                        steps = nestedSteps,
+                        state = nestedState,
+                        context = context,
+                        observer = observer,
+                        stepCounter = stepCounter,
+                        services = services,
+                    )
+                },
+            )
+            when (val result = executeStep(step, request)) {
+                is WorkflowStepExecutionResult.Completed -> currentState = result.state
+                WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
                     "Workflow '$name' suspended at nested step '${step.name}', but nested delay checkpointing is not supported",
                 )
             }
         }
         return currentState
     }
-    private suspend fun executeStep(request: StepExecutionRequest<S>): StepExecutionResult<S> {
-        val step = request.step
-        val state = request.state
-        val context = request.context
-        val observer = request.observer
-        val stepCounter = request.stepCounter
-        stepCounter.beforeStep(name, step.name)
-        observer.onStepStarted(name, step.name, context)
-        val nextState = try {
-            when (step) {
-                is LocalWorkflowStep -> step.transform(state, context)
-                is AiWorkflowStep<S, *, *> -> step.execute(state, context)
-                is HttpWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer,
-                    transport = httpTransport ?: JdkHttpTransport(httpClient),
-                    policy = outboundNetworkPolicy,
-                    failureDiagnosticObserver = failureDiagnosticObserver,
-                )
-                is ShellWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
-                )
-                is HermesWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
-                )
-                is CodexWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
-                )
-                is McpWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer, failureDiagnosticObserver = failureDiagnosticObserver,
-                )
-                is PluginWorkflowStep<S> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    executorResolver = externalStepExecutorResolver,
-                )
-                is GateWorkflowStep -> step.execute(state, context)
-                is DelayWorkflowStep -> {
-                    val result = step.execute(
-                        DelayExecutionRequest(
-                            workflowName = name,
-                            state = state,
-                            context = context,
-                            observer = observer,
-                            persistenceSession = request.persistenceSession,
-                            topLevelStepIndex = request.topLevelStepIndex,
-                            stepExecutions = stepCounter.stepExecutions,
-                            resumedCheckpointMetadata = request.resumedCheckpointMetadata,
-                            clock = clock,
-                        ),
-                    )
-                    if (result == DelayExecutionResult.Suspended) {
-                        return StepExecutionResult.Suspended
-                    }
-                    state
-                }
-                is BranchWorkflowStep -> {
-                    val branchKey = step.select(state)
-                    val branchSteps = step.branches[branchKey] ?: step.defaultSteps
-                    if (branchSteps == null) {
-                        throw WorkflowBranchSelectionException(
-                            "Workflow '$name' selected unknown branch '$branchKey' at step '${step.name}'",
-                        )
-                    }
-                    executeSteps(
-                        steps = branchSteps,
-                        state = state,
-                        context = context,
-                        observer = observer,
-                        stepCounter = stepCounter,
-                    )
-                }
-                is ParallelWorkflowStep<S, *, *> -> step.execute(
-                    workflowName = name,
-                    state = state,
-                    context = context,
-                    observer = observer,
-                    stepCounter = stepCounter,
-                )
-            }
+    private suspend fun executeStep(
+        step: InternalWorkflowStep<S>,
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> {
+        request.stepCounter.beforeStep(name, step.name)
+        request.observer.onStepStarted(name, step.name, request.context)
+        val result = try {
+            step.execute(request)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             val sanitized = sanitizeStepFailure(step, name, failureDiagnosticObserver, error)
-            observer.onStepFailed(name, step.name, sanitized, context); throw sanitized
+            request.observer.onStepFailed(name, step.name, sanitized, request.context)
+            throw sanitized
         }
-        observer.onStepCompleted(name, step.name, context)
-        return StepExecutionResult.Completed(nextState)
+        if (result is WorkflowStepExecutionResult.Completed) {
+            request.observer.onStepCompleted(name, step.name, request.context)
+        }
+        return result
     }
+    private fun executionServices(): WorkflowStepExecutionServices = WorkflowStepExecutionServices(
+        clock = clock,
+        httpTransport = httpTransport ?: JdkHttpTransport(httpClient),
+        outboundNetworkPolicy = outboundNetworkPolicy,
+        externalStepExecutorResolver = externalStepExecutorResolver,
+        failureDiagnosticObserver = failureDiagnosticObserver,
+    )
 }
 class WorkflowBuilder<S> constructor(
     private val workflowName: String,
@@ -953,13 +898,16 @@ class BranchBuilder<S> {
 }
 class BranchWorkflowBuilder<S> : AbstractWorkflowBuilder<S>() {
 }
-internal sealed interface InternalWorkflowStep<S> {
-    val name: String
-}
 private data class LocalWorkflowStep<S>(
     override val name: String,
     val transform: suspend (S, WorkflowContext) -> S,
-) : InternalWorkflowStep<S>
+) : InternalWorkflowStep<S> {
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        transform(request.state, request.context),
+    )
+}
 private data class AiWorkflowStep<S, I, O>(
     override val name: String,
     val replayDescriptor: (S, WorkflowContext) -> WorkflowStepReplayDescriptor,
@@ -971,6 +919,12 @@ private data class AiWorkflowStep<S, I, O>(
         state: S,
         context: WorkflowContext,
     ): S = merge(state, invoke(input(state, context), context), context)
+
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(request.state, request.context),
+    )
 }
 
 private fun validateAiReplayPolicy(
@@ -1017,17 +971,16 @@ private data class GateWorkflowStep<S>(
     override val name: String,
     val decide: suspend (S, WorkflowContext) -> GateDecision,
 ) : InternalWorkflowStep<S> {
-    suspend fun execute(
-        state: S,
-        context: WorkflowContext,
-    ): S {
-        val decision = decide(state, context)
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> {
+        val decision = decide(request.state, request.context)
         if (!decision.allowed) {
             throw WorkflowGateRejectedException(
                 "Workflow gate '$name' rejected execution: ${decision.reason}",
             )
         }
-        return state
+        return WorkflowStepExecutionResult.Completed(request.state)
     }
 }
 private data class PluginWorkflowStep<S>(
@@ -1048,17 +1001,33 @@ private data class PluginWorkflowStep<S>(
         val result = executorResolver.create(type).execute(config)
         return merge(state, result, context)
     }
+
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(
+            workflowName = request.workflowName,
+            state = request.state,
+            context = request.context,
+            executorResolver = request.services.externalStepExecutorResolver,
+        ),
+    )
 }
 private data class DelayWorkflowStep<S>(
     override val name: String,
     val duration: Long,
     val unit: TimeUnit,
 ) : InternalWorkflowStep<S> {
-    suspend fun execute(request: DelayExecutionRequest<S>): DelayExecutionResult {
+    override val suspensionMode: WorkflowStepSuspensionMode
+        get() = WorkflowStepSuspensionMode.TOP_LEVEL_CHECKPOINT
+
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> {
         val workflowName = request.workflowName
         val context = request.context
         val observer = request.observer
-        val clock = request.clock
+        val clock = request.services.clock
         val now = clock.instant()
         val resumedResumeAt = request.resumedCheckpointMetadata?.delayResumeAt(workflowName, context.workflowId, name)
         val resumeAt = resumedResumeAt ?: now.plusMillis(unit.toMillis(duration))
@@ -1069,7 +1038,7 @@ private data class DelayWorkflowStep<S>(
                 attributes = delayAttributes(context.workflowId, name, resumeAt),
                 context = context,
             )
-            return DelayExecutionResult.Completed
+            return WorkflowStepExecutionResult.Completed(request.state)
         }
         val session = request.persistenceSession
             ?: throw WorkflowResumeException(
@@ -1083,7 +1052,7 @@ private data class DelayWorkflowStep<S>(
             state = request.state,
             nextStepIndex = stepIndex,
             lastCompletedStepName = null,
-            stepExecutions = request.stepExecutions,
+            stepExecutions = request.stepCounter.stepExecutions,
             extraMetadata = delayMetadata(name, resumeAt),
         )
         session.scheduleDelayWakeup(
@@ -1100,7 +1069,7 @@ private data class DelayWorkflowStep<S>(
             attributes = delayAttributes(context.workflowId, name, resumeAt),
             context = context,
         )
-        return DelayExecutionResult.Suspended
+        return WorkflowStepExecutionResult.Suspended
     }
 }
 private data class BranchWorkflowStep<S>(
@@ -1108,7 +1077,20 @@ private data class BranchWorkflowStep<S>(
     val select: (S) -> String,
     val branches: Map<String, List<InternalWorkflowStep<S>>>,
     val defaultSteps: List<InternalWorkflowStep<S>>?,
-) : InternalWorkflowStep<S>
+) : InternalWorkflowStep<S> {
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> {
+        val key = select(request.state)
+        val selected = branches[key] ?: defaultSteps
+            ?: throw WorkflowBranchSelectionException(
+                "Workflow '${request.workflowName}' selected unknown branch '$key' at step '${name}'",
+            )
+        return WorkflowStepExecutionResult.Completed(
+            request.executeNestedSteps(selected, request.state),
+        )
+    }
+}
 
 private suspend fun <S> InternalWorkflowStep<S>.replayDescriptor(
     state: S,
@@ -1161,37 +1143,6 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
         else -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
     }
 }
-private enum class DelayExecutionResult {
-    Completed,
-    Suspended,
-}
-private sealed interface StepExecutionResult<out S> {
-    data class Completed<S>(val state: S) : StepExecutionResult<S>
-    data object Suspended : StepExecutionResult<Nothing>
-}
-
-private data class StepExecutionRequest<S>(
-    val step: InternalWorkflowStep<S>,
-    val state: S,
-    val context: WorkflowContext,
-    val observer: WorkflowObserver,
-    val stepCounter: StepCounter,
-    val persistenceSession: WorkflowPersistenceSession<S>?,
-    val topLevelStepIndex: Int?,
-    val resumedCheckpointMetadata: Map<String, String>?,
-)
-
-private data class DelayExecutionRequest<S>(
-    val workflowName: String,
-    val state: S,
-    val context: WorkflowContext,
-    val observer: WorkflowObserver,
-    val persistenceSession: WorkflowPersistenceSession<S>?,
-    val topLevelStepIndex: Int?,
-    val stepExecutions: Int,
-    val resumedCheckpointMetadata: Map<String, String>?,
-    val clock: Clock,
-)
 
 private data class ParallelWorkflowStep<S, I, O>(
     override val name: String,
@@ -1226,6 +1177,18 @@ private data class ParallelWorkflowStep<S, I, O>(
         }.awaitAll()
         merge(state, results)
     }
+
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(
+            workflowName = request.workflowName,
+            state = request.state,
+            context = request.context,
+            observer = request.observer,
+            stepCounter = request.stepCounter,
+        ),
+    )
 }
 private fun <I> collectPendingItems(
     source: Iterable<I>,
@@ -1241,7 +1204,7 @@ private fun <I> collectPendingItems(
     }
     return if (iterator.hasNext()) null else pending
 }
-private class StepCounter(
+internal class StepCounter(
     val stopPolicy: StopPolicy,
     initialStepExecutions: Int = 0,
 ) {
@@ -1290,6 +1253,38 @@ private fun <S> validateWorkflowDefinition(
         )
     }
     validateStaticCommandPolicies(workflowName, steps)
+    validateNoNestedSuspendingSteps(workflowName, steps)
+}
+
+private fun <S> validateNoNestedSuspendingSteps(
+    workflowName: String,
+    steps: List<InternalWorkflowStep<S>>,
+) {
+    for (step in steps) {
+        if (step is BranchWorkflowStep) {
+            step.branches.values.forEach { branchSteps ->
+                rejectNestedSuspendingSteps(workflowName, branchSteps)
+            }
+            step.defaultSteps?.let { rejectNestedSuspendingSteps(workflowName, it) }
+        }
+    }
+}
+
+private fun <S> rejectNestedSuspendingSteps(
+    workflowName: String,
+    steps: List<InternalWorkflowStep<S>>,
+) {
+    for (step in steps) {
+        if (step.suspensionMode != WorkflowStepSuspensionMode.NONE) {
+            throw IllegalArgumentException(
+                "Workflow '$workflowName' step '${step.name}' uses ${step.suspensionMode} suspension inside a nested branch. Checkpoint-suspending steps must be top-level.",
+            )
+        }
+        if (step is BranchWorkflowStep) {
+            step.branches.values.forEach { rejectNestedSuspendingSteps(workflowName, it) }
+            step.defaultSteps?.let { rejectNestedSuspendingSteps(workflowName, it) }
+        }
+    }
 }
 
 private fun <S> validateStaticCommandPolicies(
@@ -1584,12 +1579,12 @@ private const val WORKFLOW_DELAY_STEP_METADATA_KEY: String =
     "tramai.workflow.delay.step"
 private const val WORKFLOW_DELAY_RESUME_AT_EPOCH_MILLIS_METADATA_KEY: String =
     "tramai.workflow.delay.resume_at_epoch_millis"
-private data class WorkflowDefinitionCompatibility(
+internal data class WorkflowDefinitionCompatibility(
     val version: String,
     val digest: String,
     val digestAlgorithm: String,
 )
-private class WorkflowPersistenceSession<S>(
+internal class WorkflowPersistenceSession<S>(
     private val persistence: WorkflowPersistence<S>,
     private val workflowName: String,
     private val context: WorkflowContext,

@@ -736,30 +736,45 @@ claimed-resume approval execution all live in dedicated coordinators under
 
 ## Epic 4.1: Replace concrete-type central dispatch
 
+**Status:** ✅ COMPLETE — PR #246 (2026-08-18, open at writing; expected merge squash).
+
 **Goal:** Make workflow steps polymorphic through a shared execution request and result contract.
 
-### Proposed contract
+### Delivered contract
 
 ```kotlin
-internal interface InternalWorkflowStep<S> {
+internal sealed interface InternalWorkflowStep<S> {
     val name: String
+    val suspensionMode: WorkflowStepSuspensionMode   // NONE | TOP_LEVEL_CHECKPOINT
     suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>
 }
 ```
 
+- `Workflow.executeStep()` is now the common wrapper only: step budget → onStepStarted → `step.execute(request)` → cancellation rethrow → sanitisation → onStepFailed/onStepCompleted. The 12-arm concrete `when` is gone.
+- Runtime collaborators are grouped in `WorkflowStepExecutionServices`; nested steps re-enter the wrapper via the `executeNestedSteps` callback (same context/observer/counter, `persistenceSession = null`, `topLevelStepIndex = null`, no inherited resume metadata).
+- Suspension is explicit via `suspensionMode`; only `DelayWorkflowStep` is `TOP_LEVEL_CHECKPOINT`.
+- Nested checkpoint-suspending steps are rejected at `build()` (previously a runtime error).
+- Hardened HTTP/Shell/Hermes/Codex/MCP execution algorithms untouched — thin contract adapters only.
+
 ### Tasks
 
-1. Move each built-in step's execution behind the step contract or a registered executor.
-2. Remove the growing central `when` over concrete step types.
-3. Keep common observation, step counting, persistence, and error handling in one wrapper.
-4. Define which step types can suspend and checkpoint.
-5. Define nested-step suspension semantics explicitly.
+1. ✅ Each built-in step executes through the step contract.
+2. ✅ Central `when` over concrete step types removed from runtime execution.
+3. ✅ Observation, step counting, persistence, and error handling remain in one wrapper.
+4. ✅ `WorkflowStepSuspensionMode` models which steps can suspend/checkpoint.
+5. ✅ Nested suspension semantics explicit + build-time validation.
 
 ### Acceptance criteria
 
-- Adding a new built-in step does not require editing a central type-dispatch list.
-- Shared execution rules remain consistent across all steps.
-- Unsupported nested suspension fails at validation time where possible.
+- ✅ Adding a new built-in step does not require editing a central type-dispatch list.
+- ✅ Shared execution rules remain consistent across all steps.
+- ✅ Unsupported nested suspension fails at validation time.
+
+### Non-goals (deferred to #247+)
+
+- Splitting `Workflow.kt` into runner/builder/step-executor files (Epic 4.2).
+- Concrete dispatch in replay descriptors / canonical rendering / static validation (definition-level, deliberately untouched).
+- Worker bindings, replay/retry semantics, public plugin API.
 
 ---
 
