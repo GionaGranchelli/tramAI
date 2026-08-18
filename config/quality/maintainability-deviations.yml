@@ -160,9 +160,9 @@ deviations:
     metric: globalMutableState
     scope: ":tramai-engine"
     baseline: 18
-    allowed: 22
-    reason: "Epic 2.1 EngineComponents snapshot: internal data-class fields typed as ProviderRegistry/ToolRegistry/ModelRegistry are immutable final snapshot references, not mutable registries. Scanner counts them as exposed registry state; they are the frozen configuration boundary (EngineComponentFactory is the sole construction path). Findings resolve when the scanner learns to distinguish snapshot references."
-    acceptedAt: "2026-08-12"
+    allowed: 23
+    reason: "Epic 2.1 EngineComponents snapshot: internal data-class fields typed as ProviderRegistry/ToolRegistry/ModelRegistry are immutable final snapshot references, not mutable registries. Scanner counts them as exposed registry state; they are the frozen configuration boundary (EngineComponentFactory is the sole construction path). PR #245 (Epic 3.7) relocated the invocation handler's collaborator fields into InvocationExecutionCoordinator/ToolLoopCoordinator (+2 registry-typed declarations) and replaced the handler field on the engine with an executionCoordinator field (+1); the old handler/resumedBy findings resolved (-2). Net +1 population (22→23), pure identity churn — same collaborator types, new file identities. Findings resolve when the scanner learns to distinguish snapshot references."
+    acceptedAt: "2026-08-18"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
