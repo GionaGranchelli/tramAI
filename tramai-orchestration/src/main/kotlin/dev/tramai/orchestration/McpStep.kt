@@ -217,6 +217,18 @@ internal data class McpWorkflowStep<S>(
     val config: McpStepConfig = McpStepConfig(),
     val transportProvider: McpTransportProvider = SubprocessMcpTransportProvider(),
 ) : InternalWorkflowStep<S> {
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(
+            workflowName = request.workflowName,
+            state = request.state,
+            context = request.context,
+            observer = request.observer,
+            failureDiagnosticObserver = request.services.failureDiagnosticObserver,
+        ),
+    )
+
     internal fun validateStaticCommandPolicy(workflowName: String) {
         val commandIdentifiers = definition.serverCommand.commandIdentifiers()
         val allowedCommands = config.allowedCommands

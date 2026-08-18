@@ -38,6 +38,18 @@ internal data class HermesWorkflowStep<S>(
     val merge: suspend (S, String, WorkflowContext) -> S,
     val config: HermesStepConfig = HermesStepConfig(),
 ) : InternalWorkflowStep<S> {
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(
+            workflowName = request.workflowName,
+            state = request.state,
+            context = request.context,
+            observer = request.observer,
+            failureDiagnosticObserver = request.services.failureDiagnosticObserver,
+        ),
+    )
+
     suspend fun execute(
         workflowName: String,
         state: S,

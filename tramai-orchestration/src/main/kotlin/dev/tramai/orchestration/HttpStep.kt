@@ -122,6 +122,20 @@ internal data class HttpWorkflowStep<S>(
     val config: HttpStepConfig = HttpStepConfig(),
     val blockingDispatcher: CoroutineContext = Dispatchers.IO,
 ) : InternalWorkflowStep<S> {
+    override suspend fun execute(
+        request: WorkflowStepExecutionRequest<S>,
+    ): WorkflowStepExecutionResult<S> = WorkflowStepExecutionResult.Completed(
+        execute(
+            workflowName = request.workflowName,
+            state = request.state,
+            context = request.context,
+            observer = request.observer,
+            transport = request.services.httpTransport,
+            policy = request.services.outboundNetworkPolicy,
+            failureDiagnosticObserver = request.services.failureDiagnosticObserver,
+        ),
+    )
+
     suspend fun execute(
         workflowName: String,
         state: S,
