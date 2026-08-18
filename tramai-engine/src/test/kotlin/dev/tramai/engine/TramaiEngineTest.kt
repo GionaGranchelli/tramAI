@@ -76,6 +76,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Timeout
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -173,6 +174,7 @@ class TramaiEngineTest {
     }
 
     @Test
+    @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     fun `close racing a fast suspend invocation never leaves work against a closed engine`() = runBlocking {
         repeat(100) {
             val providerEntered = CompletableDeferred<Unit>()
