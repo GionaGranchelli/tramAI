@@ -1117,4 +1117,51 @@ class KotlinCancellationCatchScannerTest {
         assertEquals("", findings.first().sourceFingerprint,
             "Unbalanced construct must produce blank fingerprint (refuse relocation)")
     }
+
+    @Test
+    fun `suspend fun immediately after another block is still detected as suspend`() {
+        // Regression for the suspend-range walk: findSuspendRanges advanced
+        // with `i = end` then the loop's `i++` skipped the line at index end —
+        // exactly where a `private suspend fun` declaration can sit. Its body
+        // was then never in a suspend range and the runCatching was classified
+        // medium instead of critical. The declaration here follows another
+        // block's closing brace directly (previous findBlockEnd == declaration
+        // line), reproducing the Workflow.kt:1763 layout.
+        val source = """
+            suspend fun previousBlock() {
+                doWork()
+            }
+            private suspend fun runCatchingAbort(
+                error: Throwable,
+            ) {
+                runCatching { abort() }
+                    .onFailure { error.addSuppressed(it) }
+            }
+        """.trimIndent()
+        val findings = KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
+        val rc = findings.firstOrNull { it.catchType == "runCatching" }
+        assertNotNull(rc, "runCatching finding expected")
+        assertEquals("critical", rc.risk,
+            "runCatching inside suspend fun directly after another block must be critical, got ${rc.risk}")
+        assertEquals(true, rc.isSuspendCapable)
+    }
+
+    @Test
+    fun `broad catch immediately after suspend function is not suspend capable`() {
+        val source = """
+            suspend fun previousBlock() {
+                doWork()
+            }
+            val result = runCatching { doOutsideWork() }
+        """.trimIndent()
+
+        val findings =
+            KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
+
+        val rc = findings.single { it.catchType == "runCatching" }
+
+        assertEquals(false, rc.isSuspendCapable)
+        assertEquals("medium", rc.risk)
+    }
+
 }

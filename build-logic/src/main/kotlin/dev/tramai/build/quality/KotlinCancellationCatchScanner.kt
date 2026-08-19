@@ -151,7 +151,10 @@ object KotlinCancellationCatchScanner {
                 val start = i + 1
                 val end = findBlockEnd(lines, i)
                 ranges.add(start..end)
-                i = end
+                // findBlockEnd returns one past the closing brace; stepping to
+                // end-1 lets the loop's i++ land ON end, so a suspend fun whose
+                // declaration sits immediately after a block is not skipped.
+                i = end - 1
             }
             i++
         }
