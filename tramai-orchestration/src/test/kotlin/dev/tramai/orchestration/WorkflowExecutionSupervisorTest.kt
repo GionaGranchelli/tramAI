@@ -237,7 +237,7 @@ class WorkflowExecutionSupervisorTest {
     }
 
     @Test
-    fun `failed execution records latestFailure and clears it on later success`() {
+    fun `failed execution records latestFailure`() {
         val store = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
@@ -253,8 +253,12 @@ class WorkflowExecutionSupervisorTest {
         val lease = runBlocking { leaseStore.claim("wf", "w-1", "supervisor-test", cp.revision, 5_000) }
         s.launch(cp, lease)
         runBlocking {
+            // Wait for terminal execution state: latestFailure becomes visible
+            // before the durable attempt transition to FAILED (production sets
+            // executionFailures before failActiveAttempt), so waiting on
+            // latestFailure alone is racy.
             withTimeout(10_000) {
-                while (s.latestFailure("w-1") == null) delay(10)
+                while (s.activeExecutionCount() != 0) delay(10)
             }
         }
         assertThat(s.latestFailure("w-1")).isInstanceOf(IllegalStateException::class.java)

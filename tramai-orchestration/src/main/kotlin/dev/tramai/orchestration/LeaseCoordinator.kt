@@ -52,14 +52,26 @@ internal class LeaseCoordinator(
     }
 
     /**
-     * Releases [lease]. Returns true when the store accepted the release and
-     * [TramaiWorkerObserver.onLeaseReleased] was emitted; returns false (after
-     * emitting [TramaiWorkerObserver.onLeaseReleaseFailed]) when the store
-     * rejected it, so callers keep their lease reference and can retry.
+     * Releases [lease] and emits the release observer event.
+     *
+     * Ordering is part of the worker contract and matches the pre-decomposition
+     * worker verbatim: store release → [afterStoreRelease] (the owner clears
+     * its tracked lease) → `onLeaseReleased`. The lease must be cleared before
+     * the observer event so a slow observer callback can never observe a stale
+     * tracked lease and renew an already-released lease.
+     *
+     * @return true when the store release succeeded; false when it failed
+     *   (the observer was notified via `onLeaseReleaseFailed` and the caller
+     *   must not clear its tracked lease, matching the original CAS-on-success
+     *   semantics).
      */
-    suspend fun release(lease: WorkflowLease): Boolean {
+    suspend fun release(
+        lease: WorkflowLease,
+        afterStoreRelease: () -> Unit = {},
+    ): Boolean {
         return try {
             leaseStore.release(lease)
+            afterStoreRelease()
             observability.onLeaseReleased(lease.workflowId, config.workerId)
             true
         } catch (error: Throwable) {

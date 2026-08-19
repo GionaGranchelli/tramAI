@@ -99,22 +99,24 @@ internal class WorkerLifecycleController(
             }
         }
         Runtime.getRuntime().addShutdownHook(hook)
+        shutdownCoordinator.onShutdownHook(hook)
         executionSupervisor.attachScope(scope)
         shutdownCoordinator.prepareStart()
-        val pollJob = scope.launch {
-            poller.pollLoop()
-        }
+        // Order preserved verbatim from the pre-decomposition worker: heartbeat
+        // launches before poll, and each resource is handed to the shutdown
+        // owner immediately so a concurrent shutdown never sees a null handle
+        // for something that already exists.
         val heartbeatJob = scope.launch {
             heartbeatPublisher.heartbeatLoop(
                 startedAtMillis = { startedAt },
                 claimedCount = { executionSupervisor.activeExecutionCount() },
             )
         }
-        shutdownCoordinator.onStarted(
-            pollJob = pollJob,
-            heartbeatJob = heartbeatJob,
-            shutdownHook = hook,
-        )
+        shutdownCoordinator.onHeartbeatJob(heartbeatJob)
+        val pollJob = scope.launch {
+            poller.pollLoop()
+        }
+        shutdownCoordinator.onPollJob(pollJob)
     }
 
     fun crash(cause: CancellationException = CancellationException("Worker '${config.workerId}' crashed")) {
@@ -123,9 +125,17 @@ internal class WorkerLifecycleController(
 
     suspend fun shutdown() {
         val supervisor = workerJob ?: return
-        shutdownCoordinator.shutdown(supervisor)
-        workerJob = null
-        workerScope = null
+        // Clear lifecycle ownership only when THIS call owned the shutdown
+        // (CAS winner) and only if the root is still the one we captured. A
+        // concurrent shutdown that loses the CAS must not null workerJob
+        // while the winner is still draining, and a completed shutdown must
+        // not erase a root created by a start() that ran mid-drain.
+        if (shutdownCoordinator.shutdown(supervisor)) {
+            if (workerJob === supervisor) {
+                workerJob = null
+                workerScope = null
+            }
+        }
     }
 
     fun latestFailure(workflowId: String): Throwable? = executionSupervisor.latestFailure(workflowId)

@@ -855,7 +855,7 @@ internal sealed interface InternalWorkflowStep<S> {
 - ✅ Start, repeated start, graceful shutdown, crash, takeover, and timeout remain covered by the existing worker/recovery suites (unchanged, green).
 - ✅ Every launched job has one owner; exactly one worker root coroutine lifecycle exists (architecture-guarded).
 - ✅ Shutdown-hook registration/removal is deterministic (frozen sequence preserved verbatim, coordinator-owned).
-- ⏳ Wall-clock duration measurement uses an injected or monotonic time source — **deliberately deferred** (explicit non-goal of #251; deterministic-time work is a later roadmap item).
+- ⏳ Wall-clock duration measurement uses an injected or monotonic time source — **moved to section 4.15 (Time and concurrency determinism)**: an explicit non-goal of #251, so this criterion is not part of Epic 4.4's completion. Epic 4.4 is complete without it.
 - ✅ Zero public API diff; checkpoint/persistence schema unchanged; cancellation safety 295=295.
 
 ---

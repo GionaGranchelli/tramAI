@@ -113,9 +113,11 @@ class WorkerShutdownCoordinatorTest {
         val pollJob: Job = scope.launch { delay(Long.MAX_VALUE) }
         val heartbeatJob: Job = scope.launch { delay(Long.MAX_VALUE) }
 
-        fun start(workflowId: String = "w-1") {
+        fun start(hook: Thread = Thread { }) {
             coordinator.prepareStart()
-            coordinator.onStarted(pollJob, heartbeatJob, Thread { })
+            coordinator.onShutdownHook(hook)
+            coordinator.onHeartbeatJob(heartbeatJob)
+            coordinator.onPollJob(pollJob)
         }
 
         fun registerWorker() {
@@ -223,6 +225,41 @@ class WorkerShutdownCoordinatorTest {
         assertThat(h.observer.events).anyMatch { it.startsWith("drainProgress") }
         assertThat(h.rootSupervisor.isCancelled).isTrue()
         h.scope.cancel()
+    }
+
+    @Test
+    fun `shutdown removes the hook reference and deregisters it from the JVM`() {
+        // Migrated from TramaiWorkerTest: the hook is now owned by the
+        // shutdown coordinator. Proves both invariants: the coordinator drops
+        // its reference AND the JVM hook is actually deregistered.
+        val hook = Thread { }
+        Runtime.getRuntime().addShutdownHook(hook)
+        try {
+            val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ -> state }
+            }.build { it.value }
+            val h = harness(workflow = workflow)
+            h.start(hook)
+
+            val hookField = WorkerShutdownCoordinator::class.java.getDeclaredField("shutdownHook")
+            hookField.isAccessible = true
+            assertThat(hookField.get(h.coordinator) as? Thread).isSameAs(hook)
+
+            runBlocking {
+                withTimeout(10_000) { h.coordinator.shutdown(h.rootSupervisor) }
+            }
+
+            // Reference removed...
+            assertThat(hookField.get(h.coordinator) as? Thread).isNull()
+            // ...AND the hook was deregistered from the JVM: removeShutdownHook
+            // returns false when the hook is no longer registered; true would
+            // mean shutdown left a live hook (a real JVM-level leak).
+            assertThat(Runtime.getRuntime().removeShutdownHook(hook)).isFalse()
+            h.scope.cancel()
+        } finally {
+            // Never leave a hook registered in the test JVM, even on failure.
+            runCatching { Runtime.getRuntime().removeShutdownHook(hook) }
+        }
     }
 
     @Test

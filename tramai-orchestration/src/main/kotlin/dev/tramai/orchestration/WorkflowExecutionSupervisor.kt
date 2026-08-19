@@ -238,7 +238,10 @@ internal class WorkflowExecutionSupervisor(
 
     private suspend fun releaseLease(handle: ActiveExecution) {
         val lease = handle.lease.get() ?: return
-        if (leaseCoordinator.release(lease)) {
+        // Ordering preserved verbatim: store release → clear tracked lease →
+        // onLeaseReleased. The tracked lease must be cleared before the
+        // observer event so a slow callback cannot renew a released lease.
+        leaseCoordinator.release(lease) {
             handle.lease.compareAndSet(lease, null)
         }
     }

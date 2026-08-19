@@ -56,24 +56,34 @@ internal class WorkerShutdownCoordinator(
         shutdownStarted.set(false)
     }
 
-    /** Registers the started jobs and the JVM shutdown hook. */
-    fun onStarted(
-        pollJob: Job,
-        heartbeatJob: Job,
-        shutdownHook: Thread,
-    ) {
-        this.pollJob = pollJob
-        this.heartbeatJob = heartbeatJob
+    /** Registers the JVM shutdown hook immediately after it is added. */
+    fun onShutdownHook(shutdownHook: Thread) {
         this.shutdownHook = shutdownHook
     }
 
+    /** Registers the heartbeat job immediately after it is launched. */
+    fun onHeartbeatJob(heartbeatJob: Job) {
+        this.heartbeatJob = heartbeatJob
+    }
+
+    /** Registers the poll job immediately after it is launched. */
+    fun onPollJob(pollJob: Job) {
+        this.pollJob = pollJob
+    }
+
     /**
-     * Runs the frozen shutdown sequence. Idempotent: a second call returns
-     * immediately.
+     * Performs the frozen graceful-shutdown sequence.
+     *
+     * @return true if this invocation owned and completed the shutdown
+     *   (i.e. its CAS won); false if another shutdown was already in
+     *   progress and this call only observed it. Callers must clear
+     *   lifecycle state only when true and only for the same root they
+     *   captured, so a concurrent shutdown can never erase ownership of a
+     *   newer root.
      */
-    suspend fun shutdown(rootSupervisor: Job) {
+    suspend fun shutdown(rootSupervisor: Job): Boolean {
         if (!shutdownStarted.compareAndSet(false, true)) {
-            return
+            return false
         }
         shuttingDownGracefully = true
         acceptingWork = false
@@ -113,5 +123,6 @@ internal class WorkerShutdownCoordinator(
         observability.onShutdownComplete(config.workerId)
         observability.onWorkerStopped(config.workerId)
         rootSupervisor.cancel()
+        return true
     }
 }

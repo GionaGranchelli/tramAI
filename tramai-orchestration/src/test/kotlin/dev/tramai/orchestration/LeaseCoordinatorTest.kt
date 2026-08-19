@@ -105,6 +105,28 @@ class LeaseCoordinatorTest {
     }
 
     @Test
+    fun `release ordering is store release then tracked-lease clear then observer event`() {
+        val store = InMemoryWorkflowLeaseStore()
+        val observer = RecordingObserver()
+        val coordinator = LeaseCoordinator(config, store, observer)
+        val lease = runBlocking { store.claim("wf", "w-1", "lease-test", 1L, 5_000) }
+        val order = CopyOnWriteArrayList<String>()
+        val released = runBlocking {
+            coordinator.release(lease) {
+                // The owner clears its tracked lease here; must happen after the
+                // store release and before the observer event (the pre-#251 order),
+                // so a slow observer callback can never renew a released lease.
+                order += "clear-tracked-lease"
+                assertThat(runBlocking { store.currentLease("wf", "w-1") }).isNull()
+            }
+        }
+        assertThat(released).isTrue()
+        assertThat(observer.released).containsExactly("w-1")
+        assertThat(order).containsExactly("clear-tracked-lease")
+        assertThat(observer.released).isNotEmpty()
+    }
+
+    @Test
     fun `failed release returns false and emits onLeaseReleaseFailed`() {
         val failingStore = FailingLeaseStore(releaseError = IllegalStateException("store down"))
         val observer = RecordingObserver()

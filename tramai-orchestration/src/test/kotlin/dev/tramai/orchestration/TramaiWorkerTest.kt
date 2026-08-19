@@ -63,44 +63,6 @@ class TramaiWorkerTest {
     }
 
     @Test
-    fun `close deregisters the JVM shutdown hook and retains no reference`() = runBlocking {
-        val checkpointStore = InMemoryWorkflowCheckpointStore()
-        val leaseStore = InMemoryWorkflowLeaseStore()
-        val workflow = workerWorkflow("hook-leak") {
-            localStep(name = "noop", transform = { state, _ -> state })
-        }
-        val worker = worker("hook-worker", leaseStore, checkpointStore, workflow)
-
-        worker.start()
-        // The hook field is populated by start(): a JVM shutdown hook is registered.
-        val hookField = TramaiWorker::class.java.getDeclaredField("shutdownHook")
-        hookField.isAccessible = true
-        val hookAfterStart = hookField.get(worker) as? Thread
-        assertThat(hookAfterStart).isNotNull()
-
-        try {
-            worker.close()
-            // close() -> shutdown() must drop the worker's reference...
-            val hookAfterClose = hookField.get(worker) as? Thread
-            assertThat(hookAfterClose).isNull()
-            // ...AND deregister the hook from the JVM. removeShutdownHook
-            // returns false when the hook was already deregistered; true would
-            // mean close() left a live hook registered (a real JVM-level leak
-            // that the field-null check alone cannot detect). If the
-            // implementation is broken, this call also removes the leaked hook
-            // from the test JVM before the assertion fails.
-            assertThat(Runtime.getRuntime().removeShutdownHook(requireNotNull(hookAfterStart))).isFalse()
-        } finally {
-            // Never leave a hook registered in the test JVM, even if an
-            // assertion above failed before the deregistration check ran.
-            val residual = hookField.get(worker) as? Thread
-            if (residual != null) {
-                worker.close()
-            }
-        }
-    }
-
-    @Test
     fun `worker crash leaves non replayable step in unknown state and takeover fails`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         var now = 1_000L
