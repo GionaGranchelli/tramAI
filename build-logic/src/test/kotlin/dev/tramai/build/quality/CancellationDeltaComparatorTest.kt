@@ -160,16 +160,20 @@ class CancellationDeltaComparatorTest {
 
     @Test
     fun `finding moved to another file is unchanged`() {
+        // The actual Epic 4.2 relocation: runCatching moved from Workflow.kt
+        // line 1767 to WorkflowPersistenceSession.kt line 202, same function
+        // attribution (leaseAttributes), same catchType, same risk, and the
+        // source line CHANGED because the code physically moved.
         val base = listOf(
-            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching")
+            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 1767)
         )
         val current = listOf(
-            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching")
+            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 202)
         )
         val result = CancellationDeltaComparator.compare(base, current)
         assertTrue(result.newCriticalHigh.isEmpty(), "Moved finding is not new")
         assertTrue(result.worsened.isEmpty(), "No worsenings")
-        assertEquals(1, result.unchanged, "1 unchanged (same function/catchType/risk, file differs)")
+        assertEquals(1, result.unchanged, "1 unchanged (unique relocation: same function/catchType/risk, file + line changed)")
         assertFalse(
             result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
             "Gate check should pass"
@@ -177,16 +181,58 @@ class CancellationDeltaComparatorTest {
     }
 
     @Test
-    fun `new finding with same function in different file is still flagged`() {
-        // Base has op1 in A.kt; current gains an ADDITIONAL op1 in B.kt — the
-        // population grew, so this must still fail even though the group key
-        // ignores the file component.
+    fun `unrelated cross file replacement is not treated as relocation`() {
+        // Equal-cardinality replacement: same function, catchType and risk,
+        // different file, but the source line is IDENTICAL. This is NOT a
+        // move — it is an unrelated replacement that happens to share the
+        // signature. The safe bias is to flag the current finding.
         val base = listOf(
-            finding("critical", module = "modA", file = "A.kt", function = "op1")
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10)
         )
         val current = listOf(
-            finding("critical", module = "modA", file = "A.kt", function = "op1"),
-            finding("critical", module = "modA", file = "B.kt", function = "op1")
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 10)
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Same-line cross-file replacement must be flagged")
+        assertEquals("New.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `ambiguous relocation candidates are not silently accepted`() {
+        // Two base findings share the relocation key but only one current
+        // finding exists — which base finding moved? Not uniquely attributable,
+        // so the current finding must be flagged rather than silently accepted.
+        val base = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10),
+            finding("critical", module = "modA", file = "B.kt", function = "op1", sourceLine = 20)
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "C.kt", function = "op1", sourceLine = 30)
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Ambiguous relocation must be flagged")
+        assertEquals("C.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `new finding with same function in different file is still flagged`() {
+        // Base has op1 in A.kt; current gains an ADDITIONAL op1 in B.kt — the
+        // population grew, so this must still fail: the file-aware phase keeps
+        // them in separate groups, and the A.kt finding is already matched.
+        val base = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10)
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10),
+            finding("critical", module = "modA", file = "B.kt", function = "op1", sourceLine = 40)
         )
         val result = CancellationDeltaComparator.compare(base, current)
         assertEquals(1, result.newCriticalHigh.size, "Genuinely new finding must be flagged")
