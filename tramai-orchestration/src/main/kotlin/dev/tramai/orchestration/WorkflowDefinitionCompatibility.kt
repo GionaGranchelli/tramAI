@@ -2,7 +2,7 @@ package dev.tramai.orchestration
 
 import java.security.MessageDigest
 
-private const val WORKFLOW_DEFINITION_VERSION_METADATA_KEY: String =
+internal const val WORKFLOW_DEFINITION_VERSION_METADATA_KEY: String =
     "tramai.workflow.definition.version"
 private const val WORKFLOW_DEFINITION_DIGEST_METADATA_KEY: String =
     "tramai.workflow.definition.digest"

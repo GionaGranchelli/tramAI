@@ -967,21 +967,16 @@ public final class dev/tramai/orchestration/StopPolicy {
 }
 
 public final class dev/tramai/orchestration/TramaiWorker : java/lang/AutoCloseable {
-	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
-	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
-	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowBindingRegistry;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowBindingRegistry;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ldev/tramai/orchestration/WorkflowBindingRegistry;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ldev/tramai/orchestration/WorkflowBindingRegistry;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public final fun crash (Ljava/util/concurrent/CancellationException;)V
 	public static synthetic fun crash$default (Ldev/tramai/orchestration/TramaiWorker;Ljava/util/concurrent/CancellationException;ILjava/lang/Object;)V
 	public final fun latestFailure (Ljava/lang/String;)Ljava/lang/Throwable;
 	public final fun shutdown (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun start (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class dev/tramai/orchestration/TramaiWorkerKt {
-	public static final fun registerWorkerBinding (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Z)Ldev/tramai/orchestration/Workflow;
-	public static synthetic fun registerWorkerBinding$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;ZILjava/lang/Object;)Ldev/tramai/orchestration/Workflow;
 }
 
 public abstract interface class dev/tramai/orchestration/TramaiWorkerObserver {
@@ -1098,6 +1093,18 @@ public final class dev/tramai/orchestration/Workflow {
 	public static synthetic fun resume$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun run$default (Ldev/tramai/orchestration/Workflow;Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowBindingRegistry {
+	public static final field Companion Ldev/tramai/orchestration/WorkflowBindingRegistry$Companion;
+}
+
+public final class dev/tramai/orchestration/WorkflowBindingRegistry$Companion {
+	public final fun invoke (Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/WorkflowBindingRegistry;
+}
+
+public final class dev/tramai/orchestration/WorkflowBindingRegistryBuilder {
+	public final fun bind (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowPersistence;)V
 }
 
 public final class dev/tramai/orchestration/WorkflowBranchSelectionException : java/lang/RuntimeException {

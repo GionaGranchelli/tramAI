@@ -244,7 +244,7 @@ abstract class DurableWorkflowRecoveryContractTest {
                     merge = { state, result -> state.copy(value = result) },
                 )
             }
-        }.build { it.value }.registerWorkerBinding(RecoveryWorkerStateCodec)
+        }.build { it.value }
     }
 
     private fun worker(
@@ -262,7 +262,15 @@ abstract class DurableWorkflowRecoveryContractTest {
         checkpointStore = persistence.checkpointStore,
         checkpointCatalog = persistence.checkpointStore as WorkflowCheckpointCatalog,
         stepAttemptStore = persistence.attemptStore,
-        workflowRegistry = mapOf(workflow.name to workflow),
+        workflowBindings = WorkflowBindingRegistry {
+            bind(
+                workflow = workflow,
+                persistence = WorkflowPersistence(
+                    checkpointStore = persistence.checkpointStore,
+                    stateCodec = RecoveryWorkerStateCodec,
+                ),
+            )
+        },
     )
 
     private suspend fun waitUntil(block: suspend () -> Boolean) {

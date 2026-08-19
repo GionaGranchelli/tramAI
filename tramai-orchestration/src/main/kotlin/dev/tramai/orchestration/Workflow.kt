@@ -67,23 +67,18 @@ class Workflow<S, R> internal constructor(
         context: WorkflowContext = WorkflowContext(),
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>? = null,
-    ): R {
-        if (persistence != null) {
-            rememberWorkerWorkflowBinding(this, persistence)
-        }
-        return runner.run(initialState, context, observer, persistence)
-    }
+    ): R = runner.run(initialState, context, observer, persistence)
 
     suspend fun resume(
         context: WorkflowContext,
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>,
-    ): R {
-        rememberWorkerWorkflowBinding(this, persistence)
-        return runner.resume(context, observer, persistence)
-    }
+    ): R = runner.resume(context, observer, persistence)
 
     fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
+
+    /** Canonical definition digest — stable identity of this workflow's definition. */
+    internal fun definitionDigest(): String = definitionCompatibility.digest
 
     internal fun checkpointMetadata(): Map<String, String> = definitionCompatibility.toCheckpointMetadata()
 

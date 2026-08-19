@@ -105,7 +105,7 @@ class ShutdownHookTest {
         configure: WorkflowBuilder<ShutdownHookState>.() -> Unit,
     ): Workflow<ShutdownHookState, String> = workflow<ShutdownHookState>(name, configure = configure)
         .build { it.value }
-        .registerWorkerBinding(ShutdownHookStateCodec)
+        
 
     private fun makeWorker(
         workerId: String,
@@ -134,7 +134,15 @@ class ShutdownHookTest {
         checkpointStore = checkpointStore,
         checkpointCatalog = checkpointCatalog,
         stepAttemptStore = stepAttemptStore,
-        workflowRegistry = mapOf(workflow.name to workflow),
+        workflowBindings = WorkflowBindingRegistry {
+            bind(
+                workflow = workflow,
+                persistence = WorkflowPersistence(
+                    checkpointStore = checkpointStore,
+                    stateCodec = ShutdownHookStateCodec,
+                ),
+            )
+        },
         observability = observability,
     )
 

@@ -308,26 +308,26 @@ val recoveryController = InMemoryWorkflowRecoveryController(
 
 ### Distributed workers
 
-`TramaiWorker` enables multi-node workflow execution. Workers poll a shared checkpoint catalog, claim workflows via lease fencing, and execute resumes.
+`TramaiWorker` enables multi-node workflow execution. Workers poll a shared checkpoint catalog, claim workflows via lease fencing, and execute resumes. Each worker is completely determined by the bindings explicitly supplied to it — there is no process-global workflow registration.
 
 ```kotlin
 import dev.tramai.orchestration.*
 
-// 1. Define and register your workflow
-val workflow = workflow<MyState>(name = "my-workflow") {
-    // ... steps
-}.build { it.result }
-
-workflow.registerWorkerBinding(
-    stateCodec = JacksonWorkflowStateCodec(),
-)
-
-// 2. Create shared stores (e.g., JDBC-backed)
+// 1. Create shared stores (e.g., JDBC-backed)
 val checkpointStore = JdbcWorkflowCheckpointStore(dataSource)
 val stepAttemptStore = JdbcStepAttemptRecordStore(dataSource)
 val leaseStore = JdbcWorkflowLeaseStore(dataSource)
 
-// 3. Create the worker
+// 2. Define your workflow and its persistence
+val workflow = workflow<MyState>(name = "my-workflow") {
+    // ... steps
+}.build { it.result }
+val persistence = WorkflowPersistence(
+    checkpointStore = checkpointStore,
+    stateCodec = JacksonWorkflowStateCodec(),
+)
+
+// 3. Build an instance-scoped binding registry and create the worker
 val worker = TramaiWorker(
     config = WorkerConfig(
         workerId = "worker-1",
@@ -340,7 +340,9 @@ val worker = TramaiWorker(
     checkpointStore = checkpointStore,
     checkpointCatalog = checkpointStore,
     stepAttemptStore = stepAttemptStore,
-    workflowRegistry = mapOf("my-workflow" to workflow),
+    workflowBindings = WorkflowBindingRegistry {
+        bind(workflow, persistence)
+    },
 )
 
 // 4. Start polling
@@ -349,6 +351,8 @@ worker.start()
 // 5. On shutdown
 worker.shutdown()
 ```
+
+Workflow bindings are validated when the registry is built: the same workflow name may be bound under multiple definition versions, but a given name/version maps to exactly one state/result identity and definition. Conflicting or duplicate registrations fail at composition time, never silently overwritten. `Workflow.run()`/`resume()` perform no global registration — a worker can only execute workflows bound to it.
 
 #### WorkerConfig
 

@@ -814,23 +814,23 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ## Epic 4.3: Remove global worker workflow bindings
 
-**Goal:** Make workflow registration explicit, instance-scoped, and type-safe.
+**Goal:** Make workflow registration explicit, instance-scoped, and type-safe. **Complete (PR #250).**
 
 ### Tasks
 
-1. Introduce `WorkflowBindingRegistry` as an injected runtime component.
-2. Key bindings by a typed identity including name, definition version, and state/result metadata.
-3. Remove unchecked retrieval based only on workflow name.
-4. Remove implicit registration caused by executing a workflow.
-5. Make worker startup validate all required bindings.
-6. Define duplicate and conflicting registration behaviour.
-7. Add isolation tests for multiple runtimes, application contexts, tenants, and parallel tests.
+1. ✅ Introduce `WorkflowBindingRegistry` as an injected runtime component.
+2. ✅ Key bindings by a typed identity including name, definition version, and state/result metadata.
+3. ✅ Remove unchecked retrieval based only on workflow name.
+4. ✅ Remove implicit registration caused by executing a workflow.
+5. ✅ Make worker startup validate all required bindings.
+6. ✅ Define duplicate and conflicting registration behaviour.
+7. ✅ Add isolation tests for multiple runtimes, application contexts, tenants, and parallel tests.
 
 ### Acceptance criteria
 
-- No process-global workflow registry remains.
-- Two runtimes can register workflows with the same name without interference.
-- Type mismatches fail during registration rather than through unchecked cast behaviour.
+- ✅ No process-global workflow registry remains.
+- ✅ Two runtimes can register workflows with the same name without interference.
+- ✅ Type mismatches fail during registration rather than through unchecked cast behaviour.
 
 ---
 
