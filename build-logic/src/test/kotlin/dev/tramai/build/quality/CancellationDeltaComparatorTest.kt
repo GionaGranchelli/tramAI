@@ -14,14 +14,16 @@ class CancellationDeltaComparatorTest {
         file: String = "Test.kt",
         function: String = "riskyOperation",
         catchType: String = "Exception",
-        sourceLine: Int = 10
+        sourceLine: Int = 10,
+        sourceFingerprint: String = ""
     ): CancellationCatchFinding = CancellationCatchFinding(
         module = module,
         file = file,
         function = function,
         catchType = catchType,
         risk = risk,
-        sourceLine = sourceLine
+        sourceLine = sourceLine,
+        sourceFingerprint = sourceFingerprint
     )
 
     private fun asserting(result: CancellationDeltaComparator.Result) {
@@ -155,6 +157,153 @@ class CancellationDeltaComparatorTest {
         assertFalse(
             result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
             "Gate check should pass"
+        )
+    }
+
+    @Test
+    fun `finding moved to another file with matching fingerprint is unchanged`() {
+        // The actual Epic 4.2 relocation: `runCatching { abort() }` moved from
+        // Workflow.kt line 1767 to WorkflowPersistenceSession.kt line 202,
+        // same function attribution (leaseAttributes), same catchType, same
+        // risk. The fingerprint is the full balanced construct (per-line
+        // trimmed, content preserved) — identical because the same code text
+        // moved. This is the fingerprint the real scanner produces.
+        val base = listOf(
+            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 1767, sourceFingerprint = "runCatching { abort() }")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 202, sourceFingerprint = "runCatching { abort() }")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertTrue(result.newCriticalHigh.isEmpty(), "Moved finding is not new")
+        assertTrue(result.worsened.isEmpty(), "No worsenings")
+        assertEquals(1, result.unchanged, "1 unchanged (unique relocation with matching content fingerprint)")
+        assertFalse(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should pass"
+        )
+    }
+
+    @Test
+    fun `genuine move landing on same line with matching fingerprint is unchanged`() {
+        // A real move CAN land on the same source line number in the new file.
+        // Content fingerprint — not line inequality — is the evidence, so this
+        // must pass: same normalized catch-site text in both files.
+        val base = listOf(
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching { abort() }")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching { abort() }")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertTrue(result.newCriticalHigh.isEmpty(), "Same-line move with matching content is a relocation")
+        assertEquals(1, result.unchanged)
+        assertFalse(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should pass"
+        )
+    }
+
+    @Test
+    fun `unrelated cross file replacement is not treated as relocation`() {
+        // Equal-cardinality replacement: same function, catchType and risk,
+        // different file, but DIFFERENT catch-site content. This is NOT a
+        // move — it is an unrelated replacement that happens to share the
+        // signature. The safe bias is to flag the current finding.
+        val base = listOf(
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching{foo()}")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching{bar()}")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Different-content cross-file replacement must be flagged")
+        assertEquals("New.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `unrelated cross file replacement at different line is not treated as relocation`() {
+        // The critical false-negative case: base Old.kt:10 removed and an
+        // UNRELATED catch introduced at New.kt:40, coincidentally same
+        // module/function/catchType/risk. Different line numbers make it look
+        // like a move; the differing content fingerprint proves it is not.
+        val base = listOf(
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching{oldWork()}")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 40, sourceFingerprint = "runCatching{newWork()}")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Different-line unrelated replacement must be flagged")
+        assertEquals("New.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `relocation without content evidence is not accepted`() {
+        // No sourceFingerprint on either side (e.g. findings loaded from a
+        // persisted baseline without ephemeral evidence): the verifier cannot
+        // prove it is the same catch, so it must not call it a relocation.
+        val base = listOf(
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10)
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 40)
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "No content evidence → flag the current finding")
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `ambiguous relocation candidates are not silently accepted`() {
+        // Two base findings share the relocation key but only one current
+        // finding exists — which base finding moved? Not uniquely attributable,
+        // so the current finding must be flagged rather than silently accepted.
+        val base = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10, sourceFingerprint = "runCatching{x()}"),
+            finding("critical", module = "modA", file = "B.kt", function = "op1", sourceLine = 20, sourceFingerprint = "runCatching{y()}")
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "C.kt", function = "op1", sourceLine = 30, sourceFingerprint = "runCatching{x()}")
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Ambiguous relocation must be flagged")
+        assertEquals("C.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
+        )
+    }
+
+    @Test
+    fun `new finding with same function in different file is still flagged`() {
+        // Base has op1 in A.kt; current gains an ADDITIONAL op1 in B.kt — the
+        // population grew, so this must still fail: the file-aware phase keeps
+        // them in separate groups, and the A.kt finding is already matched.
+        val base = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10)
+        )
+        val current = listOf(
+            finding("critical", module = "modA", file = "A.kt", function = "op1", sourceLine = 10),
+            finding("critical", module = "modA", file = "B.kt", function = "op1", sourceLine = 40)
+        )
+        val result = CancellationDeltaComparator.compare(base, current)
+        assertEquals(1, result.newCriticalHigh.size, "Genuinely new finding must be flagged")
+        assertEquals("B.kt", result.newCriticalHigh.first().file)
+        assertTrue(
+            result.newCriticalHigh.isNotEmpty() || result.worsened.isNotEmpty(),
+            "Gate check should fail"
         )
     }
 

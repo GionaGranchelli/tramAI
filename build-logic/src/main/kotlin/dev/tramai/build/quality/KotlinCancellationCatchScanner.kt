@@ -85,7 +85,8 @@ object KotlinCancellationCatchScanner {
                         rethrowsCancellation = rethrowsCancellation,
                         transformsException = transformsException,
                         risk = risk,
-                        sourceLine = originalLineNum
+                        sourceLine = originalLineNum,
+                        sourceFingerprint = fingerprintConstruct(lines, originalLineIdx, match)
                     )
                 )
             }
@@ -176,6 +177,132 @@ object KotlinCancellationCatchScanner {
             if (funMatch != null) return funMatch.groupValues[1]
         }
         return "<unknown>"
+    }
+
+    /**
+     * Conservative source-content fingerprint of the ENTIRE broad-catch
+     * construct: from the line containing the catch/runCatching site through
+     * its balanced body closing brace. Brace balancing is lexical-state-aware:
+     * braces inside line comments, nested block comments, regular strings,
+     * char literals and multi-line raw strings never change the depth. If the
+     * source cannot be confidently balanced (unterminated comment or string),
+     * returns an empty fingerprint — Phase 2 then refuses relocation, the
+     * safe direction for a safety gate.
+     *
+     * [match] anchors the construct to the ACTUAL broad-catch finding being
+     * emitted — balancing starts at the matched keyword, so an outer catch
+     * whose opening line also contains an inner runCatching balances the
+     * outer construct, never the inner one.
+     *
+     * Normalization is deliberately minimal — each line is trimmed at the
+     * edges and blank lines dropped, but comments and string literal contents
+     * are preserved verbatim. Two different pieces of executable code cannot
+     * collapse to the same fingerprint. A formatting-only difference producing
+     * a fingerprint mismatch (false positive) is also the safe direction.
+     *
+     * Not persisted (see @JsonIgnore on CancellationCatchFinding).
+     */
+    private fun fingerprintConstruct(
+        lines: List<String>,
+        startIdx: Int,
+        match: MatchResult
+    ): String {
+        val endIdx = findConstructEndIdx(lines, startIdx, match) ?: return ""
+        return (startIdx..endIdx)
+            .map { lines[it].trim() }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+    }
+
+    private enum class LexState { CODE, LINE_COMMENT, BLOCK_COMMENT, STRING, CHAR, RAW_STRING }
+
+    /**
+     * Finds the index of the line that closes the construct opening at
+     * [startIdx], or null when the construct never closes or the source ends
+     * inside a comment/string that cannot be balanced. Brace balancing starts
+     * at the position of the matched keyword in [match] (the actual finding's
+     * anchor), so a `try { ... } catch` on the same line does not close the
+     * construct early and an inner runCatching on the catch's opening line is
+     * not mistaken for the outer construct. Only structural braces in normal
+     * code change the depth; braces in comments (nested block comments
+     * included), strings, char literals and raw strings are ignored, with
+     * state carried across lines.
+     */
+    private fun findConstructEndIdx(lines: List<String>, startIdx: Int, match: MatchResult): Int? {
+        var depth = 0
+        var opened = false
+        var state = LexState.CODE
+        var blockCommentDepth = 0
+        // Anchor: the matched keyword's position. The match may be on a joined
+        // line; for joined multiline catches the first original line contains
+        // the keyword at the same offset, so this is still a valid anchor.
+        var pos = match.range.first.coerceIn(0, lines[startIdx].length)
+        for (i in startIdx until lines.size) {
+            val line = lines[i]
+            val lineStart = if (i == startIdx) pos else 0
+            var j = lineStart
+            while (j < line.length) {
+                val c = line[j]
+                when (state) {
+                    LexState.CODE -> when {
+                        c == '/' && j + 1 < line.length && line[j + 1] == '/' -> {
+                            state = LexState.LINE_COMMENT
+                            j++
+                        }
+                        c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
+                            state = LexState.BLOCK_COMMENT
+                            blockCommentDepth = 1
+                            j++
+                        }
+                        c == '"' && j + 2 < line.length && line[j + 1] == '"' && line[j + 2] == '"' -> {
+                            state = LexState.RAW_STRING
+                            j += 2
+                        }
+                        c == '"' -> state = LexState.STRING
+                        c == '\'' -> state = LexState.CHAR
+                        c == '{' -> {
+                            depth++
+                            opened = true
+                        }
+                        c == '}' -> if (opened) {
+                            depth--
+                            if (depth == 0) return i
+                        }
+                        else -> {}
+                    }
+                    LexState.LINE_COMMENT -> { /* skip to end of line */ }
+                    LexState.BLOCK_COMMENT -> when {
+                        c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
+                            // Kotlin block comments nest
+                            blockCommentDepth++
+                            j++
+                        }
+                        c == '*' && j + 1 < line.length && line[j + 1] == '/' -> {
+                            blockCommentDepth--
+                            if (blockCommentDepth == 0) state = LexState.CODE
+                            j++
+                        }
+                        else -> {}
+                    }
+                    LexState.STRING, LexState.CHAR ->
+                        if (c == '\\') {
+                            j++ // skip escaped char
+                        } else if ((state == LexState.STRING && c == '"') || (state == LexState.CHAR && c == '\'')) {
+                            state = LexState.CODE
+                        }
+                    LexState.RAW_STRING ->
+                        if (c == '"' && j + 2 < line.length && line[j + 1] == '"' && line[j + 2] == '"') {
+                            state = LexState.CODE
+                            j += 2
+                        }
+                }
+                j++
+            }
+            if (state == LexState.LINE_COMMENT) state = LexState.CODE
+        }
+        // Construct never closed, or source ends inside a comment/string we
+        // cannot balance → refuse relocation (blank fingerprint).
+        return null
     }
 
     /** Extract the catch variable name from a catch declaration line. */
