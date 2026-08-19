@@ -772,7 +772,7 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ### Non-goals (deferred to #247+)
 
-- Splitting `Workflow.kt` into runner/builder/step-executor files (Epic 4.2) — ✅ done in #247.
+- Splitting `Workflow.kt` into runner/builder/step-executor files (Epic 4.2) — ✅ done in #249.
 - Concrete dispatch in replay descriptors / canonical rendering / static validation (definition-level, deliberately untouched).
 - Worker bindings, replay/retry semantics, public plugin API.
 
@@ -780,7 +780,7 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ## Epic 4.2: Split `Workflow.kt`
 
-✅ **COMPLETE — PR #247**
+✅ **COMPLETE — PR #249**
 
 ### Target files/components
 
