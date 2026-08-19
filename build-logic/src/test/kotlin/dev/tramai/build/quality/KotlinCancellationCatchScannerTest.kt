@@ -1145,4 +1145,23 @@ class KotlinCancellationCatchScannerTest {
             "runCatching inside suspend fun directly after another block must be critical, got ${rc.risk}")
         assertEquals(true, rc.isSuspendCapable)
     }
+
+    @Test
+    fun `broad catch immediately after suspend function is not suspend capable`() {
+        val source = """
+            suspend fun previousBlock() {
+                doWork()
+            }
+            val result = runCatching { doOutsideWork() }
+        """.trimIndent()
+
+        val findings =
+            KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
+
+        val rc = findings.single { it.catchType == "runCatching" }
+
+        assertEquals(false, rc.isSuspendCapable)
+        assertEquals("medium", rc.risk)
+    }
+
 }
