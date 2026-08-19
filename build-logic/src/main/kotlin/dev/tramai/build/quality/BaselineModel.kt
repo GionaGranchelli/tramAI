@@ -1,5 +1,6 @@
 package dev.tramai.build.quality
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
@@ -313,7 +314,15 @@ data class CancellationCatchFinding(
     @JsonProperty("rethrowsCancellation") val rethrowsCancellation: Boolean = false,
     @JsonProperty("transformsException") val transformsException: Boolean = false,
     @JsonProperty("risk") val risk: String = "medium",
-    @JsonProperty("sourceLine") val sourceLine: Int = 0
+    @JsonProperty("sourceLine") val sourceLine: Int = 0,
+    /**
+     * Ephemeral relocation evidence: normalized source-content fingerprint of
+     * the catch site, computed at scan time and never persisted. Serialization
+     * ignores it, so the persisted baseline schema is unchanged (schema v1).
+     * Used ONLY by the comparator's relocation pass to prove a catch actually
+     * moved across files — the line number alone is never identity.
+     */
+    @get:JsonIgnore val sourceFingerprint: String = ""
 )
 
 data class GlobalStateFinding(

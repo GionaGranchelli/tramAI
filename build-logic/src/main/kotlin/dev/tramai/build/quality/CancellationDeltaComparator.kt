@@ -21,16 +21,24 @@ package dev.tramai.build.quality
  * A finding that moved to a different file (same module, function, catchType,
  * risk) is a relocation, not a new finding. This is deliberately conservative:
  *   - It runs only over findings left unmatched by the file-aware phase.
- *   - A relocation is accepted only when it is uniquely attributable:
- *     exactly one base candidate and exactly one current candidate share the
- *     (module, function, catchType, risk) key across different files.
+ *   - A relocation is accepted only when it is uniquely attributable AND
+ *     backed by source-content evidence:
+ *       • exactly one base candidate and exactly one current candidate share
+ *         the (module, function, catchType, risk) key across different files
+ *       • both candidates carry a non-blank normalized source fingerprint of
+ *         their catch site (computed at scan time from the actual source text)
+ *       • the fingerprints match — the same code text is present at both sites
+ *   - A unique 1:1 semantic match WITHOUT matching content is NOT a relocation:
+ *     it is an unrelated replacement with coincidentally identical metadata,
+ *     and the current finding is flagged. Source line position is used ONLY
+ *     for diagnostic display, never identity.
  *   - If any current candidate is ambiguous (multiple base candidates, or
  *     vice versa), NONE of the candidates in that key are relocated — the
  *     safe bias is to flag the current finding rather than silently accept.
  *
  * This keeps the primary identity file-aware (a new critical catch in the
  * same function of a different file is still flagged) while allowing pure
- * refactor relocations to pass.
+ * refactor relocations to pass when content proves the move.
  */
 object CancellationDeltaComparator {
 
@@ -145,22 +153,28 @@ object CancellationDeltaComparator {
             val baseCandidate = baseForKey.singleOrNull()
             val currentCandidate = currentForKey.singleOrNull()
 
-            // A relocation is accepted only when it is uniquely attributable:
-            // exactly one base and one current candidate per key, in different
-            // files, AND the source line changed. Two findings at the SAME
-            // source line in different files are coincidental (an unrelated
-            // replacement with matching population/risk), not a move — the safe
-            // bias is to flag the current finding.
+            // A relocation is accepted only when it is uniquely attributable
+            // AND backed by source-content evidence: exactly one base and one
+            // current candidate per key, in different files, with matching
+            // non-blank normalized source fingerprints. The fingerprint is the
+            // proof the same code text moved; without it a unique 1:1 semantic
+            // match is an unrelated replacement (coincidental metadata), and
+            // the safe bias is to flag the current finding.
+            val baseFingerprint = baseCandidate?.sourceFingerprint.orEmpty().trim()
+            val currentFingerprint = currentCandidate?.sourceFingerprint.orEmpty().trim()
+            val fingerprintsProveMove = baseFingerprint.isNotEmpty() &&
+                baseFingerprint == currentFingerprint
+
             val isUniqueRelocation = baseCandidate != null &&
                 currentCandidate != null &&
                 baseCandidate.file != currentCandidate.file &&
-                baseCandidate.sourceLine != currentCandidate.sourceLine
+                fingerprintsProveMove
 
             if (isUniqueRelocation) {
                 unchanged++
                 diagnostics.add(
                     "relocated: ${baseCandidate.file}:${baseCandidate.sourceLine} → " +
-                        "${currentCandidate.file}:${currentCandidate.sourceLine} (${currentCandidate.function}, risk=${currentCandidate.risk})"
+                        "${currentCandidate.file}:${currentCandidate.sourceLine} (${currentCandidate.function}, risk=${currentCandidate.risk}, fingerprint match)"
                 )
             } else {
                 // Ambiguous (multiple candidates on either side, or same file) →

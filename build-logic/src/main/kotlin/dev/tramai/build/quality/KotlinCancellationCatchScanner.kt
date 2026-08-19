@@ -85,7 +85,8 @@ object KotlinCancellationCatchScanner {
                         rethrowsCancellation = rethrowsCancellation,
                         transformsException = transformsException,
                         risk = risk,
-                        sourceLine = originalLineNum
+                        sourceLine = originalLineNum,
+                        sourceFingerprint = normalizedSourceFingerprint(line)
                     )
                 )
             }
@@ -176,6 +177,18 @@ object KotlinCancellationCatchScanner {
             if (funMatch != null) return funMatch.groupValues[1]
         }
         return "<unknown>"
+    }
+
+    /**
+     * Normalized source-content fingerprint of a catch site, used as ephemeral
+     * relocation evidence by CancellationDeltaComparator. Strips all
+     * whitespace and inline comments so identical code that moved across files
+     * yields an identical fingerprint, regardless of indentation or line
+     * position. Not persisted (see @JsonIgnore on CancellationCatchFinding).
+     */
+    private fun normalizedSourceFingerprint(line: String): String {
+        val noComments = line.substringBefore("//").trim()
+        return noComments.filter { !it.isWhitespace() }
     }
 
     /** Extract the catch variable name from a catch declaration line. */
