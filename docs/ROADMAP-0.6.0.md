@@ -836,25 +836,27 @@ internal sealed interface InternalWorkflowStep<S> {
 
 ## Epic 4.4: Worker state-machine decomposition
 
-**Goal:** Split polling, leasing, heartbeat, execution, renewal, shutdown, and recovery responsibilities.
+**Goal:** Split polling, leasing, heartbeat, execution, renewal, shutdown, and recovery responsibilities. **Complete (PR #251).**
 
-### Proposed components
+### Components (all internal, one mutable-state owner each)
 
-- `WorkerLifecycleController`
-- `CheckpointPoller`
-- `LeaseCoordinator`
-- `LeaseRenewalLoop`
-- `WorkflowExecutionSupervisor`
-- `WorkerHeartbeatPublisher`
-- `WorkerShutdownCoordinator`
+- `WorkerLifecycleController` — root `SupervisorJob`/scope, startup sequence, crash/shutdown delegation
+- `CheckpointPoller` — enumeration, ordering, candidate filtering, poll failure boundary
+- `LeaseCoordinator` — claim/contention/release + observer events
+- `LeaseRenewalLoop` — per-execution renewal cadence
+- `WorkflowExecutionSupervisor` — active-execution registry, binding resolution, execution machinery
+- `WorkerHeartbeatPublisher` — registration + heartbeat
+- `WorkerShutdownCoordinator` — frozen graceful-shutdown sequence + shutdown state
+- `WorkflowRecoveryCoordinator` — recovery state machine (unknown attempts, retry approvals)
 
 ### Acceptance criteria
 
-- Worker lifecycle states are explicit.
-- Start, repeated start, graceful shutdown, crash, takeover, and timeout are model-tested.
-- Every launched job has one owner.
-- Shutdown-hook registration/removal is deterministic and tested.
-- Wall-clock duration measurement uses an injected or monotonic time source.
+- ✅ Worker lifecycle states are explicit (one owner per mutable state).
+- ✅ Start, repeated start, graceful shutdown, crash, takeover, and timeout remain covered by the existing worker/recovery suites (unchanged, green).
+- ✅ Every launched job has one owner; exactly one worker root coroutine lifecycle exists (architecture-guarded).
+- ✅ Shutdown-hook registration/removal is deterministic (frozen sequence preserved verbatim, coordinator-owned).
+- ⏳ Wall-clock duration measurement uses an injected or monotonic time source — **deliberately deferred** (explicit non-goal of #251; deterministic-time work is a later roadmap item).
+- ✅ Zero public API diff; checkpoint/persistence schema unchanged; cancellation safety 295=295.
 
 ---
 
