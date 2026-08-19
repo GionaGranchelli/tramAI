@@ -913,4 +913,136 @@ class KotlinCancellationCatchScannerTest {
         assertFalse(json.contains("sourceFingerprint"), "sourceFingerprint must not be serialized: $json")
         assertFalse(json.contains("runCatching { abort() }"), "Fingerprint content must not leak into JSON: $json")
     }
+
+    @Test
+    fun `brace inside line comment does not terminate fingerprint`() {
+        // A `}` in a comment is not structural — the construct continues past
+        // it and the differing executable statements must produce different
+        // fingerprints.
+        val base = """
+            suspend fun execute() {
+                runCatching {
+                    // }
+                    deleteTemporaryState()
+                }
+            }
+        """.trimIndent()
+        val current = """
+            suspend fun execute() {
+                runCatching {
+                    // }
+                    publishExternalResult()
+                }
+            }
+        """.trimIndent()
+        val baseFp = fingerprintOf(base)
+        val currentFp = fingerprintOf(current)
+        assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at comment brace, got: $baseFp")
+        assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at comment brace, got: $currentFp")
+        assertNotEquals(baseFp, currentFp)
+    }
+
+    @Test
+    fun `brace inside block comment does not terminate fingerprint`() {
+        val base = """
+            suspend fun execute() {
+                runCatching {
+                    /* }
+                       still comment */
+                    deleteTemporaryState()
+                }
+            }
+        """.trimIndent()
+        val current = """
+            suspend fun execute() {
+                runCatching {
+                    /* }
+                       still comment */
+                    publishExternalResult()
+                }
+            }
+        """.trimIndent()
+        val baseFp = fingerprintOf(base)
+        val currentFp = fingerprintOf(current)
+        assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at block-comment brace, got: $baseFp")
+        assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at block-comment brace, got: $currentFp")
+        assertNotEquals(baseFp, currentFp)
+    }
+
+    @Test
+    fun `brace inside multiline raw string does not terminate fingerprint`() {
+        // A `}` inside a triple-quoted raw string is content, not structure —
+        // the state must carry across lines so the construct is not truncated.
+        val tq = "\"\"\""
+        val base = """
+            suspend fun execute() {
+                runCatching {
+                    val json = $tq
+                        }
+                    $tq.trimIndent()
+                    deleteTemporaryState()
+                }
+            }
+        """.trimIndent()
+        val current = """
+            suspend fun execute() {
+                runCatching {
+                    val json = $tq
+                        }
+                    $tq.trimIndent()
+                    publishExternalResult()
+                }
+            }
+        """.trimIndent()
+        val baseFp = fingerprintOf(base)
+        val currentFp = fingerprintOf(current)
+        assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at raw-string brace, got: $baseFp")
+        assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at raw-string brace, got: $currentFp")
+        assertNotEquals(baseFp, currentFp)
+    }
+
+    @Test
+    fun `brace inside regular string does not terminate fingerprint`() {
+        val base = """
+            suspend fun execute() {
+                runCatching {
+                    log("}")
+                    deleteTemporaryState()
+                }
+            }
+        """.trimIndent()
+        val current = """
+            suspend fun execute() {
+                runCatching {
+                    log("}")
+                    publishExternalResult()
+                }
+            }
+        """.trimIndent()
+        val baseFp = fingerprintOf(base)
+        val currentFp = fingerprintOf(current)
+        assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at string brace, got: $baseFp")
+        assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at string brace, got: $currentFp")
+        assertNotEquals(baseFp, currentFp)
+    }
+
+    @Test
+    fun `unterminated string yields blank fingerprint refusing relocation`() {
+        // Unbalanced source (unterminated raw string before the construct's
+        // real close) → blank fingerprint → Phase 2 refuses relocation.
+        val tq = "\"\"\""
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun execute() {
+                runCatching {
+                    val json = $tq
+                    deleteTemporaryState()
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty())
+        assertEquals("", findings.first().sourceFingerprint,
+            "Unbalanced construct must produce blank fingerprint (refuse relocation)")
+    }
 }

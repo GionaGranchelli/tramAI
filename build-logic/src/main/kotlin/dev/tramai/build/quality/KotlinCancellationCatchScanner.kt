@@ -182,32 +182,41 @@ object KotlinCancellationCatchScanner {
     /**
      * Conservative source-content fingerprint of the ENTIRE broad-catch
      * construct: from the line containing the catch/runCatching site through
-     * its balanced body closing brace (string-literal-aware brace counting).
+     * its balanced body closing brace. Brace balancing is lexical-state-aware:
+     * braces inside line comments, block comments, regular strings, char
+     * literals and multi-line raw strings never change the depth. If the
+     * source cannot be confidently balanced (unterminated comment or string),
+     * returns an empty fingerprint — Phase 2 then refuses relocation, the
+     * safe direction for a safety gate.
+     *
      * Normalization is deliberately minimal — each line is trimmed at the
      * edges and blank lines dropped, but comments and string literal contents
      * are preserved verbatim. Two different pieces of executable code cannot
-     * collapse to the same fingerprint: internal whitespace (e.g. `"a b"`
-     * vs `"ab"`) and comment markers inside strings (e.g. `"https://"`) are
-     * never stripped. A formatting-only difference producing a fingerprint
-     * mismatch (false positive) is the safe direction.
+     * collapse to the same fingerprint. A formatting-only difference producing
+     * a fingerprint mismatch (false positive) is also the safe direction.
      *
      * Not persisted (see @JsonIgnore on CancellationCatchFinding).
      */
     private fun fingerprintConstruct(lines: List<String>, startIdx: Int): String {
-        val endIdx = findConstructEndIdx(lines, startIdx)
+        val endIdx = findConstructEndIdx(lines, startIdx) ?: return ""
         return (startIdx..endIdx)
             .map { lines[it].trim() }
             .filter { it.isNotBlank() }
             .joinToString("\n")
     }
 
+    private enum class LexState { CODE, LINE_COMMENT, BLOCK_COMMENT, STRING, CHAR, RAW_STRING }
+
     /**
      * Finds the index of the line that closes the construct opening at
-     * [startIdx]. Brace counting starts at the catch/runCatching keyword so a
-     * `try { ... } catch` on the same line does not close the construct early.
-     * Braces inside string literals are ignored.
+     * [startIdx], or null when the construct never closes or the source ends
+     * inside a comment/string that cannot be balanced. Brace counting starts
+     * at the catch/runCatching keyword so a `try { ... } catch` on the same
+     * line does not close the construct early. Only structural braces in
+     * normal code change the depth; braces in comments, strings, char literals
+     * and raw strings are ignored, with state carried across lines.
      */
-    private fun findConstructEndIdx(lines: List<String>, startIdx: Int): Int {
+    private fun findConstructEndIdx(lines: List<String>, startIdx: Int): Int? {
         val startLine = lines[startIdx]
         val keywordPos = when {
             startLine.contains("runCatching") -> startLine.indexOf("runCatching")
@@ -215,22 +224,63 @@ object KotlinCancellationCatchScanner {
         }
         var depth = 0
         var opened = false
+        var state = LexState.CODE
         for (i in startIdx until lines.size) {
             val line = lines[i]
-            val from = if (i == startIdx) keywordPos.coerceAtLeast(0) else 0
-            for (pos in from until line.length) {
-                if (isInsideStringLiteral(line, pos)) continue
-                when (line[pos]) {
-                    '{' -> {
-                        depth++
-                        opened = true
+            var pos = if (i == startIdx) keywordPos.coerceAtLeast(0) else 0
+            while (pos < line.length) {
+                val c = line[pos]
+                when (state) {
+                    LexState.CODE -> when {
+                        c == '/' && pos + 1 < line.length && line[pos + 1] == '/' -> {
+                            state = LexState.LINE_COMMENT
+                            pos++
+                        }
+                        c == '/' && pos + 1 < line.length && line[pos + 1] == '*' -> {
+                            state = LexState.BLOCK_COMMENT
+                            pos++
+                        }
+                        c == '"' && pos + 2 < line.length && line[pos + 1] == '"' && line[pos + 2] == '"' -> {
+                            state = LexState.RAW_STRING
+                            pos += 2
+                        }
+                        c == '"' -> state = LexState.STRING
+                        c == '\'' -> state = LexState.CHAR
+                        c == '{' -> {
+                            depth++
+                            opened = true
+                        }
+                        c == '}' -> if (opened) {
+                            depth--
+                            if (depth == 0) return i
+                        }
+                        else -> {}
                     }
-                    '}' -> if (opened) depth--
+                    LexState.LINE_COMMENT -> { /* skip to end of line */ }
+                    LexState.BLOCK_COMMENT ->
+                        if (c == '*' && pos + 1 < line.length && line[pos + 1] == '/') {
+                            state = LexState.CODE
+                            pos++
+                        }
+                    LexState.STRING, LexState.CHAR ->
+                        if (c == '\\') {
+                            pos++ // skip escaped char
+                        } else if ((state == LexState.STRING && c == '"') || (state == LexState.CHAR && c == '\'')) {
+                            state = LexState.CODE
+                        }
+                    LexState.RAW_STRING ->
+                        if (c == '"' && pos + 2 < line.length && line[pos + 1] == '"' && line[pos + 2] == '"') {
+                            state = LexState.CODE
+                            pos += 2
+                        }
                 }
+                pos++
             }
-            if (opened && depth <= 0) return i
+            if (state == LexState.LINE_COMMENT) state = LexState.CODE
         }
-        return lines.size - 1
+        // Construct never closed, or source ends inside a comment/string we
+        // cannot balance → refuse relocation (blank fingerprint).
+        return null
     }
 
     /** Extract the catch variable name from a catch declaration line. */
