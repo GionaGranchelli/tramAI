@@ -113,7 +113,7 @@ class TramaiWorkerTest {
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "sleep 2")) },
                 merge = { state, _, _ -> state.copy(value = "${state.value}:deployed") },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-non-replayable"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -157,7 +157,7 @@ class TramaiWorkerTest {
                     state.copy(value = "${state.value}:computed")
                 },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-pure"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -307,7 +307,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-legacy-ai-idempotent-default"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -352,7 +352,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result, _ -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-context-ai-non-replayable-default"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -398,7 +398,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-idempotent-ai-step"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -446,7 +446,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result, _ -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-external-idempotent-ai-step"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -488,7 +488,7 @@ class TramaiWorkerTest {
                 invoke = { "$it:planned" },
                 merge = { state, result -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-missing-ai-key"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
         checkpointStore.recordStepAttempt(
@@ -532,7 +532,7 @@ class TramaiWorkerTest {
                     state.copy(value = "${state.value}:done")
                 },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-drain"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -839,7 +839,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result, _ -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-context-ai-recovery-required"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
@@ -1123,7 +1123,7 @@ class TramaiWorkerTest {
                 },
                 merge = { state, result -> state.copy(value = result) },
             )
-        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        }.build { it.value }
         val runId = "run-operator-retry"
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
         checkpointStore.recordStepAttempt(
@@ -1201,7 +1201,7 @@ class TramaiWorkerTest {
                     invoke = { executions.incrementAndGet(); "$it:planned" },
                     merge = { state, result -> state.copy(value = result) },
                 )
-            }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+            }.build { it.value }
             seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
             checkpointStore.recordStepAttempt(approvedAttempt(runId, ReplayPolicy.EXTERNALLY_IDEMPOTENT, approvedKey))
 
@@ -1238,7 +1238,7 @@ class TramaiWorkerTest {
                     invoke = { executions.incrementAndGet(); "$it:planned" },
                     merge = { state, result -> state.copy(value = result) },
                 )
-            }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+            }.build { it.value }
             seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
             checkpointStore.recordStepAttempt(approvedAttempt(runId, ReplayPolicy.EXTERNALLY_IDEMPOTENT, "approved-key"))
 
@@ -1409,7 +1409,7 @@ class TramaiWorkerTest {
         configure: WorkflowBuilder<WorkerState>.() -> Unit,
     ): Workflow<WorkerState, String> = workflow<WorkerState>(name, configure = configure)
         .build { it.value }
-        .registerWorkerBinding(WorkerStateCodec)
+        
 
     private fun retryApprovalWorkflow(
         name: String,
@@ -1422,7 +1422,7 @@ class TramaiWorkerTest {
             invoke = { executions.incrementAndGet(); "$it:planned" },
             merge = { state, result -> state.copy(value = result) },
         )
-    }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+    }.build { it.value }
 
     private fun approvedAttempt(
         runId: String,
@@ -1471,7 +1471,15 @@ class TramaiWorkerTest {
         checkpointStore = checkpointStore,
         checkpointCatalog = checkpointCatalog,
         stepAttemptStore = stepAttemptStore,
-        workflowRegistry = mapOf(workflow.name to workflow),
+        workflowBindings = WorkflowBindingRegistry {
+            bind(
+                workflow = workflow,
+                persistence = WorkflowPersistence(
+                    checkpointStore = checkpointStore,
+                    stateCodec = WorkerStateCodec,
+                ),
+            )
+        },
         observability = observability,
     )
 

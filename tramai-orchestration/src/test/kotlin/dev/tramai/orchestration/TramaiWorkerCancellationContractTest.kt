@@ -370,7 +370,7 @@ class TramaiWorkerCancellationContractTest {
         configure: WorkflowBuilder<WorkerState>.() -> Unit,
     ): Workflow<WorkerState, String> = workflow<WorkerState>(name, configure = configure)
         .build { it.value }
-        .registerWorkerBinding(WorkerStateCodec)
+        
 
     private fun worker(
         workerId: String,
@@ -399,7 +399,15 @@ class TramaiWorkerCancellationContractTest {
         checkpointStore = checkpointStore,
         checkpointCatalog = checkpointCatalog,
         stepAttemptStore = stepAttemptStore,
-        workflowRegistry = mapOf(workflow.name to workflow),
+        workflowBindings = WorkflowBindingRegistry {
+            bind(
+                workflow = workflow,
+                persistence = WorkflowPersistence(
+                    checkpointStore = checkpointStore,
+                    stateCodec = WorkerStateCodec,
+                ),
+            )
+        },
         observability = observability,
     )
 

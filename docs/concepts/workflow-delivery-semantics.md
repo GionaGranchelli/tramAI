@@ -117,7 +117,9 @@ val worker = TramaiWorker(
     checkpointStore = checkpointStore,
     checkpointCatalog = checkpointStore,
     stepAttemptStore = attemptStore,
-    workflowRegistry = workflows,
+    workflowBindings = WorkflowBindingRegistry {
+        workflows.forEach { (workflow, persistence) -> bind(workflow, persistence) }
+    },
 )
 ```
 

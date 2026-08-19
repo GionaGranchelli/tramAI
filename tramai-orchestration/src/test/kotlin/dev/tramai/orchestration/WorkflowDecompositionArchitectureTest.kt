@@ -136,6 +136,60 @@ class WorkflowDecompositionArchitectureTest {
         )
     }
 
+    @Test
+    fun `no global worker workflow registry may return`() {
+        // The process-global binding object and its implicit-registration helpers
+        // must not come back in any compiled orchestration class. They lived in
+        // TramaiWorker.kt: `WorkerWorkflowBindings` is a nested object (JVM owner
+        // TramaiWorker$WorkerWorkflowBindings) and the top-level helpers map to
+        // TramaiWorkerKt. Forbid those exact owners; WorkflowKt stays open for
+        // legitimate future top-level workflow helpers.
+        val forbiddenOwners = setOf(
+            "dev/tramai/orchestration/TramaiWorker\$WorkerWorkflowBindings",
+            "dev/tramai/orchestration/TramaiWorkerKt",
+        )
+        val allRefs = methodRefsOf(
+            "dev/tramai/orchestration/TramaiWorker",
+            "executeClaimedWorkflow",
+        )
+        assertThat(allRefs.calls.map { it.owner }).doesNotContainAnyElementsOf(forbiddenOwners)
+
+        // Workflow.run/resume must not call any worker-binding registration.
+        for (method in listOf("run", "resume")) {
+            val workflowRefs = methodRefsOf("dev/tramai/orchestration/Workflow", method)
+            assertThat(workflowRefs.calls.map { it.name })
+                .withFailMessage("Workflow.$method must not register a worker binding")
+                .doesNotContain("rememberWorkerWorkflowBinding")
+        }
+    }
+
+    @Test
+    fun `worker execution path performs no unchecked workflow casts`() {
+        // The worker must not perform source-level unchecked casts on workflow
+        // types: resolution returns the binding's erased view, so no
+        // `workflow as Workflow<Any?, Any?>` is needed.
+        //
+        // A naive CHECKCAST probe would false-positive: Kotlin's suspend state
+        // machine restores captured locals via `getfield TramaiWorker$...$N.L$x`
+        // followed by CHECKCAST after every suspension point. Those are
+        // compiler-generated and safe. A genuine source cast has no preceding
+        // GETFIELD on the method's own continuation class — it casts the result
+        // of a lookup/call instead. We assert no such cast exists.
+        val sourceCasts = sourceCastsTo(
+            className = "dev/tramai/orchestration/TramaiWorker",
+            methodPrefix = "executeClaimedWorkflow",
+            continuationOwnerPrefix = "dev/tramai/orchestration/TramaiWorker\$executeClaimedWorkflow\$",
+            castTargets = setOf(
+                "dev/tramai/orchestration/Workflow",
+                "dev/tramai/orchestration/WorkflowStateCodec",
+                "dev/tramai/orchestration/WorkflowBinding",
+            ),
+        )
+        assertThat(sourceCasts)
+            .withFailMessage("TramaiWorker must not cast workflow types; use the binding's erased view: $sourceCasts")
+            .isEmpty()
+    }
+
     private fun sealedStepClasses(): List<Class<*>> =
         InternalWorkflowStep::class.java.permittedSubclasses?.toList() ?: emptyList()
 
@@ -171,6 +225,82 @@ private data class BytecodeRefs(
  * `$module` suffix — matched via the `$` prefix so the assertions are robust
  * to Kotlin's internal-mangling without being defeated by it.
  */
+/**
+ * Finds CHECKCAST instructions targeting [castTargets] whose operand did NOT
+ * come from a GETFIELD on the method's own suspend continuation class.
+ *
+ * Kotlin compiles a suspend function into an entry method whose bytecode both
+ * (a) runs the real body and (b) restores captured locals after every
+ * suspension point via `getfield <ContinuationClass>.L$x` + `checkcast`.
+ * Those restores are compiler-generated and harmless. A source-level cast
+ * (`workflow as Workflow<Any?, Any?>`) instead CHECKCASTs the result of a
+ * lookup/call — no preceding continuation GETFIELD. Distinguishing the two is
+ * what makes this guard mutation-resistant without false-positives.
+ */
+private fun sourceCastsTo(
+    className: String,
+    methodPrefix: String,
+    continuationOwnerPrefix: String,
+    castTargets: Set<String>,
+): List<String> {
+    val sourceCasts = mutableListOf<String>()
+    val resource = checkNotNull(
+        WorkflowDecompositionArchitectureTest::class.java
+            .getResourceAsStream("/$className.class"),
+    ) {
+        "Unable to load bytecode for $className"
+    }
+    ClassReader(resource).accept(object : ClassVisitor(Opcodes.ASM9) {
+        override fun visitMethod(
+            access: Int,
+            name: String,
+            descriptor: String,
+            signature: String?,
+            exceptions: Array<out String>?,
+        ): MethodVisitor? {
+            if (!name.startsWith(methodPrefix)) return null
+            val method = name
+            return object : MethodVisitor(Opcodes.ASM9) {
+                // The most recent field whose value is on the stack. A CHECKCAST
+                // immediately consuming a continuation-field load is a suspend
+                // restore; anything else is a source cast.
+                private var lastFieldOwner: String? = null
+
+                override fun visitFieldInsn(opcode: Int, owner: String, name: String, descriptor: String) {
+                    lastFieldOwner = if (opcode == Opcodes.GETFIELD) owner else null
+                }
+
+                override fun visitTypeInsn(opcode: Int, type: String) {
+                    if (opcode != Opcodes.CHECKCAST || type !in castTargets) return
+                    val fromContinuation = lastFieldOwner?.startsWith(continuationOwnerPrefix) == true
+                    if (!fromContinuation) {
+                        sourceCasts += "$method -> checkcast $type"
+                    }
+                    lastFieldOwner = null
+                }
+
+                override fun visitMethodInsn(
+                    opcode: Int,
+                    owner: String,
+                    name: String,
+                    descriptor: String,
+                    isInterface: Boolean,
+                ) {
+                    // A call between the load and the cast means the value is a
+                    // call result, not a captured local.
+                    lastFieldOwner = null
+                }
+
+                override fun visitInsn(opcode: Int) {
+                    // Stack manipulation (dup, pops) does not change provenance
+                    // of the cast operand.
+                }
+            }
+        }
+    }, 0)
+    return sourceCasts
+}
+
 private fun methodRefsOf(className: String, methodName: String): BytecodeRefs {
     val types = linkedSetOf<String>()
     val calls = linkedSetOf<MethodRef>()

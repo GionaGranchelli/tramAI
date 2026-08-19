@@ -115,76 +115,13 @@ class StaleWorkflowLeaseException(
         internal set
 }
 
-internal data class WorkerWorkflowBinding<S, R>(
-    val workflow: Workflow<S, R>,
-    val stateCodec: WorkflowStateCodec<S>,
-    val delayWakeupScheduler: WorkflowDelayWakeupScheduler? = null,
-    val deleteCheckpointOnCompletion: Boolean = true,
-) {
-    suspend fun replayDescriptor(
-        checkpoint: WorkflowCheckpoint,
-        context: WorkflowContext,
-    ): WorkflowStepReplayDescriptor? = workflow.replayDescriptorAt(
-        stepIndex = checkpoint.nextStepIndex,
-        state = stateCodec.decode(checkpoint.statePayload),
-        context = context,
-    )
-}
-
-private object WorkerWorkflowBindings {
-    private val bindings = ConcurrentHashMap<String, WorkerWorkflowBinding<*, *>>()
-
-    fun <S, R> remember(
-        workflow: Workflow<S, R>,
-        stateCodec: WorkflowStateCodec<S>,
-        delayWakeupScheduler: WorkflowDelayWakeupScheduler?,
-        deleteCheckpointOnCompletion: Boolean,
-    ) {
-        bindings[workflow.name] = WorkerWorkflowBinding(
-            workflow = workflow,
-            stateCodec = stateCodec,
-            delayWakeupScheduler = delayWakeupScheduler,
-            deleteCheckpointOnCompletion = deleteCheckpointOnCompletion,
-        )
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    fun <S, R> bindingFor(workflow: Workflow<S, R>): WorkerWorkflowBinding<S, R>? =
-        bindings[workflow.name] as WorkerWorkflowBinding<S, R>?
-}
-
-fun <S, R> Workflow<S, R>.registerWorkerBinding(
-    stateCodec: WorkflowStateCodec<S>,
-    delayWakeupScheduler: WorkflowDelayWakeupScheduler? = null,
-    deleteCheckpointOnCompletion: Boolean = true,
-): Workflow<S, R> = also {
-    WorkerWorkflowBindings.remember(
-        workflow = this,
-        stateCodec = stateCodec,
-        delayWakeupScheduler = delayWakeupScheduler,
-        deleteCheckpointOnCompletion = deleteCheckpointOnCompletion,
-    )
-}
-
-internal fun <S, R> rememberWorkerWorkflowBinding(
-    workflow: Workflow<S, R>,
-    persistence: WorkflowPersistence<S>,
-) {
-    WorkerWorkflowBindings.remember(
-        workflow = workflow,
-        stateCodec = persistence.stateCodec,
-        delayWakeupScheduler = persistence.delayWakeupScheduler,
-        deleteCheckpointOnCompletion = persistence.deleteCheckpointOnCompletion,
-    )
-}
-
 class TramaiWorker(
     private val config: WorkerConfig,
     private val leaseStore: WorkflowLeaseStore,
     private val checkpointStore: WorkflowCheckpointStore,
     private val checkpointCatalog: WorkflowCheckpointCatalog,
     private val stepAttemptStore: StepAttemptRecordStore,
-    private val workflowRegistry: Map<String, Workflow<*, *>>,
+    private val workflowBindings: WorkflowBindingRegistry,
     private val observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
     private val partitionStrategy: PartitionAssignmentStrategy = ModHashPartitionStrategy(),
 ) : AutoCloseable {
@@ -211,7 +148,7 @@ class TramaiWorker(
         config: WorkerConfig,
         leaseStore: WorkflowLeaseStore,
         checkpointStore: WorkflowCheckpointStore,
-        workflowRegistry: Map<String, Workflow<*, *>>,
+        workflowBindings: WorkflowBindingRegistry,
         observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
         partitionStrategy: PartitionAssignmentStrategy = ModHashPartitionStrategy(),
     ) : this(
@@ -226,7 +163,7 @@ class TramaiWorker(
             ?: throw IllegalArgumentException(
                 "TramaiWorker requires a StepAttemptRecordStore when checkpointStore does not implement it directly",
             ),
-        workflowRegistry = workflowRegistry,
+        workflowBindings = workflowBindings,
         observability = observability,
         partitionStrategy = partitionStrategy,
     )
@@ -428,21 +365,32 @@ class TramaiWorker(
         checkpoint: WorkflowCheckpoint,
         handle: ActiveExecution,
     ) {
-        val workflow = workflowRegistry[checkpoint.workflowName] ?: run {
+        val definitionVersion = checkpoint.metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
+            ?: run {
+                // Absent definition metadata means no worker can ever route this
+                // checkpoint. Unlike an unbound version (which another worker may
+                // implement), this must surface as a visible failure instead of a
+                // silent skip: release the lease and record latestFailure so the
+                // stranded checkpoint is diagnosable.
+                val error = missingDefinitionMetadataException(
+                    workflowName = checkpoint.workflowName,
+                    workflowId = checkpoint.workflowId,
+                    missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
+                )
+                executionFailures[checkpoint.workflowId] = error
+                releaseLease(handle)
+                throw error
+            }
+        val binding = workflowBindings.resolve(checkpoint.workflowName, definitionVersion) ?: run {
             releaseLease(handle)
             return
         }
-        @Suppress("UNCHECKED_CAST")
-        val typedWorkflow = workflow as Workflow<Any?, Any?>
-        val binding = WorkerWorkflowBindings.bindingFor(typedWorkflow)
-            ?: throw IllegalStateException(
-                "Workflow '${typedWorkflow.name}' is missing a worker binding. Register it with registerWorkerBinding() or run it once with WorkflowPersistence before using TramaiWorker.",
-            )
+        val typedWorkflow = binding.erased.workflow
         val context = WorkflowContext(workflowId = checkpoint.workflowId)
         val tracker = ExecutionTracker(
             workerId = config.workerId,
             workflow = typedWorkflow,
-            binding = binding,
+            binding = binding.erased,
             context = context,
             stepAttemptStore = stepAttemptStore,
             observability = observability,
@@ -497,9 +445,9 @@ class TramaiWorker(
 
         val persistence = WorkflowPersistence(
             checkpointStore = fencedCheckpointStore,
-            stateCodec = binding.stateCodec,
-            delayWakeupScheduler = binding.delayWakeupScheduler,
-            deleteCheckpointOnCompletion = binding.deleteCheckpointOnCompletion,
+            stateCodec = binding.erased.stateCodec,
+            delayWakeupScheduler = binding.erased.delayWakeupScheduler,
+            deleteCheckpointOnCompletion = binding.erased.deleteCheckpointOnCompletion,
         )
         val observer = WorkerExecutionObserver(
             workflowName = checkpoint.workflowName,
@@ -817,7 +765,7 @@ private class WorkerExecutionObserver(
 private class ExecutionTracker(
     private val workerId: String,
     private val workflow: Workflow<Any?, Any?>,
-    private val binding: WorkerWorkflowBinding<Any?, Any?>,
+    private val binding: ErasedWorkflowBinding,
     private val context: WorkflowContext,
     private val stepAttemptStore: StepAttemptRecordStore,
     private val observability: TramaiWorkerObserver,

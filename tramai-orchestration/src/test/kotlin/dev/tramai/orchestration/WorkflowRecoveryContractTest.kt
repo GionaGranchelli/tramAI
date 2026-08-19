@@ -50,7 +50,7 @@ class WorkflowRecoveryContractTest {
                 config = config,
                 leaseStore = leaseStore,
                 checkpointStore = store,
-                workflowRegistry = emptyMap(),
+                workflowBindings = WorkflowBindingRegistry {},
             )
             worker.start()
             delay(300)

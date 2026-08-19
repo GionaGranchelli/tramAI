@@ -952,7 +952,7 @@ class PersistenceSafeFailureBoundaryTest {
             checkpointStore = checkpointStore,
             checkpointCatalog = failingCatalog,
             stepAttemptStore = checkpointStore,
-            workflowRegistry = emptyMap(),
+            workflowBindings = WorkflowBindingRegistry {},
             observability = workerObserver,
         )
         runBlocking {

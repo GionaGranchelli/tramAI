@@ -75,7 +75,15 @@ class PartitionStrategyTest {
             ),
             leaseStore = leaseStore,
             checkpointStore = checkpointStore,
-            workflowRegistry = mapOf(workflow.name to workflow),
+            workflowBindings = WorkflowBindingRegistry {
+                bind(
+                    workflow = workflow,
+                    persistence = WorkflowPersistence(
+                        checkpointStore = checkpointStore,
+                        stateCodec = PartitionStrategyStateCodec,
+                    ),
+                )
+            },
             observability = NoOpTramaiWorkerObserver,
             partitionStrategy = alwaysTrue,
         )
@@ -103,7 +111,7 @@ class PartitionStrategyTest {
         configure: WorkflowBuilder<PartitionStrategyState>.() -> Unit,
     ): Workflow<PartitionStrategyState, String> = workflow<PartitionStrategyState>(name, configure = configure)
         .build { it.value }
-        .registerWorkerBinding(PartitionStrategyStateCodec)
+        
 
     private suspend fun makeSeed(
         checkpointStore: WorkflowCheckpointStore,
