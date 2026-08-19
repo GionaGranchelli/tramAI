@@ -3,8 +3,13 @@ package dev.tramai.orchestration
 /**
  * Immutable, instance-scoped registry of typed workflow bindings for [TramaiWorker].
  *
- * A binding pairs a [Workflow] with its persistence configuration at composition time,
- * so the relationship between workflow definition, state codec, and persistence
+ * A binding pairs a [Workflow] with the parts of its [WorkflowPersistence] that the
+ * worker consumes: state codec, delay-wakeup scheduler, and delete-on-completion.
+ * The checkpoint and lease stores inside a [WorkflowPersistence] are ignored by
+ * worker bindings — [TramaiWorker] owns its fenced checkpoint store and lease
+ * lifecycle exclusively.
+ *
+ * The relationship between workflow definition, state codec, and persistence
  * behaviour is established once, by the compiler, and never reconstructed through
  * name-only lookup or unchecked casts at execution time.
  *
@@ -64,6 +69,11 @@ class WorkflowBindingRegistryBuilder internal constructor() {
 
     /**
      * Binds [workflow] with its [persistence] configuration.
+     *
+     * Only the worker-consumed persistence fields are captured: [WorkflowPersistence.stateCodec],
+     * [WorkflowPersistence.delayWakeupScheduler], and
+     * [WorkflowPersistence.deleteCheckpointOnCompletion]. Checkpoint and lease stores
+     * supplied in [persistence] are ignored by the binding — the worker owns them.
      *
      * The generic relationship between workflow state type and state codec is enforced
      * here by the compiler: [WorkflowPersistence] is parameterized by the same state

@@ -346,7 +346,7 @@ internal fun requireCompatibleDefinition(
     }
 }
 
-private fun missingDefinitionMetadataException(
+internal fun missingDefinitionMetadataException(
     workflowName: String,
     workflowId: String,
     missingKey: String,

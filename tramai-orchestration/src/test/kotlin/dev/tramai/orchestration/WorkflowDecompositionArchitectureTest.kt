@@ -139,10 +139,14 @@ class WorkflowDecompositionArchitectureTest {
     @Test
     fun `no global worker workflow registry may return`() {
         // The process-global binding object and its implicit-registration helpers
-        // must not come back in any compiled orchestration class.
+        // must not come back in any compiled orchestration class. They lived in
+        // TramaiWorker.kt: `WorkerWorkflowBindings` is a nested object (JVM owner
+        // TramaiWorker$WorkerWorkflowBindings) and the top-level helpers map to
+        // TramaiWorkerKt. Forbid those exact owners; WorkflowKt stays open for
+        // legitimate future top-level workflow helpers.
         val forbiddenOwners = setOf(
-            "dev/tramai/orchestration/WorkerWorkflowBindings",
-            "dev/tramai/orchestration/WorkflowKt",
+            "dev/tramai/orchestration/TramaiWorker\$WorkerWorkflowBindings",
+            "dev/tramai/orchestration/TramaiWorkerKt",
         )
         val allRefs = methodRefsOf(
             "dev/tramai/orchestration/TramaiWorker",

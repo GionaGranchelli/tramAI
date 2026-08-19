@@ -366,7 +366,22 @@ class TramaiWorker(
         handle: ActiveExecution,
     ) {
         val definitionVersion = checkpoint.metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
-        val binding = definitionVersion?.let { workflowBindings.resolve(checkpoint.workflowName, it) } ?: run {
+            ?: run {
+                // Absent definition metadata means no worker can ever route this
+                // checkpoint. Unlike an unbound version (which another worker may
+                // implement), this must surface as a visible failure instead of a
+                // silent skip: release the lease and record latestFailure so the
+                // stranded checkpoint is diagnosable.
+                val error = missingDefinitionMetadataException(
+                    workflowName = checkpoint.workflowName,
+                    workflowId = checkpoint.workflowId,
+                    missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
+                )
+                executionFailures[checkpoint.workflowId] = error
+                releaseLease(handle)
+                throw error
+            }
+        val binding = workflowBindings.resolve(checkpoint.workflowName, definitionVersion) ?: run {
             releaseLease(handle)
             return
         }

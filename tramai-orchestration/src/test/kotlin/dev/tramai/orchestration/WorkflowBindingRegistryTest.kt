@@ -270,6 +270,54 @@ class WorkflowBindingRegistryTest {
         assertThat(runBlocking { store.listStepAttempts("orders-old") }).isEmpty()
     }
 
+    @Test
+    fun `checkpoint missing definition version metadata fails diagnostically instead of being skipped`() {
+        // Absent version metadata means no worker can ever route the checkpoint.
+        // Unlike an unbound version (which another worker may implement), it must
+        // surface as a visible failure rather than a silent poll/release loop.
+        val store = InMemoryWorkflowCheckpointStore()
+        val workflow = workflow<OrdersState>("orders", definitionVersion = "v1") {
+            localStep("mark") { state, _ -> state.copy(value = state.value + ":a") }
+        }.build { it.value }
+        runBlocking {
+            store.save(
+                checkpoint = WorkflowCheckpoint(
+                    workflowName = "orders",
+                    workflowId = "c-1",
+                    nextStepIndex = 0,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = OrdersCodec.encode(OrdersState("start")),
+                    metadata = emptyMap(),
+                ),
+            )
+        }
+        val worker = TramaiWorker(
+            config = WorkerConfig(workerId = "w", poolName = "tests", pollIntervalMillis = 20, leaseDurationMillis = 200, drainTimeoutMillis = 1_000),
+            leaseStore = InMemoryWorkflowLeaseStore(),
+            checkpointStore = store,
+            workflowBindings = WorkflowBindingRegistry {
+                bind(workflow, WorkflowPersistence(checkpointStore = store, stateCodec = OrdersCodec))
+            },
+        )
+        runBlocking {
+            worker.start()
+            try {
+                withTimeout(10_000) {
+                    while (worker.latestFailure("c-1") == null) delay(10)
+                }
+            } finally {
+                worker.shutdown()
+            }
+        }
+        assertThat(worker.latestFailure("c-1"))
+            .isInstanceOf(WorkflowResumeException::class.java)
+            .hasMessageContaining("missing required workflow definition metadata")
+        // No step ever ran: the checkpoint is untouched, waiting for diagnosis.
+        assertThat(runBlocking { store.load("orders", "c-1") }).isNotNull()
+        assertThat(runBlocking { store.listStepAttempts("c-1") }).isEmpty()
+    }
+
     // --- 11. Concurrent isolation: two workers, same names, independent registries ---
 
     @Test
@@ -305,7 +353,7 @@ class WorkflowBindingRegistryTest {
             leaseStore = InMemoryWorkflowLeaseStore(),
             checkpointStore = storeA,
             workflowBindings = WorkflowBindingRegistry {
-                bind(workflowA, WorkflowPersistence(checkpointStore = storeA, stateCodec = OrdersCodec))
+                bind(workflowA, WorkflowPersistence(checkpointStore = storeA, stateCodec = OrdersCodec, deleteCheckpointOnCompletion = false))
             },
         )
         val workerB = TramaiWorker(
@@ -313,7 +361,7 @@ class WorkflowBindingRegistryTest {
             leaseStore = InMemoryWorkflowLeaseStore(),
             checkpointStore = storeB,
             workflowBindings = WorkflowBindingRegistry {
-                bind(workflowB, WorkflowPersistence(checkpointStore = storeB, stateCodec = OrdersCodec))
+                bind(workflowB, WorkflowPersistence(checkpointStore = storeB, stateCodec = OrdersCodec, deleteCheckpointOnCompletion = false))
             },
         )
         runBlocking {
@@ -321,18 +369,28 @@ class WorkflowBindingRegistryTest {
             workerB.start()
             try {
                 withTimeout(10_000) {
-                    while (storeA.load("orders", "a-1") != null || storeB.load("orders", "b-1") != null) delay(10)
+                    // deleteCheckpointOnCompletion=false keeps the final checkpoint, so
+                    // its statePayload proves which definition actually executed.
+                    while (storeA.load("orders", "a-1")?.statePayload != "start:a" ||
+                        storeB.load("orders", "b-1")?.statePayload != "start:b"
+                    ) {
+                        delay(10)
+                    }
                 }
             } finally {
                 workerA.shutdown()
                 workerB.shutdown()
             }
         }
-        // Each worker executed only its own binding's definition (distinct step behaviour).
+        // Each worker executed only its own binding's definition: the retained
+        // checkpoint state carries the distinguishing step output (:a vs :b), which
+        // would fail if worker A ever resolved worker B's workflow definition.
         val attemptA = runBlocking { storeA.listStepAttempts("a-1") }.single()
         val attemptB = runBlocking { storeB.listStepAttempts("b-1") }.single()
         assertThat(attemptA.workerId).isEqualTo("w-a")
         assertThat(attemptB.workerId).isEqualTo("w-b")
+        assertThat(runBlocking { storeA.load("orders", "a-1") }?.statePayload).isEqualTo("start:a")
+        assertThat(runBlocking { storeB.load("orders", "b-1") }?.statePayload).isEqualTo("start:b")
     }
 
     private data class OrdersState(val value: String)
