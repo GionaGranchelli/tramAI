@@ -53,3 +53,55 @@ internal class WorkflowStepExecutor<S>(
         return result
     }
 }
+
+/**
+ * Step-execution budget accounting for one workflow invocation.
+ *
+ * Counts every step execution (including nested and parallel branches) against
+ * [StopPolicy.maxStepExecutions] and raises [WorkflowLimitExceededException]
+ * when the bound is exceeded. Sits beside [WorkflowStepExecutor] because
+ * [StepCounter.beforeStep] is literally the first call in the shared execution
+ * wrapper, and [StepCounter.beforeParallelBranch] is the same budget
+ * accounting for parallel branches.
+ */
+internal class StepCounter(
+    val stopPolicy: StopPolicy,
+    initialStepExecutions: Int = 0,
+) {
+    var stepExecutions: Int = initialStepExecutions
+        private set
+
+    init {
+        require(initialStepExecutions >= 0) {
+            "StepCounter.initialStepExecutions must be zero or greater"
+        }
+        require(initialStepExecutions <= stopPolicy.maxStepExecutions) {
+            "StepCounter.initialStepExecutions must not exceed StopPolicy.maxStepExecutions"
+        }
+    }
+
+    fun beforeStep(
+        workflowName: String,
+        stepName: String,
+    ) {
+        if (stepExecutions >= stopPolicy.maxStepExecutions) {
+            throw WorkflowLimitExceededException(
+                "Workflow '$workflowName' exceeded maxStepExecutions=${stopPolicy.maxStepExecutions} before step '$stepName'",
+            )
+        }
+        stepExecutions += 1
+    }
+
+    fun beforeParallelBranch(
+        workflowName: String,
+        stepName: String,
+        branchIndex: Int,
+    ) {
+        if (stepExecutions >= stopPolicy.maxStepExecutions) {
+            throw WorkflowLimitExceededException(
+                "Workflow '$workflowName' exceeded maxStepExecutions=${stopPolicy.maxStepExecutions} during branch '$stepName[$branchIndex]'",
+            )
+        }
+        stepExecutions += 1
+    }
+}
