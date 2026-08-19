@@ -165,13 +165,14 @@ class CancellationDeltaComparatorTest {
         // The actual Epic 4.2 relocation: `runCatching { abort() }` moved from
         // Workflow.kt line 1767 to WorkflowPersistenceSession.kt line 202,
         // same function attribution (leaseAttributes), same catchType, same
-        // risk. The normalized source fingerprint is identical because the
-        // same code text is present at both sites — content proves the move.
+        // risk. The fingerprint is the full balanced construct (per-line
+        // trimmed, content preserved) — identical because the same code text
+        // moved. This is the fingerprint the real scanner produces.
         val base = listOf(
-            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 1767, sourceFingerprint = "runCatching{abort()}")
+            finding("critical", module = "modA", file = "Workflow.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 1767, sourceFingerprint = "runCatching { abort() }")
         )
         val current = listOf(
-            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 202, sourceFingerprint = "runCatching{abort()}")
+            finding("critical", module = "modA", file = "WorkflowPersistenceSession.kt", function = "leaseAttributes", catchType = "runCatching", sourceLine = 202, sourceFingerprint = "runCatching { abort() }")
         )
         val result = CancellationDeltaComparator.compare(base, current)
         assertTrue(result.newCriticalHigh.isEmpty(), "Moved finding is not new")
@@ -189,10 +190,10 @@ class CancellationDeltaComparatorTest {
         // Content fingerprint — not line inequality — is the evidence, so this
         // must pass: same normalized catch-site text in both files.
         val base = listOf(
-            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching{abort()}")
+            finding("critical", module = "modA", file = "Old.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching { abort() }")
         )
         val current = listOf(
-            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching{abort()}")
+            finding("critical", module = "modA", file = "New.kt", function = "execute", sourceLine = 10, sourceFingerprint = "runCatching { abort() }")
         )
         val result = CancellationDeltaComparator.compare(base, current)
         assertTrue(result.newCriticalHigh.isEmpty(), "Same-line move with matching content is a relocation")

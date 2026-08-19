@@ -86,7 +86,7 @@ object KotlinCancellationCatchScanner {
                         transformsException = transformsException,
                         risk = risk,
                         sourceLine = originalLineNum,
-                        sourceFingerprint = normalizedSourceFingerprint(line)
+                        sourceFingerprint = fingerprintConstruct(lines, originalLineIdx)
                     )
                 )
             }
@@ -180,15 +180,57 @@ object KotlinCancellationCatchScanner {
     }
 
     /**
-     * Normalized source-content fingerprint of a catch site, used as ephemeral
-     * relocation evidence by CancellationDeltaComparator. Strips all
-     * whitespace and inline comments so identical code that moved across files
-     * yields an identical fingerprint, regardless of indentation or line
-     * position. Not persisted (see @JsonIgnore on CancellationCatchFinding).
+     * Conservative source-content fingerprint of the ENTIRE broad-catch
+     * construct: from the line containing the catch/runCatching site through
+     * its balanced body closing brace (string-literal-aware brace counting).
+     * Normalization is deliberately minimal — each line is trimmed at the
+     * edges and blank lines dropped, but comments and string literal contents
+     * are preserved verbatim. Two different pieces of executable code cannot
+     * collapse to the same fingerprint: internal whitespace (e.g. `"a b"`
+     * vs `"ab"`) and comment markers inside strings (e.g. `"https://"`) are
+     * never stripped. A formatting-only difference producing a fingerprint
+     * mismatch (false positive) is the safe direction.
+     *
+     * Not persisted (see @JsonIgnore on CancellationCatchFinding).
      */
-    private fun normalizedSourceFingerprint(line: String): String {
-        val noComments = line.substringBefore("//").trim()
-        return noComments.filter { !it.isWhitespace() }
+    private fun fingerprintConstruct(lines: List<String>, startIdx: Int): String {
+        val endIdx = findConstructEndIdx(lines, startIdx)
+        return (startIdx..endIdx)
+            .map { lines[it].trim() }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+    }
+
+    /**
+     * Finds the index of the line that closes the construct opening at
+     * [startIdx]. Brace counting starts at the catch/runCatching keyword so a
+     * `try { ... } catch` on the same line does not close the construct early.
+     * Braces inside string literals are ignored.
+     */
+    private fun findConstructEndIdx(lines: List<String>, startIdx: Int): Int {
+        val startLine = lines[startIdx]
+        val keywordPos = when {
+            startLine.contains("runCatching") -> startLine.indexOf("runCatching")
+            else -> startLine.indexOf("catch")
+        }
+        var depth = 0
+        var opened = false
+        for (i in startIdx until lines.size) {
+            val line = lines[i]
+            val from = if (i == startIdx) keywordPos.coerceAtLeast(0) else 0
+            for (pos in from until line.length) {
+                if (isInsideStringLiteral(line, pos)) continue
+                when (line[pos]) {
+                    '{' -> {
+                        depth++
+                        opened = true
+                    }
+                    '}' -> if (opened) depth--
+                }
+            }
+            if (opened && depth <= 0) return i
+        }
+        return lines.size - 1
     }
 
     /** Extract the catch variable name from a catch declaration line. */
