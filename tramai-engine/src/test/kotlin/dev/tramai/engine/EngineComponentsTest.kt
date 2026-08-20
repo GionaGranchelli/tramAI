@@ -14,6 +14,7 @@ import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.NoOpModelRegistry
+import dev.tramai.core.observation.FailureIsolatingOperationObserver
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
@@ -33,6 +34,7 @@ import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.engine.components.ApprovalCapability
+import dev.tramai.engine.FailureIsolatingEngineEventObserver
 import dev.tramai.engine.components.EngineComponentFactory
 import dev.tramai.engine.components.EngineComponents
 import java.lang.reflect.Proxy
@@ -124,7 +126,10 @@ class EngineComponentsTest {
         assertIs<ApprovalCapability.Disabled>(components.approvals.capability)
         assertTrue(components.security.isLegacyFallback)
         assertSame(LegacyPermissivePolicyEngine, components.security.resolvedPolicyEngine)
-        assertSame(NoOpOperationObserver, components.observation.operationObserver)
+        // Epic 5.3: the composition boundary wraps telemetry observers in the
+        // failure-isolating decorator; the NoOp delegate stays inside.
+        assertIs<FailureIsolatingOperationObserver>(components.observation.operationObserver)
+        assertIs<FailureIsolatingEngineEventObserver>(components.observation.engineEventObserver)
         assertSame(NoOpOperationResponseCache, components.persistence.responseCache)
     }
 

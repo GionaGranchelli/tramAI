@@ -70,14 +70,18 @@ internal class WorkflowRunner<S, R>(
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>?,
     ): R {
-        observer.onWorkflowStarted(name, context)
+        // Epic 5.3: the isolated observer is the single failure boundary for
+        // every workflow telemetry callback. A throwing observer can never
+        // turn a successful run into a failure or replace the primary error.
+        val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
+        isolatedObserver.onWorkflowStarted(name, context)
         var persistenceSession: WorkflowPersistenceSession<S>? = null
         return try {
             val stepCounter = StepCounter(stopPolicy)
             persistenceSession = persistence?.session(
                 workflowName = name,
                 context = context,
-                observer = observer,
+                observer = isolatedObserver,
                 workflowDefinitionCompatibility = definitionCompatibility,
             )
             persistenceSession?.saveCheckpoint(
@@ -90,17 +94,17 @@ internal class WorkflowRunner<S, R>(
                 startIndex = 0,
                 state = initialState,
                 context = context,
-                observer = observer,
+                observer = isolatedObserver,
                 stepCounter = stepCounter,
                 persistenceSession = persistenceSession,
                 resumedCheckpointMetadata = null,
             )
             persistenceSession?.complete(workflowName = name, context = context)
-            observer.onWorkflowCompleted(name, context)
+            isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
         } catch (suspended: WorkflowSuspendedException) {
             persistenceSession?.abort()
-            observer.emitWorkflowEvent(
+            isolatedObserver.emitWorkflowEvent(
                 workflowName = name,
                 context = context,
                 event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
@@ -116,7 +120,7 @@ internal class WorkflowRunner<S, R>(
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             persistenceSession?.runCatchingAbort(error)
-            observer.onWorkflowFailed(name, error, context)
+            isolatedObserver.onWorkflowFailed(name, error, context)
             throw error
         }
     }
@@ -126,6 +130,7 @@ internal class WorkflowRunner<S, R>(
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>,
     ): R {
+        val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
         val checkpoint = persistence.checkpointStore.load(name, context.workflowId)
             ?: throw WorkflowResumeException(
                 "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
@@ -145,8 +150,8 @@ internal class WorkflowRunner<S, R>(
             persisted = persistedDefinitionCompatibility,
             current = definitionCompatibility,
         )
-        observer.onWorkflowStarted(name, context)
-        observer.emitWorkflowEvent(
+        isolatedObserver.onWorkflowStarted(name, context)
+        isolatedObserver.emitWorkflowEvent(
             workflowName = name,
             context = context,
             event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_LOADED) {
@@ -162,7 +167,7 @@ internal class WorkflowRunner<S, R>(
         val persistenceSession: WorkflowPersistenceSession<S> = persistence.session(
             workflowName = name,
             context = context,
-            observer = observer,
+            observer = isolatedObserver,
             initialRevision = checkpoint.revision,
             workflowDefinitionCompatibility = definitionCompatibility,
         )
@@ -172,7 +177,7 @@ internal class WorkflowRunner<S, R>(
                 startIndex = checkpoint.nextStepIndex,
                 state = resumedState,
                 context = context,
-                observer = observer,
+                observer = isolatedObserver,
                 stepCounter = StepCounter(
                     stopPolicy = stopPolicy,
                     initialStepExecutions = checkpoint.stepExecutions,
@@ -181,11 +186,11 @@ internal class WorkflowRunner<S, R>(
                 resumedCheckpointMetadata = checkpoint.metadata,
             )
             persistenceSession.complete(workflowName = name, context = context)
-            observer.onWorkflowCompleted(name, context)
+            isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
         } catch (suspended: WorkflowSuspendedException) {
             persistenceSession.abort()
-            observer.emitWorkflowEvent(
+            isolatedObserver.emitWorkflowEvent(
                 workflowName = name,
                 context = context,
                 event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
@@ -201,7 +206,7 @@ internal class WorkflowRunner<S, R>(
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             persistenceSession.runCatchingAbort(error)
-            observer.onWorkflowFailed(name, error, context)
+            isolatedObserver.onWorkflowFailed(name, error, context)
             throw error
         }
     }

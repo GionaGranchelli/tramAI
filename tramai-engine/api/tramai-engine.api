@@ -108,6 +108,11 @@ public final class dev/tramai/engine/ExecutionSecurityContext$Companion {
 	public final fun fromArguments ([Ljava/lang/Object;)Ldev/tramai/engine/ExecutionSecurityContext;
 }
 
+public final class dev/tramai/engine/FailureIsolatingEngineEventObserver : dev/tramai/engine/EngineEventObserver {
+	public fun <init> (Ldev/tramai/engine/EngineEventObserver;)V
+	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
+}
+
 public final class dev/tramai/engine/InMemoryOperationResponseCache : dev/tramai/engine/OperationResponseCache {
 	public fun <init> ()V
 	public fun <init> (ILkotlin/jvm/functions/Function0;)V

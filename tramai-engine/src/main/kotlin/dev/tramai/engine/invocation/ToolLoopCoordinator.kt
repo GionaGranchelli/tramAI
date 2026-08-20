@@ -5,6 +5,7 @@ import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.SecondaryFailureRecording
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
@@ -151,6 +152,21 @@ internal class ToolLoopCoordinator(
         try {
             onCallCompleted(parseSuccess = null)
         } catch (observerError: Throwable) {
+            if (primaryError != null) {
+                primaryError.addSuppressed(observerError)
+            } else {
+                System.getLogger("dev.tramai.engine.TramaiEngine").log(
+                    System.Logger.Level.WARNING,
+                    "Operation observer failed after successful tool processing",
+                    observerError,
+                )
+            }
+        }
+        // Epic 5.3: the failure-isolating observation contains onCallCompleted
+        // failures (so a success path is never invalidated by telemetry), but
+        // records them; surface the recorded failure exactly as the direct
+        // throw path above — suppressed on the primary error, warning otherwise.
+        (this as? SecondaryFailureRecording)?.lastCompletionFailure?.let { observerError ->
             if (primaryError != null) {
                 primaryError.addSuppressed(observerError)
             } else {

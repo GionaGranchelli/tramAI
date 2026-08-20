@@ -790,7 +790,7 @@ class WorkflowStepFailureBoundaryTest {
                     failureDiagnosticObserver = diagnostics
                     hermesStep(
                         name = "review-ui",
-                        config = HermesStepConfig(cliPath = "/bin/true"),
+                        config = HermesStepConfig(cliPath = "/bin/false"),
                         prompt = { _, _ -> "p" },
                         merge = { state, response, _ -> state.copy(output = response) },
                     )
@@ -804,19 +804,22 @@ class WorkflowStepFailureBoundaryTest {
                             context: WorkflowContext,
                         ) {
                             events += name
-                            if (name.endsWith(".started")) throw IllegalStateException(SECRET_FIXTURE)
                         }
                     },
                 )
             }
         }
+        // Epic 5.3: a real post-start step failure (agent CLI exits non-zero)
+        // classifies as NON_ZERO_EXIT — never START_FAILED; the failure message
+        // is preserved in the boundary diagnostic (authoritative evidence,
+        // never swallowed).
         assertThat(thrown).isInstanceOf(WorkflowHermesException::class.java)
-            .hasMessage("Workflow step execution failed")
+            .hasMessage("Workflow hermes step exited unsuccessfully")
             .hasNoCause()
         assertThat(thrown!!.suppressed).isEmpty()
-        assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.EXECUTION_FAILED)
+        assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.NON_ZERO_EXIT)
         assertThat(events.any { it.endsWith(".started") }).isTrue()
-        assertThat(diagnostics.single().failure!!.message).contains(SECRET_FIXTURE)
+        assertThat(diagnostics.single().failure!!.message).contains("non-zero exit")
     }
 
 }

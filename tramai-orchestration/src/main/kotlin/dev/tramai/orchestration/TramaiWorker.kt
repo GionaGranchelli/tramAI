@@ -118,7 +118,7 @@ class TramaiWorker(
         checkpointCatalog = checkpointCatalog,
         stepAttemptStore = stepAttemptStore,
         workflowBindings = workflowBindings,
-        observability = observability,
+        observability = FailureIsolatingTramaiWorkerObserver(observability),
         partitionStrategy = partitionStrategy,
     )
 

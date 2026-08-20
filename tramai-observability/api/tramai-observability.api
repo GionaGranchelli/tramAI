@@ -45,6 +45,7 @@ public final class dev/tramai/observability/OpenTelemetryWorkflowObserver : dev/
 	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEvent;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V

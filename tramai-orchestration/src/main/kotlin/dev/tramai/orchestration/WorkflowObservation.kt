@@ -27,6 +27,19 @@ interface WorkflowObserver {
         context: WorkflowContext,
     ) = Unit
 
+    /**
+     * Records a catalogue-validated workflow event (Epic 5.2). The event
+     * carries its own identity, domain, sensitivity, and permitted attributes;
+     * additive overload that delegates to the legacy (name, attributes) form.
+     */
+    fun onWorkflowEvent(
+        workflowName: String,
+        event: dev.tramai.core.observation.event.RuntimeEvent,
+        context: WorkflowContext,
+    ) {
+        onWorkflowEvent(workflowName, event.name, event.attributes(), context)
+    }
+
     fun onStepStarted(
         workflowName: String,
         stepName: String,

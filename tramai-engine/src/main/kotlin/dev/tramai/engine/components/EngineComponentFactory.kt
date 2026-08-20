@@ -36,7 +36,16 @@ internal object EngineComponentFactory {
             SecurityComponents(resolvedPolicy, policyEngine == null, promptSanitizer, modelRegistry, modelRegistrySettings, dlpInterceptor, dlpRedactionAuditEmitter, policyDecisionAuditEmitter),
             ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
-            ObservationComponents(operationObserver, operationInterceptor, engineEventObserver, toolFailureDiagnosticObserver, structuredOutputFailureDiagnosticObserver),
+            ObservationComponents(
+                // Epic 5.3: telemetry observers are non-authoritative. The
+                // failure-isolating boundary lives here, once, so no engine
+                // execution component can be derailed by a throwing observer.
+                FailureIsolatingOperationObserver(operationObserver),
+                operationInterceptor,
+                FailureIsolatingEngineEventObserver(engineEventObserver),
+                toolFailureDiagnosticObserver,
+                structuredOutputFailureDiagnosticObserver,
+            ),
             ExecutionComponents(structuredOutputHandler, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, clock),
         )
     }
