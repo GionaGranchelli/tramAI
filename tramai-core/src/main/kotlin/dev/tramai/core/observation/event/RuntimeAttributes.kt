@@ -95,6 +95,8 @@ object RuntimeAttributes {
     val FAILURE_CODE = RuntimeAttributeKey<String>("failure_code", String::class)
     val AGENT_TYPE = RuntimeAttributeKey<String>("agent_type", String::class)
     val PROMPT_LENGTH = RuntimeAttributeKey<Long>("prompt_length", Long::class)
+    val RESPONSE_LENGTH = RuntimeAttributeKey<Long>("response_length", Long::class)
+    val DURATION_MS = RuntimeAttributeKey<Long>("duration_ms", Long::class)
     val COMMAND_DIGEST = RuntimeAttributeKey<String>("command_digest", String::class)
     val POLICY_TYPE = RuntimeAttributeKey<String>("policy_type", String::class)
 
@@ -136,4 +138,19 @@ object RuntimeAttributes {
     val DELAY_STEP = RuntimeAttributeKey<String>("tramai.workflow.delay.step", String::class)
     val RESUME_AT_EPOCH_MILLIS = RuntimeAttributeKey<Long>("resume_at_epoch_millis", Long::class)
     val DELAY_RESUME_AT_EPOCH_MILLIS = RuntimeAttributeKey<Long>("tramai.workflow.delay.resume_at_epoch_millis", Long::class)
+
+    // Scheduler / run-store
+    val STEP_ID = RuntimeAttributeKey<String>("step_id", String::class)
+    val SCHEDULER_DELAY_STEP_ID = RuntimeAttributeKey<String>("tramai.delay.step_id", String::class)
+    val SCHEDULER_DELAY_RESUME_AT = RuntimeAttributeKey<Long>("tramai.delay.resume_at_epoch_millis", Long::class)
+    val SCHEDULE_TICK_ID = RuntimeAttributeKey<String>("tramai.schedule.tick_id", String::class)
+    val SCHEDULE_SCHEDULE_ID = RuntimeAttributeKey<String>("tramai.schedule.schedule_id", String::class)
+    val SCHEDULE_SCHEDULED_FIRE_AT = RuntimeAttributeKey<Long>("tramai.schedule.scheduled_fire_at_epoch_millis", Long::class)
+
+    // Sovereign ops outbox worker (tag keys)
+    val OUTBOX_FAILURE_ACTION = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.failure_action", String::class)
+    val OUTBOX_ERROR_TYPE = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.error_type", String::class)
+    val OUTBOX_WORKER_OUTCOME = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.outcome", String::class)
+    val OUTBOX_RECOVERY_RESULT = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.recovery.result", String::class)
+    val OUTBOX_DISPATCH_RESULT = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.dispatch.result", String::class)
 }

@@ -80,4 +80,50 @@ class RuntimeEventValidationTest {
         assertThat(namespace.matches("tramai.workflow.context")).isFalse()
         assertThat(namespace.matches("tramai.workflow.name")).isFalse()
     }
+
+    @Test
+    fun `same attribute name with conflicting value types is detected`() {
+        // Regression: the fail-fast check must compare valueType, not the key
+        // class (every element is a RuntimeAttributeKey).
+        val stringKey = RuntimeAttributeKey<String>("tramai.conflict.test", String::class)
+        val longKey = RuntimeAttributeKey<Long>("tramai.conflict.test", Long::class)
+        val events = listOf(
+            RuntimeEventDefinition(
+                name = "tramai.conflict.event.a",
+                domain = RuntimeEventDomain.ENGINE,
+                allowedAttributes = setOf(stringKey),
+                requiredAttributes = setOf(),
+                sensitivity = RuntimeEventSensitivity.INTERNAL,
+                auditEligible = false,
+                evidenceEligible = false,
+            ),
+            RuntimeEventDefinition(
+                name = "tramai.conflict.event.b",
+                domain = RuntimeEventDomain.ENGINE,
+                allowedAttributes = setOf(longKey),
+                requiredAttributes = setOf(),
+                sensitivity = RuntimeEventSensitivity.INTERNAL,
+                auditEligible = false,
+                evidenceEligible = false,
+            ),
+        )
+        assertThat(RuntimeEventCatalogue.detectConflictingAttributeTypes(events))
+            .containsExactly("tramai.conflict.test")
+    }
+
+    @Test
+    fun `builder rejects wrong runtime value type through erased generics`() {
+        // Kotlin generics protect typed callers at compile time, but generics
+        // are erased on the public JVM API: an unsafe cast must still fail in
+        // the builder, not produce an invalid payload.
+        @Suppress("UNCHECKED_CAST")
+        val erasedKey = RuntimeAttributes.WORKER_UPTIME_MS as RuntimeAttributeKey<Any>
+        assertThatThrownBy {
+            RuntimeEvent.of(RuntimeEventCatalogue.event("tramai.worker.heartbeat")) {
+                set(erasedKey, "not-a-long")
+            }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("expected Long")
+    }
 }

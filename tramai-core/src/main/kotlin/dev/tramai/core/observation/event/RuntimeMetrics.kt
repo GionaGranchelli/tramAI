@@ -112,6 +112,42 @@ object RuntimeMetrics {
         valueType = RuntimeMetricValueType.LONG,
     )
 
+    val SOVEREIGN_OPS_OUTBOX_WORKER_CYCLES = RuntimeMetricDefinition(
+        name = "tramai.sovereign.ops.outbox.worker.cycles",
+        description = "Outbox worker cycles completed per action and outcome",
+        unit = "{cycle}",
+        instrumentType = RuntimeMetricInstrumentType.COUNTER,
+        valueType = RuntimeMetricValueType.LONG,
+    )
+    val SOVEREIGN_OPS_OUTBOX_WORKER_DURATION = RuntimeMetricDefinition(
+        name = "tramai.sovereign.ops.outbox.worker.duration",
+        description = "Duration of each outbox worker cycle",
+        unit = "ms",
+        instrumentType = RuntimeMetricInstrumentType.HISTOGRAM,
+        valueType = RuntimeMetricValueType.DOUBLE,
+    )
+    val SOVEREIGN_OPS_OUTBOX_WORKER_FAILURES = RuntimeMetricDefinition(
+        name = "tramai.sovereign.ops.outbox.worker.failures",
+        description = "Failure notifications emitted by the sovereign ops audit outbox worker",
+        unit = "{failure}",
+        instrumentType = RuntimeMetricInstrumentType.COUNTER,
+        valueType = RuntimeMetricValueType.LONG,
+    )
+    val SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS = RuntimeMetricDefinition(
+        name = "tramai.sovereign.ops.outbox.worker.recovered.records",
+        description = "Records affected by PREPARED recovery per result type",
+        unit = "{record}",
+        instrumentType = RuntimeMetricInstrumentType.COUNTER,
+        valueType = RuntimeMetricValueType.LONG,
+    )
+    val SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS = RuntimeMetricDefinition(
+        name = "tramai.sovereign.ops.outbox.worker.dispatched.records",
+        description = "Records affected by dispatch per result type",
+        unit = "{record}",
+        instrumentType = RuntimeMetricInstrumentType.COUNTER,
+        valueType = RuntimeMetricValueType.LONG,
+    )
+
     val all: List<RuntimeMetricDefinition> = listOf(
         OPERATION_ATTEMPTS,
         OPERATION_DURATION,
@@ -128,5 +164,10 @@ object RuntimeMetrics {
         WORKER_SHUTDOWNS,
         WORKER_LEASES,
         DLP_TOOL_REJECTED,
+        SOVEREIGN_OPS_OUTBOX_WORKER_CYCLES,
+        SOVEREIGN_OPS_OUTBOX_WORKER_DURATION,
+        SOVEREIGN_OPS_OUTBOX_WORKER_FAILURES,
+        SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS,
+        SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS,
     )
 }

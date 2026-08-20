@@ -68,6 +68,16 @@ Generated from `RuntimeEventCatalogue`; do not edit by hand. Deterministic and C
 |`tramai.workflow.lease.renewed`|WORKFLOW|`workflow_id`|INTERNAL|no|no|`tramai.workflow.events`|yes|FAIL_OPEN|
 |`tramai.workflow.lease.released`|WORKFLOW|`workflow_id`|INTERNAL|no|no|`tramai.workflow.events`|yes|FAIL_OPEN|
 |`tramai.workflow.lease.conflict`|WORKFLOW|`workflow_id`|INTERNAL|no|no|`tramai.workflow.events`|yes|FAIL_OPEN|
+|`tramai.scheduler.delay_wakeup.unregistered`|SCHEDULER|`workflow_id`|INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.running`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.started`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.completed`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.failed`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.cancelling`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.workflow.cancelled`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.step.started`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.step.completed`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
+|`tramai.step.failed`|WORKFLOW||INTERNAL|yes|no|—|yes|FAIL_OPEN|
 |`tramai.parse.failure`|ENGINE|`tramai.structured.failure_code`, `tramai.structured.parse_success`|INTERNAL|no|no|`tramai.operation.parse_failures`|yes|FAIL_OPEN|
 
 ## Metrics
@@ -89,6 +99,11 @@ Generated from `RuntimeEventCatalogue`; do not edit by hand. Deterministic and C
 |`tramai.worker.shutdowns`|Worker shutdown events|`{shutdown}`|COUNTER|LONG|
 |`tramai.worker.leases`|Worker lease operations (acquired, released, expired, renewed, contested, failed)|`{lease}`|COUNTER|LONG|
 |`tramai.dlp.tool_result_rejected`|Tool results rejected by DLP inspection|`{rejection}`|COUNTER|LONG|
+|`tramai.sovereign.ops.outbox.worker.cycles`|Outbox worker cycles completed per action and outcome|`{cycle}`|COUNTER|LONG|
+|`tramai.sovereign.ops.outbox.worker.duration`|Duration of each outbox worker cycle|`ms`|HISTOGRAM|DOUBLE|
+|`tramai.sovereign.ops.outbox.worker.failures`|Failure notifications emitted by the sovereign ops audit outbox worker|`{failure}`|COUNTER|LONG|
+|`tramai.sovereign.ops.outbox.worker.recovered.records`|Records affected by PREPARED recovery per result type|`{record}`|COUNTER|LONG|
+|`tramai.sovereign.ops.outbox.worker.dispatched.records`|Records affected by dispatch per result type|`{record}`|COUNTER|LONG|
 
 ## Dynamic attribute namespaces
 

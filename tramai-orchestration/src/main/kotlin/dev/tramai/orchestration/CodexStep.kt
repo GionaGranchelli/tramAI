@@ -87,7 +87,8 @@ internal data class CodexWorkflowStep<S>(
                 AgentCliRequest(
                     workflowName = workflowName,
                     stepName = name,
-                    eventPrefix = dev.tramai.core.observation.event.RuntimeEventPrefixes.CODEX,
+                    startedEvent = RuntimeEvents.WORKFLOW_CODEX_STARTED,
+                    completedEvent = RuntimeEvents.WORKFLOW_CODEX_COMPLETED,
                     agentType = "codex",
                     processBuilder = ProcessBuilder(
                         listOf(config.cliPath, "exec", "--", resolvedSecurity.defendedPrompt),

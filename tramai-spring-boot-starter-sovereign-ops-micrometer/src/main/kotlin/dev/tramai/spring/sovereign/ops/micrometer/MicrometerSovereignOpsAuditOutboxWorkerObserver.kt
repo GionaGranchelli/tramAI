@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops.micrometer
 
+import dev.tramai.core.observation.event.RuntimeMetrics
+import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatchResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecoverySummary
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
@@ -46,16 +48,16 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
         val errorType = summary.failure?.errorCode ?: "none"
 
         val tags = listOf(
-            Tag.of("outcome", outcome),
-            Tag.of("failure_action", failureAction),
-            Tag.of("error_type", errorType),
+            Tag.of(RuntimeAttributes.OUTBOX_WORKER_OUTCOME.name, outcome),
+            Tag.of(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name, failureAction),
+            Tag.of(RuntimeAttributes.OUTBOX_ERROR_TYPE.name, errorType),
         )
 
-        registry.counter("tramai.sovereign.ops.outbox.worker.cycles", tags).increment()
+        registry.counter(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_CYCLES.name, tags).increment()
 
         val ms = Duration.between(summary.startedAt, summary.completedAt).toMillis()
         val safeMs = if (ms < 0) 0L else ms
-        registry.timer("tramai.sovereign.ops.outbox.worker.duration", tags)
+        registry.timer(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DURATION.name, tags)
             .record(safeMs, TimeUnit.MILLISECONDS)
 
         summary.recovered?.let { recordRecovery(it) }
@@ -64,10 +66,10 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
 
     override fun onCycleFailed(action: String, errorCode: String) {
         registry.counter(
-            "tramai.sovereign.ops.outbox.worker.failures",
+            RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_FAILURES.name,
             listOf(
-                Tag.of("failure_action", action),
-                Tag.of("error_type", errorCode),
+                Tag.of(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name, action),
+                Tag.of(RuntimeAttributes.OUTBOX_ERROR_TYPE.name, errorCode),
             ),
         ).increment()
     }
@@ -75,26 +77,26 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
     private fun recordRecovery(r: SovereignOpsAuditOutboxRecoverySummary) {
         if (r.inspected > 0) {
             registry.counter(
-                METRIC_RECOVERED,
-                listOf(Tag.of("result", "inspected")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "inspected")),
             ).increment(r.inspected.toDouble())
         }
         if (r.movedToPending > 0) {
             registry.counter(
-                METRIC_RECOVERED,
-                listOf(Tag.of("result", "moved_to_pending")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "moved_to_pending")),
             ).increment(r.movedToPending.toDouble())
         }
         if (r.markedFailedPermanent > 0) {
             registry.counter(
-                METRIC_RECOVERED,
-                listOf(Tag.of("result", "failed_permanent")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "failed_permanent")),
             ).increment(r.markedFailedPermanent.toDouble())
         }
         if (r.resolverFailures > 0) {
             registry.counter(
-                METRIC_RECOVERED,
-                listOf(Tag.of("result", "resolver_failure")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "resolver_failure")),
             ).increment(r.resolverFailures.toDouble())
         }
     }
@@ -102,33 +104,30 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
     private fun recordDispatch(d: SovereignOpsAuditOutboxDispatchResult) {
         if (d.claimed > 0) {
             registry.counter(
-                METRIC_DISPATCHED,
-                listOf(Tag.of("result", "claimed")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "claimed")),
             ).increment(d.claimed.toDouble())
         }
         if (d.emitted > 0) {
             registry.counter(
-                METRIC_DISPATCHED,
-                listOf(Tag.of("result", "emitted")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "emitted")),
             ).increment(d.emitted.toDouble())
         }
         if (d.failedRetryable > 0) {
             registry.counter(
-                METRIC_DISPATCHED,
-                listOf(Tag.of("result", "failed_retryable")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "failed_retryable")),
             ).increment(d.failedRetryable.toDouble())
         }
         if (d.failedPermanent > 0) {
             registry.counter(
-                METRIC_DISPATCHED,
-                listOf(Tag.of("result", "failed_permanent")),
+                RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
+                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "failed_permanent")),
             ).increment(d.failedPermanent.toDouble())
         }
     }
 }
 
-/** @see MicrometerSovereignOpsAuditOutboxWorkerObserver */
-private const val METRIC_RECOVERED = "tramai.sovereign.ops.outbox.worker.recovered.records"
 
-/** @see MicrometerSovereignOpsAuditOutboxWorkerObserver */
-private const val METRIC_DISPATCHED = "tramai.sovereign.ops.outbox.worker.dispatched.records"
+

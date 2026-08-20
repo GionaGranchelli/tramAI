@@ -1,5 +1,12 @@
 package dev.tramai.scheduler
 
+
+import dev.tramai.core.observation.event.RuntimeEvents
+
+import dev.tramai.core.observation.event.RuntimeEvent
+
+import dev.tramai.core.observation.event.RuntimeAttributes
+
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.WorkflowContext
@@ -191,14 +198,15 @@ class ScheduledWorkflowTimer(
             delayRegistrations[wakeup.runId]
         }
         if (registration == null) {
+            val unregisteredEvent = RuntimeEvent.of(RuntimeEvents.SCHEDULER_DELAY_WAKEUP_UNREGISTERED) {
+                set(RuntimeAttributes.WORKFLOW_ID_BARE, wakeup.runId)
+                set(RuntimeAttributes.STEP_ID, wakeup.stepId)
+                set(RuntimeAttributes.RESUME_AT_EPOCH_MILLIS, wakeup.resumeAt.toEpochMilli())
+            }
             observer.onWorkflowEvent(
                 workflowName = "unknown",
-                name = "tramai.scheduler.delay_wakeup.unregistered",
-                attributes = mapOf(
-                    "workflow_id" to wakeup.runId,
-                    "step_id" to wakeup.stepId,
-                    "resume_at_epoch_millis" to wakeup.resumeAt.toEpochMilli(),
-                ),
+                name = unregisteredEvent.name,
+                attributes = unregisteredEvent.attributes(),
                 context = WorkflowContext(workflowId = wakeup.runId),
             )
             store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
@@ -207,8 +215,8 @@ class ScheduledWorkflowTimer(
         val context = WorkflowContext(
             workflowId = wakeup.runId,
             attributes = mapOf(
-                "tramai.delay.step_id" to wakeup.stepId,
-                "tramai.delay.resume_at_epoch_millis" to wakeup.resumeAt.toEpochMilli(),
+                RuntimeAttributes.SCHEDULER_DELAY_STEP_ID.name to wakeup.stepId,
+                RuntimeAttributes.SCHEDULER_DELAY_RESUME_AT.name to wakeup.resumeAt.toEpochMilli(),
             ),
         )
         try {
@@ -233,9 +241,9 @@ class ScheduledWorkflowTimer(
 
     private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext = WorkflowContext(
         attributes = mapOf(
-            "tramai.schedule.tick_id" to tick.tickId,
-            "tramai.schedule.schedule_id" to tick.scheduleId,
-            "tramai.schedule.scheduled_fire_at_epoch_millis" to tick.scheduledFireAt.toEpochMilli(),
+            RuntimeAttributes.SCHEDULE_TICK_ID.name to tick.tickId,
+            RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
+            RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
         ),
     )
 
@@ -268,3 +276,6 @@ class ScheduledWorkflowTimer(
 }
 
 private fun scheduleId(workflowName: String): String = "workflow:$workflowName"
+
+
+

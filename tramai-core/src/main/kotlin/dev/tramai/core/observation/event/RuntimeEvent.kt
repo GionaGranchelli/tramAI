@@ -16,6 +16,17 @@ class RuntimeEvent internal constructor(
     fun attributes(): Map<String, Any?> = attributeValues
 
     companion object {
+        /**
+         * Build a validated event from an arbitrary [definition].
+         *
+         * Custom third-party event definitions are intentionally supported for
+         * extension outside the catalogue. The catalogue remains the
+         * authoritative owner of `tramai.*` identifiers: the architecture test
+         * rejects any `tramai.*` literal outside [RuntimeEventCatalogue], so a
+         * custom definition must use a non-`tramai.` namespace. Validation is
+         * identical to catalogue events (allowed keys, required keys, value
+         * types).
+         */
         fun of(
             definition: RuntimeEventDefinition,
             configure: RuntimeEventBuilder.() -> Unit,
@@ -43,6 +54,13 @@ class RuntimeEventBuilder internal constructor(
                 "Attribute '${key.name}' is not allowed for event '${definition.name}'; " +
                     "allowed: ${definition.allowedAttributes.map { it.name }}",
             )
+        }
+        // Generics are erased on the public JVM API: enforce the canonical value
+        // type at runtime too, so Java raw/unsafe callers cannot build invalid
+        // payloads (e.g. an Int where the catalogue declares Long).
+        require(key.valueType.isInstance(value)) {
+            "Attribute '${key.name}' on event '${definition.name}' has value of type " +
+                "${value::class.simpleName}, expected ${key.valueType.simpleName}"
         }
         values[key.name] = value
     }

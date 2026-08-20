@@ -13,19 +13,60 @@ import java.util.jar.JarFile
 /**
  * Epic 5.2 boundary guard: runtime event identifiers, metric identifiers, and
  * attribute identifiers are owned by the runtime event catalogue
- * (dev.tramai.core.observation.event). No production class outside that
- * package may carry a `tramai.`-prefixed identifier literal (event name,
- * metric name, or attribute name).
+ * (dev.tramai.core.observation.event). No production source or class outside
+ * that package may carry a `tramai.`-prefixed identifier literal (event name,
+ * metric name, or attribute name) — unless the literal is (a) a catalogue-owned
+ * identifier or (b) a declared Spring configuration-property namespace.
  *
- * The scan is bytecode-level (LDC string constants) and fail-closed: a missing
- * classes location or an empty scan fails the test.
+ * Two layers, both fail-closed:
+ *  1. Bytecode LDC scan of the four core runtime modules (core, engine,
+ *     orchestration, observability) — catches `const val` inlining into
+ *     consumers and is immune to source-level tricks.
+ *  2. Source scan of every `tramai-*` module with `src/main` — repository-wide
+ *     coverage for scheduler, server, platform, and the sovereign starters.
+ *
+ * The emission-path invariant (Epic 5.2 review): production emitters must
+ * construct events through [RuntimeEvent.of] against catalogue definitions;
+ * the legacy onWorkflowEvent/onEngineEvent(String, Map) APIs remain public for
+ * backward compatibility but are no longer used by TramAI production emitters
+ * with raw literals.
  */
 class RuntimeEventCatalogueArchitectureTest {
     private val allowedPackagePrefix = "dev/tramai/core/observation/event/"
 
+    /** Declared Spring configuration-property namespaces (not runtime protocol). */
+    private val configPropertyNamespaces = listOf(
+        "tramai.dashboard",
+        "tramai.mcp",
+        "tramai.default-provider",
+        "tramai.providers.",
+        "tramai.models.",
+        "tramai.security.",
+        "tramai.secrets.",
+        "tramai.sovereign",
+        "tramai.sovereign.persistence",
+        "tramai.sovereign.ops",
+        "tramai.sovereign.ops.actuator.",
+        "tramai.sovereign.ops.approval-gateway",
+        "tramai.sovereign.ops.approved-resume-worker",
+        "tramai.sovereign.ops.outbox.worker",
+        "tramai.sovereign.approved_resume_queue",
+        "tramai.sovereign.approved_resume_worker",
+    )
+
+    /**
+     * Subtrees of the config namespaces that are NOT configuration: the
+     * sovereign ops outbox metric/tag subtree is runtime protocol and must
+     * reference the catalogue, never a config allowance.
+     */
+    private val configNamespaceExclusions = listOf(
+        "tramai.sovereign.ops.outbox.",
+    )
+
     @Test
     fun `no tramai identifier literals outside the runtime event catalogue`() {
         val offenders = mutableListOf<String>()
+        // Layer 1: bytecode LDC scan of the four core runtime modules.
         for ((label, location) in moduleClassesLocations()) {
             val classes = loadClasses(location)
             assertThat(classes)
@@ -38,6 +79,10 @@ class RuntimeEventCatalogueArchitectureTest {
                     offenders.add("$className -> ${literals.joinToString(", ")}")
                 }
             }
+        }
+        // Layer 2: source scan across every production module.
+        for ((module, file, literal) in sourceLiterals()) {
+            offenders.add("$module/$file -> $literal (source)")
         }
         assertThat(offenders)
             .withFailMessage(
@@ -96,5 +141,61 @@ class RuntimeEventCatalogueArchitectureTest {
             }
         }, 0)
         return literals
+    }
+
+    /**
+     * Repository-wide source scan. Any `"tramai.*"` literal in a production
+     * source file outside the catalogue package is an offender unless it is a
+     * catalogue-owned identifier (events/metrics/attributes/namespaces) or a
+     * declared configuration-property namespace.
+     */
+    private fun sourceLiterals(): List<Triple<String, String, String>> {
+        val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .first { it.resolve("settings.gradle.kts").isFile }
+        val catalogueIdentifiers = catalogueIdentifiers()
+        val offenders = mutableListOf<Triple<String, String, String>>()
+        val literalRegex = Regex("\"tramai\\.[a-zA-Z0-9_.-]*\"")
+        repoRoot.listFiles()?.asSequence()
+            ?.filter { it.isDirectory && it.name.startsWith("tramai-") }
+            ?.forEach { module ->
+                val mainDir = File(module, "src/main")
+                if (!mainDir.isDirectory) return@forEach
+                mainDir.walkTopDown()
+                    .filter { it.isFile && it.extension == "kt" }
+                    .forEach { file ->
+                        val relative = file.relativeTo(repoRoot).path
+                        if (relative.startsWith("tramai-core/src/main/kotlin/dev/tramai/core/observation/event/")) {
+                            return@forEach
+                        }
+                        literalRegex.findAll(file.readText()).forEach { match ->
+                            val literal = match.value.removeSurrounding("\"")
+                            if (catalogueIdentifiers.contains(literal)) return@forEach
+                            // Exact config-prefix literals (e.g. @ConfigurationProperties
+                            // prefix values) are configuration, not protocol.
+                            if (configPropertyNamespaces.contains(literal)) return@forEach
+                            if (configNamespaceExclusions.any { literal.startsWith(it) }) {
+                                offenders.add(Triple(module.name, relative, literal))
+                                return@forEach
+                            }
+                            if (configPropertyNamespaces.any { literal.startsWith(it) }) return@forEach
+                            offenders.add(Triple(module.name, relative, literal))
+                        }
+                    }
+            }
+        return offenders
+    }
+
+    private fun catalogueIdentifiers(): Set<String> {
+        val eventPackage = "tramai-core/src/main/kotlin/dev/tramai/core/observation/event"
+        val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .first { it.resolve("settings.gradle.kts").isFile }
+        val dir = File(repoRoot, eventPackage)
+        check(dir.isDirectory) { "Catalogue package unavailable: ${dir.absolutePath}" }
+        val literalRegex = Regex("\"tramai\\.[a-zA-Z0-9_.-]*\"")
+        return dir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { literalRegex.findAll(it.readText()) }
+            .map { it.value.removeSurrounding("\"") }
+            .toSet()
     }
 }

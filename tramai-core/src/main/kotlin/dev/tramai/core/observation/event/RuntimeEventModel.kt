@@ -14,6 +14,7 @@ enum class RuntimeEventDomain {
     TOOL,
     ROUTING,
     EVIDENCE,
+    SCHEDULER,
 }
 
 /**

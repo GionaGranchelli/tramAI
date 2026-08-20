@@ -40,4 +40,14 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // The runtime-event-catalogue architecture test scans every module's
+    // production sources repository-wide. Declare those sources as task inputs
+    // so a literal added to ANY module re-runs the guard (otherwise Gradle
+    // marks the task up-to-date and the fail-closed scan never fires).
+    rootProject.subprojects.forEach { sub ->
+        val mainDir = sub.layout.projectDirectory.dir("src/main")
+        if (mainDir.asFile.isDirectory) {
+            inputs.dir(mainDir)
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package dev.tramai.server
 
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
@@ -202,7 +203,7 @@ class WorkflowController(
         if (!creation.created) {
             return creation.record.toResponse()
         }
-        runStore.event(entry.workflow.name, workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
+        runStore.event(entry.workflow.name, workflowId, RuntimeEvents.WORKFLOW_RUNNING.name, status = WorkflowRunStatus.RUNNING)
         val running = runStore.get(entry.workflow.name, workflowId).toResponse()
         val job = workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
             executeRunSafely(
@@ -416,7 +417,7 @@ private class ServerWorkflowObserver(
         workflowName: String,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.workflow.started", status = WorkflowRunStatus.RUNNING)
+        runStore.event(workflowName, workflowId, RuntimeEvents.WORKFLOW_STARTED.name, status = WorkflowRunStatus.RUNNING)
     }
 
     override fun onWorkflowEvent(
@@ -433,7 +434,7 @@ private class ServerWorkflowObserver(
         stepName: String,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.step.started", stepName, WorkflowRunStatus.RUNNING)
+        runStore.event(workflowName, workflowId, RuntimeEvents.STEP_STARTED.name, stepName, WorkflowRunStatus.RUNNING)
     }
 
     override fun onStepCompleted(
@@ -441,7 +442,7 @@ private class ServerWorkflowObserver(
         stepName: String,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.step.completed", stepName, WorkflowRunStatus.RUNNING)
+        runStore.event(workflowName, workflowId, RuntimeEvents.STEP_COMPLETED.name, stepName, WorkflowRunStatus.RUNNING)
     }
 
     override fun onStepFailed(
@@ -450,14 +451,14 @@ private class ServerWorkflowObserver(
         error: Throwable,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.step.failed", stepName)
+        runStore.event(workflowName, workflowId, RuntimeEvents.STEP_FAILED.name, stepName)
     }
 
     override fun onWorkflowCompleted(
         workflowName: String,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.workflow.completed")
+        runStore.event(workflowName, workflowId, RuntimeEvents.WORKFLOW_COMPLETED.name)
     }
 
     override fun onWorkflowFailed(
@@ -465,7 +466,7 @@ private class ServerWorkflowObserver(
         error: Throwable,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.workflow.failed")
+        runStore.event(workflowName, workflowId, RuntimeEvents.WORKFLOW_FAILED.name)
     }
 }
 

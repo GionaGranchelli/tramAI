@@ -36,16 +36,16 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleCompleted(summary)
 
         val cycleCounter = registry.get("tramai.sovereign.ops.outbox.worker.cycles")
-            .tag("outcome", "success")
-            .tag("failure_action", "none")
-            .tag("error_type", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.outcome", "success")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "none")
             .counter()
         assertThat(cycleCounter.count()).isEqualTo(1.0)
 
         val durationTimer = registry.get("tramai.sovereign.ops.outbox.worker.duration")
-            .tag("outcome", "success")
-            .tag("failure_action", "none")
-            .tag("error_type", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.outcome", "success")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "none")
             .timer()
         assertThat(durationTimer.count()).isEqualTo(1)
         assertThat(durationTimer.totalTime(TimeUnit.MILLISECONDS)).isEqualTo(500.0)
@@ -68,16 +68,16 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleCompleted(summary)
 
         val cycleCounter = registry.get("tramai.sovereign.ops.outbox.worker.cycles")
-            .tag("outcome", "failure")
-            .tag("failure_action", "dispatchPending")
-            .tag("error_type", "dispatch_timeout")
+            .tag("tramai.sovereign.ops.outbox.worker.outcome", "failure")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "dispatchPending")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "dispatch_timeout")
             .counter()
         assertThat(cycleCounter.count()).isEqualTo(1.0)
 
         val durationTimer = registry.get("tramai.sovereign.ops.outbox.worker.duration")
-            .tag("outcome", "failure")
-            .tag("failure_action", "dispatchPending")
-            .tag("error_type", "dispatch_timeout")
+            .tag("tramai.sovereign.ops.outbox.worker.outcome", "failure")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "dispatchPending")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "dispatch_timeout")
             .timer()
         assertThat(durationTimer.count()).isEqualTo(1)
         assertThat(durationTimer.totalTime(TimeUnit.MILLISECONDS)).isEqualTo(300.0)
@@ -96,9 +96,9 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleCompleted(summary)
 
         val durationTimer = registry.get("tramai.sovereign.ops.outbox.worker.duration")
-            .tag("outcome", "success")
-            .tag("failure_action", "none")
-            .tag("error_type", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.outcome", "success")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "none")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "none")
             .timer()
         assertThat(durationTimer.count()).isEqualTo(1)
         assertThat(durationTimer.totalTime(TimeUnit.MILLISECONDS)).isEqualTo(0.0)
@@ -109,8 +109,8 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleFailed("unexpected", "IllegalStateException")
 
         val failureCounter = registry.get("tramai.sovereign.ops.outbox.worker.failures")
-            .tag("failure_action", "unexpected")
-            .tag("error_type", "IllegalStateException")
+            .tag("tramai.sovereign.ops.outbox.worker.failure_action", "unexpected")
+            .tag("tramai.sovereign.ops.outbox.worker.error_type", "IllegalStateException")
             .counter()
         assertThat(failureCounter.count()).isEqualTo(1.0)
     }
@@ -134,19 +134,19 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleCompleted(summary)
 
         val inspected = registry.get("tramai.sovereign.ops.outbox.worker.recovered.records")
-            .tag("result", "inspected").counter()
+            .tag("tramai.sovereign.ops.outbox.recovery.result", "inspected").counter()
         assertThat(inspected.count()).isEqualTo(10.0)
 
         val movedToPending = registry.get("tramai.sovereign.ops.outbox.worker.recovered.records")
-            .tag("result", "moved_to_pending").counter()
+            .tag("tramai.sovereign.ops.outbox.recovery.result", "moved_to_pending").counter()
         assertThat(movedToPending.count()).isEqualTo(3.0)
 
         val failedPermanent = registry.get("tramai.sovereign.ops.outbox.worker.recovered.records")
-            .tag("result", "failed_permanent").counter()
+            .tag("tramai.sovereign.ops.outbox.recovery.result", "failed_permanent").counter()
         assertThat(failedPermanent.count()).isEqualTo(2.0)
 
         val resolverFailure = registry.get("tramai.sovereign.ops.outbox.worker.recovered.records")
-            .tag("result", "resolver_failure").counter()
+            .tag("tramai.sovereign.ops.outbox.recovery.result", "resolver_failure").counter()
         assertThat(resolverFailure.count()).isEqualTo(1.0)
     }
 
@@ -168,19 +168,19 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserverTest {
         observer.onCycleCompleted(summary)
 
         val claimed = registry.get("tramai.sovereign.ops.outbox.worker.dispatched.records")
-            .tag("result", "claimed").counter()
+            .tag("tramai.sovereign.ops.outbox.dispatch.result", "claimed").counter()
         assertThat(claimed.count()).isEqualTo(5.0)
 
         val emitted = registry.get("tramai.sovereign.ops.outbox.worker.dispatched.records")
-            .tag("result", "emitted").counter()
+            .tag("tramai.sovereign.ops.outbox.dispatch.result", "emitted").counter()
         assertThat(emitted.count()).isEqualTo(4.0)
 
         val failedRetryable = registry.get("tramai.sovereign.ops.outbox.worker.dispatched.records")
-            .tag("result", "failed_retryable").counter()
+            .tag("tramai.sovereign.ops.outbox.dispatch.result", "failed_retryable").counter()
         assertThat(failedRetryable.count()).isEqualTo(1.0)
 
         val failedPermanent = registry.find("tramai.sovereign.ops.outbox.worker.dispatched.records")
-            .tag("result", "failed_permanent")
+            .tag("tramai.sovereign.ops.outbox.dispatch.result", "failed_permanent")
             .counter()
         assertThat(failedPermanent).isNull()
     }

@@ -602,7 +602,7 @@ object RuntimeEventCatalogue {
         RuntimeEventDefinition(
             name = "tramai.workflow.codex.completed",
             domain = RuntimeEventDomain.WORKFLOW,
-            allowedAttributes = setOf(RuntimeAttributes.STEP_NAME, RuntimeAttributes.AGENT_TYPE, RuntimeAttributes.PROMPT_LENGTH),
+            allowedAttributes = setOf(RuntimeAttributes.STEP_NAME, RuntimeAttributes.AGENT_TYPE, RuntimeAttributes.PROMPT_LENGTH, RuntimeAttributes.RESPONSE_LENGTH, RuntimeAttributes.DURATION_MS, RuntimeAttributes.EXIT_CODE),
             requiredAttributes = setOf(RuntimeAttributes.STEP_NAME),
             sensitivity = RuntimeEventSensitivity.INTERNAL,
             auditEligible = false,
@@ -622,7 +622,7 @@ object RuntimeEventCatalogue {
         RuntimeEventDefinition(
             name = "tramai.workflow.hermes.completed",
             domain = RuntimeEventDomain.WORKFLOW,
-            allowedAttributes = setOf(RuntimeAttributes.STEP_NAME, RuntimeAttributes.AGENT_TYPE, RuntimeAttributes.PROMPT_LENGTH),
+            allowedAttributes = setOf(RuntimeAttributes.STEP_NAME, RuntimeAttributes.AGENT_TYPE, RuntimeAttributes.PROMPT_LENGTH, RuntimeAttributes.RESPONSE_LENGTH, RuntimeAttributes.DURATION_MS, RuntimeAttributes.EXIT_CODE),
             requiredAttributes = setOf(RuntimeAttributes.STEP_NAME),
             sensitivity = RuntimeEventSensitivity.INTERNAL,
             auditEligible = false,
@@ -738,7 +738,103 @@ object RuntimeEventCatalogue {
             auditEligible = false,
             evidenceEligible = false,
             metricMapping = RuntimeMetrics.WORKFLOW_EVENTS,
-),
+        ),
+        // ── Scheduler ──────────────────────────────────────────────────────
+        RuntimeEventDefinition(
+            name = "tramai.scheduler.delay_wakeup.unregistered",
+            domain = RuntimeEventDomain.SCHEDULER,
+            allowedAttributes = setOf(
+                RuntimeAttributes.WORKFLOW_ID_BARE,
+                RuntimeAttributes.STEP_ID,
+                RuntimeAttributes.RESUME_AT_EPOCH_MILLIS,
+            ),
+            requiredAttributes = setOf(RuntimeAttributes.WORKFLOW_ID_BARE),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        // ── Run-store / dashboard protocol (server + platform SSE) ─────────
+        RuntimeEventDefinition(
+            name = "tramai.workflow.running",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.workflow.started",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.workflow.completed",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.workflow.failed",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.workflow.cancelling",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.workflow.cancelled",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.step.started",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.step.completed",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
+        RuntimeEventDefinition(
+            name = "tramai.step.failed",
+            domain = RuntimeEventDomain.WORKFLOW,
+            allowedAttributes = setOf(),
+            requiredAttributes = setOf(),
+            sensitivity = RuntimeEventSensitivity.INTERNAL,
+            auditEligible = true,
+            evidenceEligible = false,
+        ),
         RuntimeEventDefinition(
             name = "tramai.parse.failure",
             domain = RuntimeEventDomain.ENGINE,
@@ -769,10 +865,7 @@ object RuntimeEventCatalogue {
         require(duplicateNames.isEmpty()) { "Runtime event catalogue has duplicate event names: $duplicateNames" }
 
         // Duplicate attribute names with incompatible types.
-        val attributesByName = allEvents
-            .flatMap { it.allowedAttributes }
-            .groupBy { it.name }
-        val conflictingTypes = attributesByName.filterValues { keys -> keys.map { it::class }.distinct().size > 1 }.keys
+        val conflictingTypes = detectConflictingAttributeTypes(allEvents)
         require(conflictingTypes.isEmpty()) {
             "Runtime event catalogue has duplicate attribute names with different key types: $conflictingTypes"
         }
@@ -799,6 +892,18 @@ object RuntimeEventCatalogue {
 
     fun event(name: String): RuntimeEventDefinition =
         byName[name] ?: error("Unknown runtime event '$name'; register it in the catalogue before emitting")
+
+    /**
+     * Returns the names of attributes declared with more than one canonical
+     * value type across the given definitions. Extracted from the init block
+     * so the invariant is unit-testable.
+     */
+    internal fun detectConflictingAttributeTypes(events: List<RuntimeEventDefinition>): Set<String> =
+        events
+            .flatMap { it.allowedAttributes }
+            .groupBy { it.name }
+            .filterValues { keys -> keys.map { it.valueType }.distinct().size > 1 }
+            .keys
 }
 
 /**
@@ -818,16 +923,4 @@ data class DynamicAttributeNamespace(
 object DynamicAttributeNamespaces {
     /** User-supplied workflow context attributes: tramai.workflow.context.<key>. */
     val WORKFLOW_CONTEXT = DynamicAttributeNamespace("tramai.workflow.context.")
-}
-
-/**
- * Catalogue-owned event-name prefixes for dynamically composed step events
- * (e.g. AgentCliSupport composes "$eventPrefix.started"). The prefix literal
- * lives here so composed names stay under the catalogue's ownership.
- */
-object RuntimeEventPrefixes {
-    // Deliberately NOT const: a const val would inline the literal into every
-    // consumer, defeating the literal-ownership architecture test.
-    val CODEX = "tramai.workflow.codex"
-    val HERMES = "tramai.workflow.hermes"
 }

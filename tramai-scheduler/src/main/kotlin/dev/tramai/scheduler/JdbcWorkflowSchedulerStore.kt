@@ -1,5 +1,7 @@
 package dev.tramai.scheduler
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
@@ -943,9 +945,9 @@ class JdbcWorkflowSchedulerStore(
         scheduledFireAt: Instant,
     ): WorkflowContext = WorkflowContext(
         attributes = mapOf(
-            "tramai.schedule.tick_id" to tickId,
-            "tramai.schedule.schedule_id" to scheduleId,
-            "tramai.schedule.scheduled_fire_at_epoch_millis" to scheduledFireAt.toEpochMilli(),
+            RuntimeAttributes.SCHEDULE_TICK_ID.name to tickId,
+            RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to scheduleId,
+            RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to scheduledFireAt.toEpochMilli(),
         ),
     )
 }

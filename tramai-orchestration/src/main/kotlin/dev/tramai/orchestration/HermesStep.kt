@@ -86,7 +86,8 @@ internal data class HermesWorkflowStep<S>(
                 AgentCliRequest(
                     workflowName = workflowName,
                     stepName = name,
-                    eventPrefix = dev.tramai.core.observation.event.RuntimeEventPrefixes.HERMES,
+                    startedEvent = RuntimeEvents.WORKFLOW_HERMES_STARTED,
+                    completedEvent = RuntimeEvents.WORKFLOW_HERMES_COMPLETED,
                     agentType = "hermes",
                     processBuilder = ProcessBuilder(
                         listOf(config.cliPath, "chat", "-q", resolvedSecurity.defendedPrompt, "--model", config.model),
