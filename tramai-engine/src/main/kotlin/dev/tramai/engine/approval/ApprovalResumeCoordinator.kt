@@ -1,11 +1,16 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.approval
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.approval.*
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.*
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.engine.*
 import kotlinx.coroutines.CancellationException
+import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
+import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 
 /**
  * Orchestrates the resume state machine for a suspended approval.
@@ -188,17 +193,19 @@ internal class ApprovalResumeCoordinator(
             throw cancellation
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            try {
-                engineEventObserver.onEngineEvent(
-                    name = "resume-completion-audit-failure",
-                    attributes = mapOf("approvalId" to command.approvalId, "toolName" to metadata.toolName),
-                )
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (observerError: Exception) {
-                observerError.rethrowIfCancellation()
-                // best-effort observer cleanup failure
-            }
+            // Epic 5.3: post-side-effect completion audit. The tool side effect
+            // and the COMPLETED transition have already happened — fail-closed
+            // is physically impossible here. The audit failure is recorded with
+            // explicit terminal semantics (authoritative, declared FAIL_CLOSED,
+            // disposition terminal-recorded), NEVER silently converted to
+            // telemetry as if nothing happened.
+            SecondaryFailureDiagnostic.report(
+                extensionPoint = "approval_lifecycle_audit",
+                callback = "onToolExecutionCompleted",
+                errorType = e.javaClass.simpleName,
+                failurePolicy = "FAIL_CLOSED",
+                authority = SecondaryEffectAuthority.AUTHORITATIVE.name,
+            )
         }
     }
 
@@ -210,12 +217,29 @@ internal class ApprovalResumeCoordinator(
     ) {
         if (marker.emitted) return
         marker.emitted = true
-        approvalLifecycleAuditEmitter.onUncertainOutcome(
-            command.approvalId,
-            metadata.identity.workflowRunId,
-            metadata.toolName,
-            reason,
-        )
+        try {
+            approvalLifecycleAuditEmitter.onUncertainOutcome(
+                command.approvalId,
+                metadata.identity.workflowRunId,
+                metadata.toolName,
+                reason,
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Epic 5.3: this audit reports an ALREADY-FAILED resume. The
+            // underlying business failure is primary; an audit failure here must
+            // be recorded (authoritative, declared FAIL_CLOSED, disposition
+            // terminal-recorded) and NEVER substitute the primary failure.
+            SecondaryFailureDiagnostic.report(
+                extensionPoint = "approval_lifecycle_audit",
+                callback = "onUncertainOutcome",
+                errorType = e.javaClass.simpleName,
+                failurePolicy = "FAIL_CLOSED",
+                authority = SecondaryEffectAuthority.AUTHORITATIVE.name,
+            )
+        }
     }
 
     private fun requireApprovalContinuationStore(): ApprovalContinuationStore =

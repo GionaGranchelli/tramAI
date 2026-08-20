@@ -1037,7 +1037,11 @@ class ApprovalEngineEdgeCaseTest {
 
         // No uncertain outcome was emitted
         assertThat(auditEvents.none { it.startsWith("uncertain:") }).isTrue
-        assertThat(observerEvents).containsExactly("resume-completion-audit-failure")
+        // Epic 5.3: the completion-audit failure is no longer re-emitted as a
+        // "resume-completion-audit-failure" telemetry event — it is recorded
+        // via the safe diagnostic (authority=AUTHORITATIVE, declared
+        // FAIL_CLOSED, disposition terminal-recorded) instead.
+        assertThat(observerEvents).isEmpty()
     }
 
     // ── Helpers ────────────────────────────────────────────────────

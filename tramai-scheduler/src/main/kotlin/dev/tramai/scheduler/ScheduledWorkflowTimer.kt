@@ -1,12 +1,15 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.scheduler
 
 
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.event.RuntimeEvents
 
 import dev.tramai.core.observation.event.RuntimeEvent
 
 import dev.tramai.core.observation.event.RuntimeAttributes
 
+import dev.tramai.orchestration.FailureIsolatingWorkflowObserver
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.WorkflowContext
@@ -38,6 +41,13 @@ class ScheduledWorkflowTimer(
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
+    // Epic 5.3: the scheduler owns WorkflowObserver instances and invokes
+    // tick callbacks BEFORE durable scheduler transitions (markTickSkipped /
+    // markTickMisfired / markTickStarted / releaseDelayWakeupClaim). A
+    // throwing observer must be contained (non-authoritative FAIL_OPEN) so it
+    // can never leave a claimed tick in the wrong state or terminate the poll
+    // loop.
+    private val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
     private val monitor = Any()
     private val registrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
     private val delayRegistrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
@@ -75,7 +85,9 @@ class ScheduledWorkflowTimer(
         val registration = ScheduledWorkflowRegistration(
             workflow = workflow,
             initialState = initialState,
-            observer = observer,
+            // Epic 5.3: per-registration observer wrapped at the boundary too
+            // (registration.observer is invoked directly by pollOnce).
+            observer = FailureIsolatingWorkflowObserver(observer),
             persistence = persistence,
         )
         synchronized(monitor) {
@@ -163,7 +175,7 @@ class ScheduledWorkflowTimer(
         if (registration == null) {
             val reason = "workflow_not_registered"
             val context = scheduledTickContext(tick)
-            observer.onSkippedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
+            isolatedObserver.onSkippedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
             store.markTickSkipped(tick.tickId, tick.claimToken, reason)
             return
         }
@@ -171,12 +183,12 @@ class ScheduledWorkflowTimer(
         val observer = registration.observer
         if (Duration.between(tick.scheduledFireAt, now) > misfireThreshold) {
             val reason = "misfire_threshold_exceeded"
-            observer.onMissedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
+            isolatedObserver.onMissedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
             store.markTickMisfired(tick.tickId, tick.claimToken, reason)
             return
         }
         val runId = context.workflowId
-        observer.onScheduledTick(tick.workflowName, tick.scheduledFireAt, context)
+        isolatedObserver.onScheduledTick(tick.workflowName, tick.scheduledFireAt, context)
         store.markTickStarted(tick.tickId, tick.claimToken, runId)
         try {
             registration.run(tick, context)
@@ -203,7 +215,7 @@ class ScheduledWorkflowTimer(
                 set(RuntimeAttributes.STEP_ID, wakeup.stepId)
                 set(RuntimeAttributes.RESUME_AT_EPOCH_MILLIS, wakeup.resumeAt.toEpochMilli())
             }
-            observer.onWorkflowEvent(
+            isolatedObserver.onWorkflowEvent(
                 workflowName = "unknown",
                 name = unregisteredEvent.name,
                 attributes = unregisteredEvent.attributes(),

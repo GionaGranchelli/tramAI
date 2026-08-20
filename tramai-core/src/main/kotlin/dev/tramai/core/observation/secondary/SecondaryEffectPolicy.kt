@@ -14,6 +14,7 @@ import java.util.logging.Logger
  * only because the failure-isolating observer wrappers live in several
  * modules, and is not part of the stable application-facing API.
  */
+@ExperimentalTramaiInternalApi
 enum class SecondaryEffectAuthority {
     /** A governed audit/evidence effect: failure blocks the operation (fail-closed). */
     AUTHORITATIVE,
@@ -36,6 +37,7 @@ enum class SecondaryEffectAuthority {
  *   (outbox enqueue: fail-closed at enqueue, at-least-once at delivery).
  * - [IGNORE]: explicitly non-authoritative best-effort (optional diagnostics).
  */
+@ExperimentalTramaiInternalApi
 enum class SecondaryFailureDisposition {
     FAIL_CLOSED,
     FAIL_OPEN_DIAGNOSTIC,
@@ -55,6 +57,7 @@ enum class SecondaryFailureDisposition {
  * This type is public only because the failure-isolating wrappers live in
  * several modules; it is not part of the stable application-facing API.
  */
+@ExperimentalTramaiInternalApi
 object SecondaryFailureDiagnostic {
     private val logger = Logger.getLogger("dev.tramai.core.observation.secondary")
 

@@ -9,11 +9,14 @@ This page defines the failure policy for secondary systems in Tramai: observabil
 | OperationObserver / OperationObservation (engine per-attempt telemetry) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (FailureIsolatingOperationObserver wraps at EngineComponentFactory composition) |
 | EngineEventObserver (engine lifecycle telemetry) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (FailureIsolatingEngineEventObserver wraps at EngineComponentFactory) |
 | WorkflowObserver (workflow lifecycle telemetry) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (FailureIsolatingWorkflowObserver wraps at WorkflowRunner.run/resume entry) |
-| TramaiWorkerObserver (worker lifecycle telemetry, 22 callbacks) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (FailureIsolatingTramaiWorkerObserver wraps at TramaiWorker construction) |
+| TramaiWorkerObserver (worker lifecycle telemetry, 20 callbacks) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (FailureIsolatingTramaiWorkerObserver wraps at TramaiWorker construction) |
 | RuntimeEvent emission, event declared FAIL_OPEN (default) | NON_AUTHORITATIVE | FAIL_OPEN + safe diagnostic (emission routed through typed onEngineEvent(RuntimeEvent) / onWorkflowEvent(RuntimeEvent, context) overloads so the failure policy is honored) |
 | RuntimeEvent emission, event declared FAIL_CLOSED | AUTHORITATIVE | FAIL_CLOSED: emission failure propagates (never contained) |
 | Policy decision audit (PolicyEnforcementHelper.evaluate -> PolicyDecisionAuditEmitter) | AUTHORITATIVE | FAIL_CLOSED: audit is emitted before the decision is acted on; audit failure propagates and blocks the operation (proven by tests: audit failure blocks provider invocation / tool execution / fallback transition, zero side effects) |
-| Approval lifecycle audit (AuditEngine, hash-chained AuditStore) | AUTHORITATIVE | FAIL_CLOSED: AuditEngine.appendNext failure propagates; an unaudited governed transition cannot proceed |
+| Approval lifecycle audit — pre-mutation callbacks (suspension creation, force-cancellation REQUESTED) | AUTHORITATIVE | FAIL_CLOSED: audit runs BEFORE the governed mutation; audit failure propagates and blocks the mutation (e.g. 'denyApproval fails closed when no AuditEngine') |
+| Approval lifecycle audit — post-side-effect completion (onToolExecutionCompleted) | AUTHORITATIVE | FAIL_CLOSED declared, terminal-recorded disposition: the tool side effect and COMPLETED transition have already happened, so fail-closed is physically impossible; audit failure is recorded via the safe diagnostic (authoritative, never silently converted to telemetry), resume still succeeds |
+| Approval lifecycle audit — post-mutation notification (onSuspensionCancelled) | AUTHORITATIVE | declared FAIL_CLOSED, best-effort disposition: stores already mutated; audit failure recorded via safe diagnostic, never fails the method after the transition committed |
+| Approval lifecycle audit — audit while reporting an existing primary failure (onUncertainOutcome) | AUTHORITATIVE | preserve the primary failure: audit failure recorded via safe diagnostic and NEVER substituted for the business failure being reported |
 | DLP/security audit | AUTHORITATIVE | FAIL_CLOSED: DLP redaction audit failure propagates |
 | Audit outbox enqueue (SovereignOpsAuditOutboxStore.append, PREPARED record) | AUTHORITATIVE | FAIL_CLOSED at enqueue: if the outbox append fails the approval is never mutated (proven: 'denyApproval fails closed when no AuditEngine', 'denyApproval fail-closed leaves approval unchanged') |
 | Outbox dispatch (background worker, PENDING/FAILED_RETRYABLE records) | AUTHORITATIVE (delivery) | RETRY / at-least-once: dispatch failure marks FAILED_RETRYABLE, record retained and retried; business operation is NOT retroactively failed (proven: 'dispatcher can retry FAILED_RETRYABLE outbox records', worker 'runOnce catches RuntimeException and returns failure summary') |
@@ -66,7 +69,7 @@ Secondary-failure isolation is enforced at single wiring points, not scattered t
 - **Lifecycle matrix tests:**
   - `FailureIsolatingOperationObserverTest` — operation lifecycle matrix
   - `FailureIsolatingWorkflowObserverTest` — workflow lifecycle matrix
-  - `FailureIsolatingTramaiWorkerObserverTest` — worker 22-callback matrix
+  - `FailureIsolatingTramaiWorkerObserverTest` — worker 20-callback matrix
 - **Preservation tests:**
   - `SecondaryFailurePreservationEngineTest` — engine success/failure preservation
   - `WorkflowRunnerPreservationTest` — workflow success/failure preservation through the public API

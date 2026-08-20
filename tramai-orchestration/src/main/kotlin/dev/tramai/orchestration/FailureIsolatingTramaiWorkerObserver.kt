@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 import kotlinx.coroutines.CancellationException
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CancellationException
  * behaviour. [kotlinx.coroutines.CancellationException] always escapes
  * unchanged.
  */
+@ExperimentalTramaiInternalApi
 class FailureIsolatingTramaiWorkerObserver(
     private val delegate: TramaiWorkerObserver,
 ) : TramaiWorkerObserver {
@@ -20,7 +22,7 @@ class FailureIsolatingTramaiWorkerObserver(
     private inline fun <T> isolate(callback: String, block: () -> T) {
         try {
             block()
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (error is CancellationException) throw error
             SecondaryFailureDiagnostic.report(
                 extensionPoint = "worker_observer",

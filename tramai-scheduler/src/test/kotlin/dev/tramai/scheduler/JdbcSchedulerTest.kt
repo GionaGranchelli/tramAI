@@ -422,6 +422,57 @@ class JdbcSchedulerTest {
         }
     }
 
+    @Test
+    fun `jdbc store startup recovery survives a throwing observer`() {
+        runBlocking {
+            val throwingStore = JdbcWorkflowSchedulerStore(dataSource, ThrowingRecoveryObserver())
+            throwingStore.upsertSchedule(
+                scheduleRecord("isolated-recover", Instant.parse("2026-05-03T09:00:05Z")),
+            )
+
+            val recovered = throwingStore.recover(now = Instant.parse("2026-05-03T09:00:07Z"))
+
+            // onMissedTick threw during recovery; the recovered tick must still
+            // be durably inserted and the schedule advanced.
+            assertThat(recovered).isEqualTo(1)
+            assertThat(rowCount("workflow_schedule_ticks")).isEqualTo(1)
+            assertThat(throwingStore.getSchedule("workflow:isolated-recover")!!.nextFireAt)
+                .isEqualTo(Instant.parse("2026-05-03T09:00:10Z"))
+        }
+    }
+
+    @Test
+    fun `jdbc store next-fire computation survives a throwing observer`() {
+        runBlocking {
+            val throwingStore = JdbcWorkflowSchedulerStore(dataSource, ThrowingRecoveryObserver())
+            val schedule = at(
+                expression = "0 9 * * *",
+                zoneId = ZoneId.of("UTC"),
+                skipCalendar = listOf(CalendarRule.FixedDate(month = 12, dayOfMonth = 25)),
+            )
+            throwingStore.upsertSchedule(
+                ScheduleRecord(
+                    scheduleId = "workflow:isolated-calendar-skip",
+                    workflowName = "isolated-calendar-skip",
+                    schedule = schedule,
+                    nextFireAt = Instant.parse("2026-12-24T09:00:00Z"),
+                ),
+            )
+
+            throwingStore.claimDueTicks(
+                now = Instant.parse("2026-12-24T09:00:00Z"),
+                ownerId = "owner-1",
+                claimDuration = Duration.ofSeconds(30),
+                limit = 10,
+            ).single()
+
+            // onSkippedTick threw while advancing past Christmas; the next-fire
+            // computation must still complete and return a valid instant.
+            assertThat(throwingStore.getSchedule("workflow:isolated-calendar-skip")!!.nextFireAt)
+                .isEqualTo(Instant.parse("2026-12-26T09:00:00Z"))
+        }
+    }
+
     private suspend fun claimTick(workflowName: String): ClaimedScheduledTick {
         val nextFireAt = Instant.parse("2026-05-03T09:00:05Z")
         store.upsertSchedule(scheduleRecord(workflowName, nextFireAt))
@@ -511,6 +562,22 @@ class JdbcSchedulerTest {
         ) {
             skippedTicks += scheduledFireAt to reason
         }
+    }
+
+    private class ThrowingRecoveryObserver : WorkflowObserver {
+        override fun onMissedTick(
+            workflowName: String,
+            scheduledFireAt: Instant,
+            reason: String,
+            context: WorkflowContext,
+        ) = throw IllegalStateException("throwing observer: onMissedTick")
+
+        override fun onSkippedTick(
+            workflowName: String,
+            scheduledFireAt: Instant,
+            reason: String,
+            context: WorkflowContext,
+        ) = throw IllegalStateException("throwing observer: onSkippedTick")
     }
 
     private class CommitAndRollbackFailingDataSource(

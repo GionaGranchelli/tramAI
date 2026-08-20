@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.components
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.approval.*
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider

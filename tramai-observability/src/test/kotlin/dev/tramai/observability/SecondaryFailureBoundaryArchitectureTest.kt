@@ -8,33 +8,82 @@ import java.io.File
  * Epic 5.3 — secondary-failure boundary guard.
  *
  * Observer callbacks are non-authoritative secondary effects and must only be
- * invoked through the failure-isolating boundary (FailureIsolating*
- * wrappers) or through the instances the composition wiring has already
- * wrapped. A NEW execution component that grabs a raw observer and calls its
- * callbacks directly bypasses the boundary: a throwing observer could then
- * change the business outcome.
+ * invoked through the failure-isolating boundary (FailureIsolating* wrappers)
+ * or through the instances the composition wiring has already wrapped. A NEW
+ * execution component that grabs a raw observer and calls its callbacks
+ * directly bypasses the boundary: a throwing observer could then change the
+ * business outcome.
  *
- * Forbidden: `observer.` / `observability.` / `engineEventObserver.` /
- * `request.observer.` followed by a callback method, in tramai-engine /
- * tramai-orchestration production sources — EXCEPT in the files below, which
- * hold the already-wrapped instances passed down through the wiring
- * (WorkflowRunner wraps at entry; TramaiWorker wraps at construction;
- * EngineComponentFactory wraps at composition).
+ * The guard matches CALLBACK INVOCATION NAMES (not receiver variable names —
+ * `workflowObserver.onWorkflowCompleted(...)` and `telemetry.onStepStarted(...)`
+ * must be caught too) across every runtime module that owns observers
+ * (engine, orchestration, scheduler). Files are exempt only when they are the
+ * wrappers themselves, the interface definitions, or the known wiring points
+ * that hold already-wrapped instances.
  */
 class SecondaryFailureBoundaryArchitectureTest {
 
-    private val callbackRegex = Regex(
-        "(observer|observability|engineEventObserver|request\\.observer)\\s*\\.\\s*" +
-            "(on[A-Z][A-Za-z]*|emitWorkflowEvent|emitRuntimeEvent)\\s*\\(",
+    private val observerCallbackNames = listOf(
+        "onCallCancelled", "onCallCompleted", "onCallStarted",
+        "onDrainProgress", "onEngineEvent",
+        "onLeaseAcquired", "onLeaseContested", "onLeaseExpired",
+        "onLeaseReleaseFailed", "onLeaseReleased", "onLeaseRenewalFailed",
+        "onLeaseRenewed",
+        "onMissedTick",
+        "onPollFailed", "onProviderFailure", "onProviderResponse",
+        "onScheduledTick", "onShutdownComplete", "onShutdownStarted",
+        "onSkippedTick",
+        "onStepAttemptCompleted", "onStepAttemptFailed", "onStepAttemptStarted",
+        "onStepCompleted", "onStepFailed", "onStepStarted",
+        "onStructuredParseFailure",
+        "onUnknownAttempt",
+        "onWorkTakenOver", "onWorkerHeartbeat", "onWorkerStarted",
+        "onWorkerStopped", "onWorkflowAbandoned",
+        "onWorkflowCompleted", "onWorkflowEvent", "onWorkflowFailed",
+        "onWorkflowStarted",
     )
 
-    /** Files that hold wrapped instances via the composition wiring. */
+    private val callbackRegex = Regex(
+        "\\.\\s*(${observerCallbackNames.joinToString("|")}|emitWorkflowEvent|emitRuntimeEvent)\\s*\\(",
+    )
+
+    private val emitterRegex = Regex(
+        "(observer|observability|engineEventObserver|request\\.observer)\\s*\\.\\s*(emitWorkflowEvent|emitRuntimeEvent)\\s*\\(",
+    )
+
+    /**
+     * Files that hold wrapped instances via the composition wiring or define
+     * the boundary itself. Adding a NEW file here requires a reviewer to
+     * confirm it only invokes callbacks on wrapped instances.
+     */
     private val allowedFiles = setOf(
+        // Boundary definitions and wrappers.
+        "tramai-core/src/main/kotlin/dev/tramai/core/observation/OperationObservation.kt",
+        "tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt",
+        "tramai-core/src/main/kotlin/dev/tramai/core/observation/secondary/SecondaryEffectPolicy.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/EngineEventObserver.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/FailureIsolatingEngineEventObserver.kt",
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowObservation.kt",
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/FailureIsolatingWorkflowObserver.kt",
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/FailureIsolatingTramaiWorkerObserver.kt",
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/RuntimeEventEmission.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/RuntimeEventEmission.kt",
         // Engine: engineEventObserver field holds the wrapped instance.
         "tramai-engine/src/main/kotlin/dev/tramai/engine/approval/ApprovalResumeCoordinator.kt",
         "tramai-engine/src/main/kotlin/dev/tramai/engine/approval/ReplayAuthorizationService.kt",
         "tramai-engine/src/main/kotlin/dev/tramai/engine/tool/ToolResultSanitizer.kt",
+        // Engine: coordinators receive the wrapped observation from the wiring.
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/budget/TokenBudgetCoordinator.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/invocation/ClaimedResumeExecutionCoordinator.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/invocation/ProviderResponseDlpSanitizer.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/invocation/RawResponseCoordinator.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/invocation/ToolLoopCoordinator.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/provider/ProviderAttemptExecutor.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/streaming/StreamingExecutionCoordinator.kt",
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/structured/StructuredResponseCoordinator.kt",
         // Orchestration: WorkflowRunner wraps the observer before passing it down.
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowRunner.kt",
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowStepExecutor.kt",
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowStepFailures.kt",
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ParallelBranchExecution.kt",
@@ -57,6 +106,9 @@ class SecondaryFailureBoundaryArchitectureTest {
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerHeartbeatPublisher.kt",
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/PersistenceFailures.kt",
         "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CheckpointPoller.kt",
+        // Scheduler: timer and store wrap both observer sources at the boundary.
+        "tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ScheduledWorkflowTimer.kt",
+        "tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/JdbcWorkflowSchedulerStore.kt",
     )
 
     @Test
@@ -64,7 +116,7 @@ class SecondaryFailureBoundaryArchitectureTest {
         val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
             .first { it.resolve("settings.gradle.kts").isFile }
         val offenders = mutableListOf<String>()
-        listOf("tramai-engine", "tramai-orchestration").forEach { module ->
+        listOf("tramai-engine", "tramai-orchestration", "tramai-scheduler").forEach { module ->
             val mainDir = File(repoRoot, "$module/src/main")
             if (!mainDir.isDirectory) return@forEach
             mainDir.walkTopDown()
@@ -72,7 +124,11 @@ class SecondaryFailureBoundaryArchitectureTest {
                 .forEach { file ->
                     val relative = file.relativeTo(repoRoot).path
                     if (relative in allowedFiles) return@forEach
-                    callbackRegex.findAll(file.readText()).forEach { match ->
+                    val text = file.readText()
+                    callbackRegex.findAll(text).forEach { match ->
+                        offenders.add("$relative -> ${match.value.trim()}")
+                    }
+                    emitterRegex.findAll(text).forEach { match ->
                         offenders.add("$relative -> ${match.value.trim()}")
                     }
                 }

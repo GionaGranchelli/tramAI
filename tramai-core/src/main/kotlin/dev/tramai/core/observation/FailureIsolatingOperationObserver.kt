@@ -1,5 +1,6 @@
 package dev.tramai.core.observation
 
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEventFailurePolicy
@@ -20,13 +21,14 @@ import kotlinx.coroutines.CancellationException
  * failure (authoritative), a `FAIL_OPEN` event is contained. The legacy
  * (name, attributes) form carries no policy metadata and is contained.
  */
+@ExperimentalTramaiInternalApi
 class FailureIsolatingOperationObserver(
     private val delegate: OperationObserver,
 ) : OperationObserver {
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         return try {
             FailureIsolatingOperationObservation(delegate.onCallStarted(context))
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (error is CancellationException) throw error
             SecondaryFailureDiagnostic.report(
                 extensionPoint = "operation_observer",
@@ -48,6 +50,7 @@ class FailureIsolatingOperationObserver(
  * "primary error stays primary, observer failure preserved" contract without
  * letting the observer failure replace the primary.
  */
+@ExperimentalTramaiInternalApi
 interface SecondaryFailureRecording {
     val lastCompletionFailure: Throwable?
 }
@@ -70,7 +73,7 @@ internal class FailureIsolatingOperationObservation(
     private inline fun <T> isolate(callback: String, block: () -> T) {
         try {
             block()
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (error is CancellationException) throw error
             SecondaryFailureDiagnostic.report(
                 extensionPoint = "operation_observation",
@@ -110,7 +113,7 @@ internal class FailureIsolatingOperationObservation(
     override fun onCallCompleted(parseSuccess: Boolean?) {
         try {
             delegate.onCallCompleted(parseSuccess)
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (error is CancellationException) throw error
             // Record the contained failure so failure-path helpers
             // (completeAfterToolProcessing) can attach it as suppressed onto

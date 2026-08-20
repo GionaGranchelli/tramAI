@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.invocation
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.approval.IdempotencyKeyUtil
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.exception.ApprovalSuspendedException
@@ -27,6 +30,10 @@ import dev.tramai.engine.tool.ToolCallBatchRequest
 import dev.tramai.engine.tool.ToolExecutionRequest
 import dev.tramai.engine.tool.ToolInvocationExecutor
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
+import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
+import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
+import dev.tramai.core.coroutines.rethrowIfCancellation
+import kotlinx.coroutines.CancellationException
 
 /**
  * Executes the post-claim approval-resume path.
@@ -230,12 +237,28 @@ internal class ClaimedResumeExecutionCoordinator(
                 message = "Nested approval not supported in v1: sibling tool ${toolCall.name} requires approval",
             )
         } catch (e: ApprovalSuspendedException) {
-            approvalLifecycleAuditEmitter.onUncertainOutcome(
-                approvalId = request.approvalId,
-                workflowRunId = request.identity.workflowRunId,
-                toolName = toolCall.name,
-                reason = "nested-approval-not-supported: sibling tool ${toolCall.name} requires approval",
-            )
+            try {
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = request.approvalId,
+                    workflowRunId = request.identity.workflowRunId,
+                    toolName = toolCall.name,
+                    reason = "nested-approval-not-supported: sibling tool ${toolCall.name} requires approval",
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (auditError: Exception) {
+                auditError.rethrowIfCancellation()
+                // Epic 5.3: audit-while-reporting-primary. The ConfigurationException
+                // below is the primary failure; an audit failure is recorded
+                // (authoritative, terminal-recorded) and never substitutes it.
+                SecondaryFailureDiagnostic.report(
+                    extensionPoint = "approval_lifecycle_audit",
+                    callback = "onUncertainOutcome",
+                    errorType = auditError.javaClass.simpleName,
+                    failurePolicy = "FAIL_CLOSED",
+                    authority = SecondaryEffectAuthority.AUTHORITATIVE.name,
+                )
+            }
             throw ConfigurationException("Nested approval not supported in v1: sibling tool ${toolCall.name} requires approval")
         }
     }

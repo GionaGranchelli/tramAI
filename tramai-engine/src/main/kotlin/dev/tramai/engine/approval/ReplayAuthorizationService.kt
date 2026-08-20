@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.approval
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.approval.*
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ConfigurationException
@@ -12,6 +15,8 @@ import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.engine.*
 import kotlinx.coroutines.CancellationException
+import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
+import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 
 private fun PolicyContextBuilder.applyApprovalSecurityContext(
     securityContext: ExecutionSecurityContext,
@@ -124,12 +129,29 @@ internal class ReplayAuthorizationService(
     ) {
         store.cancel(command.approvalId, command.continuationExpectedVersion)
         suspendedInvocationStore.remove(command.approvalId)
-        approvalLifecycleAuditEmitter.onSuspensionCancelled(
-            command.approvalId,
-            metadata.identity.workflowRunId,
-            metadata.toolName,
-            reason,
-        )
+        try {
+            approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = reason,
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Epic 5.3: post-mutation notification. Both stores have already
+            // been mutated — fail-closed is physically impossible. Record the
+            // audit failure (terminal-recorded) instead of failing the method
+            // after the transition already committed.
+            SecondaryFailureDiagnostic.report(
+                extensionPoint = "approval_lifecycle_audit",
+                callback = "onSuspensionCancelled",
+                errorType = e.javaClass.simpleName,
+                failurePolicy = "FAIL_CLOSED",
+                authority = SecondaryEffectAuthority.AUTHORITATIVE.name,
+            )
+        }
     }
 
     fun emitAuthorizationReplayed(
@@ -138,19 +160,15 @@ internal class ReplayAuthorizationService(
         metadata: SuspendedInvocationMetadata,
     ) {
         if (!replayed) return
-        try {
-            val event = RuntimeEvent.of(RuntimeEvents.APPROVAL_AUTHORIZATION_REPLAYED) {
-                set(RuntimeAttributes.APPROVAL_ID, command.approvalId)
-                set(RuntimeAttributes.WORKFLOW_RUN_ID, metadata.identity.workflowRunId)
-                set(RuntimeAttributes.TOOL_NAME, metadata.toolName)
-            }
-            engineEventObserver.onEngineEvent(event.name, event.attributes())
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            // Engine-event observer failures must not prevent resume completion.
+        // Epic 5.3: typed overload — the failure-isolating boundary honours the
+        // event's declared failure policy (FAIL_CLOSED propagates). No local
+        // catch: a FAIL_CLOSED event must NOT be swallowed at the call site.
+        val event = RuntimeEvent.of(RuntimeEvents.APPROVAL_AUTHORIZATION_REPLAYED) {
+            set(RuntimeAttributes.APPROVAL_ID, command.approvalId)
+            set(RuntimeAttributes.WORKFLOW_RUN_ID, metadata.identity.workflowRunId)
+            set(RuntimeAttributes.TOOL_NAME, metadata.toolName)
         }
+        engineEventObserver.onEngineEvent(event)
     }
 
     private fun requireApprovalGateCoordinator(): ApprovalGateCoordinator =

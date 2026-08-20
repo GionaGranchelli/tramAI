@@ -2147,6 +2147,9 @@ public final class dev/tramai/core/observation/event/RuntimeMetrics {
 	public final fun getWORKFLOW_RUNS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
 }
 
+public abstract interface annotation class dev/tramai/core/observation/secondary/ExperimentalTramaiInternalApi : java/lang/annotation/Annotation {
+}
+
 public final class dev/tramai/core/observation/secondary/SecondaryEffectAuthority : java/lang/Enum {
 	public static final field AUTHORITATIVE Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;
 	public static final field NON_AUTHORITATIVE Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;

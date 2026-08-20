@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEventFailurePolicy
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
@@ -20,6 +21,7 @@ import java.time.Instant
  * contained. The legacy (name, attributes) form carries no policy metadata and
  * is contained.
  */
+@ExperimentalTramaiInternalApi
 class FailureIsolatingWorkflowObserver(
     private val delegate: WorkflowObserver,
 ) : WorkflowObserver {
@@ -27,7 +29,7 @@ class FailureIsolatingWorkflowObserver(
     private inline fun <T> isolate(callback: String, block: () -> T) {
         try {
             block()
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (error is CancellationException) throw error
             SecondaryFailureDiagnostic.report(
                 extensionPoint = "workflow_observer",
