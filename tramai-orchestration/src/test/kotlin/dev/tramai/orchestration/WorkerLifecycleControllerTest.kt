@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
@@ -127,6 +128,69 @@ class WorkerLifecycleControllerTest {
             worker.shutdown()
             assertThat(observer.shutdownComplete).hasSize(2)
             assertThat(observer.workerStopped).hasSize(2)
+        }
+    }
+
+    @Test
+    fun `shutdown during restart registration is accepted after a completed previous lifecycle`() {
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val inner = InMemoryWorkflowLeaseStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger()
+        val registry = object : WorkflowLeaseStore by inner, WorkerRegistryStore by inner {
+            override suspend fun registerWorker(
+                workerId: String,
+                poolName: String,
+                version: String,
+                capabilityLabels: Set<String>,
+                host: String,
+            ) {
+                // Only the SECOND lifecycle (B) blocks in registration. The
+                // first (A) must pass through, or A's start() suspends the
+                // test body on a gate the body itself completes later.
+                if (registrations.incrementAndGet() == 1) {
+                    inner.registerWorker(workerId, poolName, version, capabilityLabels, host)
+                } else {
+                    entered.complete(Unit)
+                    gate.await()
+                }
+            }
+        }
+        val observer = RecordingObserver()
+        val store = InMemoryWorkflowCheckpointStore()
+        val workflow = workflow<LifecycleState>("lifecycle", definitionVersion = "v1") {
+            localStep("noop") { state, _ -> state }
+        }.build { it.value }
+        val bindings = WorkflowBindingRegistry {
+            bind(workflow, WorkflowPersistence(checkpointStore = store, stateCodec = LifecycleCodec))
+        }
+        val worker = TramaiWorker(
+            config = config,
+            leaseStore = registry,
+            checkpointStore = store,
+            checkpointCatalog = store,
+            stepAttemptStore = store,
+            workflowBindings = bindings,
+            observability = observer,
+        )
+
+        runBlocking {
+            // Lifecycle A completes fully: shutdownStarted is now true.
+            worker.start()
+            worker.shutdown()
+            assertThat(observer.shutdownComplete).hasSize(1)
+
+            // Lifecycle B blocks inside registerWorker.
+            val startedB = launch { worker.start() }
+            checkNotNull(withTimeoutOrNull(10_000) { entered.await() }) { "B never reached registerWorker" }
+
+            // Shutdown during B's registration must be accepted: the CAS was
+            // reset at the top of B's start(), not after registration.
+            checkNotNull(withTimeoutOrNull(10_000) { worker.shutdown() }) { "shutdown during registration did not complete" }
+            assertThat(observer.shutdownComplete).hasSize(2)
+
+            gate.complete(Unit)
+            checkNotNull(withTimeoutOrNull(10_000) { startedB.join() }) { "lifecycle B never finished starting" }
         }
     }
 

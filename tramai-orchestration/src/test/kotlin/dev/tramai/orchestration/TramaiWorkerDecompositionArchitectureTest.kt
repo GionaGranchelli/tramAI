@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import net.bytebuddy.jar.asm.AnnotationVisitor
 import net.bytebuddy.jar.asm.ClassReader
 import net.bytebuddy.jar.asm.ClassVisitor
 import net.bytebuddy.jar.asm.MethodVisitor
@@ -206,6 +207,27 @@ class TramaiWorkerDecompositionArchitectureTest {
             .withFailMessage(message)
             .contains(target)
     }
+
+    @Test
+    fun `worker suite has no non-void JUnit test methods`() {
+        // JUnit 5 silently skips @Test methods whose JVM signature is
+        // non-void. Kotlin expression-body tests ending in an AssertJ chain
+        // infer such signatures, so the characterization suite can silently
+        // stop executing. Guard the whole decomposition suite against it.
+        val suite = listOf(
+            "dev/tramai/orchestration/TramaiWorkerTest",
+            "dev/tramai/orchestration/WorkerLifecycleControllerTest",
+            "dev/tramai/orchestration/CheckpointPollerTest",
+            "dev/tramai/orchestration/LeaseCoordinatorTest",
+            "dev/tramai/orchestration/LeaseRenewalLoopTest",
+            "dev/tramai/orchestration/WorkflowExecutionSupervisorTest",
+            "dev/tramai/orchestration/WorkerShutdownCoordinatorTest",
+        )
+        val offenders = suite.flatMap { nonVoidTestMethodsOf(it) }
+        assertThat(offenders)
+            .withFailMessage("JUnit skips @Test methods with non-void JVM signatures; they silently never run: $offenders")
+            .isEmpty()
+    }
 }
 
 private data class WorkerMethodRef(
@@ -281,6 +303,46 @@ private fun classAndNestedRefsOf(className: String): WorkerBytecodeRefs {
     }, 0)
     val nestedCalls = nestedNames.flatMap { classMethodRefsOf(it).calls }
     return WorkerBytecodeRefs(outer.calls + nestedCalls)
+}
+
+/**
+ * Collects every @Test-annotated method whose JVM descriptor does not
+ * return void — JUnit 5 will not execute such methods.
+ */
+private fun nonVoidTestMethodsOf(className: String): List<String> {
+    val offenders = mutableListOf<String>()
+    val resource = checkNotNull(
+        TramaiWorkerDecompositionArchitectureTest::class.java
+            .getResourceAsStream("/$className.class"),
+    ) {
+        "Unable to load bytecode for $className"
+    }
+    ClassReader(resource).accept(object : ClassVisitor(Opcodes.ASM9) {
+        override fun visitMethod(
+            access: Int,
+            name: String,
+            descriptor: String,
+            signature: String?,
+            exceptions: Array<out String>?,
+        ): MethodVisitor? {
+            if (name == "<init>" || name == "<clinit>") return null
+            return object : MethodVisitor(Opcodes.ASM9) {
+                private var hasTestAnnotation = false
+
+                override fun visitAnnotation(desc: String, visible: Boolean): AnnotationVisitor? {
+                    if (desc == "Lorg/junit/jupiter/api/Test;") hasTestAnnotation = true
+                    return null
+                }
+
+                override fun visitEnd() {
+                    if (hasTestAnnotation && !descriptor.endsWith(")V")) {
+                        offenders += "$className.$name$descriptor"
+                    }
+                }
+            }
+        }
+    }, 0)
+    return offenders
 }
 
 /** Collects every method name declared on one compiled class. */

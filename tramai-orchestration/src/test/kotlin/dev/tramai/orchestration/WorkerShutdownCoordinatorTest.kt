@@ -114,7 +114,8 @@ class WorkerShutdownCoordinatorTest {
         val heartbeatJob: Job = scope.launch { delay(Long.MAX_VALUE) }
 
         fun start(hook: Thread = Thread { }) {
-            coordinator.prepareStart()
+            coordinator.prepareLifecycleStart()
+            coordinator.beginAcceptingWork()
             coordinator.onShutdownHook(hook)
             coordinator.onHeartbeatJob(heartbeatJob)
             coordinator.onPollJob(pollJob)

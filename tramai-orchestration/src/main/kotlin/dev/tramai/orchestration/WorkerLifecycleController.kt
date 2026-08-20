@@ -86,6 +86,11 @@ internal class WorkerLifecycleController(
         if (workerJob != null) {
             return
         }
+        // Reset shutdown state BEFORE creating/exposing the new root or
+        // suspending in registration (verbatim master ordering): a concurrent
+        // shutdown during registration must be accepted, never rejected by
+        // stale state from a previous completed lifecycle.
+        shutdownCoordinator.prepareLifecycleStart()
         val supervisor = SupervisorJob()
         val scope = CoroutineScope(supervisor + Dispatchers.Default)
         workerScope = scope
@@ -101,7 +106,7 @@ internal class WorkerLifecycleController(
         Runtime.getRuntime().addShutdownHook(hook)
         shutdownCoordinator.onShutdownHook(hook)
         executionSupervisor.attachScope(scope)
-        shutdownCoordinator.prepareStart()
+        shutdownCoordinator.beginAcceptingWork()
         // Order preserved verbatim from the pre-decomposition worker: heartbeat
         // launches before poll, and each resource is handed to the shutdown
         // owner immediately so a concurrent shutdown never sees a null handle

@@ -46,14 +46,22 @@ internal class WorkerShutdownCoordinator(
     fun isShuttingDownGracefully(): Boolean = shuttingDownGracefully
 
     /**
-     * Resets shutdown state and starts accepting work. Must run before the
-     * poll/heartbeat jobs are launched so their first iteration sees
-     * [isAcceptingWork] true.
+     * Resets shutdown state for a new lifecycle. Must run at the very start
+     * of start(), before the root is created or registration can suspend, so
+     * a concurrent shutdown during registration is never rejected by stale
+     * state from a previous completed lifecycle.
      */
-    fun prepareStart() {
-        acceptingWork = true
+    fun prepareLifecycleStart() {
         shuttingDownGracefully = false
         shutdownStarted.set(false)
+    }
+
+    /**
+     * Starts accepting work. Must run before the poll/heartbeat jobs are
+     * launched so their first iteration sees [isAcceptingWork] true.
+     */
+    fun beginAcceptingWork() {
+        acceptingWork = true
     }
 
     /** Registers the JVM shutdown hook immediately after it is added. */
@@ -123,6 +131,11 @@ internal class WorkerShutdownCoordinator(
         observability.onShutdownComplete(config.workerId)
         observability.onWorkerStopped(config.workerId)
         rootSupervisor.cancel()
+        // Clear transient handles of this lifecycle (master nulled pollJob and
+        // heartbeatJob too), so a shutdown during the NEXT startup can never
+        // operate on previous-generation job handles.
+        pollJob = null
+        heartbeatJob = null
         return true
     }
 }
