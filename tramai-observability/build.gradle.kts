@@ -41,13 +41,17 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     // The runtime-event-catalogue architecture test scans every module's
-    // production sources repository-wide. Declare those sources as task inputs
-    // so a literal added to ANY module re-runs the guard (otherwise Gradle
-    // marks the task up-to-date and the fail-closed scan never fires).
+    // production Kotlin sources repository-wide. Declare those files as task
+    // inputs so a literal added to ANY module re-runs the guard (otherwise
+    // Gradle marks the task up-to-date and the fail-closed scan never fires).
+    // Only .kt files are wired: whole src/main dirs also contain task OUTPUTS
+    // (e.g. tramai-dashboard's buildDashboard/npmInstall), and consuming them
+    // without dependency declarations breaks the Gradle build graph.
     rootProject.subprojects.forEach { sub ->
         val mainDir = sub.layout.projectDirectory.dir("src/main")
         if (mainDir.asFile.isDirectory) {
-            inputs.dir(mainDir)
+            inputs.files(mainDir.asFileTree.matching { include("**/*.kt") })
+                .withPathSensitivity(PathSensitivity.RELATIVE)
         }
     }
 }

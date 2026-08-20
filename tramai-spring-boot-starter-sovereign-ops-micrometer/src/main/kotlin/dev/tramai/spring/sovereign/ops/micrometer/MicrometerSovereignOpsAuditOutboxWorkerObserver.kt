@@ -48,9 +48,9 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
         val errorType = summary.failure?.errorCode ?: "none"
 
         val tags = listOf(
-            Tag.of(RuntimeAttributes.OUTBOX_WORKER_OUTCOME.name, outcome),
-            Tag.of(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name, failureAction),
-            Tag.of(RuntimeAttributes.OUTBOX_ERROR_TYPE.name, errorType),
+            Tag.of(RuntimeAttributes.OUTBOX_OUTCOME.name, outcome),
+            Tag.of(RuntimeAttributes.FAILURE_ACTION.name, failureAction),
+            Tag.of(RuntimeAttributes.ERROR_TYPE.name, errorType),
         )
 
         registry.counter(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_CYCLES.name, tags).increment()
@@ -68,8 +68,8 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
         registry.counter(
             RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_FAILURES.name,
             listOf(
-                Tag.of(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name, action),
-                Tag.of(RuntimeAttributes.OUTBOX_ERROR_TYPE.name, errorCode),
+                Tag.of(RuntimeAttributes.FAILURE_ACTION.name, action),
+                Tag.of(RuntimeAttributes.ERROR_TYPE.name, errorCode),
             ),
         ).increment()
     }
@@ -78,25 +78,25 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
         if (r.inspected > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "inspected")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "inspected")),
             ).increment(r.inspected.toDouble())
         }
         if (r.movedToPending > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "moved_to_pending")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "moved_to_pending")),
             ).increment(r.movedToPending.toDouble())
         }
         if (r.markedFailedPermanent > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "failed_permanent")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "failed_permanent")),
             ).increment(r.markedFailedPermanent.toDouble())
         }
         if (r.resolverFailures > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name, "resolver_failure")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "resolver_failure")),
             ).increment(r.resolverFailures.toDouble())
         }
     }
@@ -105,25 +105,25 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
         if (d.claimed > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "claimed")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "claimed")),
             ).increment(d.claimed.toDouble())
         }
         if (d.emitted > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "emitted")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "emitted")),
             ).increment(d.emitted.toDouble())
         }
         if (d.failedRetryable > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "failed_retryable")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "failed_retryable")),
             ).increment(d.failedRetryable.toDouble())
         }
         if (d.failedPermanent > 0) {
             registry.counter(
                 RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name,
-                listOf(Tag.of(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name, "failed_permanent")),
+                listOf(Tag.of(RuntimeAttributes.RESULT.name, "failed_permanent")),
             ).increment(d.failedPermanent.toDouble())
         }
     }

@@ -148,9 +148,17 @@ object RuntimeAttributes {
     val SCHEDULE_SCHEDULED_FIRE_AT = RuntimeAttributeKey<Long>("tramai.schedule.scheduled_fire_at_epoch_millis", Long::class)
 
     // Sovereign ops outbox worker (tag keys)
+    // Namespaced keys preserve the OpenTelemetry sovereign observer's legacy
+    // attribute names; the bare keys preserve the Micrometer observer's legacy
+    // tag names. Both contracts are catalogue-driven without renaming.
     val OUTBOX_FAILURE_ACTION = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.failure_action", String::class)
     val OUTBOX_ERROR_TYPE = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.error_type", String::class)
     val OUTBOX_WORKER_OUTCOME = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.worker.outcome", String::class)
     val OUTBOX_RECOVERY_RESULT = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.recovery.result", String::class)
     val OUTBOX_DISPATCH_RESULT = RuntimeAttributeKey<String>("tramai.sovereign.ops.outbox.dispatch.result", String::class)
+
+    // Legacy bare names for the Micrometer sovereign observer (unchanged contract).
+    val OUTBOX_OUTCOME = RuntimeAttributeKey<String>("outcome", String::class)
+    val FAILURE_ACTION = RuntimeAttributeKey<String>("failure_action", String::class)
+    val RESULT = RuntimeAttributeKey<String>("result", String::class)
 }

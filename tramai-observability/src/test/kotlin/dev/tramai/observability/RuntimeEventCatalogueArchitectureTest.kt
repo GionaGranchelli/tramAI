@@ -14,9 +14,11 @@ import java.util.jar.JarFile
  * Epic 5.2 boundary guard: runtime event identifiers, metric identifiers, and
  * attribute identifiers are owned by the runtime event catalogue
  * (dev.tramai.core.observation.event). No production source or class outside
- * that package may carry a `tramai.`-prefixed identifier literal (event name,
- * metric name, or attribute name) — unless the literal is (a) a catalogue-owned
- * identifier or (b) a declared Spring configuration-property namespace.
+ * that package may carry a `tramai.`-prefixed identifier literal — not even a
+ * literal that already exists in the catalogue (production must reference the
+ * catalogue constants), and not merely because it resembles a configuration
+ * namespace. The only sanctioned `tramai.` literals are the exact declared
+ * Spring configuration-property names ([configPropertyLiterals]).
  *
  * Two layers, both fail-closed:
  *  1. Bytecode LDC scan of the four core runtime modules (core, engine,
@@ -34,34 +36,53 @@ import java.util.jar.JarFile
 class RuntimeEventCatalogueArchitectureTest {
     private val allowedPackagePrefix = "dev/tramai/core/observation/event/"
 
-    /** Declared Spring configuration-property namespaces (not runtime protocol). */
-    private val configPropertyNamespaces = listOf(
+    /** Declared Spring configuration-property literals (exact, not prefixes).
+     *  Configuration ≠ protocol: only these exact property names may appear as
+     *  `tramai.` literals in production code. A literal merely *resembling* a
+     *  configuration namespace (e.g. `tramai.security.some_new_event`) is
+     *  treated as protocol and must reference the catalogue. */
+    private val configPropertyLiterals = setOf(
         "tramai.dashboard",
+        "tramai.dashboard.auth.required",
+        "tramai.dashboard.auth.provider",
         "tramai.mcp",
-        "tramai.default-provider",
-        "tramai.providers.",
-        "tramai.models.",
-        "tramai.security.",
-        "tramai.secrets.",
+        "tramai.providers.anthropic.apiKey",
+        "tramai.providers.local-lab-provider",
+        "tramai.providers.openai.apiKey",
+        "tramai.providers.openai.bearerToken",
+        "tramai.providers.openai-compatible.apiKey",
+        "tramai.providers.openai-compatible.bearerToken",
+        "tramai.secrets.aws-secrets-manager.accessKeyId",
+        "tramai.secrets.aws-secrets-manager.secretAccessKey",
+        "tramai.secrets.aws-secrets-manager.sessionToken",
+        "tramai.secrets.vault.token",
+        "tramai.security.classification",
         "tramai.sovereign",
-        "tramai.sovereign.persistence",
+        "tramai.sovereign.approved_resume_queue",
+        "tramai.sovereign.approved_resume_worker",
         "tramai.sovereign.ops",
-        "tramai.sovereign.ops.actuator.",
+        "tramai.sovereign.ops.actuator.approved-resume-worker-health",
+        "tramai.sovereign.ops.actuator.approved-resume-worker-metrics",
+        "tramai.sovereign.ops.actuator.worker-health",
+        "tramai.sovereign.ops.actuator.worker-status",
         "tramai.sovereign.ops.approval-gateway",
         "tramai.sovereign.ops.approved-resume-worker",
         "tramai.sovereign.ops.outbox.worker",
-        "tramai.sovereign.approved_resume_queue",
-        "tramai.sovereign.approved_resume_worker",
+        "tramai.sovereign.persistence",
     )
 
     /**
-     * Subtrees of the config namespaces that are NOT configuration: the
-     * sovereign ops outbox metric/tag subtree is runtime protocol and must
-     * reference the catalogue, never a config allowance.
+     * Fail-closed classification of a `tramai.` literal found in production
+     * source outside the catalogue package.
+     *
+     * Only exact declared configuration-property literals are allowed. A
+     * catalogue identifier (event/metric/attribute name) is an offender too:
+     * production must reference `RuntimeEvents.X` / `RuntimeMetrics.X` /
+     * `RuntimeAttributes.X`, never repeat the underlying string. Anything that
+     * merely starts with a configuration namespace is protocol, not config.
      */
-    private val configNamespaceExclusions = listOf(
-        "tramai.sovereign.ops.outbox.",
-    )
+    internal fun classifySourceLiteral(literal: String): Boolean =
+        literal in configPropertyLiterals
 
     @Test
     fun `no tramai identifier literals outside the runtime event catalogue`() {
@@ -145,14 +166,14 @@ class RuntimeEventCatalogueArchitectureTest {
 
     /**
      * Repository-wide source scan. Any `"tramai.*"` literal in a production
-     * source file outside the catalogue package is an offender unless it is a
-     * catalogue-owned identifier (events/metrics/attributes/namespaces) or a
-     * declared configuration-property namespace.
+     * source file outside the catalogue package is an offender — including a
+     * literal that equals a catalogue identifier (production must reference
+     * the catalogue constants, never repeat the string) — unless it is an
+     * exact declared configuration-property literal.
      */
     private fun sourceLiterals(): List<Triple<String, String, String>> {
         val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
             .first { it.resolve("settings.gradle.kts").isFile }
-        val catalogueIdentifiers = catalogueIdentifiers()
         val offenders = mutableListOf<Triple<String, String, String>>()
         val literalRegex = Regex("\"tramai\\.[a-zA-Z0-9_.-]*\"")
         repoRoot.listFiles()?.asSequence()
@@ -169,33 +190,11 @@ class RuntimeEventCatalogueArchitectureTest {
                         }
                         literalRegex.findAll(file.readText()).forEach { match ->
                             val literal = match.value.removeSurrounding("\"")
-                            if (catalogueIdentifiers.contains(literal)) return@forEach
-                            // Exact config-prefix literals (e.g. @ConfigurationProperties
-                            // prefix values) are configuration, not protocol.
-                            if (configPropertyNamespaces.contains(literal)) return@forEach
-                            if (configNamespaceExclusions.any { literal.startsWith(it) }) {
-                                offenders.add(Triple(module.name, relative, literal))
-                                return@forEach
-                            }
-                            if (configPropertyNamespaces.any { literal.startsWith(it) }) return@forEach
+                            if (classifySourceLiteral(literal)) return@forEach
                             offenders.add(Triple(module.name, relative, literal))
                         }
                     }
             }
         return offenders
-    }
-
-    private fun catalogueIdentifiers(): Set<String> {
-        val eventPackage = "tramai-core/src/main/kotlin/dev/tramai/core/observation/event"
-        val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
-            .first { it.resolve("settings.gradle.kts").isFile }
-        val dir = File(repoRoot, eventPackage)
-        check(dir.isDirectory) { "Catalogue package unavailable: ${dir.absolutePath}" }
-        val literalRegex = Regex("\"tramai\\.[a-zA-Z0-9_.-]*\"")
-        return dir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .flatMap { literalRegex.findAll(it.readText()) }
-            .map { it.value.removeSurrounding("\"") }
-            .toSet()
     }
 }

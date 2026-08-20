@@ -1806,6 +1806,7 @@ public final class dev/tramai/core/observation/event/RuntimeAttributes {
 	public final fun getEVENT_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getEXIT_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getEXPIRES_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getFAILURE_ACTION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getFAILURE_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getFAILURE_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getGEN_AI_REQUEST_MODEL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
@@ -1834,6 +1835,7 @@ public final class dev/tramai/core/observation/event/RuntimeAttributes {
 	public final fun getOUTBOX_DISPATCH_RESULT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getOUTBOX_ERROR_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getOUTBOX_FAILURE_ACTION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOUTBOX_OUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getOUTBOX_RECOVERY_RESULT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getOUTBOX_WORKER_OUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getOUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
@@ -1846,6 +1848,7 @@ public final class dev/tramai/core/observation/event/RuntimeAttributes {
 	public final fun getREASON_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getRESPONSE_LENGTH ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getRESPONSE_SIZE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRESULT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getRESUME_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getRETRY_ATTEMPT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
 	public final fun getRETRY_ATTEMPT_HTTP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
