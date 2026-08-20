@@ -21,7 +21,9 @@ internal class ToolInvocationExecutor(
     suspend fun execute(request: ToolExecutionRequest): ToolResult {
         val tool = request.tool
         val input = request.toolCall.argumentsJson
-        val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
+        // Attempt budget is the same for every tool; ToolRetryPolicy alone decides
+        // whether a repetition is safe (idempotent) and whether attempts remain.
+        val maxAttempts = IDEMPOTENT_TOOL_MAX_ATTEMPTS
         repeat(maxAttempts) { attemptIndex ->
             val context = ToolExecutionContext(
                 operationName = request.operation.method.name,
@@ -61,10 +63,10 @@ internal class ToolInvocationExecutor(
         throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
-        if (tool.idempotent) ToolResult.TransientFailure(e) else {
-            recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryClassified = false, e)
-            ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
-        }
+        // Failure classification is independent of repetition safety: any tool
+        // failure is transient unless it is an invalid input or cancellation.
+        // Whether the side effect may be repeated is decided by ToolRetryPolicy.
+        ToolResult.TransientFailure(e)
     }
 
     private suspend fun recordToolFailureDiagnostic(tool: ResolvedTool, code: ToolFailureCode, attempt: Int, retryClassified: Boolean, failure: Throwable) {

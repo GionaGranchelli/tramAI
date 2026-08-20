@@ -23,6 +23,21 @@ class ToolInvocationExecutorTest {
         assertThat(a).isEqualTo(ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)); assertThat(b).isEqualTo(a)
         listOf(thrown, returned).forEach { assertThat(it.events).hasSize(1); assertThat(it.events.single().code).isEqualTo(ToolFailureCode.EXECUTION_FAILED); assertThat(it.events.single().retryClassified).isFalse() }
     } }
+    @Test fun `non idempotent transient failure never executes twice despite attempt budget`() { runBlocking {
+        val calls = AtomicInteger()
+        val result = executor().execute(toolRequest(testTool { _, _ -> calls.incrementAndGet(); throw RuntimeException() }))
+        assertThat(result).isEqualTo(ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage))
+        assertThat(calls.get()).isEqualTo(1)
+    } }
+    @Test fun `failure classification is independent of repetition safety only repeat safe tools execute again`() { runBlocking {
+        val unsafeCalls = AtomicInteger(); val safeCalls = AtomicInteger()
+        val unsafe = executor().execute(toolRequest(testTool(idempotent = false) { _, _ -> unsafeCalls.incrementAndGet(); throw RuntimeException() }))
+        val safe = executor().execute(toolRequest(testTool(idempotent = true) { _, _ -> safeCalls.incrementAndGet(); throw RuntimeException() }))
+        assertThat(unsafeCalls.get()).isEqualTo(1)
+        assertThat(safeCalls.get()).isEqualTo(2)
+        assertThat(unsafe).isEqualTo(ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage))
+        assertThat(safe).isEqualTo(ToolResult.PermanentFailure(ToolFailureCode.RETRY_EXHAUSTED.defaultModelMessage))
+    } }
     @Test fun `idempotent exception retries once then succeeds`() { runBlocking { val calls = AtomicInteger(); val observer = RecordingToolObserver(); val result = executor(observer = observer).execute(toolRequest(testTool(idempotent = true) { _, _ -> if (calls.getAndIncrement() == 0) throw RuntimeException() else ToolResult.Success("ok") })); assertThat(result).isEqualTo(ToolResult.Success("ok")); assertThat(calls.get()).isEqualTo(2); assertThat(observer.events).hasSize(1); assertThat(observer.events.single().retryClassified).isTrue() } }
     @Test fun `exhausted idempotent failure records retry exhausted`() { runBlocking { val calls = AtomicInteger(); val observer = RecordingToolObserver(); val result = executor(observer = observer).execute(toolRequest(testTool(idempotent = true) { _, _ -> calls.incrementAndGet(); throw RuntimeException() })); assertThat(result).isEqualTo(ToolResult.PermanentFailure(ToolFailureCode.RETRY_EXHAUSTED.defaultModelMessage)); assertThat(calls.get()).isEqualTo(2); assertThat(observer.events.map { it.code }).containsExactly(ToolFailureCode.EXECUTION_FAILED, ToolFailureCode.EXECUTION_FAILED, ToolFailureCode.RETRY_EXHAUSTED); assertThat(observer.events.filter { it.code == ToolFailureCode.EXECUTION_FAILED }).allMatch { it.retryClassified } } }
     @Test fun `invalid input keeps safe message and no retry`() { runBlocking { val observer = RecordingToolObserver(); val result = executor(observer = observer).execute(toolRequest(testTool { _, _ -> throw ToolInvalidInputException.withSafeModelMessage("diagnostic", "safe") })); assertThat(result).isEqualTo(ToolResult.InvalidInput("safe")); assertThat(observer.events).hasSize(1); assertThat(observer.events.single().code).isEqualTo(ToolFailureCode.INVALID_INPUT) } }

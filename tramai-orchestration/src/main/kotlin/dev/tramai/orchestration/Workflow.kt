@@ -121,18 +121,18 @@ private suspend fun <S> InternalWorkflowStep<S>.replayDescriptor(
     state: S,
     context: WorkflowContext,
 ): WorkflowStepReplayDescriptor = when (this) {
-    is LocalWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
+    is LocalWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
     is AiWorkflowStep<S, *, *> -> replayDescriptor(state, context)
     is HttpWorkflowStep<S> -> replayDescriptor(state, context)
-    is ShellWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
-    is HermesWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
-    is CodexWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
-    is McpWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
-    is PluginWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
-    is GateWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
-    is DelayWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
-    is BranchWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
-    is ParallelWorkflowStep<S, *, *> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is ShellWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+    is HermesWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+    is CodexWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+    is McpWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+    is PluginWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.NON_REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+    is GateWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+    is DelayWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+    is BranchWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+    is ParallelWorkflowStep<S, *, *> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
 }
 
 private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
@@ -147,7 +147,7 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
         "OPTIONS",
         "PUT", // idempotent per HTTP; replay safety still assumes no extra side effects on repeat
         "DELETE",
-        -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
+        -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.IDEMPOTENT)
 
         "POST",
         "PATCH",
@@ -156,16 +156,17 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
                 name.equals("Idempotency-Key", ignoreCase = true)
             }?.value
             if (idempotencyKey.isNullOrBlank()) {
-                WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+                WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
             } else {
                 WorkflowStepReplayDescriptor(
-                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    replayability = WorkflowStepReplayability.REPLAYABLE,
+                    repetitionSafety = WorkflowStepRepetitionSafety.EXTERNALLY_IDEMPOTENT,
                     idempotencyKey = idempotencyKey,
                 )
             }
         }
 
-        else -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+        else -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
     }
 }
 

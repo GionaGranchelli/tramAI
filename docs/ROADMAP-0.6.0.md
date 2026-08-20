@@ -866,8 +866,6 @@ internal sealed interface InternalWorkflowStep<S> {
 
 **Goal:** Model three independent dimensions correctly.
 
-### Required concepts
-
 - **Idempotency:** Is repeating the side effect safe?
 - **Retryability:** Is the failure likely to succeed if attempted again?
 - **Replayability:** Can the workflow step be reconstructed and replayed after interruption?
@@ -886,6 +884,16 @@ internal sealed interface InternalWorkflowStep<S> {
 - No code infers retryability solely from idempotency.
 - No code infers replayability solely from idempotency.
 - Failure types expose stable safe reason codes.
+
+### Completion (#253)
+
+- ✅ **Tool retryability ≠ idempotency (structural):** `ToolInvocationExecutor` classifies every generic tool failure as `TransientFailure` regardless of `tool.idempotent`; the attempt budget is uniform; `ToolRetryPolicy` alone decides Retry vs Stop from `retryable × repeat-safe × attempts-remaining`. `TramaiTool.idempotent` KDoc now declares repetition safety only.
+- ✅ **Provider retryability remains failure-derived:** `ProviderRetryDecision`/`ProviderRetryPolicy` retained; retryability comes from `TimeoutException`/`ProviderException.retryable` (no redesign).
+- ✅ **Workflow replay model is two-dimensional:** `WorkflowStepReplayDescriptor` = `WorkflowStepReplayability` × `WorkflowStepRepetitionSafety` × idempotency key. Steps reclassified (shell/hermes/codex/mcp/parallel = REPLAYABLE+UNSAFE; plugin = NON_REPLAYABLE+UNSAFE; HTTP POST/PATCH without key = REPLAYABLE+UNSAFE).
+- ✅ **One decision owner:** `WorkflowReplayDecisionPolicy` (pure, typed `Replay`/`RequireRecovery(reason)`); `WorkflowRecoveryCoordinator` owns only state transitions/persistence; recovery controller and execution supervisor consume the descriptor.
+- ✅ **Persistence compatibility preserved:** legacy `ReplayPolicy` remains schema-v1 wire format, confined to the codec/JDBC boundary + retained public aiStep DSL overloads (architecture-guarded); `REPLAYABLE+UNSAFE → NON_REPLAYABLE`, legacy `NON_REPLAYABLE → NON_REPLAYABLE+UNSAFE`. Zero checkpoint/attempt-schema change, existing records readable.
+- ✅ **Tests:** full 11-case decision matrix (incl. the two killer rows: replayable+unsafe → manual recovery; non-replayable+idempotent → manual recovery), tool retry matrix, non-idempotent-never-executes-twice executor test, ReplayPolicy boundary arch test — all mutation-verified both directions.
+- ✅ **Regression surface:** recovery contract, durable file/JDBC recovery, worker takeover (incl. the two HTTP replay tests), supervisor, codec, and store-contract suites all green; existing #215–#218 semantics unchanged.
 
 ---
 

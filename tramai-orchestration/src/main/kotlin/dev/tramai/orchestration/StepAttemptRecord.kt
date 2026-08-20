@@ -151,8 +151,38 @@ class NonReplayableStepStateUnknownException(
     },
 )
 
+/**
+ * Can the workflow step be reconstructed and replayed after interruption?
+ * Independent of [WorkflowStepRepetitionSafety]: a reconstructable step is
+ * not necessarily safe to repeat.
+ */
+internal enum class WorkflowStepReplayability {
+    REPLAYABLE,
+    NON_REPLAYABLE,
+}
+
+/**
+ * Is repeating the step's side effect safe? Independent of
+ * [WorkflowStepReplayability]: a repeat-safe step is not necessarily
+ * reconstructable, and a reconstructable step is not necessarily repeat-safe.
+ */
+internal enum class WorkflowStepRepetitionSafety {
+    PURE,
+    IDEMPOTENT,
+    EXTERNALLY_IDEMPOTENT,
+    UNSAFE,
+}
+
+/**
+ * Two-dimensional runtime replay model: replayability and repetition safety
+ * are separate facts, plus the optional stable idempotency key required for
+ * externally-idempotent replay. The legacy single-axis [ReplayPolicy] is a
+ * persistence-compatibility encoding of this model (see
+ * [ReplayPolicyCompatibility]).
+ */
 internal data class WorkflowStepReplayDescriptor(
-    val replayPolicy: ReplayPolicy,
+    val replayability: WorkflowStepReplayability,
+    val repetitionSafety: WorkflowStepRepetitionSafety,
     val idempotencyKey: String? = null,
 )
 
