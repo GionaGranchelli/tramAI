@@ -52,7 +52,7 @@ data class FindingIdentity(
 
     companion object {
         fun fromCancellationCatch(f: CancellationCatchFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
+            val modulePath = if (f.module.startsWith(":")) f.module else ":${f.module}"
             return FindingIdentity(
                 category = FindingCategory.CANCELLATION_CATCH,
                 modulePath = modulePath,
@@ -64,7 +64,7 @@ data class FindingIdentity(
         }
 
         fun fromGlobalState(f: GlobalStateFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
+            val modulePath = if (f.module.startsWith(":")) f.module else ":${f.module}"
             return FindingIdentity(
                 category = FindingCategory.GLOBAL_STATE,
                 modulePath = modulePath,
@@ -76,7 +76,7 @@ data class FindingIdentity(
         }
 
         fun fromNondeterminism(f: NondeterminismFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
+            val modulePath = if (f.module.startsWith(":")) f.module else ":${f.module}"
             return FindingIdentity(
                 category = FindingCategory.NONDETERMINISM,
                 modulePath = modulePath,
