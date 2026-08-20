@@ -325,7 +325,7 @@ val lookupTool = object : ResolvedTool {
     override val name = "lookup"
     override val description = "Looks up a tenant by ID"
     override val inputSchemaJson = """{"type":"object","properties":{"id":{"type":"string"}}}"""
-    override val idempotent = true     // allows retry on transient failure
+    override val idempotent = true     // repeating execution with the same logical input is safe (enables retry on transient failure)
     override val sideEffectLevel = SideEffectLevel.READ_ONLY
 
     override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
@@ -651,6 +651,7 @@ Constants: `INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50`, `MAX_PROVIDER_RETRY_DELAY
 **Tool retries:**
 - Idempotent tools (`idempotent = true`) are retried once on `TransientFailure`
 - Non-idempotent tools are never retried
+- `idempotent` declares repetition safety only; failure classification is independent — a non-idempotent tool's failure is still transient, it just never executes twice
 - Maximum tool-call loops per operation: **5** (guard against infinite tool loops)
 
 #### Error model

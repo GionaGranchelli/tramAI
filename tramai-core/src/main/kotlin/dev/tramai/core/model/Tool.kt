@@ -38,7 +38,7 @@ interface TramaiTool<I : Any, O : Any> {
     val description: String
     /** Input type used for schema generation and deserialization. */
     val inputType: KClass<I>
-    /** Whether the tool is safe to retry on transient failure. */
+    /** Whether repeating execution of this tool with the same logical input is safe. Repetition safety, not failure retryability: a non-idempotent tool may still fail transiently, but its side effects must not be repeated blindly. */
     val idempotent: Boolean get() = false
     /** Degree of side effects produced by the tool. */
     val sideEffectLevel: SideEffectLevel get() = SideEffectLevel.UNKNOWN

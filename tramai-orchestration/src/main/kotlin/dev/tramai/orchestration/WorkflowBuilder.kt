@@ -419,7 +419,7 @@ private fun validateAiReplayPolicy(
 private fun <S> fixedAiReplayDescriptor(
     replayPolicy: ReplayPolicy,
 ): (S, WorkflowContext) -> WorkflowStepReplayDescriptor = { _, _ ->
-    WorkflowStepReplayDescriptor(replayPolicy)
+    aiReplayDescriptorFrom(replayPolicy, null)
 }
 
 private fun <S> aiReplayDescriptor(
@@ -438,10 +438,33 @@ private fun <S> aiReplayDescriptor(
     } else {
         null
     }
-    WorkflowStepReplayDescriptor(
-        replayPolicy = replayPolicy,
-        idempotencyKey = resolvedIdempotencyKey,
+    aiReplayDescriptorFrom(replayPolicy, resolvedIdempotencyKey)
+}
+
+/**
+ * Legacy aiStep overloads still surface [ReplayPolicy]; map it immediately into
+ * the two-dimensional model. AI steps are reconstructable; the legacy policy
+ * distinguishes only repetition safety (NON_REPLAYABLE historically meant
+ * "unsafe to repeat", not "cannot reconstruct").
+ */
+private fun aiReplayDescriptorFrom(
+    replayPolicy: ReplayPolicy,
+    idempotencyKey: String?,
+): WorkflowStepReplayDescriptor = when (replayPolicy) {
+    ReplayPolicy.IDEMPOTENT -> WorkflowStepReplayDescriptor(
+        WorkflowStepReplayability.REPLAYABLE,
+        WorkflowStepRepetitionSafety.IDEMPOTENT,
     )
+    ReplayPolicy.EXTERNALLY_IDEMPOTENT -> WorkflowStepReplayDescriptor(
+        WorkflowStepReplayability.REPLAYABLE,
+        WorkflowStepRepetitionSafety.EXTERNALLY_IDEMPOTENT,
+        idempotencyKey = idempotencyKey,
+    )
+    ReplayPolicy.NON_REPLAYABLE -> WorkflowStepReplayDescriptor(
+        WorkflowStepReplayability.REPLAYABLE,
+        WorkflowStepRepetitionSafety.UNSAFE,
+    )
+    ReplayPolicy.PURE -> error("ReplayPolicy.PURE is rejected for ai steps by validateAiReplayPolicy")
 }
 
 private fun <S> validateWorkflowDefinition(

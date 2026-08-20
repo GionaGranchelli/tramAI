@@ -248,7 +248,9 @@ class InMemoryWorkflowRecoveryController(
                 "Cannot retry workflow '$workflowName'/'$workflowId': attempt '${attempt.attemptId}' is ${attempt.status}, not UNKNOWN",
             )
         }
-        if (attempt.replayPolicy == ReplayPolicy.EXTERNALLY_IDEMPOTENT && approvedIdempotencyKey.isNullOrBlank()) {
+        if (attempt.replayDescriptor.repetitionSafety == WorkflowStepRepetitionSafety.EXTERNALLY_IDEMPOTENT &&
+            approvedIdempotencyKey.isNullOrBlank()
+        ) {
             throw WorkflowRecoveryStateException(
                 "Cannot retry workflow '$workflowName'/'$workflowId': externally idempotent attempt '${attempt.attemptId}' requires a non-blank operator-approved idempotency key",
             )

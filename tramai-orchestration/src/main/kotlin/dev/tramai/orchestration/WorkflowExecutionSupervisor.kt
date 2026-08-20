@@ -359,7 +359,11 @@ internal class ExecutionTracker(
             if (preparedStepName != stepName) {
                 return
             }
-            descriptor = preparedReplayDescriptor ?: WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+            descriptor = preparedReplayDescriptor
+                ?: WorkflowStepReplayDescriptor(
+                    WorkflowStepReplayability.NON_REPLAYABLE,
+                    WorkflowStepRepetitionSafety.UNSAFE,
+                )
             fingerprint = inputFingerprint
         }
         val attempt = StepAttemptRecord(
@@ -371,7 +375,7 @@ internal class ExecutionTracker(
             status = StepAttemptStatus.STARTED,
             startedAt = System.currentTimeMillis(),
             idempotencyKey = descriptor.idempotencyKey,
-            replayPolicy = descriptor.replayPolicy,
+            replayPolicy = descriptor.toPersistedReplayPolicy(),
             inputFingerprint = fingerprint,
         )
         stepAttemptStore.recordStepAttempt(attempt)

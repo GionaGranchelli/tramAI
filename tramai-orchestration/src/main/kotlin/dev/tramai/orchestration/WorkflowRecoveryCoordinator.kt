@@ -15,6 +15,7 @@ package dev.tramai.orchestration
 internal class WorkflowRecoveryCoordinator(
     private val leaseStore: WorkflowLeaseStore,
     private val stepAttemptStore: StepAttemptRecordStore,
+    private val replayDecisionPolicy: WorkflowReplayDecisionPolicy = WorkflowReplayDecisionPolicy(),
 ) {
     suspend fun recoverUnknownAttempt(
         checkpoint: WorkflowCheckpoint,
@@ -22,8 +23,17 @@ internal class WorkflowRecoveryCoordinator(
         fencedCheckpointStore: WorkflowCheckpointStore,
         unknownAttempt: StepAttemptRecord,
     ) {
-        when (unknownAttempt.replayPolicy) {
-                ReplayPolicy.NON_REPLAYABLE -> {
+        // The semantic decision is delegated to the pure policy; this
+        // coordinator owns only state transitions and durable records.
+        when (val decision = replayDecisionPolicy.decide(
+            descriptor = unknownAttempt.replayDescriptor,
+            storedIdempotencyKey = unknownAttempt.idempotencyKey,
+            currentIdempotencyKey = tracker.currentStepReplayDescriptor()?.idempotencyKey,
+        )) {
+            WorkflowReplayDecision.Replay -> Unit
+
+            is WorkflowReplayDecision.RequireRecovery -> when (decision.reason) {
+                WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN -> {
                     fencedCheckpointStore.requireRecovery(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
@@ -45,57 +55,53 @@ internal class WorkflowRecoveryCoordinator(
                     )
                 }
 
-                ReplayPolicy.EXTERNALLY_IDEMPOTENT -> {
-                    val storedKey = unknownAttempt.idempotencyKey
-                    if (storedKey.isNullOrBlank()) {
-                        fencedCheckpointStore.requireRecovery(
-                            workflowName = checkpoint.workflowName,
-                            workflowId = checkpoint.workflowId,
-                            expectedRevision = checkpoint.revision,
-                            record = WorkflowRecoveryRecord(
-                                reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
-                                stepName = unknownAttempt.stepName,
-                                attemptId = unknownAttempt.attemptId,
-                                priorWorkerId = unknownAttempt.workerId,
-                                detectedAtEpochMillis = unknownAttempt.startedAt,
-                            ),
-                        )
-                        throw NonReplayableStepStateUnknownException(
-                            runId = unknownAttempt.runId,
+                WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING -> {
+                    fencedCheckpointStore.requireRecovery(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        expectedRevision = checkpoint.revision,
+                        record = WorkflowRecoveryRecord(
+                            reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                             stepName = unknownAttempt.stepName,
+                            attemptId = unknownAttempt.attemptId,
                             priorWorkerId = unknownAttempt.workerId,
-                            attemptTime = unknownAttempt.startedAt,
-                            recoveryInstructions = "The prior attempt requires a stable idempotency key for replay, but no key was recorded. Investigate the external system before resuming.",
-                        )
-                    }
-                    val currentKey = tracker.currentStepReplayDescriptor()?.idempotencyKey
-                    if (currentKey != storedKey) {
-                        fencedCheckpointStore.requireRecovery(
-                            workflowName = checkpoint.workflowName,
-                            workflowId = checkpoint.workflowId,
-                            expectedRevision = checkpoint.revision,
-                            record = WorkflowRecoveryRecord(
-                                reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
-                                stepName = unknownAttempt.stepName,
-                                attemptId = unknownAttempt.attemptId,
-                                priorWorkerId = unknownAttempt.workerId,
-                                detectedAtEpochMillis = unknownAttempt.startedAt,
-                                idempotencyKey = storedKey,
-                            ),
-                        )
-                        throw NonReplayableStepStateUnknownException(
-                            runId = unknownAttempt.runId,
-                            stepName = unknownAttempt.stepName,
-                            priorWorkerId = unknownAttempt.workerId,
-                            attemptTime = unknownAttempt.startedAt,
-                            recoveryInstructions = "The idempotency key computed for the current workflow definition (${currentKey ?: "<none>"}) differs from the key recorded by the prior attempt ($storedKey). Resolve the mismatch before resuming.",
-                        )
-                    }
+                            detectedAtEpochMillis = unknownAttempt.startedAt,
+                        ),
+                    )
+                    throw NonReplayableStepStateUnknownException(
+                        runId = unknownAttempt.runId,
+                        stepName = unknownAttempt.stepName,
+                        priorWorkerId = unknownAttempt.workerId,
+                        attemptTime = unknownAttempt.startedAt,
+                        recoveryInstructions = "The prior attempt requires a stable idempotency key for replay, but no key was recorded. Investigate the external system before resuming.",
+                    )
                 }
 
-                ReplayPolicy.PURE,
-                ReplayPolicy.IDEMPOTENT,
-                -> Unit
+                WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH -> {
+                    val storedKey = unknownAttempt.idempotencyKey
+                    val currentKey = tracker.currentStepReplayDescriptor()?.idempotencyKey
+                    fencedCheckpointStore.requireRecovery(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        expectedRevision = checkpoint.revision,
+                        record = WorkflowRecoveryRecord(
+                            reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
+                            stepName = unknownAttempt.stepName,
+                            attemptId = unknownAttempt.attemptId,
+                            priorWorkerId = unknownAttempt.workerId,
+                            detectedAtEpochMillis = unknownAttempt.startedAt,
+                            idempotencyKey = storedKey,
+                        ),
+                    )
+                    throw NonReplayableStepStateUnknownException(
+                        runId = unknownAttempt.runId,
+                        stepName = unknownAttempt.stepName,
+                        priorWorkerId = unknownAttempt.workerId,
+                        attemptTime = unknownAttempt.startedAt,
+                        recoveryInstructions = "The idempotency key computed for the current workflow definition (${currentKey ?: "<none>"}) differs from the key recorded by the prior attempt ($storedKey). Resolve the mismatch before resuming.",
+                    )
+                }
+            }
         }
     }
 
@@ -116,9 +122,11 @@ internal class WorkflowRecoveryCoordinator(
                 "Workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' lease was lost before retry-approval consumption",
             )
         }
-        when (attempt.replayPolicy) {
-            ReplayPolicy.NON_REPLAYABLE -> tracker.consumeRetryApproval(attempt)
-            ReplayPolicy.EXTERNALLY_IDEMPOTENT -> {
+        when {
+            attempt.replayDescriptor.replayability == WorkflowStepReplayability.NON_REPLAYABLE ->
+                tracker.consumeRetryApproval(attempt)
+
+            attempt.replayDescriptor.repetitionSafety == WorkflowStepRepetitionSafety.EXTERNALLY_IDEMPOTENT -> {
                 val approvedKey = attempt.approvedIdempotencyKey
                 val currentKey = tracker.currentStepReplayDescriptor()?.idempotencyKey
                 if (approvedKey.isNullOrBlank() || currentKey != approvedKey) {
@@ -166,10 +174,10 @@ internal class WorkflowRecoveryCoordinator(
                 }
                 tracker.consumeRetryApproval(attempt)
             }
-            ReplayPolicy.PURE,
-            ReplayPolicy.IDEMPOTENT,
-            -> throw WorkflowRecoveryStateException(
-                "Retry approval on attempt '${attempt.attemptId}' has unsupported replay policy ${attempt.replayPolicy}",
+
+            else -> throw WorkflowRecoveryStateException(
+                "Retry approval on attempt '${attempt.attemptId}' has unsupported replay semantics " +
+                    "(${attempt.replayDescriptor.replayability} + ${attempt.replayDescriptor.repetitionSafety})",
             )
         }
     }

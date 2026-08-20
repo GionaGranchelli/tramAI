@@ -733,16 +733,26 @@ The `TramaiWorker` uses an internal `WorkerExecutionObserver` (implements `Workf
 
 #### 6. Step replay policy
 
-Every step type declares its replay behavior via `WorkflowStepReplayDescriptor`:
+Every step type declares its replay behavior via `WorkflowStepReplayDescriptor`, a two-dimensional model (Epic 5.1):
 
-| ReplayPolicy | Meaning | Applied to |
-|-------------|---------|------------|
-| `PURE` | No side effects; safe to re-execute | `LocalWorkflowStep`, `GateWorkflowStep`, `DelayWorkflowStep`, `BranchWorkflowStep` |
-| `IDEMPOTENT` | Side effects are safe to repeat | `AiWorkflowStep`, HTTP GET/HEAD/OPTIONS/PUT/DELETE |
-| `EXTERNALLY_IDEMPOTENT` | Safe with an idempotency key | HTTP POST/PATCH with `Idempotency-Key` header |
-| `NON_REPLAYABLE` | Cannot safely re-execute after interruption | `ShellWorkflowStep`, `HermesWorkflowStep`, `CodexWorkflowStep`, `McpWorkflowStep`, `PluginWorkflowStep`, `ParallelWorkflowStep` |
+- **Replayability** (`WorkflowStepReplayability`): can the step be reconstructed and replayed after interruption?
+- **Repetition safety** (`WorkflowStepRepetitionSafety`): is repeating the step's side effect safe?
 
-When `TramaiWorker` acquires a checkpoint with a `NON_REPLAYABLE` step in `STARTED` or `UNKNOWN` status, it throws `NonReplayableStepStateUnknownException`, forcing operator intervention.
+These dimensions are independent. Automatic replay after an unknown outcome requires BOTH: the step is reconstructable AND repeating it is safe (pure or idempotent, or externally idempotent with a stable recorded key matching the current definition). A reconstructable-but-unsafe step still requires manual recovery — reconstruction does not imply permission to re-execute; idempotency does not make a non-reconstructable step reconstructable.
+
+Built-in mappings:
+
+| Replayability | Repetition safety | Applied to |
+|---------------|-------------------|------------|
+| REPLAYABLE | PURE | `LocalWorkflowStep`, `GateWorkflowStep`, `DelayWorkflowStep`, `BranchWorkflowStep` |
+| REPLAYABLE | IDEMPOTENT | `AiWorkflowStep` (legacy `IDEMPOTENT`), HTTP GET/HEAD/OPTIONS/PUT/DELETE |
+| REPLAYABLE | EXTERNALLY_IDEMPOTENT | HTTP POST/PATCH with `Idempotency-Key` header, aiStep with legacy `EXTERNALLY_IDEMPOTENT` + key |
+| REPLAYABLE | UNSAFE | `ShellWorkflowStep`, `HermesWorkflowStep`, `CodexWorkflowStep`, `McpWorkflowStep`, `ParallelWorkflowStep`, aiStep with legacy `NON_REPLAYABLE`, HTTP POST/PATCH without key |
+| NON_REPLAYABLE | UNSAFE | `PluginWorkflowStep` |
+
+The legacy `ReplayPolicy` enum remains only as the persistence-compatibility encoding of this model (step-attempt schema version 1, fingerprinted): `REPLAYABLE + UNSAFE` persists as `NON_REPLAYABLE`, and a persisted `NON_REPLAYABLE` decodes as `NON_REPLAYABLE + UNSAFE`. Architecture-guarded: business logic must not switch on `ReplayPolicy` directly.
+
+When `TramaiWorker` acquires a checkpoint whose step requires recovery (non-replayable, replayable-but-unsafe, or externally idempotent with missing/mismatched key), it throws `NonReplayableStepStateUnknownException`, forcing operator intervention.
 
 #### 7. Definition compatibility digest
 
