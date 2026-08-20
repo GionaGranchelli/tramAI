@@ -126,7 +126,12 @@ class ReplayPolicyBoundaryArchitectureTest {
                     }
 
                     override fun visitFieldInsn(opcode: Int, owner: String, name: String, descriptor: String) {
-                        if (owner == replayPolicyInternalName) references = true
+                        // owner catches direct enum access; descriptor catches type flow such as
+                        // GETFIELD StepAttemptRecord.replayPolicy (owner is StepAttemptRecord,
+                        // the value type is ReplayPolicy).
+                        if (owner == replayPolicyInternalName || descriptor.contains(replayPolicyInternalName)) {
+                            references = true
+                        }
                     }
 
                     override fun visitMethodInsn(
@@ -136,7 +141,18 @@ class ReplayPolicyBoundaryArchitectureTest {
                         descriptor: String,
                         isInterface: Boolean,
                     ) {
-                        if (owner == replayPolicyInternalName) references = true
+                        // owner catches static/synthetic enum access; descriptor catches type flow
+                        // such as INVOKEVIRTUAL StepAttemptRecord.getReplayPolicy ()L.../ReplayPolicy;
+                        // or passing the value into a sink: INVOKESTATIC sink (Ljava/lang/Object;)V.
+                        // The record's own construction/copy signatures and the compatibility
+                        // encoder necessarily carry the persisted type; they are the sanctioned
+                        // boundary, not semantic consumption.
+                        val sanctionedPlumbing =
+                            (owner == "dev/tramai/orchestration/StepAttemptRecord" && (name == "<init>" || name == "copy\$default")) ||
+                                owner == "dev/tramai/orchestration/ReplayPolicyCompatibilityKt"
+                        if (owner == replayPolicyInternalName || (descriptor.contains(replayPolicyInternalName) && !sanctionedPlumbing)) {
+                            references = true
+                        }
                     }
 
                     override fun visitLdcInsn(value: Any?) {
