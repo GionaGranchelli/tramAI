@@ -148,7 +148,6 @@ class TramaiWorkerTest {
         }
     }
 
-    @Disabled("Pre-existing: fails identically on master 5267fdbe (TimeoutCancellationException — idempotent HTTP-step takeover never re-executes). Was never discovered by the Gradle gate until #251 fixed the non-void @Test signatures. Tracked for a follow-up HTTP-step recovery PR.")
     @Test
     fun `worker takeover re executes idempotent http put step after crash`(): Unit = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
@@ -161,6 +160,7 @@ class TramaiWorkerTest {
             exchange.respondText(200, "updated")
         }.use { server ->
             val workflow = workerWorkflow("idempotent-put") {
+                outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
                 httpStep(
                     name = "update",
                     config = workerHttpConfig(),
@@ -198,7 +198,6 @@ class TramaiWorkerTest {
         }
     }
 
-    @Disabled("Pre-existing: fails identically on master 5267fdbe (TimeoutCancellationException — idempotent HTTP-step takeover never re-executes). Was never discovered by the Gradle gate until #251 fixed the non-void @Test signatures. Tracked for a follow-up HTTP-step recovery PR.")
     @Test
     fun `worker takeover re executes externally idempotent http post step with stable key`(): Unit = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
@@ -211,6 +210,7 @@ class TramaiWorkerTest {
             exchange.respondText(201, "created")
         }.use { server ->
             val workflow = workerWorkflow("external-idempotent-post") {
+                outboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(allowPrivateDestinations = true)
                 httpStep(
                     name = "create",
                     config = workerHttpConfig(),
