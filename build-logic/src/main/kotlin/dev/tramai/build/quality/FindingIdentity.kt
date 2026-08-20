@@ -52,10 +52,9 @@ data class FindingIdentity(
 
     companion object {
         fun fromCancellationCatch(f: CancellationCatchFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
             return FindingIdentity(
                 category = FindingCategory.CANCELLATION_CATCH,
-                modulePath = modulePath,
+                modulePath = normalizeModulePath(f.module),
                 repositoryPath = normalizePath(f.file),
                 declaration = f.function.ifBlank { null },
                 discriminator = f.catchType,
@@ -64,10 +63,9 @@ data class FindingIdentity(
         }
 
         fun fromGlobalState(f: GlobalStateFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
             return FindingIdentity(
                 category = FindingCategory.GLOBAL_STATE,
-                modulePath = modulePath,
+                modulePath = normalizeModulePath(f.module),
                 repositoryPath = normalizePath(f.file),
                 declaration = f.declaration.ifBlank { null },
                 discriminator = f.kind,
@@ -76,10 +74,9 @@ data class FindingIdentity(
         }
 
         fun fromNondeterminism(f: NondeterminismFinding, occurrence: Int? = null): FindingIdentity {
-            val modulePath = if (f.module.startsWith(":")) f.module else ":$f.module"
             return FindingIdentity(
                 category = FindingCategory.NONDETERMINISM,
-                modulePath = modulePath,
+                modulePath = normalizeModulePath(f.module),
                 repositoryPath = normalizePath(f.file),
                 declaration = f.source,
                 discriminator = f.category + "::" + f.source,
@@ -88,16 +85,19 @@ data class FindingIdentity(
         }
 
         fun fromStructuralHotspot(h: StructuralHotspot): FindingIdentity {
-            val modulePath = if (h.module.startsWith(":")) h.module else ":$h.module"
             return FindingIdentity(
                 category = FindingCategory.STRUCTURAL_HOTSPOT,
-                modulePath = modulePath,
+                modulePath = normalizeModulePath(h.module),
                 repositoryPath = normalizePath(h.path),
                 declaration = h.declaration.ifBlank { null },
                 discriminator = h.metric,
                 occurrence = null
             )
         }
+
+        /** Normalize a module path to canonical Gradle format (leading ':'). */
+        private fun normalizeModulePath(module: String): String =
+            if (module.startsWith(":")) module else ":$module"
 
         /** Normalize a source path to use consistent separators and remove redundant prefixes. */
         private fun normalizePath(path: String): String =
