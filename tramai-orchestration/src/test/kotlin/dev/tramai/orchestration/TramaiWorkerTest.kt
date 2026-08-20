@@ -20,7 +20,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.measureTimeMillis
 import kotlin.test.Test
-import org.junit.jupiter.api.Disabled
 
 class TramaiWorkerTest {
     @Test
