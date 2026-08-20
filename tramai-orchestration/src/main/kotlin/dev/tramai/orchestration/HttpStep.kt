@@ -1,5 +1,8 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -159,13 +162,12 @@ internal data class HttpWorkflowStep<S>(
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             val code = WorkflowStepFailureCode.VALIDATION_FAILED
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "tramai.workflow.http.request.validation.failed",
-                attributes = mapOf(
-                    "step_name" to name,
-                    "failure_code" to code.value,
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_VALIDATION_FAILED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.FAILURE_CODE, code.value)
+                },
                 context = context,
             )
             throw failure(workflowName, error, code, 1, false, failureDiagnosticObserver)
@@ -175,25 +177,23 @@ internal data class HttpWorkflowStep<S>(
             policy.validateTarget(canonicalRequest.target)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "tramai.workflow.http.request.policy.rejected",
-                attributes = mapOf(
-                    "step_name" to name,
-                    "failure_code" to WorkflowStepFailureCode.POLICY_REJECTED.value,
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_POLICY_REJECTED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.FAILURE_CODE, WorkflowStepFailureCode.POLICY_REJECTED.value)
+                },
                 context = context,
             )
             throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, 1, false, failureDiagnosticObserver)
         }
 
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.http.request.started",
-            attributes = mapOf(
-                "step_name" to name,
-                "http_method" to method,
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_STARTED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.HTTP_METHOD, method)
+            },
             context = context,
         )
 
@@ -227,42 +227,39 @@ internal data class HttpWorkflowStep<S>(
                     else -> WorkflowStepFailureCode.TRANSPORT_FAILED
                 }
                 if (code == WorkflowStepFailureCode.POLICY_REJECTED) {
-                    observer.onWorkflowEvent(
+                    observer.emitWorkflowEvent(
                         workflowName = workflowName,
-                        name = "tramai.workflow.http.request.policy.rejected",
-                        attributes = mapOf(
-                            "step_name" to name,
-                            "failure_code" to code.value,
-                        ),
+                        event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_POLICY_REJECTED) {
+                            set(RuntimeAttributes.STEP_NAME, name)
+                            set(RuntimeAttributes.FAILURE_CODE, code.value)
+                        },
                         context = context,
                     )
                 }
                 throw failure(workflowName, error, code, attemptNumber, false, failureDiagnosticObserver)
             }
 
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "tramai.workflow.http.request.completed",
-                attributes = mapOf(
-                    "step_name" to name,
-                    "http_method" to method,
-                    "status_code" to response.status,
-                    "response_size_bytes" to response.responseSizeBytes,
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_COMPLETED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.HTTP_METHOD, method)
+                    set(RuntimeAttributes.STATUS_CODE, response.status.toLong())
+                    set(RuntimeAttributes.RESPONSE_SIZE_BYTES, response.responseSizeBytes)
+                },
                 context = context,
             )
             if (response.status in config.retryOnStatus && retryAttempt < config.maxRetries) {
                 val nextDelayMillis = jitteredDelayMillis(retryAttempt)
-                observer.onWorkflowEvent(
+                observer.emitWorkflowEvent(
                     workflowName = workflowName,
-                    name = "tramai.workflow.http.request.retrying",
-                    attributes = mapOf(
-                        "step_name" to name,
-                        "http_method" to method,
-                        "status_code" to response.status,
-                        "retry_attempt" to (retryAttempt + 1),
-                        "next_delay_ms" to nextDelayMillis,
-                    ),
+                    event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_RETRYING) {
+                        set(RuntimeAttributes.STEP_NAME, name)
+                        set(RuntimeAttributes.HTTP_METHOD, method)
+                        set(RuntimeAttributes.STATUS_CODE, response.status.toLong())
+                        set(RuntimeAttributes.RETRY_ATTEMPT_HTTP, (retryAttempt + 1).toLong())
+                        set(RuntimeAttributes.NEXT_DELAY_MS, nextDelayMillis)
+                    },
                     context = context,
                 )
                 delay(nextDelayMillis)
@@ -340,16 +337,15 @@ internal data class HttpWorkflowStep<S>(
             }
         }
         if (truncated) {
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "tramai.workflow.http.response.truncated",
-                attributes = mapOf(
-                    "step_name" to name,
-                    "http_method" to method,
-                    "status_code" to response.statusCode(),
-                    "response_size_bytes" to responseSizeBytes,
-                    "max_response_bytes" to config.maxResponseBytes,
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_HTTP_TRUNCATED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.HTTP_METHOD, method)
+                    set(RuntimeAttributes.STATUS_CODE, response.statusCode().toLong())
+                    set(RuntimeAttributes.RESPONSE_SIZE_BYTES, responseSizeBytes)
+                    set(RuntimeAttributes.MAX_RESPONSE_BYTES, config.maxResponseBytes)
+                },
                 context = context,
             )
         }

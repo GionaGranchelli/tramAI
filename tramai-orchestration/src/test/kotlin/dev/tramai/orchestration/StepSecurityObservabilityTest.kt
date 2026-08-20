@@ -430,11 +430,11 @@ class StepSecurityObservabilityTest {
 
             assertThat(observer.singleEvent(SecurityEvents.SANITIZER_TRIGGERED).attributes)
                 .containsEntry("step_name", "review-ui")
-                .containsEntry("original_size_bytes", prompt.length)
+                .containsEntry("original_size_bytes", prompt.length.toLong())
                 .containsEntry("rule_id", DefaultPromptSanitizer.RULE_JAILBREAK_FRAGMENT)
 
             val modifiedSize = observer.singleEvent(SecurityEvents.SANITIZER_TRIGGERED).attributes["modified_size_bytes"]
-            assertThat(modifiedSize as Int).isGreaterThan(prompt.length)
+            assertThat(modifiedSize as Long).isGreaterThan(prompt.length.toLong())
         }
     }
 }

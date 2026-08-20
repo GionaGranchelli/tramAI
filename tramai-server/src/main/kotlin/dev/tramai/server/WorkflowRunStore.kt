@@ -1,5 +1,7 @@
 package dev.tramai.server
 
+import dev.tramai.core.observation.event.RuntimeEvents
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import kotlinx.coroutines.Job
@@ -233,14 +235,14 @@ class WorkflowRunStore(
         event(
             workflowName = workflowName,
             workflowId = workflowId,
-            name = "tramai.workflow.cancelling",
+            name = RuntimeEvents.WORKFLOW_CANCELLING.name,
             stepName = currentStep(workflowName, workflowId),
             status = WorkflowRunStatus.CANCELLING,
         )
         event(
             workflowName = workflowName,
             workflowId = workflowId,
-            name = "tramai.workflow.cancelled",
+            name = RuntimeEvents.WORKFLOW_CANCELLED.name,
             stepName = currentStep(workflowName, workflowId),
             status = WorkflowRunStatus.CANCELLED,
         )
@@ -283,7 +285,7 @@ class WorkflowRunStore(
         event(
             workflowName = workflowName,
             workflowId = workflowId,
-            name = "tramai.workflow.running",
+            name = RuntimeEvents.WORKFLOW_RUNNING.name,
         )
         return get(workflowName, workflowId)
     }

@@ -404,6 +404,12 @@ The module carries **zero runtime dependencies** beyond `kotlinx-coroutines-core
 │   │   observation (2 files)         │         │
 │   │  OperationInterceptor           │         │
 │   │  OperationObserver (->Obs.)     │         │
+│   │  observation.event (8 files)    │         │
+│   │  RuntimeEventCatalogue          │         │
+│   │  RuntimeEvent (+Validator)      │         │
+│   │  RuntimeAttributes              │         │
+│   │  RuntimeMetrics / RuntimeEvents │         │
+│   │  RuntimeEventCatalogueRenderer  │         │
 │   └─────────────────────────────────┘         │
 │                                               │
 │   ┌─────────────────────────────────┐         │
@@ -471,6 +477,7 @@ tramai-core ─── kotlinx-coroutines-core
 | 3 | `dev.tramai.core.provider` | 4 | `ModelProvider`, `ProviderRegistry`, `StreamCapable`, `ProviderFailures` (utility functions) |
 | 4 | `dev.tramai.core.structured` | 3 | `StructuredOutputContract`, `StructuredOutputHandler`, `StructuredOutputResult` |
 | 5 | `dev.tramai.core.observation` | 2 | `OperationInterceptor`, `OperationObserver`/`OperationObservation` |
+| 5b | `dev.tramai.core.observation.event` | 8 | `RuntimeEventCatalogue`, `RuntimeEvent` (+`RuntimeEventValidator`), `RuntimeAttributes`, `RuntimeMetrics`, `RuntimeEvents`, `RuntimeEventCatalogueRenderer`, `RuntimeEventModel` (domains, sensitivity, typed `RuntimeAttributeKey<T>`) |
 | 6 | `dev.tramai.core.exception` | 2 | `TramaiException` (sealed base), 8 concrete exception types |
 | 7 | `dev.tramai.core.secret` | 1 | `SecretValueResolver`, `EnvironmentSecretValueResolver`, `FileSecretValueResolver`, `CompositeSecretValueResolver` |
 | 8 | `dev.tramai.core.nativeimage` | 1 | `NativeImageProxyConfig` |

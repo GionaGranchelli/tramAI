@@ -3,6 +3,9 @@ package dev.tramai.engine.invocation
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
@@ -13,6 +16,7 @@ import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
+import dev.tramai.engine.emitRuntimeEvent
 import dev.tramai.engine.planning.ServiceDefinition
 import kotlinx.coroutines.CancellationException
 
@@ -94,9 +98,11 @@ internal class ProviderResponseDlpSanitizer(
         throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
-        observation.onEngineEvent(
-            name = "tramai.dlp.inspection_failed",
-            attributes = mapOf("providerId" to providerId, "correlationId" to correlationId),
+        observation.emitRuntimeEvent(
+            RuntimeEvent.of(RuntimeEvents.DLP_INSPECTION_FAILED) {
+                set(RuntimeAttributes.PROVIDER_ID_FULL, providerId)
+                correlationId?.let { set(RuntimeAttributes.CORRELATION_ID, it) }
+            },
         )
         throw DlpInspectionException(
             message = "DLP inspection failed for provider '$providerId'",

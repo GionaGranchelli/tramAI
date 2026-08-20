@@ -4,6 +4,10 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
+import dev.tramai.core.observation.event.RuntimeMetrics
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
@@ -15,17 +19,9 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 
-private const val ATTR_GEN_AI_SYSTEM = "gen_ai.system"
-private const val ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
-private const val ATTR_GEN_AI_RESPONSE_MODEL = "gen_ai.response.model"
-private const val ATTR_TRAMAI_OP_INTERFACE = "tramai.operation.interface"
-private const val ATTR_TRAMAI_OP_METHOD = "tramai.operation.method"
-private const val ATTR_TRAMAI_RETRY_ATTEMPT = "tramai.retry.attempt"
-private const val ATTR_TRAMAI_OUTCOME = "tramai.outcome"
-private const val ATTR_TRAMAI_EVENT_NAME = "tramai.event.name"
-
 /**
- * OpenTelemetry-backed [OperationObserver] implementation.
+ * OpenTelemetry-backed [OperationObserver] implementation. Event/attribute/
+ * metric identities come from the runtime event catalogue.
  */
 class OpenTelemetryOperationObserver(
     private val tracer: Tracer,
@@ -46,21 +42,21 @@ class OpenTelemetryOperationObserver(
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         val span = tracer.spanBuilder("ai.${context.methodName}").startSpan()
-        span.setAttribute(ATTR_GEN_AI_SYSTEM, context.providerId)
-        span.setAttribute(ATTR_GEN_AI_REQUEST_MODEL, context.requestedModel)
-        span.setAttribute(ATTR_TRAMAI_OP_INTERFACE, context.serviceInterface)
-        span.setAttribute(ATTR_TRAMAI_OP_METHOD, context.methodName)
-        span.setAttribute(ATTR_TRAMAI_RETRY_ATTEMPT, context.attempt.toLong())
+        span.setAttribute(RuntimeAttributes.GEN_AI_SYSTEM.name, context.providerId)
+        span.setAttribute(RuntimeAttributes.GEN_AI_REQUEST_MODEL.name, context.requestedModel)
+        span.setAttribute(RuntimeAttributes.OPERATION_INTERFACE.name, context.serviceInterface)
+        span.setAttribute(RuntimeAttributes.OPERATION_METHOD.name, context.methodName)
+        span.setAttribute(RuntimeAttributes.RETRY_ATTEMPT.name, context.attempt.toLong())
 
         return SpanBackedObservation(
             span = span,
             metrics = metrics,
             baseAttributes = mapOf(
-                ATTR_GEN_AI_SYSTEM to context.providerId,
-                ATTR_GEN_AI_REQUEST_MODEL to context.requestedModel,
-                ATTR_TRAMAI_OP_INTERFACE to context.serviceInterface,
-                ATTR_TRAMAI_OP_METHOD to context.methodName,
-                ATTR_TRAMAI_RETRY_ATTEMPT to context.attempt.toLong(),
+                RuntimeAttributes.GEN_AI_SYSTEM.name to context.providerId,
+                RuntimeAttributes.GEN_AI_REQUEST_MODEL.name to context.requestedModel,
+                RuntimeAttributes.OPERATION_INTERFACE.name to context.serviceInterface,
+                RuntimeAttributes.OPERATION_METHOD.name to context.methodName,
+                RuntimeAttributes.RETRY_ATTEMPT.name to context.attempt.toLong(),
             ),
         )
     }
@@ -69,46 +65,46 @@ class OpenTelemetryOperationObserver(
 private class OpenTelemetryMetrics(
     meter: Meter,
 ) {
-    val attempts: LongCounter = meter.counterBuilder("tramai.operation.attempts")
-        .setDescription("Completed Tramai provider attempts")
-        .setUnit("{attempt}")
+    val attempts: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_ATTEMPTS.name)
+        .setDescription(RuntimeMetrics.OPERATION_ATTEMPTS.description)
+        .setUnit(RuntimeMetrics.OPERATION_ATTEMPTS.unit)
         .build()
 
-    val duration: DoubleHistogram = meter.histogramBuilder("tramai.operation.duration")
-        .setDescription("Duration of Tramai provider attempts")
-        .setUnit("ms")
+    val duration: DoubleHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_DURATION.name)
+        .setDescription(RuntimeMetrics.OPERATION_DURATION.description)
+        .setUnit(RuntimeMetrics.OPERATION_DURATION.unit)
         .build()
 
-    val inputTokens: LongCounter = meter.counterBuilder("tramai.operation.input_tokens")
-        .setDescription("Total provider input tokens observed by Tramai")
-        .setUnit(TOKEN_MASK)
+    val inputTokens: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS.name)
+        .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS.description)
+        .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS.unit)
         .build()
 
-    val outputTokens: LongCounter = meter.counterBuilder("tramai.operation.output_tokens")
-        .setDescription("Total provider output tokens observed by Tramai")
-        .setUnit(TOKEN_MASK)
+    val outputTokens: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.name)
+        .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.description)
+        .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS.unit)
         .build()
 
-    val inputTokensPerAttempt: LongHistogram = meter.histogramBuilder("tramai.operation.input_tokens.per_attempt")
-        .setDescription("Distribution of input tokens per Tramai provider attempt")
-        .setUnit(TOKEN_MASK)
+    val inputTokensPerAttempt: LongHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.name)
+        .setDescription(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.description)
+        .setUnit(RuntimeMetrics.OPERATION_INPUT_TOKENS_PER_ATTEMPT.unit)
         .ofLongs()
         .build()
 
-    val outputTokensPerAttempt: LongHistogram = meter.histogramBuilder("tramai.operation.output_tokens.per_attempt")
-        .setDescription("Distribution of output tokens per Tramai provider attempt")
-        .setUnit(TOKEN_MASK)
+    val outputTokensPerAttempt: LongHistogram = meter.histogramBuilder(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.name)
+        .setDescription(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.description)
+        .setUnit(RuntimeMetrics.OPERATION_OUTPUT_TOKENS_PER_ATTEMPT.unit)
         .ofLongs()
         .build()
 
-    val parseFailures: LongCounter = meter.counterBuilder("tramai.operation.parse_failures")
-        .setDescription("Structured parse failures observed by Tramai")
-        .setUnit("{failure}")
+    val parseFailures: LongCounter = meter.counterBuilder(RuntimeMetrics.OPERATION_PARSE_FAILURES.name)
+        .setDescription(RuntimeMetrics.OPERATION_PARSE_FAILURES.description)
+        .setUnit(RuntimeMetrics.OPERATION_PARSE_FAILURES.unit)
         .build()
 
-    val engineEvents: LongCounter = meter.counterBuilder("tramai.engine.events")
-        .setDescription("Engine-owned resilience and routing events emitted by Tramai")
-        .setUnit("{event}")
+    val engineEvents: LongCounter = meter.counterBuilder(RuntimeMetrics.ENGINE_EVENTS.name)
+        .setDescription(RuntimeMetrics.ENGINE_EVENTS.description)
+        .setUnit(RuntimeMetrics.ENGINE_EVENTS.unit)
         .build()
 }
 
@@ -124,9 +120,9 @@ private class SpanBackedObservation(
 
     override fun onProviderResponse(response: ModelResponse) {
         latestResponse = response
-        response.modelUsed?.let { span.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, it) }
-        response.inputTokens?.let { span.setAttribute("gen_ai.usage.input_tokens", it.toLong()) }
-        response.outputTokens?.let { span.setAttribute("gen_ai.usage.output_tokens", it.toLong()) }
+        response.modelUsed?.let { span.setAttribute(RuntimeAttributes.GEN_AI_RESPONSE_MODEL.name, it) }
+        response.inputTokens?.let { span.setAttribute(RuntimeAttributes.GEN_AI_USAGE_INPUT_TOKENS.name, it.toLong()) }
+        response.outputTokens?.let { span.setAttribute(RuntimeAttributes.GEN_AI_USAGE_OUTPUT_TOKENS.name, it.toLong()) }
 
         val attributes = responseAttributes(response)
         response.inputTokens?.let { tokens ->
@@ -150,11 +146,15 @@ private class SpanBackedObservation(
         errorSummary: String,
     ) {
         parseFailureRecorded = true
+        val event = RuntimeEvent.of(RuntimeEvents.PARSE_FAILURE) {
+            set(RuntimeAttributes.STRUCTURED_FAILURE_CODE, "output_rejected")
+            set(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS, false)
+        }
         span.addEvent(
-            "tramai.parse.failure",
+            event.name,
             io.opentelemetry.api.common.Attributes.of(
-                AttributeKey.stringKey("tramai.structured.failure_code"), "output_rejected",
-                AttributeKey.booleanKey("tramai.structured.parse_success"), false,
+                AttributeKey.stringKey(RuntimeAttributes.STRUCTURED_FAILURE_CODE.name), "output_rejected",
+                AttributeKey.booleanKey(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS.name), false,
             ),
         )
         metrics.parseFailures.add(1, completionAttributes(parseSuccess = false))
@@ -167,17 +167,17 @@ private class SpanBackedObservation(
         span.addEvent(name, attributes.toOpenTelemetryAttributes())
         metrics.engineEvents.add(
             1,
-            (baseAttributes + mapOf(ATTR_TRAMAI_EVENT_NAME to name) + attributes).toOpenTelemetryAttributes(),
+            (baseAttributes + mapOf(RuntimeAttributes.EVENT_NAME.name to name) + attributes).toOpenTelemetryAttributes(),
         )
     }
 
     override fun onCallCompleted(parseSuccess: Boolean?) {
-        parseSuccess?.let { span.setAttribute("tramai.structured.parse_success", it) }
+        parseSuccess?.let { span.setAttribute(RuntimeAttributes.STRUCTURED_PARSE_SUCCESS.name, it) }
         completeCall(completionAttributes(parseSuccess))
     }
 
     override fun onCallCancelled() {
-        span.setAttribute(ATTR_TRAMAI_OUTCOME, "cancelled")
+        span.setAttribute(RuntimeAttributes.OUTCOME.name, "cancelled")
         completeCall(completionAttributes(parseSuccess = null, outcomeOverride = "cancelled"))
     }
 
@@ -193,18 +193,18 @@ private class SpanBackedObservation(
     private fun responseAttributes(response: ModelResponse): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
-        attributes[ATTR_TRAMAI_OUTCOME] = currentOutcome()
-        response.modelUsed?.let { attributes[ATTR_GEN_AI_RESPONSE_MODEL] = it }
+        attributes[RuntimeAttributes.OUTCOME.name] = currentOutcome()
+        response.modelUsed?.let { attributes[RuntimeAttributes.GEN_AI_RESPONSE_MODEL.name] = it }
         return attributes.toOpenTelemetryAttributes()
     }
 
     private fun completionAttributes(parseSuccess: Boolean?, outcomeOverride: String? = null): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
-        attributes[ATTR_TRAMAI_OUTCOME] = outcomeOverride ?: currentOutcome()
-        latestResponse?.modelUsed?.let { attributes[ATTR_GEN_AI_RESPONSE_MODEL] = it }
-        parseSuccess?.let { attributes["tramai.structured.parse_success"] = it }
-        failure?.let { attributes["tramai.error.type"] = it::class.simpleName ?: "Throwable" }
+        attributes[RuntimeAttributes.OUTCOME.name] = outcomeOverride ?: currentOutcome()
+        latestResponse?.modelUsed?.let { attributes[RuntimeAttributes.GEN_AI_RESPONSE_MODEL.name] = it }
+        parseSuccess?.let { attributes[RuntimeAttributes.STRUCTURED_PARSE_SUCCESS.name] = it }
+        failure?.let { attributes[RuntimeAttributes.ERROR_TYPE_FULL.name] = it::class.simpleName ?: "Throwable" }
         return attributes.toOpenTelemetryAttributes()
     }
 
@@ -215,6 +215,3 @@ private class SpanBackedObservation(
         else -> "unknown"
     }
 }
-
-/** @see OpenTelemetryOperationObserver */
-private const val TOKEN_MASK = "{token}"

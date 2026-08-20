@@ -1,6 +1,8 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +41,8 @@ internal class AgentCliStartException(
 internal data class AgentCliRequest(
     val workflowName: String,
     val stepName: String,
-    val eventPrefix: String,
+    val startedEvent: dev.tramai.core.observation.event.RuntimeEventDefinition,
+    val completedEvent: dev.tramai.core.observation.event.RuntimeEventDefinition,
     val agentType: String,
     val processBuilder: ProcessBuilder,
     val timeoutSeconds: Long,
@@ -55,7 +58,8 @@ internal suspend fun executeAgentCli(
 ): AgentCliExecution {
     val workflowName = request.workflowName
     val stepName = request.stepName
-    val eventPrefix = request.eventPrefix
+    val startedEvent = request.startedEvent
+    val completedEvent = request.completedEvent
     val agentType = request.agentType
     val processBuilder = request.processBuilder
     val timeoutSeconds = request.timeoutSeconds
@@ -84,15 +88,14 @@ internal suspend fun executeAgentCli(
     var primaryFailure: Throwable? = null
     try {
         process.outputStream.close()
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "$eventPrefix.started",
-            attributes = mapOf(
-                "step_name" to stepName,
-                "agent_type" to agentType,
-                "prompt_length" to promptLength,
-            ),
             context = context,
+            event = RuntimeEvent.of(startedEvent) {
+                set(RuntimeAttributes.STEP_NAME, stepName)
+                set(RuntimeAttributes.AGENT_TYPE, agentType)
+                set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
+            },
         )
         return coroutineScope {
             val stdoutDeferred = async(ioDispatcher) {
@@ -121,18 +124,17 @@ internal suspend fun executeAgentCli(
             val renderedStderr = stderr.asTextWithFooter(maxOutputBytes)
             val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
 
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "$eventPrefix.completed",
-                attributes = mapOf(
-                    "step_name" to stepName,
-                    "agent_type" to agentType,
-                    "prompt_length" to promptLength,
-                    "response_length" to renderedOutput.length,
-                    "duration_ms" to durationMillis,
-                    "exit_code" to process.exitValue(),
-                ),
                 context = context,
+                event = RuntimeEvent.of(completedEvent) {
+                    set(RuntimeAttributes.STEP_NAME, stepName)
+                    set(RuntimeAttributes.AGENT_TYPE, agentType)
+                    set(RuntimeAttributes.PROMPT_LENGTH, promptLength.toLong())
+                    set(RuntimeAttributes.RESPONSE_LENGTH, renderedOutput.length.toLong())
+                    set(RuntimeAttributes.DURATION_MS, durationMillis)
+                    set(RuntimeAttributes.EXIT_CODE, process.exitValue().toLong())
+                },
             )
 
             AgentCliExecution(

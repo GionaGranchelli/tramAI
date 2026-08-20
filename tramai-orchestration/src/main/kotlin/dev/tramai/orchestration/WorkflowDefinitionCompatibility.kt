@@ -2,12 +2,12 @@ package dev.tramai.orchestration
 
 import java.security.MessageDigest
 
-internal const val WORKFLOW_DEFINITION_VERSION_METADATA_KEY: String =
-    "tramai.workflow.definition.version"
-private const val WORKFLOW_DEFINITION_DIGEST_METADATA_KEY: String =
-    "tramai.workflow.definition.digest"
-private const val WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY: String =
-    "tramai.workflow.definition.digest.algorithm"
+internal val WORKFLOW_DEFINITION_VERSION_METADATA_KEY: String =
+    dev.tramai.core.observation.event.RuntimeAttributes.DEFINITION_VERSION.name
+internal val WORKFLOW_DEFINITION_DIGEST_METADATA_KEY: String =
+    dev.tramai.core.observation.event.RuntimeAttributes.DEFINITION_DIGEST.name
+internal val WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY: String =
+    dev.tramai.core.observation.event.RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM.name
 private const val WORKFLOW_DEFINITION_DIGEST_ALGORITHM: String = "SHA-256"
 
 internal data class WorkflowDefinitionCompatibility(

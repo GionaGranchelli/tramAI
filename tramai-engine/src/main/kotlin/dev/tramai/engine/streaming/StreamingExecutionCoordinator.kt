@@ -19,6 +19,9 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
@@ -27,6 +30,7 @@ import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
+import dev.tramai.engine.emitRuntimeEvent
 import dev.tramai.engine.budget.TokenBudgetCoordinator
 import dev.tramai.engine.budget.TokenBudgetTracker
 import dev.tramai.engine.memory.ConversationMemoryCoordinator
@@ -306,7 +310,16 @@ internal class StreamingExecutionCoordinator(
 
     private fun streamingCallContext(operation: OperationDefinition, providerId: String, attempt: Int) = OperationCallContext(serviceInterface = serviceTypeName, methodName = operation.method.name, providerId = providerId, requestedModel = operation.operation.model, attempt = attempt)
 
-    private fun startStreamingObservation(route: ResolvedProviderRoute, operation: OperationDefinition, attempt: Int, routeIndex: Int): OperationObservation = operationObserver.onCallStarted(OperationCallContext(serviceInterface = serviceTypeName, methodName = operation.method.name, providerId = route.providerName, requestedModel = operation.operation.model, attempt = attempt)).also { observation -> observation.onEngineEvent(name = EVENT_ROUTE_SELECTED, attributes = routeSelectedAttributes(route, routeIndex)) }
+    private fun startStreamingObservation(route: ResolvedProviderRoute, operation: OperationDefinition, attempt: Int, routeIndex: Int): OperationObservation = operationObserver.onCallStarted(OperationCallContext(serviceInterface = serviceTypeName, methodName = operation.method.name, providerId = route.providerName, requestedModel = operation.operation.model, attempt = attempt)).also { observation ->
+        observation.emitRuntimeEvent(
+            RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
+                set(RuntimeAttributes.PROVIDER_ID, route.providerName)
+                set(RuntimeAttributes.EFFECTIVE_MODEL, route.effectiveModelName)
+                set(RuntimeAttributes.ROUTE_INDEX, routeIndex.toLong())
+                set(RuntimeAttributes.IS_FALLBACK, routeIndex > 0)
+            },
+        )
+    }
 
     private data class StreamingRouteContext(val route: ResolvedProviderRoute, val operation: OperationDefinition, val tokenBudgetTracker: TokenBudgetTracker, val callContext: OperationCallContext, val observation: OperationObservation, val emitChunk: suspend (StreamChunk) -> Unit)
 
@@ -349,11 +362,20 @@ internal class StreamingExecutionCoordinator(
 
     private fun recordCircuitBreakerFailure(providerName: String, error: Throwable, observation: OperationObservation) {
         val opened = circuitBreaker.onFailure(providerName, error)
-        if (opened) observation.onEngineEvent(name = EVENT_CIRCUIT_OPENED, attributes = mapOf(ATTR_PROVIDER_ID to providerName))
+        if (opened) observation.emitRuntimeEvent(
+            RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
+                set(RuntimeAttributes.PROVIDER_ID, providerName)
+            },
+        )
     }
 
     private fun recordStartupRetryEvent(providerName: String, failureType: String, observation: OperationObservation) {
-        observation.onEngineEvent(name = EVENT_STARTUP_RETRY, attributes = mapOf(ATTR_PROVIDER_ID to providerName, ATTR_FAILURE_TYPE to failureType))
+        observation.emitRuntimeEvent(
+            RuntimeEvent.of(RuntimeEvents.STREAMING_STARTUP_RETRY) {
+                set(RuntimeAttributes.PROVIDER_ID, providerName)
+                set(RuntimeAttributes.FAILURE_TYPE, failureType)
+            },
+        )
     }
 
     private fun handleFallbackResult(error: TramaiException, emittedAnyTokens: Boolean, providerName: String, observation: OperationObservation, terminalChunk: StreamChunk.Error = StreamChunk.Error(error)): StreamingRouteResult {
@@ -374,8 +396,6 @@ internal class StreamingExecutionCoordinator(
 
     private fun buildTimeoutMessage(providerId: String, operation: OperationDefinition, timeoutMillis: Long): String = "Provider $providerId timed out after ${timeoutMillis}ms while invoking $qualifiedServiceName.${operation.method.name}"
 
-    private fun routeSelectedAttributes(route: ResolvedProviderRoute, routeIndex: Int): Map<String, Any?> = mapOf(ATTR_PROVIDER_ID to route.providerName, ATTR_EFFECTIVE_MODEL to route.effectiveModelName, ATTR_ROUTE_INDEX to routeIndex, ATTR_IS_FALLBACK to (routeIndex > 0))
-
     private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
         try {
             onCallCancelled()
@@ -385,11 +405,3 @@ internal class StreamingExecutionCoordinator(
     }
 }
 
-private const val ATTR_PROVIDER_ID = "provider_id"
-private const val ATTR_EFFECTIVE_MODEL = "effective_model"
-private const val ATTR_ROUTE_INDEX = "route_index"
-private const val ATTR_IS_FALLBACK = "is_fallback"
-private const val ATTR_FAILURE_TYPE = "failure_type"
-private const val EVENT_CIRCUIT_OPENED = "tramai.circuit.opened"
-private const val EVENT_STARTUP_RETRY = "tramai.streaming.startup_retry"
-private const val EVENT_ROUTE_SELECTED = "tramai.route.selected"

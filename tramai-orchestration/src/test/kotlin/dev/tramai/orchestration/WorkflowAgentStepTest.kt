@@ -60,14 +60,14 @@ class WorkflowAgentStepTest {
             assertThat(startedAttributes)
                 .containsEntry("step_name", "review-ui")
                 .containsEntry("agent_type", "hermes")
-                .containsEntry("prompt_length", "Audit https://example.test".length)
+                .containsEntry("prompt_length", "Audit https://example.test".length.toLong())
             assertThat(completedAttributes)
                 .containsEntry("step_name", "review-ui")
                 .containsEntry("agent_type", "hermes")
-                .containsEntry("prompt_length", "Audit https://example.test".length)
+                .containsEntry("prompt_length", "Audit https://example.test".length.toLong())
                 .containsEntry(
                     "response_length",
-                    "model=claude-sonnet-4 prompt=Audit https://example.test".length,
+                    "model=claude-sonnet-4 prompt=Audit https://example.test".length.toLong(),
                 )
                 .containsKey("duration_ms")
         }

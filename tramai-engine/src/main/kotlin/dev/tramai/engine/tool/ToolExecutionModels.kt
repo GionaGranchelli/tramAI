@@ -13,7 +13,6 @@ import dev.tramai.engine.TokenBudgetTracker
 internal const val UNREGISTERED_LABEL = "<unregistered>"
 internal const val IDEMPOTENT_TOOL_MAX_ATTEMPTS = 2
 internal const val MAX_SAFE_TOOL_NAME_LENGTH = 128
-internal const val DLP_TOOL_REJECTED_METRIC = "tramai.dlp.tool_result_rejected"
 
 internal data class ToolExecutionRequest(
     val tool: ResolvedTool,

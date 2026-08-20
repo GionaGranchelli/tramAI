@@ -50,9 +50,9 @@ deviations:
     metric: globalMutableState
     scope: ":tramai-core"
     baseline: 3
-    allowed: 4
-    reason: "Provider registration is inherently global. Migration to injectable registry planned for 0.7.0. PR #229's new ProviderRoutingPlan adds two mutable-collection findings in its builder/validation path (the per-model fallback staging list and the duplicate-detection set), matching the pre-existing mutable-collection pattern in the same module; resolved in the 0.7.0 registry migration."
-    acceptedAt: "2026-07-18"
+    allowed: 7
+    reason: "Provider registration is inherently global. Migration to injectable registry planned for 0.7.0. PR #229's new ProviderRoutingPlan adds two mutable-collection findings in its builder/validation path (the per-model fallback staging list and the duplicate-detection set), matching the pre-existing mutable-collection pattern in the same module; resolved in the 0.7.0 registry migration. PR #254 (Epic 5.2) adds the runtime event catalogue singletons (RuntimeEventCatalogue, RuntimeAttributes, RuntimeMetrics, RuntimeEvents, RuntimeEventValidator, RuntimeEventCatalogueRenderer, DynamicAttributeNamespaces, RuntimeEventPrefixes): a static typed catalogue is the deliberate design (fail-fast init, zero literals outside it); singleton-object findings are inherent to that design and are tracked for the 0.7.0 registry consolidation."
+    acceptedAt: "2026-08-20"
     targetPhase: "0.7.0"
     owner: "GionaGranchelli"
 

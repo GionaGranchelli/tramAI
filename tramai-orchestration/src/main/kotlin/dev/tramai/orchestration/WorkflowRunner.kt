@@ -1,5 +1,8 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -97,11 +100,12 @@ internal class WorkflowRunner<S, R>(
             resultSelector(finalState)
         } catch (suspended: WorkflowSuspendedException) {
             persistenceSession?.abort()
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = name,
-                name = "tramai.workflow.suspended",
-                attributes = mapOf("workflow_id" to context.workflowId),
                 context = context,
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
+                },
             )
             throw suspended
         } catch (error: CancellationException) {
@@ -142,19 +146,18 @@ internal class WorkflowRunner<S, R>(
             current = definitionCompatibility,
         )
         observer.onWorkflowStarted(name, context)
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = name,
-            name = "tramai.workflow.checkpoint.loaded",
-            attributes = mapOf(
-                "workflow_id" to checkpoint.workflowId,
-                "next_step_index" to checkpoint.nextStepIndex,
-                "step_executions" to checkpoint.stepExecutions,
-                "revision" to checkpoint.revision,
-                "has_last_completed_step" to (checkpoint.lastCompletedStepName != null),
-                "definition_version" to persistedDefinitionCompatibility.version,
-                "definition_digest_algorithm" to persistedDefinitionCompatibility.digestAlgorithm,
-            ),
             context = context,
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_LOADED) {
+                set(RuntimeAttributes.WORKFLOW_ID_BARE, checkpoint.workflowId)
+                set(RuntimeAttributes.NEXT_STEP_INDEX, checkpoint.nextStepIndex.toLong())
+                set(RuntimeAttributes.STEP_EXECUTIONS, checkpoint.stepExecutions.toLong())
+                set(RuntimeAttributes.REVISION, checkpoint.revision)
+                set(RuntimeAttributes.HAS_LAST_COMPLETED_STEP, checkpoint.lastCompletedStepName != null)
+                set(RuntimeAttributes.DEFINITION_VERSION, persistedDefinitionCompatibility.version)
+                set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, persistedDefinitionCompatibility.digestAlgorithm)
+            },
         )
         val persistenceSession: WorkflowPersistenceSession<S> = persistence.session(
             workflowName = name,
@@ -182,11 +185,12 @@ internal class WorkflowRunner<S, R>(
             resultSelector(finalState)
         } catch (suspended: WorkflowSuspendedException) {
             persistenceSession.abort()
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = name,
-                name = "tramai.workflow.suspended",
-                attributes = mapOf("workflow_id" to context.workflowId),
                 context = context,
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
+                },
             )
             throw suspended
         } catch (error: CancellationException) {

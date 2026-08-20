@@ -63,6 +63,15 @@ interface OperationObservation {
     ) = Unit
 
     /**
+     * Records a catalogue-validated engine-owned event (Epic 5.2). The event
+     * carries its own identity, domain, sensitivity, and permitted attributes;
+     * additive overload that delegates to the legacy (name, attributes) form.
+     */
+    fun onEngineEvent(event: dev.tramai.core.observation.event.RuntimeEvent) {
+        onEngineEvent(event.name, event.attributes())
+    }
+
+    /**
      * Marks the end of an attempt.
      *
      * `parseSuccess` is `null` for raw string/unit operations.

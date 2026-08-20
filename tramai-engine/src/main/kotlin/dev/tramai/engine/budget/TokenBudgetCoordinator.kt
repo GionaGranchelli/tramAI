@@ -3,7 +3,11 @@ package dev.tramai.engine.budget
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.engine.TokenBudgetSettings
+import dev.tramai.engine.emitRuntimeEvent
 import dev.tramai.engine.TokenBudgetSnapshot
 
 internal class TokenBudgetCoordinator(
@@ -25,33 +29,30 @@ internal class TokenBudgetCoordinator(
     ) {
         when (val result = tracker.observe(response)) {
             is TokenBudgetCheckResult.Ok -> Unit
-            is TokenBudgetCheckResult.UsageUnavailable -> observation.onEngineEvent(
-                name = "tramai.token_budget.usage_unavailable",
-                attributes = mapOf(
-                    ATTR_PROVIDER_ID to providerId,
-                    ATTR_EFFECTIVE_MODEL to modelName,
-                ),
+            is TokenBudgetCheckResult.UsageUnavailable -> observation.emitRuntimeEvent(
+                RuntimeEvent.of(RuntimeEvents.TOKEN_BUDGET_USAGE_UNAVAILABLE) {
+                    set(RuntimeAttributes.PROVIDER_ID, providerId)
+                    set(RuntimeAttributes.EFFECTIVE_MODEL, modelName)
+                },
             )
-            is TokenBudgetCheckResult.SoftLimitExceeded -> observation.onEngineEvent(
-                name = "tramai.token_budget.soft_limit_exceeded",
-                attributes = mapOf(
-                    ATTR_PROVIDER_ID to providerId,
-                    ATTR_EFFECTIVE_MODEL to modelName,
-                    ATTR_LIMIT_TOKENS to result.limitTokens,
-                    ATTR_OBSERVED_TOKENS to result.observedTokens,
-                    ATTR_SCOPE to "operation",
-                ),
+            is TokenBudgetCheckResult.SoftLimitExceeded -> observation.emitRuntimeEvent(
+                RuntimeEvent.of(RuntimeEvents.TOKEN_BUDGET_SOFT_LIMIT_EXCEEDED) {
+                    set(RuntimeAttributes.PROVIDER_ID, providerId)
+                    set(RuntimeAttributes.EFFECTIVE_MODEL, modelName)
+                    set(RuntimeAttributes.LIMIT_TOKENS, result.limitTokens)
+                    set(RuntimeAttributes.OBSERVED_TOKENS, result.observedTokens)
+                    set(RuntimeAttributes.SCOPE, "operation")
+                },
             )
             is TokenBudgetCheckResult.HardLimitExceeded -> {
-                observation.onEngineEvent(
-                    name = "tramai.token_budget.hard_limit_exceeded",
-                    attributes = mapOf(
-                        ATTR_PROVIDER_ID to providerId,
-                        ATTR_EFFECTIVE_MODEL to modelName,
-                        ATTR_LIMIT_TOKENS to result.limitTokens,
-                        ATTR_OBSERVED_TOKENS to result.observedTokens,
-                        ATTR_SCOPE to result.scope,
-                    ),
+                observation.emitRuntimeEvent(
+                    RuntimeEvent.of(RuntimeEvents.TOKEN_BUDGET_HARD_LIMIT_EXCEEDED) {
+                        set(RuntimeAttributes.PROVIDER_ID, providerId)
+                        set(RuntimeAttributes.EFFECTIVE_MODEL, modelName)
+                        set(RuntimeAttributes.LIMIT_TOKENS, result.limitTokens)
+                        set(RuntimeAttributes.OBSERVED_TOKENS, result.observedTokens)
+                        set(RuntimeAttributes.SCOPE, result.scope)
+                    },
                 )
                 throw TokenBudgetExceededException(
                     scope = result.scope,
@@ -64,9 +65,3 @@ internal class TokenBudgetCoordinator(
         }
     }
 }
-
-private const val ATTR_PROVIDER_ID = "provider_id"
-private const val ATTR_EFFECTIVE_MODEL = "effective_model"
-private const val ATTR_LIMIT_TOKENS = "limit_tokens"
-private const val ATTR_OBSERVED_TOKENS = "observed_tokens"
-private const val ATTR_SCOPE = "scope"

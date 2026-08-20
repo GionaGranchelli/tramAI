@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops.observability
 
+import dev.tramai.core.observation.event.RuntimeMetrics
+import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatchResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecoverySummary
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
@@ -15,19 +17,19 @@ import java.time.Duration
 private const val INSTRUMENTATION_SCOPE = "dev.tramai.sovereign.ops.observability"
 
 // Worker cycle/duration attributes
-private val ATTR_WORKER_OUTCOME = AttributeKey.stringKey("tramai.sovereign.ops.outbox.worker.outcome")
-private val ATTR_WORKER_FAILURE_ACTION = AttributeKey.stringKey("tramai.sovereign.ops.outbox.worker.failure_action")
-private val ATTR_WORKER_ERROR_TYPE = AttributeKey.stringKey("tramai.sovereign.ops.outbox.worker.error_type")
+private val ATTR_WORKER_OUTCOME = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_WORKER_OUTCOME.name)
+private val ATTR_WORKER_FAILURE_ACTION = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name)
+private val ATTR_WORKER_ERROR_TYPE = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_ERROR_TYPE.name)
 
 // Worker failures attributes
-private val ATTR_FAILURE_ACTION = AttributeKey.stringKey("tramai.sovereign.ops.outbox.worker.failure_action")
-private val ATTR_FAILURE_ERROR_TYPE = AttributeKey.stringKey("tramai.sovereign.ops.outbox.worker.error_type")
+private val ATTR_FAILURE_ACTION = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_FAILURE_ACTION.name)
+private val ATTR_FAILURE_ERROR_TYPE = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_ERROR_TYPE.name)
 
 // Recovery record attributes
-private val ATTR_RECOVERY_RESULT = AttributeKey.stringKey("tramai.sovereign.ops.outbox.recovery.result")
+private val ATTR_RECOVERY_RESULT = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_RECOVERY_RESULT.name)
 
 // Dispatch record attributes
-private val ATTR_DISPATCH_RESULT = AttributeKey.stringKey("tramai.sovereign.ops.outbox.dispatch.result")
+private val ATTR_DISPATCH_RESULT = AttributeKey.stringKey(RuntimeAttributes.OUTBOX_DISPATCH_RESULT.name)
 
 /**
  * OpenTelemetry-backed observer for the sovereign ops audit outbox worker.
@@ -67,27 +69,27 @@ class OpenTelemetrySovereignOpsAuditOutboxWorkerObserver(
 
     // ── Instruments ─────────────────────────────────────────────────
 
-    private val cycles: LongCounter = meter.counterBuilder("tramai.sovereign.ops.outbox.worker.cycles")
+    private val cycles: LongCounter = meter.counterBuilder(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_CYCLES.name)
         .setDescription("Outbox worker cycles completed per action and outcome")
         .setUnit("{cycle}")
         .build()
 
-    private val duration: DoubleHistogram = meter.histogramBuilder("tramai.sovereign.ops.outbox.worker.duration")
+    private val duration: DoubleHistogram = meter.histogramBuilder(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DURATION.name)
         .setDescription("Duration of each outbox worker cycle")
         .setUnit("ms")
         .build()
 
-    private val recoveredRecords: LongCounter = meter.counterBuilder("tramai.sovereign.ops.outbox.worker.recovered.records")
+    private val recoveredRecords: LongCounter = meter.counterBuilder(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_RECOVERED_RECORDS.name)
         .setDescription("Records affected by PREPARED recovery per result type")
         .setUnit("{record}")
         .build()
 
-    private val dispatchedRecords: LongCounter = meter.counterBuilder("tramai.sovereign.ops.outbox.worker.dispatched.records")
+    private val dispatchedRecords: LongCounter = meter.counterBuilder(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_DISPATCHED_RECORDS.name)
         .setDescription("Records affected by dispatch per result type")
         .setUnit("{record}")
         .build()
 
-    private val cycleFailures: LongCounter = meter.counterBuilder("tramai.sovereign.ops.outbox.worker.failures")
+    private val cycleFailures: LongCounter = meter.counterBuilder(RuntimeMetrics.SOVEREIGN_OPS_OUTBOX_WORKER_FAILURES.name)
         .setDescription("Failure notifications emitted by the sovereign ops audit outbox worker")
         .setUnit("{failure}")
         .build()
