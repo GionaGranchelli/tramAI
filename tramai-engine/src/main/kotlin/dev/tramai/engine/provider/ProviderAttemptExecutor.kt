@@ -1,5 +1,10 @@
 package dev.tramai.engine.provider
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
+import dev.tramai.engine.emitRuntimeEvent
+
 import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
@@ -66,11 +71,24 @@ internal class ProviderAttemptExecutor(
                 attempt.observation.onCallCompleted(parseSuccess = null)
                 when (val decision = retryPolicy.decide(error, retryIndex, maxAttempts)) {
                     is ProviderRetryDecision.Retry -> {
-                        attempt.observation.onEngineEvent("tramai.retry.scheduled", mapOf("provider_id" to request.providerId, "retry_index" to retryIndex, "delay_millis" to decision.delayMillis, "delay_source" to decision.delaySource))
+                        attempt.observation.emitRuntimeEvent(
+                            RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
+                                set(RuntimeAttributes.PROVIDER_ID, request.providerId)
+                                set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
+                                set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
+                                set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
+                            },
+                        )
                         delay(decision.delayMillis)
                     }
                     ProviderRetryDecision.Stop -> {
-                        if (circuitBreaker.onFailure(request.providerId, error)) attempt.observation.onEngineEvent("tramai.circuit.opened", mapOf("provider_id" to request.providerId))
+                        if (circuitBreaker.onFailure(request.providerId, error)) {
+                            attempt.observation.emitRuntimeEvent(
+                                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
+                                    set(RuntimeAttributes.PROVIDER_ID, request.providerId)
+                                },
+                            )
+                        }
                         throw error
                     }
                 }
@@ -83,7 +101,14 @@ internal class ProviderAttemptExecutor(
         val context = OperationCallContext(serviceInterface, request.operation.method.name, request.providerId, request.operation.operation.model, request.attemptCounter.next())
         val intercepted = request.request.copy(messages = operationInterceptor.interceptRequest(context, request.request.messages))
         val observation = operationObserver.onCallStarted(context)
-        observation.onEngineEvent("tramai.route.selected", mapOf("provider_id" to request.providerId, "effective_model" to request.request.model, "route_index" to request.routeIndex, "is_fallback" to (request.routeIndex > 0)))
+        observation.emitRuntimeEvent(
+            RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
+                set(RuntimeAttributes.PROVIDER_ID, request.providerId)
+                set(RuntimeAttributes.EFFECTIVE_MODEL, request.request.model)
+                set(RuntimeAttributes.ROUTE_INDEX, request.routeIndex.toLong())
+                set(RuntimeAttributes.IS_FALLBACK, request.routeIndex > 0)
+            },
+        )
         val approvedModel = try {
             authorizationService.authorize(request.providerId, request.request.model)
         } catch (error: CancellationException) {

@@ -7,6 +7,9 @@ import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.engine.*
 import kotlinx.coroutines.CancellationException
 
@@ -136,14 +139,12 @@ internal class ReplayAuthorizationService(
     ) {
         if (!replayed) return
         try {
-            engineEventObserver.onEngineEvent(
-                name = "tramai.approval.authorization_replayed",
-                attributes = mapOf(
-                    "approvalId" to command.approvalId,
-                    "workflowRunId" to metadata.identity.workflowRunId,
-                    "toolName" to metadata.toolName,
-                ),
-            )
+            val event = RuntimeEvent.of(RuntimeEvents.APPROVAL_AUTHORIZATION_REPLAYED) {
+                set(RuntimeAttributes.APPROVAL_ID, command.approvalId)
+                set(RuntimeAttributes.WORKFLOW_RUN_ID, metadata.identity.workflowRunId)
+                set(RuntimeAttributes.TOOL_NAME, metadata.toolName)
+            }
+            engineEventObserver.onEngineEvent(event.name, event.attributes())
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Exception) {

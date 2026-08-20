@@ -26,7 +26,7 @@ class ProviderExecutionCoordinatorTest {
             val coordinator = coordinator(plan(primary), observation)
             assertThat(coordinator.execute(executionRequest()).response.content).isEqualTo("primary")
             assertThat(observation.events.single().first).isEqualTo("tramai.route.selected")
-            assertThat(observation.events.single().second).containsEntry("provider_id", "primary").containsEntry("route_index", 0).containsEntry("is_fallback", false)
+            assertThat(observation.events.single().second).containsEntry("provider_id", "primary").containsEntry("route_index", 0L).containsEntry("is_fallback", false)
         }
     }
 
@@ -46,7 +46,7 @@ class ProviderExecutionCoordinatorTest {
             val observations = mutableListOf<RecordingObservation>(); val coordinator = coordinator(plan(primary, secondary), observerFactory = { RecordingObservation().also(observations::add) }, fallback = ProviderFallbackGate { _, _, _, _, _, _ -> order += "fallback-gate" })
             assertThat(coordinator.execute(executionRequest(retries = 1)).response.content).isEqualTo("fallback")
             assertThat(order).containsExactly("primary", "primary", "fallback-gate", "secondary")
-            assertThat(observations.map { it.routeSelected()["route_index"] }).containsExactly(0, 0, 1)
+            assertThat(observations.map { it.routeSelected()["route_index"] }).containsExactly(0L, 0L, 1L)
         }
     }
 
@@ -83,7 +83,7 @@ class ProviderExecutionCoordinatorTest {
             val coordinator = coordinator(plan(primary, secondary), observerFactory = { RecordingObservation().also(observations::add) })
             assertThat(coordinator.execute(executionRequest(retries = 1)).response.content).isEqualTo("fallback")
             assertThat(observations.map { it.routeSelected()["is_fallback"] }).containsExactly(false, false, true)
-            assertThat(observations.map { it.routeSelected()["route_index"] }).containsExactly(0, 0, 1)
+            assertThat(observations.map { it.routeSelected()["route_index"] }).containsExactly(0L, 0L, 1L)
         }
     }
 

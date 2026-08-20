@@ -1616,6 +1616,7 @@ public final class dev/tramai/core/observation/NoOpOperationObservation : dev/tr
 	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationObservation;
 	public fun onCallCancelled ()V
 	public fun onCallCompleted (Ljava/lang/Boolean;)V
+	public fun onEngineEvent (Ldev/tramai/core/observation/event/RuntimeEvent;)V
 	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
 	public fun onProviderFailure (Ljava/lang/Throwable;)V
 	public fun onProviderResponse (Ldev/tramai/core/model/ModelResponse;)V
@@ -1669,6 +1670,7 @@ public final class dev/tramai/core/observation/OperationInterceptor$DefaultImpls
 public abstract interface class dev/tramai/core/observation/OperationObservation {
 	public fun onCallCancelled ()V
 	public abstract fun onCallCompleted (Ljava/lang/Boolean;)V
+	public fun onEngineEvent (Ldev/tramai/core/observation/event/RuntimeEvent;)V
 	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
 	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
 	public abstract fun onProviderFailure (Ljava/lang/Throwable;)V
@@ -1678,6 +1680,7 @@ public abstract interface class dev/tramai/core/observation/OperationObservation
 
 public final class dev/tramai/core/observation/OperationObservation$DefaultImpls {
 	public static fun onCallCancelled (Ldev/tramai/core/observation/OperationObservation;)V
+	public static fun onEngineEvent (Ldev/tramai/core/observation/OperationObservation;Ldev/tramai/core/observation/event/RuntimeEvent;)V
 	public static fun onEngineEvent (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;)V
 	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
 }
@@ -1739,6 +1742,374 @@ public final class dev/tramai/core/observation/ToolFailureDiagnosticEvent {
 
 public abstract interface class dev/tramai/core/observation/ToolFailureDiagnosticObserver {
 	public abstract fun record (Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;)V
+}
+
+public final class dev/tramai/core/observation/event/DynamicAttributeNamespace {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;)Ldev/tramai/core/observation/event/DynamicAttributeNamespace;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/event/DynamicAttributeNamespace;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ILjava/lang/Object;)Ldev/tramai/core/observation/event/DynamicAttributeNamespace;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPrefix ()Ljava/lang/String;
+	public final fun getSensitivity ()Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public fun hashCode ()I
+	public final fun key (Ljava/lang/String;)Ljava/lang/String;
+	public final fun matches (Ljava/lang/String;)Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/DynamicAttributeNamespaces {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/DynamicAttributeNamespaces;
+	public final fun getWORKFLOW_CONTEXT ()Ldev/tramai/core/observation/event/DynamicAttributeNamespace;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeAttributeKey {
+	public fun <init> (Ljava/lang/String;Lkotlin/reflect/KClass;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lkotlin/reflect/KClass;
+	public final fun copy (Ljava/lang/String;Lkotlin/reflect/KClass;)Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/event/RuntimeAttributeKey;Ljava/lang/String;Lkotlin/reflect/KClass;ILjava/lang/Object;)Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getValueType ()Lkotlin/reflect/KClass;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeAttributes {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeAttributes;
+	public final fun getACQUIRED_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getACTUAL_SIZE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getAGENT_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getAGGREGATE_TEXT_LENGTH ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getAPPROVAL_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getATTEMPT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getCHECKPOINT_REVISION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getCOMMAND_DIGEST ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getCONFIGURED_LIMIT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getCONTENT_SIZE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getCORRELATION_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDEFENSE_MODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDEFINITION_DIGEST ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDEFINITION_DIGEST_ALGORITHM ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDEFINITION_VERSION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDELAY_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDELAY_RESUME_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDELAY_SOURCE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getDELAY_STEP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getEFFECTIVE_MODEL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getERROR_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getERROR_TYPE_FULL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getEVENT_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getEXIT_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getEXPIRES_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getFAILURE_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getFAILURE_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGEN_AI_REQUEST_MODEL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGEN_AI_RESPONSE_MODEL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGEN_AI_SYSTEM ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGEN_AI_USAGE_INPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getGEN_AI_USAGE_OUTPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getHAS_LAST_COMPLETED_STEP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getHTTP_METHOD ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getINSTRUCTION_DEFENSE_ACTIVE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getIS_ERROR ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getIS_FALLBACK ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getLEASE_EXPIRY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getLEASE_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getLEASE_OPERATION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getLIMIT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getMAX_RESPONSE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getMAX_SIZE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getMODIFIED_SIZE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getNEXT_DELAY_MS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getNEXT_STEP_INDEX ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOBSERVED_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOPERATION_INTERFACE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOPERATION_METHOD ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getORIGINAL_SIZE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getOWNER_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getPOLICY_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getPROMPT_LENGTH ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getPROVIDER_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getPROVIDER_ID_FULL ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getREASON ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getREASON_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRESPONSE_SIZE_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRESUME_AT_EPOCH_MILLIS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRETRY_ATTEMPT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRETRY_ATTEMPT_HTTP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRETRY_INDEX ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getREVISION ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getROUTE_INDEX ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getRULE_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSANITIZER_ACTIVE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSCOPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTATUS_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTDERR_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTDOUT_BYTES ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTEP_EXECUTIONS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTEP_FAMILY ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTEP_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTEP_TYPE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTREAM ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTRUCTURED_FAILURE_CODE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getSTRUCTURED_PARSE_SUCCESS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getTOOL_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getTOOL_NAME_DIGEST ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getUSED_TOKENS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getVALIDATOR_ACTIVE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_ABANDONED_WORKFLOW ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_ATTEMPT_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_ATTEMPT_TIME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_CLAIMED_COUNT ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_CURRENT_OWNER ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_DRAIN_DONE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_DRAIN_PENDING ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_LAST_STEP ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_OUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_PREVIOUS_OWNER ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_PRIOR_WORKER_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_RUN_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_SHUTDOWN_OUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_STEP_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_TIMEOUT_MS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_UPTIME_MS ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKER_WORKFLOW_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKFLOW_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKFLOW_ID_BARE ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKFLOW_NAME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKFLOW_OUTCOME ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+	public final fun getWORKFLOW_RUN_ID ()Ldev/tramai/core/observation/event/RuntimeAttributeKey;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEvent {
+	public static final field Companion Ldev/tramai/core/observation/event/RuntimeEvent$Companion;
+	public final fun attribute (Ldev/tramai/core/observation/event/RuntimeAttributeKey;)Ljava/lang/Object;
+	public final fun attributes ()Ljava/util/Map;
+	public final fun getDefinition ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getName ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEvent$Companion {
+	public final fun of (Ldev/tramai/core/observation/event/RuntimeEventDefinition;Lkotlin/jvm/functions/Function1;)Ldev/tramai/core/observation/event/RuntimeEvent;
+	public final fun of (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Ldev/tramai/core/observation/event/RuntimeEvent;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventBuilder {
+	public final fun build ()Ldev/tramai/core/observation/event/RuntimeEvent;
+	public final fun set (Ldev/tramai/core/observation/event/RuntimeAttributeKey;Ljava/lang/Object;)V
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventCatalogue {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeEventCatalogue;
+	public final fun event (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getAllAttributes ()Ljava/util/Map;
+	public final fun getAllEvents ()Ljava/util/List;
+	public final fun getByName ()Ljava/util/Map;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventCatalogueRenderer {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeEventCatalogueRenderer;
+	public final fun render ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventDefinition {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventDomain;Ljava/util/Set;Ljava/util/Set;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ZZLdev/tramai/core/observation/event/RuntimeMetricDefinition;ZLdev/tramai/core/observation/event/RuntimeEventFailurePolicy;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventDomain;Ljava/util/Set;Ljava/util/Set;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ZZLdev/tramai/core/observation/event/RuntimeMetricDefinition;ZLdev/tramai/core/observation/event/RuntimeEventFailurePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+	public final fun component2 ()Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun component9 ()Z
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventDomain;Ljava/util/Set;Ljava/util/Set;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ZZLdev/tramai/core/observation/event/RuntimeMetricDefinition;ZLdev/tramai/core/observation/event/RuntimeEventFailurePolicy;)Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/event/RuntimeEventDefinition;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEventDomain;Ljava/util/Set;Ljava/util/Set;Ldev/tramai/core/observation/event/RuntimeEventSensitivity;ZZLdev/tramai/core/observation/event/RuntimeMetricDefinition;ZLdev/tramai/core/observation/event/RuntimeEventFailurePolicy;ILjava/lang/Object;)Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedAttributes ()Ljava/util/Set;
+	public final fun getAuditEligible ()Z
+	public final fun getDomain ()Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public final fun getEvidenceEligible ()Z
+	public final fun getFailurePolicy ()Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+	public final fun getMetricMapping ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getRequiredAttributes ()Ljava/util/Set;
+	public final fun getSensitivity ()Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public final fun getSpanEligible ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventDomain : java/lang/Enum {
+	public static final field APPROVAL Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field ENGINE Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field EVIDENCE Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field POLICY Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field ROUTING Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field TOOL Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field WORKER Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static final field WORKFLOW Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeEventDomain;
+	public static fun values ()[Ldev/tramai/core/observation/event/RuntimeEventDomain;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventFailurePolicy : java/lang/Enum {
+	public static final field FAIL_CLOSED Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+	public static final field FAIL_OPEN Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+	public static fun values ()[Ldev/tramai/core/observation/event/RuntimeEventFailurePolicy;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventPrefixes {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeEventPrefixes;
+	public final fun getCODEX ()Ljava/lang/String;
+	public final fun getHERMES ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventSensitivity : java/lang/Enum {
+	public static final field INTERNAL Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public static final field PUBLIC Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public static final field SENSITIVE Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+	public static fun values ()[Ldev/tramai/core/observation/event/RuntimeEventSensitivity;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEventValidator {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeEventValidator;
+	public final fun validateTypes (Ldev/tramai/core/observation/event/RuntimeEvent;)V
+}
+
+public final class dev/tramai/core/observation/event/RuntimeEvents {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeEvents;
+	public final fun getAPPROVAL_AUTHORIZATION_REPLAYED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getCIRCUIT_OPENED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getDLP_INSPECTION_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getDLP_TOOL_RESULT_REJECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getPARSE_FAILURE ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getRETRY_SCHEDULED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getROUTE_SELECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getSTREAMING_STARTUP_RETRY ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getTOKEN_BUDGET_HARD_LIMIT_EXCEEDED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getTOKEN_BUDGET_SOFT_LIMIT_EXCEEDED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getTOKEN_BUDGET_USAGE_UNAVAILABLE ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_DRAIN_PROGRESS ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_HEARTBEAT ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_ACQUIRED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_CONTESTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_EXPIRED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_RELEASED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_RELEASE_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_RENEWAL_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_LEASE_RENEWED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_POLL_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_SHUTDOWN_COMPLETE ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_SHUTDOWN_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_STEP_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_STEP_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_STEP_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_UNKNOWN_ATTEMPT ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_WORKFLOW_ABANDONED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKER_WORK_TAKEN_OVER ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_CHECKPOINT_LOADED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_CHECKPOINT_SAVED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_CODEX_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_CODEX_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_DELAY_RESUMED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_DELAY_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_DELAY_WAITING ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HERMES_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HERMES_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_POLICY_REJECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_RETRYING ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_TRUNCATED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_HTTP_VALIDATION_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_LEASE_CLAIMED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_LEASE_CONFLICT ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_LEASE_RELEASED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_LEASE_RENEWED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_MCP_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_MCP_RECONNECTING ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_MCP_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SECURITY_COMMAND_DENIED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SECURITY_OUTPUT_REJECTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SECURITY_SANITIZER_TRIGGERED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SECURITY_STEP_EXECUTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SHELL_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SHELL_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SHELL_TIMEOUT ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SHELL_TRUNCATED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_STEP_COMPLETED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_STEP_FAILED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_STEP_STARTED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+	public final fun getWORKFLOW_SUSPENDED ()Ldev/tramai/core/observation/event/RuntimeEventDefinition;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeMetricDefinition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;Ldev/tramai/core/observation/event/RuntimeMetricValueType;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+	public final fun component5 ()Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;Ldev/tramai/core/observation/event/RuntimeMetricValueType;)Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/event/RuntimeMetricDefinition;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;Ldev/tramai/core/observation/event/RuntimeMetricValueType;ILjava/lang/Object;)Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getInstrumentType ()Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getUnit ()Ljava/lang/String;
+	public final fun getValueType ()Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeMetricInstrumentType : java/lang/Enum {
+	public static final field COUNTER Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+	public static final field HISTOGRAM Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+	public static fun values ()[Ldev/tramai/core/observation/event/RuntimeMetricInstrumentType;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeMetricValueType : java/lang/Enum {
+	public static final field DOUBLE Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+	public static final field LONG Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+	public static fun values ()[Ldev/tramai/core/observation/event/RuntimeMetricValueType;
+}
+
+public final class dev/tramai/core/observation/event/RuntimeMetrics {
+	public static final field INSTANCE Ldev/tramai/core/observation/event/RuntimeMetrics;
+	public final fun getAll ()Ljava/util/List;
+	public final fun getDLP_TOOL_REJECTED ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getENGINE_EVENTS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_ATTEMPTS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_DURATION ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_INPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_INPUT_TOKENS_PER_ATTEMPT ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_OUTPUT_TOKENS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_OUTPUT_TOKENS_PER_ATTEMPT ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getOPERATION_PARSE_FAILURES ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKER_HEARTBEATS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKER_LEASES ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKER_SHUTDOWNS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKFLOW_DURATION ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKFLOW_EVENTS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
+	public final fun getWORKFLOW_RUNS ()Ldev/tramai/core/observation/event/RuntimeMetricDefinition;
 }
 
 public final class dev/tramai/core/policy/ApprovalMode : java/lang/Enum {

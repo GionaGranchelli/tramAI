@@ -1,12 +1,15 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
-private const val WORKFLOW_DELAY_STEP_METADATA_KEY: String =
-    "tramai.workflow.delay.step"
-private const val WORKFLOW_DELAY_RESUME_AT_EPOCH_MILLIS_METADATA_KEY: String =
-    "tramai.workflow.delay.resume_at_epoch_millis"
+private val WORKFLOW_DELAY_STEP_METADATA_KEY: String =
+    RuntimeAttributes.DELAY_STEP.name
+private val WORKFLOW_DELAY_RESUME_AT_EPOCH_MILLIS_METADATA_KEY: String =
+    RuntimeAttributes.DELAY_RESUME_AT_EPOCH_MILLIS.name
 
 /**
  * Delay-specific checkpoint/suspension mechanics.
@@ -36,11 +39,10 @@ internal data class DelayWorkflowStep<S>(
         val resumedResumeAt = request.resumedCheckpointMetadata?.delayResumeAt(workflowName, context.workflowId, name)
         val resumeAt = resumedResumeAt ?: now.plusMillis(unit.toMillis(duration))
         if (!resumeAt.isAfter(now)) {
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = "tramai.workflow.delay.resumed",
-                attributes = delayAttributes(context.workflowId, name, resumeAt),
                 context = context,
+                event = delayEvent(RuntimeEvents.WORKFLOW_DELAY_RESUMED, context.workflowId, name, resumeAt),
             )
             return WorkflowStepExecutionResult.Completed(request.state)
         }
@@ -63,15 +65,15 @@ internal data class DelayWorkflowStep<S>(
             stepName = name,
             resumeAt = resumeAt,
         )
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = if (resumedResumeAt == null) {
-                "tramai.workflow.delay.started"
-            } else {
-                "tramai.workflow.delay.waiting"
-            },
-            attributes = delayAttributes(context.workflowId, name, resumeAt),
             context = context,
+            event = delayEvent(
+                if (resumedResumeAt == null) RuntimeEvents.WORKFLOW_DELAY_STARTED else RuntimeEvents.WORKFLOW_DELAY_WAITING,
+                context.workflowId,
+                name,
+                resumeAt,
+            ),
         )
         return WorkflowStepExecutionResult.Suspended
     }
@@ -85,15 +87,16 @@ private fun delayMetadata(
     WORKFLOW_DELAY_RESUME_AT_EPOCH_MILLIS_METADATA_KEY to resumeAt.toEpochMilli().toString(),
 )
 
-private fun delayAttributes(
+private fun delayEvent(
+    definition: dev.tramai.core.observation.event.RuntimeEventDefinition,
     workflowId: String,
     stepName: String,
     resumeAt: Instant,
-): Map<String, Any?> = mapOf(
-    "workflow_id" to workflowId,
-    "step_name" to stepName,
-    "resume_at_epoch_millis" to resumeAt.toEpochMilli(),
-)
+): RuntimeEvent = RuntimeEvent.of(definition) {
+    set(RuntimeAttributes.WORKFLOW_ID_BARE, workflowId)
+    set(RuntimeAttributes.STEP_NAME, stepName)
+    set(RuntimeAttributes.RESUME_AT_EPOCH_MILLIS, resumeAt.toEpochMilli())
+}
 
 private fun Map<String, String>.delayResumeAt(
     workflowName: String,

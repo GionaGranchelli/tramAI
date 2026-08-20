@@ -1,5 +1,8 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
@@ -266,15 +269,14 @@ internal data class McpWorkflowStep<S>(
                 validateCommandPolicy(toolCall)
             } catch (error: WorkflowMcpException) {
                 val policyType = if (error.message?.contains("allowlist") == true) "allowlist" else "deny-list"
-                observer.onWorkflowEvent(
+                observer.emitWorkflowEvent(
                     workflowName = workflowName,
-                    name = SecurityEvents.COMMAND_DENIED,
-                    attributes = mapOf(
-                        "step_name" to name,
-                        "command_digest" to File(toolCall.serverCommand.first()).name.sha256Digest(),
-                        "policy_type" to policyType,
-                        "step_family" to "mcp",
-                    ),
+                    event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_COMMAND_DENIED) {
+                        set(RuntimeAttributes.STEP_NAME, name)
+                        set(RuntimeAttributes.COMMAND_DIGEST, File(toolCall.serverCommand.first()).name.sha256Digest())
+                        set(RuntimeAttributes.POLICY_TYPE, policyType)
+                        set(RuntimeAttributes.STEP_FAMILY, "mcp")
+                    },
                     context = context,
                 )
                 throw error
@@ -284,13 +286,12 @@ internal data class McpWorkflowStep<S>(
             throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, 1, false, failureDiagnosticObserver)
         }
 
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.mcp.started",
-            attributes = mapOf(
-                "step_name" to name,
-                "tool_name_digest" to toolCall.toolName.sha256Digest(),
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_STARTED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
+            },
             context = context,
         )
 
@@ -302,15 +303,14 @@ internal data class McpWorkflowStep<S>(
             failureDiagnosticObserver = failureDiagnosticObserver,
         )
 
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.mcp.completed",
-            attributes = mapOf(
-                "step_name" to name,
-                "tool_name_digest" to toolCall.toolName.sha256Digest(),
-                "is_error" to result.isError,
-                "content_size_bytes" to (result.content?.length ?: 0),
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_COMPLETED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.TOOL_NAME_DIGEST, toolCall.toolName.sha256Digest())
+                set(RuntimeAttributes.IS_ERROR, result.isError)
+                set(RuntimeAttributes.CONTENT_SIZE_BYTES, (result.content?.length ?: 0).toLong())
+            },
             context = context,
         )
 
@@ -344,14 +344,13 @@ internal data class McpWorkflowStep<S>(
                     workflowName, error, code, attempt, willReconnect, failureDiagnosticObserver,
                 )
                 if (willReconnect) {
-                    observer.onWorkflowEvent(
+                    observer.emitWorkflowEvent(
                         workflowName = workflowName,
-                        name = "tramai.workflow.mcp.reconnecting",
-                        attributes = mapOf(
-                            "step_name" to name,
-                            "attempt" to attempt,
-                            "failure_code" to code.value,
-                        ),
+                        event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_MCP_RECONNECTING) {
+                            set(RuntimeAttributes.STEP_NAME, name)
+                            set(RuntimeAttributes.ATTEMPT, attempt.toLong())
+                            set(RuntimeAttributes.FAILURE_CODE, code.value)
+                        },
                         context = context,
                     )
                 } else {

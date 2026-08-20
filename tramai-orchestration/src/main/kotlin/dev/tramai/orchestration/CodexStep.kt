@@ -1,5 +1,8 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.security.StepSecurityConfig
 import dev.tramai.core.security.ValidationResult
 import dev.tramai.core.coroutines.rethrowIfCancellation
@@ -65,17 +68,16 @@ internal data class CodexWorkflowStep<S>(
             throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, failureDiagnosticObserver)
         }
         val resolvedSecurity = resolveStepSecurity(prompt, config.security)
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = SecurityEvents.STEP_EXECUTED,
-            attributes = mapOf(
-                "step_name" to name,
-                "step_type" to "codex",
-                "sanitizer_active" to resolvedSecurity.defenseActive,
-                "validator_active" to (resolvedSecurity.validator != null),
-                "instruction_defense_active" to resolvedSecurity.defenseActive,
-                "defense_mode" to config.security.defenseMode(),
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_STEP_EXECUTED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.STEP_TYPE, "codex")
+                set(RuntimeAttributes.SANITIZER_ACTIVE, resolvedSecurity.defenseActive)
+                set(RuntimeAttributes.VALIDATOR_ACTIVE, resolvedSecurity.validator != null)
+                set(RuntimeAttributes.INSTRUCTION_DEFENSE_ACTIVE, resolvedSecurity.defenseActive)
+                set(RuntimeAttributes.DEFENSE_MODE, config.security.defenseMode())
+            },
             context = context,
         )
         emitSanitizerEventIfNeeded(workflowName, prompt, resolvedSecurity, observer, context)
@@ -85,7 +87,7 @@ internal data class CodexWorkflowStep<S>(
                 AgentCliRequest(
                     workflowName = workflowName,
                     stepName = name,
-                    eventPrefix = "tramai.workflow.codex",
+                    eventPrefix = dev.tramai.core.observation.event.RuntimeEventPrefixes.CODEX,
                     agentType = "codex",
                     processBuilder = ProcessBuilder(
                         listOf(config.cliPath, "exec", "--", resolvedSecurity.defendedPrompt),
@@ -115,13 +117,12 @@ internal data class CodexWorkflowStep<S>(
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             if (resolvedSecurity.defenseActive) {
-                observer.onWorkflowEvent(
+                observer.emitWorkflowEvent(
                     workflowName = workflowName,
-                    name = SecurityEvents.OUTPUT_REJECTED,
-                    attributes = mapOf(
-                        "step_name" to name,
-                        "reason" to "parse_failure",
-                    ),
+                    event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_OUTPUT_REJECTED) {
+                        set(RuntimeAttributes.STEP_NAME, name)
+                        set(RuntimeAttributes.REASON, "parse_failure")
+                    },
                     context = context,
                 )
             }
@@ -146,15 +147,14 @@ internal data class CodexWorkflowStep<S>(
             } else {
                 DefaultPromptSanitizer.getTriggeredRules(prompt).joinToString(",")
             }
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = SecurityEvents.SANITIZER_TRIGGERED,
-                attributes = mapOf(
-                    "step_name" to name,
-                    "original_size_bytes" to prompt.length,
-                    "modified_size_bytes" to sanitizedPrompt.length,
-                    "rule_id" to sanitizerRuleId,
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_SANITIZER_TRIGGERED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.ORIGINAL_SIZE_BYTES, prompt.length.toLong())
+                    set(RuntimeAttributes.MODIFIED_SIZE_BYTES, sanitizedPrompt.length.toLong())
+                    sanitizerRuleId?.let { set(RuntimeAttributes.RULE_ID, it) }
+                },
                 context = context,
             )
         }
@@ -171,15 +171,14 @@ internal data class CodexWorkflowStep<S>(
         if (!resolvedSecurity.defenseActive) return
         when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
             is ValidationResult.Rejected -> {
-                observer.onWorkflowEvent(
+                observer.emitWorkflowEvent(
                     workflowName = workflowName,
-                    name = SecurityEvents.OUTPUT_REJECTED,
-                    attributes = mapOf(
-                        "step_name" to name,
-                        "rule_id" to validation.ruleId.takeIf {
+                    event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_OUTPUT_REJECTED) {
+                        set(RuntimeAttributes.STEP_NAME, name)
+                        validation.ruleId.takeIf {
                             resolvedSecurity.validator is DefaultOutputValidator && isBuiltInValidationRule(it)
-                        },
-                    ),
+                        }?.let { set(RuntimeAttributes.RULE_ID, it) }
+                    },
                     context = context,
                 )
                 throw failure(

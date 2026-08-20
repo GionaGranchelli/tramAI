@@ -5,6 +5,9 @@ import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolResult
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
@@ -63,22 +66,34 @@ internal class ToolResultSanitizer(
         return sanitizeToolContentParts(message, contentParts, scope)
     }
 
-    private fun emitEngineEventSafely(name: String, attributes: Map<String, Any?>) {
-        try { engineEventObserver.onEngineEvent(name, attributes) } catch (error: Exception) {
-            System.getLogger("dev.tramai.engine.TramaiEngine").log(System.Logger.Level.WARNING, "Engine event observer failed for '$name': ${error::class.simpleName}")
+    private fun emitEngineEventSafely(event: RuntimeEvent) {
+        try { engineEventObserver.onEngineEvent(event.name, event.attributes()) } catch (error: Exception) {
+            System.getLogger("dev.tramai.engine.TramaiEngine").log(System.Logger.Level.WARNING, "Engine event observer failed for '${event.name}': ${error::class.simpleName}")
         }
     }
 
+    private fun emitToolResultRejected(scope: ToolReinjectionDlpScope, reasonCode: String, actualLength: Long?) {
+        emitEngineEventSafely(
+            RuntimeEvent.of(RuntimeEvents.DLP_TOOL_RESULT_REJECTED) {
+                set(RuntimeAttributes.REASON_CODE, reasonCode)
+                actualLength?.let { set(RuntimeAttributes.AGGREGATE_TEXT_LENGTH, it) }
+                set(RuntimeAttributes.CONFIGURED_LIMIT, scope.aggregateTextLimit)
+                scope.correlationId?.let { set(RuntimeAttributes.CORRELATION_ID, it) }
+                set(RuntimeAttributes.TOOL_NAME, scope.safeToolLabel)
+            },
+        )
+    }
+
     private fun rejectAggregateTextLength(scope: ToolReinjectionDlpScope, actualLength: Long): Nothing {
-        emitEngineEventSafely(DLP_TOOL_REJECTED_METRIC, mapOf("reasonCode" to "aggregate_text_limit_exceeded", "aggregateTextLength" to actualLength, "configuredLimit" to scope.aggregateTextLimit, "correlationId" to scope.correlationId, "toolName" to scope.safeToolLabel))
+        emitToolResultRejected(scope, "aggregate_text_limit_exceeded", actualLength)
         throw DlpInspectionException("Tool result from '${scope.safeToolLabel}' exceeds aggregate input limit ($actualLength > ${scope.aggregateTextLimit})")
     }
     private fun rejectSanitizedTextLimit(scope: ToolReinjectionDlpScope, actualLength: Long): Nothing {
-        emitEngineEventSafely(DLP_TOOL_REJECTED_METRIC, mapOf("reasonCode" to "sanitized_text_limit_exceeded", "aggregateTextLength" to actualLength, "configuredLimit" to scope.aggregateTextLimit, "correlationId" to scope.correlationId, "toolName" to scope.safeToolLabel))
+        emitToolResultRejected(scope, "sanitized_text_limit_exceeded", actualLength)
         throw DlpInspectionException("Sanitized tool result from '${scope.safeToolLabel}' exceeds aggregate limit ($actualLength > ${scope.aggregateTextLimit})")
     }
     private fun rejectCrossBoundarySensitiveText(scope: ToolReinjectionDlpScope): Nothing {
-        emitEngineEventSafely(DLP_TOOL_REJECTED_METRIC, mapOf("reasonCode" to "cross_boundary_sensitive_text_detected", "correlationId" to scope.correlationId, "toolName" to scope.safeToolLabel))
+        emitToolResultRejected(scope, "cross_boundary_sensitive_text_detected", null)
         throw DlpInspectionException("Tool result from '${scope.safeToolLabel}' contains sensitive text spanning non-text boundaries")
     }
 
@@ -90,7 +105,12 @@ internal class ToolResultSanitizer(
     } catch (e: CancellationException) { throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
-        emitEngineEventSafely("tramai.dlp.inspection_failed", mapOf("toolName" to scope.safeToolLabel, "correlationId" to scope.correlationId))
+        emitEngineEventSafely(
+            RuntimeEvent.of(RuntimeEvents.DLP_INSPECTION_FAILED) {
+                set(RuntimeAttributes.TOOL_NAME, scope.safeToolLabel)
+                scope.correlationId?.let { set(RuntimeAttributes.CORRELATION_ID, it) }
+            },
+        )
         throw DlpInspectionException("DLP inspection failed for tool result from tool '${scope.safeToolLabel}'", e)
     }
 

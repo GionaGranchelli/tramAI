@@ -1,16 +1,16 @@
 package dev.tramai.orchestration
 
-import dev.tramai.core.security.StepSecurityConfig
+import dev.tramai.core.observation.event.RuntimeEvents
 
 internal object SecurityEvents {
-    const val STEP_EXECUTED = "tramai.workflow.security.step_executed"
-    const val SANITIZER_TRIGGERED = "tramai.workflow.security.sanitizer_triggered"
-    const val COMMAND_DENIED = "tramai.workflow.security.command_denied"
-    const val OUTPUT_REJECTED = "tramai.workflow.security.output_rejected"
+    val STEP_EXECUTED: String = RuntimeEvents.WORKFLOW_SECURITY_STEP_EXECUTED.name
+    val SANITIZER_TRIGGERED: String = RuntimeEvents.WORKFLOW_SECURITY_SANITIZER_TRIGGERED.name
+    val COMMAND_DENIED: String = RuntimeEvents.WORKFLOW_SECURITY_COMMAND_DENIED.name
+    val OUTPUT_REJECTED: String = RuntimeEvents.WORKFLOW_SECURITY_OUTPUT_REJECTED.name
 }
 
-internal fun StepSecurityConfig.defenseMode(): String = when (this) {
-    is StepSecurityConfig.Default -> "default"
-    is StepSecurityConfig.Custom -> "custom"
-    is StepSecurityConfig.Disabled -> "disabled"
+internal fun dev.tramai.core.security.StepSecurityConfig.defenseMode(): String = when (this) {
+    is dev.tramai.core.security.StepSecurityConfig.Default -> "default"
+    is dev.tramai.core.security.StepSecurityConfig.Custom -> "custom"
+    is dev.tramai.core.security.StepSecurityConfig.Disabled -> "disabled"
 }

@@ -1,5 +1,8 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.observation.event.RuntimeAttributes
+import dev.tramai.core.observation.event.RuntimeEvent
+import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -122,12 +125,11 @@ internal data class ShellWorkflowStep<S>(
             throw failure(workflowName, error, WorkflowStepFailureCode.PREPARATION_FAILED, null, failureDiagnosticObserver)
         }
 
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.shell.started",
-            attributes = mapOf(
-                "step_name" to name,
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_STARTED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+            },
             context = context,
         )
 
@@ -152,15 +154,14 @@ internal data class ShellWorkflowStep<S>(
         // a parent cancellation never surfaces as NON_ZERO_EXIT etc.
         currentCoroutineContext().ensureActive()
 
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.shell.completed",
-            attributes = mapOf(
-                "step_name" to name,
-                "exit_code" to result.exitCode,
-                "stdout_bytes" to result.stdoutSizeBytes,
-                "stderr_bytes" to result.stderrSizeBytes,
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_COMPLETED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.EXIT_CODE, result.exitCode.toLong())
+                set(RuntimeAttributes.STDOUT_BYTES, result.stdoutSizeBytes)
+                set(RuntimeAttributes.STDERR_BYTES, result.stderrSizeBytes)
+            },
             context = context,
         )
 
@@ -202,15 +203,14 @@ internal data class ShellWorkflowStep<S>(
             validateCommandPolicy(shellCommand)
         } catch (error: WorkflowShellException) {
             val policyType = if (error.message?.contains("allowlist") == true) "allowlist" else "deny-list"
-            observer.onWorkflowEvent(
+            observer.emitWorkflowEvent(
                 workflowName = workflowName,
-                name = SecurityEvents.COMMAND_DENIED,
-                attributes = mapOf(
-                    "step_name" to name,
-                    "command_digest" to File(shellCommand.command.first()).name.sha256Digest(),
-                    "policy_type" to policyType,
-                    "step_family" to "shell",
-                ),
+                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SECURITY_COMMAND_DENIED) {
+                    set(RuntimeAttributes.STEP_NAME, name)
+                    set(RuntimeAttributes.COMMAND_DIGEST, File(shellCommand.command.first()).name.sha256Digest())
+                    set(RuntimeAttributes.POLICY_TYPE, policyType)
+                    set(RuntimeAttributes.STEP_FAMILY, "shell")
+                },
                 context = context,
             )
             throw failure(workflowName, error, WorkflowStepFailureCode.POLICY_REJECTED, null, failureDiagnosticObserver)
@@ -271,12 +271,11 @@ internal data class ShellWorkflowStep<S>(
                     // constructed only after cleanup below, so raw cleanup diagnostics
                     // never reach the public exception chain.
                     lifecycle.requestTermination()
-                    observer.onWorkflowEvent(
+                    observer.emitWorkflowEvent(
                         workflowName = workflowName,
-                        name = "tramai.workflow.shell.timeout",
-                        attributes = mapOf(
-                            "step_name" to name,
-                        ),
+                        event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_TIMEOUT) {
+                            set(RuntimeAttributes.STEP_NAME, name)
+                        },
                         context = context,
                     )
                     // Owned timeout becomes a non-cancellation internal marker: a
@@ -392,15 +391,14 @@ internal data class ShellWorkflowStep<S>(
         if (!capture.truncated) {
             return
         }
-        observer.onWorkflowEvent(
+        observer.emitWorkflowEvent(
             workflowName = workflowName,
-            name = "tramai.workflow.shell.truncated",
-            attributes = mapOf(
-                "step_name" to name,
-                "stream" to stream,
-                "actual_size" to capture.actualSizeBytes,
-                "max_size" to config.maxOutputBytes,
-            ),
+            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SHELL_TRUNCATED) {
+                set(RuntimeAttributes.STEP_NAME, name)
+                set(RuntimeAttributes.STREAM, stream)
+                set(RuntimeAttributes.ACTUAL_SIZE, capture.actualSizeBytes)
+                set(RuntimeAttributes.MAX_SIZE, config.maxOutputBytes)
+            },
             context = context,
         )
     }

@@ -921,6 +921,15 @@ internal sealed interface InternalWorkflowStep<S> {
 - Attribute allowlists are generated from the same definitions used at runtime.
 - Evidence exporters and observability adapters agree on event semantics.
 
+### Completion (#254)
+
+- ✅ **Typed catalogue in `tramai-core`** (`dev.tramai.core.observation.event`): `RuntimeEventCatalogue` (every event identifier with domain, sensitivity, audit/evidence eligibility, allowed + required attributes, metric mapping), typed `RuntimeAttributeKey<T>` (one canonical value type per key), `RuntimeMetrics` (15 descriptors), `RuntimeEvents` (compile-time refs), `RuntimeEvent.of(...)` builder that rejects out-of-schema keys, missing required attributes, and wrong value types at construction. Init fails fast on duplicates/type conflicts.
+- ✅ **All four modules migrated:** engine (provider route, circuit, streaming retry, DLP, approval replay, token budget), workflow (security, delay, http, mcp, shell, codex, hermes, checkpoint/lease/suspended events), worker observer (18 events), workflow observer (step events, dynamic user context under the declared `DynamicAttributeNamespaces.WORKFLOW_CONTEXT`), operation observer (engine events, `gen_ai.usage.*` keys). Event names and metric names preserved byte-for-byte; `OperationObservation.onEngineEvent(RuntimeEvent)` is an additive overload delegating to the legacy form — no public API break.
+- ✅ **Fail-closed architecture verifier:** ASM LDC scan of all four modules' built jars rejects any `tramai.*` identifier literal outside the catalogue package; mutation-verified (injected literal → red). The guard found and drove the migration of 30+ real un-catalogued literals (approval, token-budget, provider route, workflow security/delay/http/mcp/shell, persistence leases/checkpoints, runner). Catalogue prefixes are deliberately non-`const` (`RuntimeEventPrefixes`) so composed names stay owned by the catalogue.
+- ✅ **Reference documentation generated from the catalogue** (`docs/reference/runtime-event-catalogue.md`) with a drift-check test (`RuntimeEventCatalogueDocumentationTest`) asserting the committed doc equals renderer output.
+- ✅ **Value-type correction flagged for review:** size/attempt/route-index attribute values are now `Long` (catalogue-mandated canonical types) instead of the legacy mixed `Int`; observer tests updated accordingly.
+- ✅ **Gate:** full 4-module test suite, 4 apiChecks, `verifyCancellationSafety`, `verifyWorkflowApiStabilityBoundary`, `verifyChangePolicy`, `verifyMaintainabilityBaseline` (MQ-0004 deviation updated for the catalogue singletons), and `verifyPr` all green.
+
 ---
 
 ## Epic 5.3: Define observer, audit, and evidence failure policy
