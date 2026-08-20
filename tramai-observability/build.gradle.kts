@@ -44,13 +44,17 @@ tasks.test {
     // production Kotlin sources repository-wide. Declare those files as task
     // inputs so a literal added to ANY module re-runs the guard (otherwise
     // Gradle marks the task up-to-date and the fail-closed scan never fires).
-    // Only .kt files are wired: whole src/main dirs also contain task OUTPUTS
-    // (e.g. tramai-dashboard's buildDashboard/npmInstall), and consuming them
-    // without dependency declarations breaks the Gradle build graph.
+    // The inputs are MATERIALIZED explicit File instances, not a live
+    // FileTree rooted at src/main: src/main contains task outputs (e.g.
+    // tramai-dashboard's buildDashboard/npmInstall), and wiring the tree into
+    // this task's inputs makes Gradle infer a dependency on those producers.
     rootProject.subprojects.forEach { sub ->
-        val mainDir = sub.layout.projectDirectory.dir("src/main")
-        if (mainDir.asFile.isDirectory) {
-            inputs.files(mainDir.asFileTree.matching { include("**/*.kt") })
+        val mainDir = sub.layout.projectDirectory.dir("src/main").asFile
+        if (mainDir.isDirectory) {
+            val kotlinFiles = mainDir.walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .toList()
+            inputs.files(kotlinFiles)
                 .withPathSensitivity(PathSensitivity.RELATIVE)
         }
     }
