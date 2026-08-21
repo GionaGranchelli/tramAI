@@ -4,6 +4,30 @@
 
 ### Added
 
+- **Shared provider transport utilities (PR #258, Epic 6.2).** New
+  `dev.tramai.core.provider.transport` package in `tramai-core` centralises
+  the low-level HTTP/stream mechanics that were duplicated across adapters:
+  `parseRetryAfterMillis` (injected `java.time.Clock`, default `systemUTC` —
+  the hidden `System.currentTimeMillis()` wall-clock dependency in
+  `Retry-After` date parsing is gone), `rejectedProviderHttpResponse` (one
+  primitive for the rejected-response lifecycle: bounded 8 KiB body read,
+  deterministic closure, debug-metadata logging, fail-open diagnostic
+  observer delivery, `Retry-After` propagation — the caller decides throw vs
+  `StreamChunk.Error`), `providerJsonRequest` (URI + JSON `Content-Type` +
+  normalized timeout + POST framing), and SSE framing helpers
+  (`readSseDataPayload`, `sseDataPayload`, `sseEventName` — prefix stripping
+  and field skipping only; payload interpretation stays in each adapter).
+  Migrated in order: OpenAI-compatible (DeepSeek benefits via delegation),
+  Azure OpenAI, Anthropic, Gemini, Ollama; Bedrock intentionally keeps its
+  AWS SDK transport. Authentication headers, endpoints, JSON wire formats,
+  tool semantics, usage extraction, and stream interpretation remain
+  adapter-owned so each provider's wire contract stays visible in its
+  source. No universal provider transport abstraction (Epic 6.2 guardrail).
+  New transport unit tests: `ProviderRetryAfterTest`,
+  `ProviderHttpResponseTest`, `ProviderSseTest`; all eight #257 TCK runners
+  stay green. API surface: 6 additive transport functions recorded in the
+  `tramai-core` dump; no existing signature changed.
+
 - **Provider Technology Compatibility Kit (PR #257, Epic 6.1).** Every published provider now runs the same deterministic, offline contract in `tramai-testing` test fixtures: `ProviderTck` (~29 tests per runner) against a `StubHttpClient` (JDK-21 `HttpClient` stub with canned responses, transport failures, cancellation arm, and body-close tracking) plus protocol-shaped fixture bodies per wire format (OpenAI-compatible, Anthropic, Ollama, Gemini). The harness pins the expected provider id and the exact capability set from the test, not from the provider under test — a provider cannot skip a contract by returning `supportsCapability(...) == false` (capability pins require their fixture specs at construction). Coverage: identity, cancellation, safe-error redaction (credentials/parser detail/bounded preview), HTTP timeout propagation, retryable-status mapping, numeric Retry-After, usage/reasoning-token extraction, outbound tool serialization + tool-call parsing (tool-only responses are not empty-text failures), vision base64+mime encoding, structured output, streaming (order, single Complete, fullText, terminal Error, malformed termination, closure on cancellation/early stop/completion). Runners for OpenAI-compatible, OpenAI, Azure OpenAI, Anthropic, Ollama, Gemini, Bedrock, and DeepSeek all green; `ProviderTckEnrollmentArchitectureTest` fails the build if a roadmap provider loses its runner or a new `ModelProvider` appears without one. Contract doc: `docs/reference/provider-compatibility-contract.md`. The TCK forced three production fixes: Anthropic tool translation (outbound `tools`/`input_schema`, inbound `tool_use` → `ToolCall`, tool-only responses valid), Ollama `VISION` + `STREAMING` pinned via a protocol-aware `VisionSpec` (base64 image payload without a MIME marker, per the Ollama wire protocol), and Bedrock — internal `BedrockRuntimeClientFactory` seam (AWS types stay out of the public API), production-owned client closure, and real incremental streaming via `BedrockRuntimeAsyncClient.invokeModelWithResponseStream` (was a synchronous whole-result single token). No shared transport abstraction introduced (Epic 6.2 owns that); zero public API diff.
 
 - **Typed runtime event catalogue (PR #254, Epic 5.2).** `tramai-core` now owns every runtime event identifier, attribute key, and metric descriptor in `dev.tramai.core.observation.event`: `RuntimeEventCatalogue` (domain, sensitivity, audit/evidence eligibility, allowed + required attributes, metric mapping per event), typed `RuntimeAttributeKey<T>` with one canonical value type per key, `RuntimeMetrics` (20 descriptors), and a compile-time `RuntimeEvents` registry. `RuntimeEvent.of(...)` builds validated events and rejects out-of-schema keys, missing required attributes, and wrong value types at construction (value types are also enforced at runtime against generic erasure); catalogue initialisation fails fast on duplicates and type conflicts. The engine, workflow, worker/operation OTEL observers, scheduler, server/platform run-store protocol, and sovereign ops outbox metrics all consume the catalogue — event and metric names preserved byte-for-byte, `OperationObservation.onEngineEvent(RuntimeEvent)` is an additive overload (no public API break), and dynamic workflow context stays under the explicitly declared `DynamicAttributeNamespaces.WORKFLOW_CONTEXT`. A fail-closed two-layer architecture test — ASM LDC bytecode scan of the four core modules' built jars plus a repository-wide source scan of every `tramai-*` module (with a declared Spring config-property-namespace allowance) — rejects any `tramai.*` identifier literal outside the catalogue (mutation-verified on both layers); it drove the migration of 40+ real un-catalogued literals (approval replay, token budget, provider route, workflow security/delay/http/mcp/shell, persistence leases/checkpoints, runner suspension, scheduler wake-ups, run-store SSE events, sovereign outbox worker). Reference docs are generated from the catalogue (`docs/reference/runtime-event-catalogue.md`) and drift-checked by a committed-doc test. Note: size/attempt/route-index/prompt/response/duration/exit-code attribute values are now `Long` (canonical catalogue types) where legacy code mixed `Int`.

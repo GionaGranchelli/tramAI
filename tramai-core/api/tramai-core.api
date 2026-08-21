@@ -2596,6 +2596,23 @@ public abstract interface class dev/tramai/core/provider/StreamCapable {
 	public abstract fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
 }
 
+public abstract interface annotation class dev/tramai/core/provider/transport/ExperimentalProviderTransportApi : java/lang/annotation/Annotation {
+}
+
+public final class dev/tramai/core/provider/transport/ProviderTransportKt {
+	public static final fun providerJsonRequest (Ljava/net/URI;Ldev/tramai/core/model/ModelRequest;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
+	public static final fun readSseDataPayload (Ljava/io/BufferedReader;)Ljava/lang/String;
+	public static final fun rejectedProviderHttpResponse (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpResponse;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/System$Logger;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun rejectedProviderHttpResponse$default (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpResponse;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/System$Logger;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun sseDataPayload (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun sseEventName (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/provider/transport/RetryAfterKt {
+	public static final fun parseRetryAfterMillis (Ljava/lang/String;Ljava/time/Clock;)Ljava/lang/Long;
+	public static synthetic fun parseRetryAfterMillis$default (Ljava/lang/String;Ljava/time/Clock;ILjava/lang/Object;)Ljava/lang/Long;
+}
+
 public final class dev/tramai/core/secret/CompositeSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
 	public fun <init> (Ljava/util/List;)V
 	public fun resolve (Ljava/lang/String;)Ljava/lang/String;
