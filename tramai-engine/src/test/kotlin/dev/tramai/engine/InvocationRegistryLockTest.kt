@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class InvocationRegistryLockTest {
     @Test
     @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-    fun `completion removal participates in the registry lock`() = runBlocking {
+    fun `completion removal participates in the registry lock`() { runBlocking {
         val gate = CompletableDeferred<Unit>()
         val providerCalls = AtomicInteger()
         val provider = object : ModelProvider {
@@ -78,6 +78,7 @@ class InvocationRegistryLockTest {
         assertThat(providerCalls.get()).isEqualTo(1)
         assertThat(invocation.await().exceptionOrNull()).isNull()
         engine.close()
+    }
     }
 
     private fun awaitUntil(timeout: Long, unit: TimeUnit, condition: () -> Boolean) {

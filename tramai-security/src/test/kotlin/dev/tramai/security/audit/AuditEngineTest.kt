@@ -75,7 +75,7 @@ class AuditEngineTest {
     //  1. First event has no previousHash
     // ===============================================================
     @Test
-    fun `first event has no previousHash`() = runTest {
+    fun `first event has no previousHash`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -98,12 +98,13 @@ class AuditEngineTest {
         assertNotNull(event.eventHash)
         assertTrue(event.eventHash.isNotEmpty())
     }
+    }
 
     // ===============================================================
     //  2. Second event links to first
     // ===============================================================
     @Test
-    fun `second event links to first`() = runTest {
+    fun `second event links to first`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -113,12 +114,13 @@ class AuditEngineTest {
         assertEquals(first.eventHash, second.previousEventHash)
         assertEquals(2L, second.sequenceNumber)
     }
+    }
 
     // ===============================================================
     //  3. Multiple events verify successfully
     // ===============================================================
     @Test
-    fun `multiple events verify successfully`() = runTest {
+    fun `multiple events verify successfully`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -130,12 +132,13 @@ class AuditEngineTest {
         assertTrue(result.isValid)
         assertTrue(result.errors.isEmpty())
     }
+    }
 
     // ===============================================================
     //  4. Modified event field invalidates chain
     // ===============================================================
     @Test
-    fun `modified event field invalidates chain`() = runTest {
+    fun `modified event field invalidates chain`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -151,12 +154,13 @@ class AuditEngineTest {
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.sequenceNumber == 2L && it.message.contains("eventHash") })
     }
+    }
 
     // ===============================================================
     //  5. Modified metadata invalidates chain
     // ===============================================================
     @Test
-    fun `modified metadata invalidates chain`() = runTest {
+    fun `modified metadata invalidates chain`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -171,12 +175,13 @@ class AuditEngineTest {
 
         assertFalse(result.isValid)
     }
+    }
 
     // ===============================================================
     //  6. Reordered events invalidate chain
     // ===============================================================
     @Test
-    fun `reordered events invalidate chain`() = runTest {
+    fun `reordered events invalidate chain`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -189,12 +194,13 @@ class AuditEngineTest {
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.message.contains("sequenceNumber") })
     }
+    }
 
     // ===============================================================
     //  7. Missing middle event invalidates chain
     // ===============================================================
     @Test
-    fun `missing middle event invalidates chain`() = runTest {
+    fun `missing middle event invalidates chain`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -209,12 +215,13 @@ class AuditEngineTest {
         assertTrue(result.errors.any { it.message.contains("sequenceNumber") })
         assertTrue(result.errors.any { it.message.contains("previousEventHash") })
     }
+    }
 
     // ===============================================================
     //  8. Concurrent 10 writes produce unique ordered sequence numbers
     // ===============================================================
     @Test
-    fun `concurrent writes preserve unique ordered sequence numbers`() = runTest {
+    fun `concurrent writes preserve unique ordered sequence numbers`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -228,12 +235,13 @@ class AuditEngineTest {
         val sequenceNumbers = store.readStream("stream-1").map { it.sequenceNumber }
         assertEquals((1L..10L).toList(), sequenceNumbers)
     }
+    }
 
     // ===============================================================
     //  9. Separate streams remain independent
     // ===============================================================
     @Test
-    fun `separate streams remain independent`() = runTest {
+    fun `separate streams remain independent`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -245,6 +253,7 @@ class AuditEngineTest {
         assertEquals(listOf(1L, 2L), store.readStream("stream-a").map { it.sequenceNumber })
         assertEquals(listOf(1L), store.readStream("stream-b").map { it.sequenceNumber })
         assertEquals(listOf(1L), store.readStream("stream-c").map { it.sequenceNumber })
+    }
     }
 
     // ===============================================================
@@ -269,7 +278,7 @@ class AuditEngineTest {
     //  11. Two engines sharing one store, concurrent
     // ===============================================================
     @Test
-    fun `two engines share one store concurrent`() = runTest {
+    fun `two engines share one store concurrent`() { runTest {
         val store = InMemoryAuditStore()
         val engine1 = AuditEngine(store, clock = fixedClock)
         val engine2 = AuditEngine(store, clock = fixedClock)
@@ -302,12 +311,13 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(events)
         assertTrue(result.isValid)
     }
+    }
 
     // ===============================================================
     //  12. Delayed store wrapper (CompletableDeferred gate)
     // ===============================================================
     @Test
-    fun `delayed store wrapper`() = runTest {
+    fun `delayed store wrapper`() { runTest {
         val gate = CompletableDeferred<Unit>()
         val inner = InMemoryAuditStore()
         val store = object : AuditStore {
@@ -340,12 +350,13 @@ class AuditEngineTest {
         assertNotNull(event)
         assertEquals(1L, event.sequenceNumber)
     }
+    }
 
     // ===============================================================
     //  13. 100+ concurrent appends
     // ===============================================================
     @Test
-    fun `one hundred concurrent appends`() = runTest {
+    fun `one hundred concurrent appends`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -371,12 +382,13 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(events)
         assertTrue(result.isValid)
     }
+    }
 
     // ===============================================================
     //  14. Wrong streamId rejected by store
     // ===============================================================
     @Test
-    fun `wrong streamId rejected`() = runTest {
+    fun `wrong streamId rejected`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -401,12 +413,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("auditStreamId") == true)
     }
+    }
 
     // ===============================================================
     //  15. Wrong sequence rejected by store
     // ===============================================================
     @Test
-    fun `wrong sequence rejected`() = runTest {
+    fun `wrong sequence rejected`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         emitEvent(engine, "stream-s", 1)
@@ -432,12 +445,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("sequenceNumber") == true)
     }
+    }
 
     // ===============================================================
     //  16. Wrong previousHash rejected by store
     // ===============================================================
     @Test
-    fun `wrong previousHash rejected`() = runTest {
+    fun `wrong previousHash rejected`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         emitEvent(engine, "stream-p", 1)
@@ -463,12 +477,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("previousEventHash") == true || exception.message?.contains("eventHash") == true)
     }
+    }
 
     // ===============================================================
     //  17. Wrong eventHash rejected by store
     // ===============================================================
     @Test
-    fun `wrong eventHash rejected`() = runTest {
+    fun `wrong eventHash rejected`() { runTest {
         val store = InMemoryAuditStore()
 
         val exception = assertThrows<IllegalArgumentException> {
@@ -492,12 +507,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("eventHash") == true)
     }
+    }
 
     // ===============================================================
     //  18. Duplicate eventId rejected by store
     // ===============================================================
     @Test
-    fun `duplicate eventId rejected`() = runTest {
+    fun `duplicate eventId rejected`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val firstEvent = emitEvent(engine, "stream-d", 1)
@@ -542,12 +558,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("Duplicate") == true || exception.message?.contains("eventId") == true)
     }
+    }
 
     // ===============================================================
     //  19. Mutable metadata cannot alter evidence
     // ===============================================================
     @Test
-    fun `mutable metadata cannot alter evidence`() = runTest {
+    fun `mutable metadata cannot alter evidence`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -571,12 +588,13 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(store.readStream("stream-m"))
         assertTrue(result.isValid)
     }
+    }
 
     // ===============================================================
     //  20. Mixed-stream verification rejected
     // ===============================================================
     @Test
-    fun `mixed-stream verification rejected`() = runTest {
+    fun `mixed-stream verification rejected`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -587,6 +605,7 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(mixed)
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.message.contains("auditStreamId") })
+    }
     }
 
     // ===============================================================
@@ -623,7 +642,7 @@ class AuditEngineTest {
     //  22. Timestamp from injected Clock
     // ===============================================================
     @Test
-    fun `timestamp from injected Clock`() = runTest {
+    fun `timestamp from injected Clock`() { runTest {
         val customInstant = Instant.parse("2025-12-25T10:30:00Z")
         val customClock = Clock.fixed(customInstant, ZoneId.of("UTC"))
         val store = InMemoryAuditStore()
@@ -638,6 +657,7 @@ class AuditEngineTest {
         )
 
         assertEquals(customInstant, event.timestamp)
+    }
     }
 
     // ===============================================================
@@ -720,7 +740,7 @@ class AuditEngineTest {
     //  23. mutating original input metadata does not alter evidence
     // ===============================================================
     @Test
-    fun `mutating original input metadata does not alter evidence`() = runTest {
+    fun `mutating original input metadata does not alter evidence`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -739,12 +759,13 @@ class AuditEngineTest {
         val stored = store.readStream("stream-mm").first()
         assertEquals("value", stored.metadata["key"])
     }
+    }
 
     // ===============================================================
     //  24. metadata returned by appendNext cannot alter stored evidence
     // ===============================================================
     @Test
-    fun `metadata returned by appendNext cannot alter stored evidence`() = runTest {
+    fun `metadata returned by appendNext cannot alter stored evidence`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -766,12 +787,13 @@ class AuditEngineTest {
         val stored = store.readStream("stream-mr").first()
         assertEquals("value", stored.metadata["key"])
     }
+    }
 
     // ===============================================================
     //  25. metadata returned by readStream cannot alter stored evidence
     // ===============================================================
     @Test
-    fun `metadata returned by readStream cannot alter stored evidence`() = runTest {
+    fun `metadata returned by readStream cannot alter stored evidence`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -794,12 +816,13 @@ class AuditEngineTest {
         val stored = store.readStream("stream-rs").first()
         assertEquals("value", stored.metadata["key"])
     }
+    }
 
     // ===============================================================
     //  26. metadata returned by latestEvent cannot alter stored evidence
     // ===============================================================
     @Test
-    fun `metadata returned by latestEvent cannot alter stored evidence`() = runTest {
+    fun `metadata returned by latestEvent cannot alter stored evidence`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -822,12 +845,13 @@ class AuditEngineTest {
         val stored = store.readStream("stream-le").first()
         assertEquals("value", stored.metadata["key"])
     }
+    }
 
     // ===============================================================
     //  27. verifier still succeeds after attempted mutation
     // ===============================================================
     @Test
-    fun `verifier still succeeds after attempted mutation`() = runTest {
+    fun `verifier still succeeds after attempted mutation`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -865,12 +889,13 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(store.readStream("stream-vm"))
         assertTrue(result.isValid)
     }
+    }
 
     // ===============================================================
     //  28. consistent schemaVersion 999 chain fails verification
     // ===============================================================
     @Test
-    fun `consistent schemaVersion 999 chain fails verification`() = runTest {
+    fun `consistent schemaVersion 999 chain fails verification`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -893,12 +918,13 @@ class AuditEngineTest {
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.message.contains("Unsupported schemaVersion") })
     }
+    }
 
     // ===============================================================
     //  29. direct append with unsupported schemaVersion fails
     // ===============================================================
     @Test
-    fun `direct append with unsupported schemaVersion fails`() = runTest {
+    fun `direct append with unsupported schemaVersion fails`() { runTest {
         val store = InMemoryAuditStore()
 
         val exception = assertThrows<IllegalArgumentException> {
@@ -922,12 +948,13 @@ class AuditEngineTest {
         }
         assertTrue(exception.message?.contains("Unsupported") == true)
     }
+    }
 
     // ===============================================================
     //  30. 100 concurrent emits with barrier and two engines
     // ===============================================================
     @Test
-    fun `100 concurrent emits with barrier and two engines`() = runTest {
+    fun `100 concurrent emits with barrier and two engines`() { runTest {
         val store = InMemoryAuditStore()
         val engine1 = AuditEngine(store, clock = fixedClock)
         val engine2 = AuditEngine(store, clock = fixedClock)
@@ -964,12 +991,13 @@ class AuditEngineTest {
         assertEquals(total, events.map { it.eventId }.distinct().size)
         assertTrue(AuditChainVerifier.verify(events).isValid)
     }
+    }
 
     // ===============================================================
     //  35. Deterministic regression: mutable HashMap metadata immutability
     // ===============================================================
     @Test
-    fun `mutable HashMap metadata cannot alter stored evidence after emit`() = runTest {
+    fun `mutable HashMap metadata cannot alter stored evidence after emit`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
 
@@ -995,6 +1023,7 @@ class AuditEngineTest {
         // Verify the chain is still valid
         val result = AuditChainVerifier.verify(store.readStream("stream-35"))
         assertTrue(result.isValid)
+    }
     }
 
     // ===============================================================

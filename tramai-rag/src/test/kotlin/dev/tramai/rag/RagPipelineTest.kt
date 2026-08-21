@@ -33,7 +33,7 @@ class RagPipelineTest {
     }
 
     @Test
-    fun `index loads chunks and upserts to vector store`() = runBlocking {
+    fun `index loads chunks and upserts to vector store`() { runBlocking {
         val tempFile = Files.createTempFile("rag-test-", ".txt")
         tempFile.toFile().deleteOnExit()
         Files.writeString(tempFile, "Tramai is a structured-first AI library. ".repeat(5))
@@ -49,9 +49,10 @@ class RagPipelineTest {
         assertTrue(results.isNotEmpty(), "Should have stored vectors")
         assertEquals(chunkCount, results.size)
     }
+    }
 
     @Test
-    fun `query retrieves and injects context`() = runBlocking {
+    fun `query retrieves and injects context`() { runBlocking {
         val ragDocText = "The RAG pipeline retrieves documents from a vector store."
         vectorStore.upsert("query_test", listOf(
             VectorEntry(
@@ -84,9 +85,10 @@ class RagPipelineTest {
         assertTrue(enriched.messages[0].content.contains(ragDocText))
         assertTrue(enriched.messages[0].content.contains("How does the RAG pipeline work?"))
     }
+    }
 
     @Test
-    fun `query with empty results returns original request`() = runBlocking {
+    fun `query with empty results returns original request`() { runBlocking {
         val loader = object : DocumentLoader {
             override suspend fun load(source: String): Document {
                 return Document(source, "Dummy")
@@ -103,9 +105,10 @@ class RagPipelineTest {
 
         assertEquals(request, enriched)
     }
+    }
 
     @Test
-    fun `index returns 0 for blank document`() = runBlocking {
+    fun `index returns 0 for blank document`() { runBlocking {
         val tempFile = Files.createTempFile("rag-empty-", ".txt")
         tempFile.toFile().deleteOnExit()
         Files.writeString(tempFile, "")
@@ -116,6 +119,7 @@ class RagPipelineTest {
         val chunkCount = pipeline.index(tempFile.toString(), "empty_test")
 
         assertEquals(0, chunkCount)
+    }
     }
 
     @Test
@@ -159,7 +163,7 @@ class RagPipelineTest {
     }
 
     @Test
-    fun `pipeline end to end with file loader`() = runBlocking {
+    fun `pipeline end to end with file loader`() { runBlocking {
         val tempFile = Files.createTempFile("rag-e2e-", ".txt")
         tempFile.toFile().deleteOnExit()
         Files.writeString(tempFile, "Tramai is an AI workflow library for the JVM.")
@@ -180,9 +184,10 @@ class RagPipelineTest {
         val enriched = pipeline.query("Tramai is an AI workflow library for the JVM.", request, "e2e_test")
         assertTrue(enriched.messages[0].content.contains("The following information may be relevant:"))
     }
+    }
 
     @Test
-    fun `query with non-null filter returns filtered results`() = runBlocking {
+    fun `query with non-null filter returns filtered results`() { runBlocking {
         vectorStore.upsert("filter_query_test", listOf(
             VectorEntry(
                 id = "matched",
@@ -215,9 +220,10 @@ class RagPipelineTest {
         assertTrue(enriched.messages[0].content.contains("Specific AI content"))
         assertFalse(enriched.messages[0].content.contains("Other content"))
     }
+    }
 
     @Test
-    fun `index generates safe IDs`() = runBlocking {
+    fun `index generates safe IDs`() { runBlocking {
         val tempFile = Files.createTempFile("rag-idtest-", ".txt")
         tempFile.toFile().deleteOnExit()
         Files.writeString(tempFile, "First chunk. Second chunk. Third chunk.")
@@ -237,6 +243,7 @@ class RagPipelineTest {
             assertTrue(result.id.matches(Regex("[0-9a-f]+")), "ID should be hex but was: ${result.id}")
         }
     }
+    }
 
     @Test
     fun `pipeline throws RagPipelineException on loader failure`() {
@@ -254,7 +261,7 @@ class RagPipelineTest {
     }
 
     @Test
-    fun `reindex replaces previous entries`() = runBlocking {
+    fun `reindex replaces previous entries`() { runBlocking {
         val tempFile = Files.createTempFile("rag-reindex-", ".txt")
         tempFile.toFile().deleteOnExit()
         Files.writeString(tempFile, "Content to reindex.")
@@ -275,9 +282,10 @@ class RagPipelineTest {
         // Make sure we don't have way more entries than expected
         assertTrue(results.size <= count2 + 1)
     }
+    }
 
     @Test
-    fun `concurrent index operations complete without error`() = runBlocking {
+    fun `concurrent index operations complete without error`() { runBlocking {
         val tempFile1 = Files.createTempFile("rag-concurrent1-", ".txt")
         tempFile1.toFile().deleteOnExit()
         Files.writeString(tempFile1, "First concurrent document content for testing.")
@@ -300,5 +308,6 @@ class RagPipelineTest {
 
         val results = vectorStore.search("concurrent_test", embeddingModel.embed("document"), 10)
         assertTrue(results.isNotEmpty(), "Concurrent index should store results")
+    }
     }
 }

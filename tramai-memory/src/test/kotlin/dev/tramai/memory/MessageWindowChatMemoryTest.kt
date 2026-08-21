@@ -222,7 +222,7 @@ class MessageWindowChatMemoryTest {
     // ── Thread Safety ────────────────────────────────────────────
 
     @Test
-    fun `supports concurrent adds to same conversation`() = runBlocking {
+    fun `supports concurrent adds to same conversation`() { runBlocking {
         val memory = MessageWindowChatMemory(maxMessages = 100)
         val numMessages = 50
         coroutineScope {
@@ -236,9 +236,10 @@ class MessageWindowChatMemoryTest {
         val history = memory.get("shared")
         assertThat(history).hasSize(numMessages)
     }
+    }
 
     @Test
-    fun `supports concurrent adds to different conversations`() = runBlocking {
+    fun `supports concurrent adds to different conversations`() { runBlocking {
         val memory = MessageWindowChatMemory(maxMessages = 10)
         val numConversations = 20
         coroutineScope {
@@ -253,9 +254,10 @@ class MessageWindowChatMemoryTest {
             assertThat(memory.get("conv-$i")).isNotEmpty
         }
     }
+    }
 
     @Test
-    fun `supports concurrent read and write on same conversation`() = runBlocking {
+    fun `supports concurrent read and write on same conversation`() { runBlocking {
         val memory = MessageWindowChatMemory(maxMessages = 100)
         memory.add("shared", Message(MessageRole.SYSTEM, "system"))
 
@@ -276,9 +278,10 @@ class MessageWindowChatMemoryTest {
         val history = memory.get("shared")
         assertThat(history.size).isGreaterThanOrEqualTo(1) // system + at least some users
     }
+    }
 
     @Test
-    fun `concurrent eviction does not orphan entries`() = runBlocking {
+    fun `concurrent eviction does not orphan entries`() { runBlocking {
         val memory = MessageWindowChatMemory(maxMessages = 5, maxConversations = 5)
         val numConversations = 50
 
@@ -295,9 +298,10 @@ class MessageWindowChatMemoryTest {
         val nonEmptyConversations = (0..9).count { memory.get("conv-$it").isNotEmpty() }
         assertThat(nonEmptyConversations).isLessThanOrEqualTo(5)
     }
+    }
 
     @Test
-    fun `concurrent dedup does not duplicate system messages`() = runBlocking {
+    fun `concurrent dedup does not duplicate system messages`() { runBlocking {
         val memory = MessageWindowChatMemory(maxMessages = 50)
 
         coroutineScope {
@@ -313,5 +317,6 @@ class MessageWindowChatMemoryTest {
         val systemMessages = history.filter { it.role == MessageRole.SYSTEM }
         // At most one system message should remain after all dedup completes
         assertThat(systemMessages).hasSize(1)
+    }
     }
 }

@@ -107,7 +107,7 @@ class ToolExposurePolicyAuditWiringTest {
     }
 
     @Test
-    fun `tool exposure audit emits tool name and enforcement point`() = runBlocking {
+    fun `tool exposure audit emits tool name and enforcement point`() { runBlocking {
         val emitter = capturingEmitter()
         val engine = TramaiEngine(
             provider = DummyCountingProvider(),
@@ -126,9 +126,10 @@ class ToolExposurePolicyAuditWiringTest {
         Assertions.assertEquals("lookup", toolExposureCalls[0].second.toolName)
         Assertions.assertNotNull(toolExposureCalls[0].second.toolSecurity)
     }
+    }
 
     @Test
-    fun `tool exposure deny emits audit before PolicyViolationException`() = runBlocking {
+    fun `tool exposure deny emits audit before PolicyViolationException`() { runBlocking {
         val emitter = capturingEmitter()
         val engine = TramaiEngine(
             provider = DummyCountingProvider(),
@@ -152,9 +153,10 @@ class ToolExposurePolicyAuditWiringTest {
         Assertions.assertEquals("lookup", toolExposureCalls[0].second.toolName)
         Assertions.assertTrue(toolExposureCalls[0].third is PolicyDecision.Deny)
     }
+    }
 
     @Test
-    fun `multiple declared tools each emit one audit decision`() = runBlocking {
+    fun `multiple declared tools each emit one audit decision`() { runBlocking {
         val emitter = capturingEmitter()
         val engine = TramaiEngine(
             provider = DummyCountingProvider(),
@@ -177,9 +179,10 @@ class ToolExposurePolicyAuditWiringTest {
             toolExposureCalls.map { it.second.toolName }.toSet(),
         )
     }
+    }
 
     @Test
-    fun `tool exposure audit includes risk metadata when security is present`() = runBlocking {
+    fun `tool exposure audit includes risk metadata when security is present`() { runBlocking {
         val emitter = capturingEmitter()
         val tool = DummyTool(
             "lookup",
@@ -208,9 +211,10 @@ class ToolExposurePolicyAuditWiringTest {
         Assertions.assertNotNull(toolExposureCalls[0].second.toolSecurity)
         Assertions.assertEquals(RiskLevel.HIGH, toolExposureCalls[0].second.toolSecurity!!.risk)
     }
+    }
 
     @Test
-    fun `audit failure at tool exposure blocks provider invocation`() = runBlocking {
+    fun `audit failure at tool exposure blocks provider invocation`() { runBlocking {
         val provider = DummyCountingProvider()
         val tool = DummyTool("lookup")
         val engine = TramaiEngine(
@@ -243,9 +247,10 @@ class ToolExposurePolicyAuditWiringTest {
             .hasMessage("Audit storage failure")
         assertThat(provider.callCount.get()).isZero()
     }
+    }
 
     @Test
-    fun `tool exposure ALLOW decision is auditable`() = runBlocking {
+    fun `tool exposure ALLOW decision is auditable`() { runBlocking {
         val emitter = capturingEmitter()
         val engine = TramaiEngine(
             provider = DummyCountingProvider(),
@@ -262,5 +267,6 @@ class ToolExposurePolicyAuditWiringTest {
         }
         Assertions.assertEquals(1, toolExposureCalls.size)
         Assertions.assertTrue(toolExposureCalls[0].third is PolicyDecision.Allow)
+    }
     }
 }

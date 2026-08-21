@@ -70,7 +70,7 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
     }
 
     @Test
-    fun `same-prefix stream IDs produce independent audit streams`() = runTest {
+    fun `same-prefix stream IDs produce independent audit streams`() { runTest {
         val store2 = InMemoryAuditStore()
         val engine2 = AuditEngine(store2, clock = fixedClock)
         val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
@@ -104,11 +104,12 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertTrue(streamA[0].previousEventHash == null)
         assertTrue(streamB[0].previousEventHash == null)
     }
+    }
 
     // ── P2-1: toolName in every lifecycle event ───────────────────────────────
 
     @Test
-    fun `toolName is present in metadata for all 8 lifecycle events`() = runTest {
+    fun `toolName is present in metadata for all 8 lifecycle events`() { runTest {
         // 1. onToolExecutionSuspended
         emitter.onToolExecutionSuspended(
             approvalId, workflowRunId, toolName, toolCallId,
@@ -162,9 +163,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
             events.find { it.enforcementPoint == "APPROVAL_FORCE_CANCELLED" }!!.metadata["toolName"],
         )
     }
+    }
 
     @Test
-    fun `toolName is present in metadata for all 8 events via parameterized`() = runTest {
+    fun `toolName is present in metadata for all 8 events via parameterized`() { runTest {
         val testStore = InMemoryAuditStore()
         val testEngine = AuditEngine(testStore, clock = fixedClock)
         val testEmitter = AuditEngineApprovalLifecycleAuditEmitter(testEngine)
@@ -184,11 +186,12 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
             assertEquals("my-tool", event.metadata["toolName"], "toolName must be present in ${event.enforcementPoint}")
         }
     }
+    }
 
     // ── P2-2: Reason code normalization ───────────────────────────────────────
 
     @Test
-    fun `secrets in reason are absent from durable metadata for uncertain outcome`() = runTest {
+    fun `secrets in reason are absent from durable metadata for uncertain outcome`() { runTest {
         val secretReason = "api_key=sk-1234567890abcdef timeout occurred"
         emitter.onUncertainOutcome(approvalId, "run-reason-secret", toolName, secretReason)
 
@@ -201,9 +204,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertTrue(event.metadata.values.none { it.contains("sk-1234567890") })
         assertTrue(event.metadata.values.none { it.contains("api_key") })
     }
+    }
 
     @Test
-    fun `secrets in reason are absent from durable metadata for suspension cancelled`() = runTest {
+    fun `secrets in reason are absent from durable metadata for suspension cancelled`() { runTest {
         val secretReason = "password=supersecret! manual cancellation"
         emitter.onSuspensionCancelled(approvalId, "run-reason-secret-2", toolName, secretReason)
 
@@ -214,20 +218,22 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertTrue(event.metadata.values.none { it.contains("supersecret") })
         assertTrue(event.metadata.values.none { it.contains("password") })
     }
+    }
 
     @Test
-    fun `valid reason code passes through normalized`() = runTest {
+    fun `valid reason code passes through normalized`() { runTest {
         emitter.onSuspensionCancelled(approvalId, "run-valid-reason", toolName, "manual_cancel")
 
         val events = store.readStream("run-valid-reason")
         assertEquals(1, events.size)
         assertEquals("manual_cancel", events[0].metadata["reasonCode"])
     }
+    }
 
     // ── P1: Unsafe actor identity redaction ────────────────────────────────────
 
     @Test
-    fun `unsafe actor in resumedBy is redacted in durable audit event`() = runTest {
+    fun `unsafe actor in resumedBy is redacted in durable audit event`() { runTest {
         val store2 = InMemoryAuditStore()
         val engine2 = AuditEngine(store2, clock = fixedClock)
         val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
@@ -240,9 +246,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals("approval_actor_redacted", event.actor)
         assertEquals("approval_actor_redacted", event.metadata["resumedBy"])
     }
+    }
 
     @Test
-    fun `unsafe actor in completedBy is redacted in durable audit event`() = runTest {
+    fun `unsafe actor in completedBy is redacted in durable audit event`() { runTest {
         val store2 = InMemoryAuditStore()
         val engine2 = AuditEngine(store2, clock = fixedClock)
         val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
@@ -255,9 +262,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals("approval_actor_redacted", event.actor)
         assertEquals("approval_actor_redacted", event.metadata["completedBy"])
     }
+    }
 
     @Test
-    fun `unsafe actor in force-cancel is redacted in durable audit event`() = runTest {
+    fun `unsafe actor in force-cancel is redacted in durable audit event`() { runTest {
         val store2 = InMemoryAuditStore()
         val engine2 = AuditEngine(store2, clock = fixedClock)
         val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
@@ -272,9 +280,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals("approval_actor_redacted", event.actor)
         assertEquals("approval_actor_redacted", event.metadata["cancelledBy"])
     }
+    }
 
     @Test
-    fun `valid actor identity passes through unchanged`() = runTest {
+    fun `valid actor identity passes through unchanged`() { runTest {
         val store2 = InMemoryAuditStore()
         val engine2 = AuditEngine(store2, clock = fixedClock)
         val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
@@ -287,11 +296,12 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals("human-operator@example.com", event.actor)
         assertEquals("human-operator@example.com", event.metadata["resumedBy"])
     }
+    }
 
     // ── P2-3: toolCallId digest tests ───────────────────────────────────────────
 
     @Test
-    fun `raw token-shaped toolCallId is absent from serialized audit event`() = runTest {
+    fun `raw token-shaped toolCallId is absent from serialized audit event`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
@@ -311,9 +321,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         // The digest must be present
         assertTrue("toolCallIdDigest" in serialized, "toolCallIdDigest must be present in serialized audit event")
     }
+    }
 
     @Test
-    fun `same toolCallId produces stable digest`() = runTest {
+    fun `same toolCallId produces stable digest`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
@@ -336,9 +347,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals(events[0].metadata["toolCallIdDigest"], events[1].metadata["toolCallIdDigest"],
             "Same toolCallId must produce identical digests")
     }
+    }
 
     @Test
-    fun `different toolCallIds produce different digests`() = runTest {
+    fun `different toolCallIds produce different digests`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
@@ -361,11 +373,12 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertTrue(events[0].metadata["toolCallIdDigest"] != events[1].metadata["toolCallIdDigest"],
             "Different toolCallIds must produce different digests")
     }
+    }
 
     // ── P1: Actor length boundary tests ─────────────────────────────────────────
 
     @Test
-    fun `128-char actor passes validation`() = runTest {
+    fun `128-char actor passes validation`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
@@ -377,9 +390,10 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals(1, events.size)
         assertEquals(longActor, events[0].actor)
     }
+    }
 
     @Test
-    fun `129-char actor is redacted in audit`() = runTest {
+    fun `129-char actor is redacted in audit`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = fixedClock)
         val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
@@ -389,5 +403,6 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         val events = store.readStream("r5")
         assertEquals(1, events.size)
         assertEquals("approval_actor_redacted", events[0].actor)
+    }
     }
 }

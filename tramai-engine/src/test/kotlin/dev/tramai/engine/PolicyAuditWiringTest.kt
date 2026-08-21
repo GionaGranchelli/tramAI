@@ -42,7 +42,7 @@ class PolicyAuditWiringTest {
     }
 
     @Test
-    fun `ALLOW with configured emitter emits exactly one event before enforcement`() = runBlocking {
+    fun `ALLOW with configured emitter emits exactly one event before enforcement`() { runBlocking {
         val callCount = AtomicInteger(0)
         val emitter = object : PolicyDecisionAuditEmitter {
             override suspend fun emit(
@@ -65,9 +65,10 @@ class PolicyAuditWiringTest {
 
         Assertions.assertEquals(1, callCount.get(), "Emitter should have been called exactly once")
     }
+    }
 
     @Test
-    fun `DENY with configured emitter emits exactly one event before exception`() = runBlocking {
+    fun `DENY with configured emitter emits exactly one event before exception`() { runBlocking {
         val callCount = AtomicInteger(0)
         val emitter = object : PolicyDecisionAuditEmitter {
             override suspend fun emit(
@@ -96,9 +97,10 @@ class PolicyAuditWiringTest {
 
         Assertions.assertEquals(1, callCount.get(), "Emitter should have been called exactly once before exception")
     }
+    }
 
     @Test
-    fun `NoOp emitter preserves existing behavior`() = runBlocking {
+    fun `NoOp emitter preserves existing behavior`() { runBlocking {
         val helper = PolicyEnforcementHelper(
             policyEngine = policyEngine,
             migrationWarningGuard = AtomicBoolean(true),
@@ -109,9 +111,10 @@ class PolicyAuditWiringTest {
         helper.enforce(context)
         Assertions.assertTrue(true)
     }
+    }
 
     @Test
-    fun `NoOp emitter preserves DENY behavior`() = runBlocking {
+    fun `NoOp emitter preserves DENY behavior`() { runBlocking {
         val helper = PolicyEnforcementHelper(
             policyEngine = denyPolicyEngine,
             migrationWarningGuard = AtomicBoolean(true),
@@ -127,9 +130,10 @@ class PolicyAuditWiringTest {
             Assertions.assertEquals("test-blocked", e.decision.reasonCode)
         }
     }
+    }
 
     @Test
-    fun `audit failure propagation`() = runBlocking {
+    fun `audit failure propagation`() { runBlocking {
         val throwingStore = object : dev.tramai.security.audit.AuditStore {
             override suspend fun appendNext(
                 auditStreamId: String,
@@ -159,6 +163,7 @@ class PolicyAuditWiringTest {
         } catch (e: RuntimeException) {
             Assertions.assertEquals("Audit store unavailable", e.message)
         }
+    }
     }
 
     @Test

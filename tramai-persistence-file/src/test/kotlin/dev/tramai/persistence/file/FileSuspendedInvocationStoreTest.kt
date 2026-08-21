@@ -83,7 +83,7 @@ class FileSuspendedInvocationStoreTest {
     }
 
     @Test
-    fun `lifecycle create get reveal remove`() = runBlocking {
+    fun `lifecycle create get reveal remove`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
 
@@ -105,9 +105,10 @@ class FileSuspendedInvocationStoreTest {
         assertEquals(metadata.approvalId, removed.approvalId)
         assertNull(store.get(metadata.approvalId))
     }
+    }
 
     @Test
-    fun `restart reopen preserves suspended invocation`() = runBlocking {
+    fun `restart reopen preserves suspended invocation`() { runBlocking {
         val (metadata, envelope) = createValidRecord()
 
         createStore().create(metadata, envelope)
@@ -118,9 +119,10 @@ class FileSuspendedInvocationStoreTest {
         assertEquals(metadata.approvalId, retrieved.approvalId)
         assertNotNull(reopened.revealReplayEnvelope(metadata.approvalId))
     }
+    }
 
     @Test
-    fun `encrypted file does not expose sensitive plaintext`() = runBlocking {
+    fun `encrypted file does not expose sensitive plaintext`() { runBlocking {
         val store = createStore()
         val workflowRunId = "workflow-run-sensitive-123"
         val correlationId = "corr-sensitive-456"
@@ -140,9 +142,10 @@ class FileSuspendedInvocationStoreTest {
         assertFalse(fileContent.contains(workflowRunId))
         assertFalse(fileContent.contains(correlationId))
     }
+    }
 
     @Test
-    fun `duplicate create rejected`() = runBlocking {
+    fun `duplicate create rejected`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
 
@@ -152,9 +155,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.create(metadata, envelope) }
         }
     }
+    }
 
     @Test
-    fun `wrong key rejects suspended invocation reads`() = runBlocking {
+    fun `wrong key rejects suspended invocation reads`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
         store.create(metadata, envelope)
@@ -168,9 +172,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { wrongStore.revealReplayEnvelope(metadata.approvalId) }
         }
     }
+    }
 
     @Test
-    fun `ciphertext tampering rejected`() = runBlocking {
+    fun `ciphertext tampering rejected`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
         store.create(metadata, envelope)
@@ -189,9 +194,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.revealReplayEnvelope(metadata.approvalId) }
         }
     }
+    }
 
     @Test
-    fun `filename substitution rejected`() = runBlocking {
+    fun `filename substitution rejected`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord(approvalId = "approval-substitution-a")
         store.create(metadata, envelope)
@@ -205,9 +211,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.get(substitutedApprovalId) }
         }
     }
+    }
 
     @Test
-    fun `startup verification fails for corrupted suspended record`() = runBlocking {
+    fun `startup verification fails for corrupted suspended record`() { runBlocking {
         val (metadata, envelope) = createValidRecord(approvalId = "approval-verify-open-1")
         createStore().create(metadata, envelope)
 
@@ -222,9 +229,10 @@ class FileSuspendedInvocationStoreTest {
             FileBackedSovereignStores.open(createConfig(verifyOnOpen = true))
         }
     }
+    }
 
     @Test
-    fun `unexpected file in suspended directory rejected`() = runBlocking {
+    fun `unexpected file in suspended directory rejected`() { runBlocking {
         val store = createStore()
         Files.writeString(rootDir.resolve("suspended/foo.txt"), "unexpected")
 
@@ -232,9 +240,10 @@ class FileSuspendedInvocationStoreTest {
             store.verifyAll()
         }
     }
+    }
 
     @Test
-    fun `unexpected directory in suspended directory rejected`() = runBlocking {
+    fun `unexpected directory in suspended directory rejected`() { runBlocking {
         val store = createStore()
         Files.createDirectories(rootDir.resolve("suspended/extra"))
 
@@ -242,9 +251,10 @@ class FileSuspendedInvocationStoreTest {
             store.verifyAll()
         }
     }
+    }
 
     @Test
-    fun `bad permissions on suspended file rejected`() = runBlocking {
+    fun `bad permissions on suspended file rejected`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
         store.create(metadata, envelope)
@@ -257,9 +267,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.revealReplayEnvelope(metadata.approvalId) }
         }
     }
+    }
 
     @Test
-    fun `symlinked suspended record file rejected`() = runBlocking {
+    fun `symlinked suspended record file rejected`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord()
         store.create(metadata, envelope)
@@ -277,9 +288,10 @@ class FileSuspendedInvocationStoreTest {
             store.verifyAll()
         }
     }
+    }
 
     @Test
-    fun `symlinked suspended directory rejected`() = runBlocking {
+    fun `symlinked suspended directory rejected`() { runBlocking {
         val store = createStore()
         val realDir = rootDir.resolve("external-suspended")
         Files.createDirectories(realDir)
@@ -293,9 +305,10 @@ class FileSuspendedInvocationStoreTest {
             store.verifyAll()
         }
     }
+    }
 
     @Test
-    fun `operations after lease close rejected`() = runBlocking {
+    fun `operations after lease close rejected`() { runBlocking {
         val lease = FileStoreLease()
         val store = createStore(lease = lease)
         lease.close()
@@ -310,9 +323,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.remove("approval-closed") }
         }
     }
+    }
 
     @Test
-    fun `concurrent creates have exactly one winner`() = runBlocking {
+    fun `concurrent creates have exactly one winner`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord(approvalId = "approval-concurrent-1")
 
@@ -339,9 +353,10 @@ class FileSuspendedInvocationStoreTest {
             assertEquals(1, outcomes.count { it == "winner" })
         }
     }
+    }
 
     @Test
-    fun `get and remove validate replay record before returning metadata or deleting`() = runBlocking {
+    fun `get and remove validate replay record before returning metadata or deleting`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord(approvalId = "approval-validated-read-1")
         store.create(metadata, envelope)
@@ -374,9 +389,10 @@ class FileSuspendedInvocationStoreTest {
             runBlocking { store.revealReplayEnvelope(metadata.approvalId) }
         }
     }
+    }
 
     @Test
-    fun `cross module replay digest contract holds across persist and reveal`() = runBlocking {
+    fun `cross module replay digest contract holds across persist and reveal`() { runBlocking {
         val store = createStore()
         val (metadata, envelope) = createValidRecord(approvalId = "approval-digest-contract-1")
 
@@ -395,6 +411,7 @@ class FileSuspendedInvocationStoreTest {
                 metadata.operationReference, revealedMessages,
             ),
         )
+    }
     }
 
     private fun createValidRecord(): Pair<SuspendedInvocationMetadata, SensitiveReplayEnvelope> =

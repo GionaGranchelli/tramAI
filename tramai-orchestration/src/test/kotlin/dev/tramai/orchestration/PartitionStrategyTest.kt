@@ -10,29 +10,32 @@ import kotlin.test.Test
 
 class PartitionStrategyTest {
     @Test
-    fun `empty active workers returns false`() = runBlocking {
+    fun `empty active workers returns false`() { runBlocking {
         val strategy = ModHashPartitionStrategy()
         assertThat(strategy.ownsPartition("workflow-1", "worker-1", emptyList())).isFalse
     }
+    }
 
     @Test
-    fun `single worker owns all partitions`() = runBlocking {
+    fun `single worker owns all partitions`() { runBlocking {
         val strategy = ModHashPartitionStrategy()
         assertThat(strategy.ownsPartition("workflow-1", "worker-1", listOf("worker-1"))).isTrue
         assertThat(strategy.ownsPartition("workflow-999", "worker-1", listOf("worker-1"))).isTrue
     }
+    }
 
     @Test
-    fun `same worker always gets same partition for same workflow`() = runBlocking {
+    fun `same worker always gets same partition for same workflow`() { runBlocking {
         val strategy = ModHashPartitionStrategy()
         val workers = listOf("worker-0", "worker-1", "worker-2")
         val result1 = strategy.ownsPartition("workflow-42", "worker-0", workers)
         val result2 = strategy.ownsPartition("workflow-42", "worker-0", workers)
         assertThat(result1).isEqualTo(result2)
     }
+    }
 
     @Test
-    fun `two workers each own different workflows`() = runBlocking {
+    fun `two workers each own different workflows`() { runBlocking {
         val strategy = ModHashPartitionStrategy()
         val workers = listOf("worker-0", "worker-1")
         val wf0 = runIdForPartition(0, 2)
@@ -41,16 +44,18 @@ class PartitionStrategyTest {
         assertThat(strategy.ownsPartition(wf0, "worker-1", workers)).isFalse
         assertThat(strategy.ownsPartition(wf1, "worker-1", workers)).isTrue
     }
+    }
 
     @Test
-    fun `worker not in active workers list returns false`() = runBlocking {
+    fun `worker not in active workers list returns false`() { runBlocking {
         val strategy = ModHashPartitionStrategy()
         val workers = listOf("worker-0", "worker-1")
         assertThat(strategy.ownsPartition("workflow-1", "worker-2", workers)).isFalse
     }
+    }
 
     @Test
-    fun `custom strategy can be injected into tramai worker`() = runBlocking {
+    fun `custom strategy can be injected into tramai worker`() { runBlocking {
         val alwaysTrue = PartitionAssignmentStrategy { _, _, _ -> true }
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
@@ -96,6 +101,7 @@ class PartitionStrategyTest {
         } finally {
             worker.shutdown()
         }
+    }
     }
 
     private suspend fun waitUntil(block: suspend () -> Boolean) {

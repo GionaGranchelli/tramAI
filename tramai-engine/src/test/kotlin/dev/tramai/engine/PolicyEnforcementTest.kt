@@ -4,11 +4,21 @@ import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.User as UserMessage
-import dev.tramai.core.exception.ApprovalRequiredException
+import dev.tramai.core.approval.ApprovalAuthorization
+import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalToken
+import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.ValidateResumeCommand
+import dev.tramai.core.approval.ApprovalValidation
+import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ModelNotRegisteredException
 import dev.tramai.core.exception.ModelRegistryUnavailableException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.security.approval.InMemoryApprovalContinuationStore
+import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ContentPart
@@ -157,6 +167,26 @@ class PolicyEnforcementTest {
             callCount.incrementAndGet()
             return ToolResult.Success("payment result")
         }
+    }
+
+    /** Fake ApprovalGateCoordinator that creates challenges with generated IDs. */
+    private class FakeApprovalGateCoordinator : ApprovalGateCoordinator {
+        override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
+            val approvalId = java.util.UUID.randomUUID().toString()
+            return ApprovalChallenge(
+                approvalId = approvalId,
+                token = ApprovalToken.parsePresented("token-$approvalId"),
+                expiresAt = command.expiresAt,
+            )
+        }
+
+        override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization =
+            error("not expected in suspension test")
+
+        override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation =
+            error("not expected in suspension test")
+
+        override suspend fun cancelApproval(approvalId: String, expectedVersion: Long, reason: String) = Unit
     }
 
     // -- Test service interfaces ------------------------------------------------
@@ -313,7 +343,7 @@ class PolicyEnforcementTest {
     // -- Core enforcement tests ------------------------------------------------
 
     @Test
-    fun `provider invocation allowed`() = runBlocking {
+    fun `provider invocation allowed`() { runBlocking {
         val provider = CountingProvider()
         val allowEngine = engine(
             policyEngine = object : PolicyEngine {
@@ -327,11 +357,13 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `registry enabled fails closed when model is not registered`() = runBlocking {
+    fun `registry enabled fails closed when model is not registered`() { runBlocking {
         val engine = TramaiEngine(
             provider = CountingProvider(),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
             modelRegistry = object : ModelRegistry {
                 override suspend fun findApprovedModel(providerId: String, modelName: String) = null
             },
@@ -345,9 +377,10 @@ class PolicyEnforcementTest {
         assertThatThrownBy { runBlocking { service.analyze("test") } }
             .isInstanceOf(ModelNotRegisteredException::class.java)
     }
+    }
 
     @Test
-    fun `cache provenance mismatch is treated as cache miss and invalidates stale entry`() = runBlocking {
+    fun `cache provenance mismatch is treated as cache miss and invalidates stale entry`() { runBlocking {
         val provider = CountingProvider(content = "fresh")
         var cached: CachedOperationResult? = CachedOperationResult(
             value = "stale",
@@ -395,9 +428,10 @@ class PolicyEnforcementTest {
         assertThat(invalidated).isTrue()
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `provider invocation denied at correct hook`() = runBlocking {
+    fun `provider invocation denied at correct hook`() { runBlocking {
         val provider = CountingProvider()
         val denyEngine = engine(
             policyEngine = object : PolicyEngine {
@@ -415,9 +449,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("blocked")
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `provider context has providerId and modelName`() = runBlocking {
+    fun `provider context has providerId and modelName`() { runBlocking {
         var capturedProviderId: String? = null
         var capturedModelName: String? = null
         val engine = engine(
@@ -436,11 +471,12 @@ class PolicyEnforcementTest {
         assertThat(capturedProviderId).isNotNull()
         assertThat(capturedModelName).isEqualTo("test-model")
     }
+    }
 
     // -- Fallback tests --------------------------------------------------------
 
     @Test
-    fun `fallback denied propagates PolicyViolationException`() = runBlocking {
+    fun `fallback denied propagates PolicyViolationException`() { runBlocking {
         val failOnceProvider = object : ModelProvider {
             var calls = 0
             override fun providerId() = "fail-provider"
@@ -477,9 +513,10 @@ class PolicyEnforcementTest {
         // Fallback provider should never have been called
         assertThat(fallbackProvider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `fallback allowed`() = runBlocking {
+    fun `fallback allowed`() { runBlocking {
         val failOnceProvider = object : ModelProvider {
             var calls = 0
             override fun providerId() = "fail-provider"
@@ -508,9 +545,10 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("fallback-ok")
         assertThat(fallbackProvider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `RESTRICTED request to trusted local provider is allowed`() = runBlocking {
+    fun `RESTRICTED request to trusted local provider is allowed`() { runBlocking {
         val provider = CountingProvider(id = "local-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -535,9 +573,10 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `RESTRICTED request to approved untrusted cloud provider is denied before invocation`() = runBlocking {
+    fun `RESTRICTED request to approved untrusted cloud provider is denied before invocation`() { runBlocking {
         val provider = CountingProvider(id = "cloud-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -564,9 +603,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `RESTRICTED request does not silently fall back from local provider to cloud`() = runBlocking {
+    fun `RESTRICTED request does not silently fall back from local provider to cloud`() { runBlocking {
         val localProvider = object : ModelProvider {
             val callCount = AtomicInteger(0)
             override fun providerId() = "local-provider"
@@ -609,9 +649,10 @@ class PolicyEnforcementTest {
         assertThat(localProvider.callCount.get()).isEqualTo(1)
         assertThat(cloudProvider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `INTERNAL request to cloud provider without permission is denied`() = runBlocking {
+    fun `INTERNAL request to cloud provider without permission is denied`() { runBlocking {
         val provider = CountingProvider(id = "cloud-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -638,9 +679,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("Data classification 'INTERNAL' is not allowed for provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `INTERNAL request to cloud provider with permission is allowed`() = runBlocking {
+    fun `INTERNAL request to cloud provider with permission is allowed`() { runBlocking {
         val provider = CountingProvider(id = "cloud-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -665,9 +707,10 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `PUBLIC request to approved cloud provider is allowed`() = runBlocking {
+    fun `PUBLIC request to approved cloud provider is allowed`() { runBlocking {
         val provider = CountingProvider(id = "cloud-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -691,11 +734,12 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     // -- Tool tests ------------------------------------------------------------
 
     @Test
-    fun `tool exposure denied per tool at correct hook`() = runBlocking {
+    fun `tool exposure denied per tool at correct hook`() { runBlocking {
         val provider = providerWithToolCallThenReturn("echo")
         val deniedTool = AtomicInteger()
         val denyTools = TramaiEngine(
@@ -716,9 +760,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("tools blocked")
         assertThat(deniedTool.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `tool execution denied at correct hook`() = runBlocking {
+    fun `tool execution denied at correct hook`() { runBlocking {
         val countingTool = countingEchoTool
         val denyExec = TramaiEngine(
             provider = providerWithToolCallThenReturn("echo"),
@@ -737,9 +782,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("tool denied")
         assertThat(countingTool.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `tool result reinjection denied at correct hook`() = runBlocking {
+    fun `tool result reinjection denied at correct hook`() { runBlocking {
         val denyReinject = TramaiEngine(
             provider = providerWithToolCallThenReturn("echo"),
             toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
@@ -756,11 +802,12 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("result blocked")
     }
+    }
 
     // -- Response return tests -------------------------------------------------
 
     @Test
-    fun `response return denied`() = runBlocking {
+    fun `response return denied`() { runBlocking {
         val denyResp = engine(
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
@@ -775,31 +822,37 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("response blocked")
     }
+    }
 
     // -- Approval tests --------------------------------------------------------
 
     @Test
-    fun `require approval stops execution`() = runBlocking {
-        val approvalEngine = engine(
+    fun `require approval stops execution`() { runBlocking {
+        val approvalEngine = TramaiEngine(
+            provider = providerWithToolCallThenReturn("echo"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            toolArgumentsDigester = Sha256ToolArgumentsDigester(),
+            approvalGateCoordinator = FakeApprovalGateCoordinator(),
+            approvalContinuationStore = InMemoryApprovalContinuationStore(),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
                     if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
                         PolicyDecision.RequireApproval(
-                            ApprovalRequirement("echo", "abc123", "needs approval", 30_000)
+                            ApprovalRequirement("echo", "", "needs approval", 30_000)
                         )
                     } else PolicyDecision.Allow
             },
-            provider = providerWithToolCallThenReturn("echo"),
         )
         val service = approvalEngine.create<TestService>()
 
         assertThatThrownBy { runBlocking { service.analyze("test") } }
-            .isInstanceOf(ApprovalRequiredException::class.java)
-            .hasMessageContaining("needs approval")
+            .isInstanceOf(ApprovalSuspendedException::class.java)
+            .hasMessageContaining("suspended pending approval")
+    }
     }
 
     @Test
-    fun `HIGH risk tool exposure then execution requires approval`() = runBlocking {
+    fun `HIGH risk tool exposure then execution requires approval`() { runBlocking {
         highRiskPaymentTool.callCount.set(0)
         val provider = object : ModelProvider {
             var callCount = 0
@@ -822,6 +875,9 @@ class PolicyEnforcementTest {
         val engine = TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf("payment-tool" to highRiskPaymentTool)),
+            toolArgumentsDigester = Sha256ToolArgumentsDigester(),
+            approvalGateCoordinator = FakeApprovalGateCoordinator(),
+            approvalContinuationStore = InMemoryApprovalContinuationStore(),
             policyEngine = DefaultPolicyEngine(
                 PolicyConfiguration.secure().copy(
                     allowedTools = setOf("payment-tool"),
@@ -834,15 +890,16 @@ class PolicyEnforcementTest {
         val service = engine.create<PaymentToolService>()
 
         assertThatThrownBy { runBlocking { service.analyze("test") } }
-            .isInstanceOf(ApprovalRequiredException::class.java)
-            .hasMessageContaining("requires human approval")
+            .isInstanceOf(ApprovalSuspendedException::class.java)
+            .hasMessageContaining("suspended pending approval")
         assertThat(highRiskPaymentTool.callCount.get()).isEqualTo(0)
+    }
     }
 
     // -- Streaming tests -------------------------------------------------------
 
     @Test
-    fun `streaming provider invocation denied`() = runBlocking {
+    fun `streaming provider invocation denied`() { runBlocking {
         val sProvider = streamingProvider()
         val denyStream = TramaiEngine(
             provider = sProvider,
@@ -862,9 +919,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("stream blocked")
         assertThat(sProvider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `streaming response return denied before any token emitted`() = runBlocking {
+    fun `streaming response return denied before any token emitted`() { runBlocking {
         val sProvider = streamingProvider()
         val denyResp = TramaiEngine(
             provider = sProvider,
@@ -883,9 +941,10 @@ class PolicyEnforcementTest {
         }.isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("stream response blocked")
     }
+    }
 
     @Test
-    fun `streaming tool exposure denied`() = runBlocking {
+    fun `streaming tool exposure denied`() { runBlocking {
         val sProvider = streamingProvider()
         val denyStream = TramaiEngine(
             provider = sProvider,
@@ -904,9 +963,10 @@ class PolicyEnforcementTest {
         }.isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("stream tools blocked")
     }
+    }
 
     @Test
-    fun `streaming RESTRICTED request to untrusted provider is denied before stream starts`() = runBlocking {
+    fun `streaming RESTRICTED request to untrusted provider is denied before stream starts`() { runBlocking {
         val provider = streamingProvider(id = "cloud-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -933,11 +993,12 @@ class PolicyEnforcementTest {
             .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     // -- Structured output tests -----------------------------------------------
 
     @Test
-    fun `structured response return denied after parse success`() = runBlocking {
+    fun `structured response return denied after parse success`() { runBlocking {
         val handler = object : StructuredOutputHandler {
             override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult {
                 return StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
@@ -964,9 +1025,10 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("struct response blocked")
     }
+    }
 
     @Test
-    fun `structured RESTRICTED request to untrusted provider is denied before invocation`() = runBlocking {
+    fun `structured RESTRICTED request to untrusted provider is denied before invocation`() { runBlocking {
         val handler = object : StructuredOutputHandler {
             override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult {
                 return StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
@@ -1004,11 +1066,12 @@ class PolicyEnforcementTest {
             .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     // -- Cache tests -----------------------------------------------------------
 
     @Test
-    fun `unclassified raw cache hit does not invoke provider twice`() = runBlocking {
+    fun `unclassified raw cache hit does not invoke provider twice`() { runBlocking {
         val provider = CountingProvider()
         val service = engineWithCache(
             policyEngine = object : PolicyEngine {
@@ -1022,9 +1085,10 @@ class PolicyEnforcementTest {
         assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `classified RESTRICTED local raw cache hit does not invoke provider twice`() = runBlocking {
+    fun `classified RESTRICTED local raw cache hit does not invoke provider twice`() { runBlocking {
         val provider = CountingProvider(id = "local-provider")
         val service = engineWithCache(
             policyEngine = DefaultPolicyEngine(
@@ -1046,9 +1110,10 @@ class PolicyEnforcementTest {
         assertThat(service.analyze(input)).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `classified RESTRICTED local structured cache hit does not invoke provider twice`() = runBlocking {
+    fun `classified RESTRICTED local structured cache hit does not invoke provider twice`() { runBlocking {
         val provider = CountingProvider(id = "local-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -1073,9 +1138,10 @@ class PolicyEnforcementTest {
         assertThat(service.analyze(input).answer).isEqualTo("parsed")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `same payload under PUBLIC then RESTRICTED produces separate cache entries`() = runBlocking {
+    fun `same payload under PUBLIC then RESTRICTED produces separate cache entries`() { runBlocking {
         val provider = CountingProvider(id = "local-provider")
         val engine = TramaiEngine(
             provider = provider,
@@ -1103,9 +1169,10 @@ class PolicyEnforcementTest {
         assertThat(second).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `cache hit is re-authorized against current policy`() = runBlocking {
+    fun `cache hit is re-authorized against current policy`() { runBlocking {
         val cache = InMemoryOperationResponseCache()
         val provider = CountingProvider(id = "cloud-provider")
         val allowEngine = engineWithCache(
@@ -1142,9 +1209,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `cacheable operation with active chatMemory bypasses cache`() = runBlocking {
+    fun `cacheable operation with active chatMemory bypasses cache`() { runBlocking {
         val provider = CountingProvider()
         val memory = object : ChatMemory {
             override fun get(conversationId: String): List<Message> = emptyList()
@@ -1169,9 +1237,10 @@ class PolicyEnforcementTest {
         assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `policy change after cache write denies subsequent cache hit`() = runBlocking {
+    fun `policy change after cache write denies subsequent cache hit`() { runBlocking {
         val provider = CountingProvider()
         val cache = InMemoryOperationResponseCache()
         val allowEngine = engineWithCache(
@@ -1204,9 +1273,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("cache response blocked")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `cached provider removed from allowlist denies cache hit and skips provider`() = runBlocking {
+    fun `cached provider removed from allowlist denies cache hit and skips provider`() { runBlocking {
         val cache = InMemoryOperationResponseCache()
         val provider = CountingProvider(id = "cloud-provider")
         val allowEngine = engineWithCache(
@@ -1242,9 +1312,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("Provider 'cloud-provider' is not in the allowed-providers registry")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `cached model removed from allowlist denies cache hit and skips provider`() = runBlocking {
+    fun `cached model removed from allowlist denies cache hit and skips provider`() { runBlocking {
         val cache = InMemoryOperationResponseCache()
         val provider = CountingProvider(id = "cloud-provider")
         val allowEngine = engineWithCache(
@@ -1280,9 +1351,10 @@ class PolicyEnforcementTest {
             .hasMessageContaining("Model 'test-model' is not in the allowed-models registry")
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `cacheable operation with tools bypasses cache`() = runBlocking {
+    fun `cacheable operation with tools bypasses cache`() { runBlocking {
         val provider = CountingProvider()
         val engine = TramaiEngine(
             provider = provider,
@@ -1298,9 +1370,10 @@ class PolicyEnforcementTest {
         assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `cacheable operation with custom interceptor bypasses cache`() = runBlocking {
+    fun `cacheable operation with custom interceptor bypasses cache`() { runBlocking {
         val provider = CountingProvider()
         // A non-singleton interceptor — the engine checks reference-equality
         // against NoOpOperationInterceptor, so a fresh anonymous instance
@@ -1319,6 +1392,7 @@ class PolicyEnforcementTest {
         assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
+    }
     }
 
     @Test
@@ -1460,7 +1534,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `corrupted cached envelope with mismatched partition is rejected without policy call`() = runBlocking {
+    fun `corrupted cached envelope with mismatched partition is rejected without policy call`() { runBlocking {
         val provider = CountingProvider()
         val policyCalls = AtomicInteger(0)
         val cache = object : OperationResponseCache {
@@ -1496,9 +1570,10 @@ class PolicyEnforcementTest {
         assertThat(policyCalls.get()).isEqualTo(0)
         assertThat(provider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `provenance on cached raw and structured results includes providerId and modelName`() = runBlocking {
+    fun `provenance on cached raw and structured results includes providerId and modelName`() { runBlocking {
         val rawCache = InMemoryOperationResponseCache()
         val rawProvider = CountingProvider(id = "raw-provider")
         val rawService = engineWithCache(
@@ -1535,14 +1610,16 @@ class PolicyEnforcementTest {
         assertThat(structuredEntry!!.provenance.providerId).isEqualTo("structured-provider")
         assertThat(structuredEntry.provenance.modelName).isEqualTo("test-model")
     }
+    }
 
     // -- Context semantics tests -----------------------------------------------
 
     @Test
-    fun `context has distinct workflowId and workflowRunId`() = runBlocking {
+    fun `context has distinct workflowId and workflowRunId`() { runBlocking {
         var captured = false
         val engineWithCapture = TramaiEngine(
             provider = providerThatReturns("ok"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision {
                     assertThat(context.workflowId).isNull()
@@ -1558,9 +1635,10 @@ class PolicyEnforcementTest {
         service.analyze("test")
         assertThat(captured).isTrue()
     }
+    }
 
     @Test
-    fun `correlationId is stable across one execution flow`() = runBlocking {
+    fun `correlationId is stable across one execution flow`() { runBlocking {
         val correlationIds = mutableListOf<String>()
         // Provider returns a tool call on the first call, then a normal response
         val provider = object : ModelProvider {
@@ -1595,9 +1673,10 @@ class PolicyEnforcementTest {
         val firstId = correlationIds.first()
         correlationIds.forEach { assertThat(it).isEqualTo(firstId) }
     }
+    }
 
     @Test
-    fun `tool enforcement has toolName and correlationId`() = runBlocking {
+    fun `tool enforcement has toolName and correlationId`() { runBlocking {
         var capturedToolName: String? = null
         val engine = TramaiEngine(
             provider = providerWithToolCallThenReturn("echo"),
@@ -1614,6 +1693,7 @@ class PolicyEnforcementTest {
         val service = engine.create<TestService>()
         service.analyze("test")
         assertThat(capturedToolName).isEqualTo("echo")
+    }
     }
 
     private val insecureTool = object : ResolvedTool {
@@ -1646,7 +1726,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `tool execution enforcement has toolSecurity`() = runBlocking {
+    fun `tool execution enforcement has toolSecurity`() { runBlocking {
         var capturedSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
         val engine = TramaiEngine(
             provider = providerWithToolCallThenReturn("insecure"),
@@ -1665,9 +1745,10 @@ class PolicyEnforcementTest {
         assertThat(capturedSecurity).isNotNull
         assertThat(capturedSecurity?.risk).isEqualTo(dev.tramai.core.policy.RiskLevel.HIGH)
     }
+    }
 
     @Test
-    fun `tool exposure enforcement has toolSecurity`() = runBlocking {
+    fun `tool exposure enforcement has toolSecurity`() { runBlocking {
         var capturedSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
 
         val engine = TramaiEngine(
@@ -1687,31 +1768,43 @@ class PolicyEnforcementTest {
         assertThat(capturedSecurity).isNotNull
         assertThat(capturedSecurity?.risk).isEqualTo(dev.tramai.core.policy.RiskLevel.HIGH)
     }
+    }
 
     // -- Legacy compatibility tests --------------------------------------------
 
     @Test
-    fun `legacy compatibility allows execution without policy engine`() = runBlocking {
-        val legacyEngine = TramaiEngine(provider = providerThatReturns("legacy-ok"))
+    fun `legacy compatibility allows execution without policy engine`() { runBlocking {
+        val legacyEngine = TramaiEngine(
+            provider = providerThatReturns("legacy-ok"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+        )
         val service = legacyEngine.create<TestService>()
         val result = service.analyze("test")
         assertThat(result).isEqualTo("legacy-ok")
     }
+    }
 
     @Test
-    fun `legacy compatibility allows streaming without policy engine`() = runBlocking {
+    fun `legacy compatibility allows streaming without policy engine`() { runBlocking {
         val sProvider = streamingProvider()
-        val legacyEngine = TramaiEngine(provider = sProvider)
+        val legacyEngine = TramaiEngine(
+            provider = sProvider,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+        )
         val service = legacyEngine.create<StreamingTestService>()
         val chunks = service.stream("test").toList()
         assertThat(chunks).isNotEmpty
         assertThat(chunks.first()).isInstanceOf(StreamChunk.Token::class.java)
     }
+    }
 
     @Test
-    fun `legacy mode does not break normal execution`() = runBlocking {
+    fun `legacy mode does not break normal execution`() { runBlocking {
         // Multiple service proxies from the same engine should all work
-        val legacyEngine = TramaiEngine(provider = providerThatReturns("legacy-ok"))
+        val legacyEngine = TramaiEngine(
+            provider = providerThatReturns("legacy-ok"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+        )
         val service1 = legacyEngine.create<TestService>()
         val service2 = legacyEngine.create<CachedTestService>()
 
@@ -1720,11 +1813,12 @@ class PolicyEnforcementTest {
         assertThat(r1).isEqualTo("legacy-ok")
         assertThat(r2).isEqualTo("legacy-ok")
     }
+    }
 
     // -- Structured enforcement ordering (ITEM 2) ------------------------------
 
     @Test
-    fun `structured BEFORE_RESPONSE_RETURN deny prevents persist and cache side effects`() = runBlocking {
+    fun `structured BEFORE_RESPONSE_RETURN deny prevents persist and cache side effects`() { runBlocking {
         val handler = object : StructuredOutputHandler {
             override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult =
                 StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
@@ -1783,11 +1877,12 @@ class PolicyEnforcementTest {
         // Memory was never updated (persistStructuredSuccess not called)
         assertThat(memoryPersistCalled).isFalse()
     }
+    }
 
     // -- Cold streaming Flow enforcement (ITEM 3) ------------------------------
 
     @Test
-    fun `cold Flow — policy changed after Flow creation blocks collection`() = runBlocking {
+    fun `cold Flow — policy changed after Flow creation blocks collection`() { runBlocking {
         var currentPolicy: PolicyDecision = PolicyDecision.Allow
         val sProvider = streamingProvider()
 
@@ -1815,9 +1910,10 @@ class PolicyEnforcementTest {
         // Provider was never invoked because policy denied at flow collection
         assertThat(sProvider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `cold Flow — each collection evaluates policy independently`() = runBlocking {
+    fun `cold Flow — each collection evaluates policy independently`() { runBlocking {
         val enforceCount = AtomicInteger(0)
         val sProvider = streamingProvider()
 
@@ -1845,9 +1941,10 @@ class PolicyEnforcementTest {
         // Second collection triggered additional evaluations (per-collection semantic)
         assertThat(countAfterSecond).isGreaterThan(countAfterFirst)
     }
+    }
 
     @Test
-    fun `streaming fallback — BEFORE_RESPONSE_RETURN denies fallback route with providerId and modelName`() = runBlocking {
+    fun `streaming fallback — BEFORE_RESPONSE_RETURN denies fallback route with providerId and modelName`() { runBlocking {
         val primaryStreamProvider = object : ModelProvider, StreamCapable {
             val callCount = AtomicInteger(0)
             override fun providerId() = "primary-stream"
@@ -1884,49 +1981,42 @@ class PolicyEnforcementTest {
             .build()
 
         val settings = CircuitBreakerSettings(
+            enabled = true,
             failureThreshold = 1,
             openDurationMillis = 3_600_000, // long recovery — stays open
         )
 
-        // Phase 1: trip the circuit breaker on primary
-        val allowAll = TramaiEngine(
+        // Phase 2: BEFORE_FALLBACK allows, but BEFORE_RESPONSE_RETURN denies for fallback route
+        var capturedFallbackProviderId: String? = null
+        var capturedFallbackModelName: String? = null
+        var denyResponseReturn = false
+
+        val engine = TramaiEngine(
             providerRegistry = registry,
             toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
             circuitBreakerSettings = settings,
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-                    PolicyDecision.Allow
-            },
-        )
-        val service1 = allowAll.create<StreamingTestService>()
-        runBlocking { service1.stream("test").toList() }
-        // Circuit breaker is now open for primary, fallback was used in phase 1
-
-        // Phase 2: BEFORE_FALLBACK allows, but BEFORE_RESPONSE_RETURN denies for fallback route
-        var capturedFallbackProviderId: String? = null
-        var capturedFallbackModelName: String? = null
-        val fallbackStreamCallCountBefore = fallbackStreamProvider.callCount.get()
-
-        val engine = TramaiEngine(
-            providerRegistry = registry,
-            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
-            circuitBreakerSettings = CircuitBreakerSettings(
-                failureThreshold = 1,
-                openDurationMillis = 3_600_000, // still open
-            ),
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
+                    if (denyResponseReturn && context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
                         capturedFallbackProviderId = context.providerId
                         capturedFallbackModelName = context.modelName
                         PolicyDecision.Deny("fallback stream response blocked", "FALLBACK_STREAM_DENY")
                     } else PolicyDecision.Allow
             },
         )
-        val service2 = engine.create<StreamingTestService>()
+        val service = engine.create<StreamingTestService>()
+
+        // Phase 1: trip the circuit breaker on primary (policy allows everything)
+        runBlocking { service.stream("test").toList() }
+        // Circuit breaker is now open for primary, fallback was used in phase 1
+        val fallbackStreamCallCountBefore = fallbackStreamProvider.callCount.get()
+
+        // Phase 2: the open breaker skips the primary route, so the fallback route
+        // is the one denied at BEFORE_RESPONSE_RETURN
+        denyResponseReturn = true
 
         assertThatThrownBy {
-            runBlocking { service2.stream("test").toList() }
+            runBlocking { service.stream("test").toList() }
         }.isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("fallback stream response blocked")
 
@@ -1937,11 +2027,12 @@ class PolicyEnforcementTest {
         // Fallback stream was never invoked (denied at BEFORE_RESPONSE_RETURN)
         assertThat(fallbackStreamProvider.callCount.get()).isEqualTo(fallbackStreamCallCountBefore)
     }
+    }
 
     // -- Fallback transition enforcement (ITEM 4) ------------------------------
 
     @Test
-    fun `circuit breaker open — BEFORE_FALLBACK fires and deny blocks fallback`() = runBlocking {
+    fun `circuit breaker open — BEFORE_FALLBACK fires and deny blocks fallback`() { runBlocking {
         val fallbackCallCount = AtomicInteger(0)
         val primaryCallCount = AtomicInteger(0)
         val failOnceProvider = object : ModelProvider {
@@ -2002,9 +2093,10 @@ class PolicyEnforcementTest {
         // Secondary was never invoked in phase 2 (denied before reaching it)
         assertThat(fallbackCallCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `provider failure — BEFORE_FALLBACK fires and allow proceeds to secondary`() = runBlocking {
+    fun `provider failure — BEFORE_FALLBACK fires and allow proceeds to secondary`() { runBlocking {
         val fallbackCalled = AtomicInteger(0)
         var fallbackEnforced = false
         val failOnceProvider = object : ModelProvider {
@@ -2049,6 +2141,7 @@ class PolicyEnforcementTest {
         assertThat(fallbackEnforced).isTrue()
         assertThat(fallbackCalled.get()).isEqualTo(1)
     }
+    }
 
     // -- Null toolSecurity tests ------------------------------------------------
 
@@ -2069,7 +2162,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `legacy tool without security metadata is rejected in secure mode`() = runBlocking {
+    fun `legacy tool without security metadata is rejected in secure mode`() { runBlocking {
         val provider = providerWithToolCallThenReturn("legacy")
         val engine = TramaiEngine(
             provider = provider,
@@ -2088,9 +2181,10 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("has no security metadata")
     }
+    }
 
     @Test
-    fun `legacy tool without security metadata is allowed in preview mode`() = runBlocking {
+    fun `legacy tool without security metadata is allowed in preview mode`() { runBlocking {
         val provider = providerWithToolCallThenReturn("legacy")
         val engine = TramaiEngine(
             provider = provider,
@@ -2102,13 +2196,14 @@ class PolicyEnforcementTest {
         val result = service.analyze("test")
         assertThat(result).isEqualTo("done")
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Epic 2.3 / 2.4 — Engine-level classification routing matrix tests
     // ═══════════════════════════════════════════════════════════════════════
 
     @Test
-    fun `RESTRICTED local failure to GLOBAL_CLOUD fallback is denied via routing matrix`() = runBlocking {
+    fun `RESTRICTED local failure to GLOBAL_CLOUD fallback is denied via routing matrix`() { runBlocking {
         val localProvider = object : ModelProvider {
             val callCount = AtomicInteger(0)
             override fun providerId() = "local-provider"
@@ -2158,9 +2253,10 @@ class PolicyEnforcementTest {
         assertThat(localProvider.callCount.get()).isEqualTo(1)
         assertThat(cloudProvider.callCount.get()).isEqualTo(0)
     }
+    }
 
     @Test
-    fun `CONFIDENTIAL local failure to EU_CLOUD fallback is allowed via routing matrix`() = runBlocking {
+    fun `CONFIDENTIAL local failure to EU_CLOUD fallback is allowed via routing matrix`() { runBlocking {
         val localProvider = object : ModelProvider {
             val callCount = AtomicInteger(0)
             override fun providerId() = "local-provider"
@@ -2207,9 +2303,10 @@ class PolicyEnforcementTest {
         assertThat(localProvider.callCount.get()).isEqualTo(1)
         assertThat(euProvider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `cache hit is invalidated when provider zone changes to restricted classification`() = runBlocking {
+    fun `cache hit is invalidated when provider zone changes to restricted classification`() { runBlocking {
         val cache = InMemoryOperationResponseCache()
         val provider = CountingProvider(id = "ollama")
 
@@ -2265,9 +2362,10 @@ class PolicyEnforcementTest {
         // Provider should NOT have been invoked again (cache hit denied by policy)
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `registry revocation between retries blocks second attempt`() = runBlocking {
+    fun `registry revocation between retries blocks second attempt`() { runBlocking {
         val provider = object : ModelProvider {
             val callCount = AtomicInteger(0)
             override fun providerId() = "test-provider"
@@ -2311,11 +2409,14 @@ class PolicyEnforcementTest {
         assertThatThrownBy {
             runBlocking { service.analyze("test") }
         }.isInstanceOf(ModelNotRegisteredException::class.java)
-        assertThat(provider.callCount.get()).isEqualTo(0)
+        // First attempt reached the provider once; the retry was blocked by the
+        // revoked registry before a second provider invocation.
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
     }
 
     @Test
-    fun `cache outage fails closed without invalidating entry`() = runBlocking {
+    fun `cache outage fails closed without invalidating entry`() { runBlocking {
         val provider = CountingProvider(id = "test-provider")
         val cache = InMemoryOperationResponseCache(maxEntries = 10)
         val registry = object : ModelRegistry {
@@ -2374,5 +2475,6 @@ class PolicyEnforcementTest {
         }.isInstanceOf(ModelRegistryUnavailableException::class.java)
         assertThat(provider.callCount.get()).isEqualTo(1)
         assertThat(cache.snapshotKeys()).isNotEmpty
+    }
     }
 }

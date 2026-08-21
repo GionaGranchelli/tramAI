@@ -68,7 +68,7 @@ class SovereignLabLocalModelInvocationTest {
     private lateinit var env: Environment
 
     @Test
-    fun `invokes local OpenAI-compatible model through sovereign lab provider`() = runBlocking {
+    fun `invokes local OpenAI-compatible model through sovereign lab provider`() { runBlocking {
         val provider = context.getBean(OpenAiCompatibleProvider::class.java)
 
         val model = requireNotNull(
@@ -101,5 +101,6 @@ class SovereignLabLocalModelInvocationTest {
         assertThat(response.modelUsed)
             .describedAs("Response must indicate which model was used")
             .isNotNull
+    }
     }
 }

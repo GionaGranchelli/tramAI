@@ -270,7 +270,7 @@ class OpenAiProviderTest {
     }
 
     @Test
-    fun `untrusted provider exception from token source is sanitized and observed`() = runBlocking {
+    fun `untrusted provider exception from token source is sanitized and observed`() { runBlocking {
         val secretFixture = "token-source-secret /customer/alice"
         val original = ProviderException(
             "token acquisition failed: $secretFixture",
@@ -300,6 +300,7 @@ class OpenAiProviderTest {
         assertThat(events.single().failure).isSameAs(original)
         assertThat(events.single().providerId).isEqualTo("openai-compatible")
         assertThat(events.single().providerAlias).isEqualTo("customer-openai")
+    }
     }
 
     @Test

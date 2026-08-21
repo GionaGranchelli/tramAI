@@ -230,7 +230,7 @@ class OperationCacheCoordinatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `valid hit crosses all three reuse policy gates in order`() = runTest {
+    fun `valid hit crosses all three reuse policy gates in order`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val policy = RecordingPolicyEngine()
@@ -245,9 +245,10 @@ class OperationCacheCoordinatorTest {
             "BEFORE_RESPONSE_RETURN",
         )
     }
+    }
 
     @Test
-    fun `blank provider provenance is rejected and does not hit`() = runTest {
+    fun `blank provider provenance is rejected and does not hit`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached(provenance = provenance(providerId = "", modelName = "")) to 60_000L
         val c = coordinator(cache = cache)
@@ -258,9 +259,10 @@ class OperationCacheCoordinatorTest {
 
         assertThat(cache.invalidated).isEmpty()
     }
+    }
 
     @Test
-    fun `classification mismatch is rejected`() = runTest {
+    fun `classification mismatch is rejected`() { runTest {
         val cache = RecordingCache()
         val partition = CacheSecurityPartition(dev.tramai.core.policy.DataClassification.CONFIDENTIAL, null)
         val key = key().copy(securityPartition = partition)
@@ -271,9 +273,10 @@ class OperationCacheCoordinatorTest {
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("partition")
     }
+    }
 
     @Test
-    fun `classification-source mismatch is rejected`() = runTest {
+    fun `classification-source mismatch is rejected`() { runTest {
         val cache = RecordingCache()
         val partition = CacheSecurityPartition(null, dev.tramai.core.policy.ClassificationSource.DECLARED)
         val key = key().copy(securityPartition = partition)
@@ -284,9 +287,10 @@ class OperationCacheCoordinatorTest {
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("partition")
     }
+    }
 
     @Test
-    fun `current model provenance accepted when registry enabled`() = runTest {
+    fun `current model provenance accepted when registry enabled`() { runTest {
         val cache = RecordingCache()
         val approved = RegisteredModel(
             registryEntryId = "entry-1",
@@ -311,9 +315,10 @@ class OperationCacheCoordinatorTest {
 
         assertThat(result).isEqualTo(OperationCacheLookupResult.Hit("cached-value"))
     }
+    }
 
     @Test
-    fun `model provenance drift invalidates and misses`() = runTest {
+    fun `model provenance drift invalidates and misses`() { runTest {
         val cache = RecordingCache()
         val approved = RegisteredModel(
             registryEntryId = "entry-1",
@@ -338,9 +343,10 @@ class OperationCacheCoordinatorTest {
         assertThat(cache.invalidated).containsExactly(key())
         assertThat(cache.entries).isEmpty()
     }
+    }
 
     @Test
-    fun `conversation memory in scope misses`() = runTest {
+    fun `conversation memory in scope misses`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val c = coordinator(cache = cache)
@@ -350,9 +356,10 @@ class OperationCacheCoordinatorTest {
         assertThat(result).isEqualTo(OperationCacheLookupResult.Miss(null))
         assertThat(cache.getCalls.get()).isZero()
     }
+    }
 
     @Test
-    fun `custom interceptor in scope misses without touching cache`() = runTest {
+    fun `custom interceptor in scope misses without touching cache`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val c = coordinator(cache = cache, operationInterceptor = interceptor())
@@ -362,9 +369,10 @@ class OperationCacheCoordinatorTest {
         assertThat(result).isEqualTo(OperationCacheLookupResult.Miss(null))
         assertThat(cache.getCalls.get()).isZero()
     }
+    }
 
     @Test
-    fun `dlp in scope misses without touching cache`() = runTest {
+    fun `dlp in scope misses without touching cache`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val c = coordinator(cache = cache, dlpInterceptor = dlp())
@@ -374,16 +382,18 @@ class OperationCacheCoordinatorTest {
         assertThat(result).isEqualTo(OperationCacheLookupResult.Miss(null))
         assertThat(cache.getCalls.get()).isZero()
     }
+    }
 
     @Test
-    fun `empty cache misses with the key`() = runTest {
+    fun `empty cache misses with the key`() { runTest {
         val c = coordinator()
         val result = c.lookup(lookupRequest())
         assertThat(result).isEqualTo(OperationCacheLookupResult.Miss(key()))
     }
+    }
 
     @Test
-    fun `policy deny propagates`() = runTest {
+    fun `policy deny propagates`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val c = coordinator(
@@ -396,13 +406,14 @@ class OperationCacheCoordinatorTest {
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.lookup(lookupRequest()) } }
             .isInstanceOf(PolicyViolationException::class.java)
     }
+    }
 
     // ------------------------------------------------------------------
     // cancellation — never converted into miss/provenance/failure
     // ------------------------------------------------------------------
 
     @Test
-    fun `cancellation during model authorization propagates as same exception`() = runTest {
+    fun `cancellation during model authorization propagates as same exception`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val approved = RegisteredModel("entry-1", "p1", "model-x", "rev-1")
@@ -420,9 +431,10 @@ class OperationCacheCoordinatorTest {
             .isSameAs(cancel)
         assertThat(cache.invalidated).isEmpty()
     }
+    }
 
     @Test
-    fun `cancellation during reuse policy resolution propagates`() = runTest {
+    fun `cancellation during reuse policy resolution propagates`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val cancel = CancellationException("policy-cancel")
@@ -435,9 +447,10 @@ class OperationCacheCoordinatorTest {
             .isSameAs(cancel)
         assertThat(cache.invalidated).isEmpty()
     }
+    }
 
     @Test
-    fun `cancellation during reuse invocation gate propagates`() = runTest {
+    fun `cancellation during reuse invocation gate propagates`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val cancel = CancellationException("policy-cancel")
@@ -450,9 +463,10 @@ class OperationCacheCoordinatorTest {
             .isSameAs(cancel)
         assertThat(cache.invalidated).isEmpty()
     }
+    }
 
     @Test
-    fun `cancellation during reuse response gate propagates`() = runTest {
+    fun `cancellation during reuse response gate propagates`() { runTest {
         val cache = RecordingCache()
         cache.entries[key()] = cached() to 60_000L
         val cancel = CancellationException("policy-cancel")
@@ -464,6 +478,7 @@ class OperationCacheCoordinatorTest {
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.lookup(lookupRequest()) } }
             .isSameAs(cancel)
         assertThat(cache.invalidated).isEmpty()
+    }
     }
 
     // ------------------------------------------------------------------

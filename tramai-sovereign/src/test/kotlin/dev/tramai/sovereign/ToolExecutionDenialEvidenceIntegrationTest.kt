@@ -150,7 +150,7 @@ class ToolExecutionDenialEvidenceIntegrationTest {
     // --- Test 9: Execution denial produces durable audit record ----------------
 
     @Test
-    fun `execution denial produces durable audit record with safe metadata`() = runTest {
+    fun `execution denial produces durable audit record with safe metadata`() { runTest {
         val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
@@ -171,11 +171,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertEquals("HIGH", event.metadata["riskLevel"],
             "riskLevel must be present in safe audit metadata")
     }
+    }
 
     // --- Test 10: Denied execution exports as dedicated tool.permission evidence --
 
     @Test
-    fun `denied execution exports as dedicated tool permission evidence`() = runTest {
+    fun `denied execution exports as dedicated tool permission evidence`() { runTest {
         val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
@@ -203,11 +204,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertNotNull(record.digests.subjectDigest)
         assertNotNull(record.digests.payloadDigest)
     }
+    }
 
     // --- Test 11: Raw tool arguments absent from audit and evidence ------------
 
     @Test
-    fun `raw tool arguments and secrets are absent from audit and evidence`() = runTest {
+    fun `raw tool arguments and secrets are absent from audit and evidence`() { runTest {
         val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
@@ -265,11 +267,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertNull(execDenialEvent.metadata["attr_apiKey"])
         assertNull(execDenialEvent.metadata["attr_toolArguments"])
     }
+    }
 
     // --- Test 12: Denial evidence chain remains verifiable ---------------------
 
     @Test
-    fun `denial evidence chain passes AuditChainVerifier`() = runTest {
+    fun `denial evidence chain passes AuditChainVerifier`() { runTest {
         val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
@@ -290,5 +293,6 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertNotNull(denialEvent.eventId)
         assertNotNull(denialEvent.previousEventHash, "Denied event must have previous hash in chain")
         assertNotNull(denialEvent.eventHash, "Denied event must have its own hash in chain")
+    }
     }
 }

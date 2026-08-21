@@ -25,8 +25,8 @@ import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.verify
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
-import org.springframework.boot.test.mock.mockito.MockBean
 import org.springframework.http.MediaType
+import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
@@ -35,30 +35,55 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @WebMvcTest(ApprovalControlPlaneController::class)
+@TestPropertySource(
+    properties = [
+        "tramai.sovereign.ops.rest-control-plane-enabled=true",
+        "tramai.sovereign.ops.rest.base-path=/tramai/sovereign/approvals",
+    ],
+)
 class ApprovalControlPlaneControllerTest {
 
     @Autowired
     private lateinit var mockMvc: MockMvc
 
+    @org.junit.jupiter.api.BeforeEach
+    fun setupMockMvc() {
+        org.mockito.MockitoAnnotations.openMocks(this)
+        // The controller carries @ConditionalOnProperty + @ConditionalOnBean, which
+        // are evaluated before @MockBean definitions are registered — the bean never
+        // appears in a @WebMvcTest slice. Test the controller standalone with plain
+        // mocks instead; assertions are identical.
+        mockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+            .standaloneSetup(
+                ApprovalControlPlaneController(
+                    decisionControlPlane = decisionControlPlane,
+                    resumeControlPlane = resumeControlPlane,
+                    approvalStore = approvalStore,
+                    approvalContinuationStore = approvalContinuationStore,
+                ),
+            )
+            .build()
+    }
+
     @Autowired
     private lateinit var objectMapper: ObjectMapper
 
-    @MockBean
+    @org.mockito.Mock
     private lateinit var decisionControlPlane: ApprovalDecisionControlPlane
 
-    @MockBean
+    @org.mockito.Mock
     private lateinit var resumeControlPlane: ApprovalResumeControlPlane
 
-    @MockBean
+    @org.mockito.Mock
     private lateinit var approvalStore: ApprovalStore
 
-    @MockBean
+    @org.mockito.Mock
     private lateinit var approvalContinuationStore: ApprovalContinuationStore
 
     private val now: Instant = Instant.parse("2026-06-26T08:00:00Z")
 
     @Test
-    fun `approve endpoint returns 200 for Approved`() = runBlocking {
+    fun `approve endpoint returns 200 for Approved`() { runBlocking {
         val expectedCommand = approveCommand(
             approvalId = "approval-1",
             comment = "Approved",
@@ -88,8 +113,7 @@ class ApprovalControlPlaneControllerTest {
                         ),
                     ),
                 ),
-        )
-            .andExpect(status().isOk)
+        ).andExpect(status().isOk)
             .andExpect(jsonPath("$.status").value("APPROVED"))
             .andExpect(jsonPath("$.approvalId").value("approval-1"))
             .andExpect(jsonPath("$.actorId").value("medical-ops-reviewer"))
@@ -97,9 +121,10 @@ class ApprovalControlPlaneControllerTest {
 
         verify(decisionControlPlane).approve(expectedCommand)
     }
+    }
 
     @Test
-    fun `deny endpoint returns 200 for Denied`() = runBlocking {
+    fun `deny endpoint returns 200 for Denied`() { runBlocking {
         doReturn(
             ApprovalDecisionResult.Denied(
                 approvalId = ApprovalId("approval-1"),
@@ -128,9 +153,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.status").value("DENIED"))
             .andExpect(jsonPath("$.approvalId").value("approval-1"))
     }
+    }
 
     @Test
-    fun `resume endpoint returns 200 for Resumed`() = runBlocking {
+    fun `resume endpoint returns 200 for Resumed`() { runBlocking {
         doReturn(
             ApprovalResumeResult.Resumed(
                 approvalId = ApprovalId("approval-1"),
@@ -160,18 +186,20 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.approvalId").value("approval-1"))
             .andExpect(jsonPath("$.actorId").value("medical-ops-reviewer"))
     }
+    }
 
     @Test
-    fun `missing approval returns 404 for getApproval`() = runBlocking {
+    fun `missing approval returns 404 for getApproval`() { runBlocking {
         doReturn(null).`when`(approvalStore).get("approval-404")
 
         mockMvc.perform(get("/tramai/sovereign/approvals/approval-404"))
             .andExpect(status().isNotFound)
             .andExpect(content().string(""))
     }
+    }
 
     @Test
-    fun `conflict maps to 409 for approve`() = runBlocking {
+    fun `conflict maps to 409 for approve`() { runBlocking {
         doReturn(
             ApprovalDecisionResult.Conflict(
                 approvalId = ApprovalId("approval-1"),
@@ -197,9 +225,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.status").value("CONFLICT"))
             .andExpect(jsonPath("$.message").value("approval-version-conflict"))
     }
+    }
 
     @Test
-    fun `deny not found maps to 404`() = runBlocking {
+    fun `deny not found maps to 404`() { runBlocking {
         doReturn(
             ApprovalDecisionResult.NotFound(ApprovalId("approval-404")),
         ).`when`(decisionControlPlane).deny(
@@ -221,9 +250,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(status().isNotFound)
             .andExpect(content().string(""))
     }
+    }
 
     @Test
-    fun `resume not found maps to 404`() = runBlocking {
+    fun `resume not found maps to 404`() { runBlocking {
         doReturn(
             ApprovalResumeResult.NotFound(ApprovalId("approval-404")),
         ).`when`(resumeControlPlane).resume(
@@ -245,9 +275,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(status().isNotFound)
             .andExpect(content().string(""))
     }
+    }
 
     @Test
-    fun `resume not approved maps to 409`() = runBlocking {
+    fun `resume not approved maps to 409`() { runBlocking {
         doReturn(
             ApprovalResumeResult.NotApproved(
                 approvalId = ApprovalId("approval-1"),
@@ -273,9 +304,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.status").value("NOT_APPROVED"))
             .andExpect(jsonPath("$.message").value("approval-status-PENDING"))
     }
+    }
 
     @Test
-    fun `AlreadyCompleted returns 200`() = runBlocking {
+    fun `AlreadyCompleted returns 200`() { runBlocking {
         doReturn(
             ApprovalResumeResult.AlreadyCompleted(ApprovalId("approval-1")),
         ).`when`(resumeControlPlane).resume(
@@ -297,9 +329,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.status").value("ALREADY_COMPLETED"))
     }
+    }
 
     @Test
-    fun `AlreadyApproved returns 200`() = runBlocking {
+    fun `AlreadyApproved returns 200`() { runBlocking {
         doReturn(
             ApprovalDecisionResult.AlreadyApproved(
                 approvalId = ApprovalId("approval-1"),
@@ -326,9 +359,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.status").value("ALREADY_APPROVED"))
             .andExpect(jsonPath("$.actorId").value("existing-reviewer"))
     }
+    }
 
     @Test
-    fun `get approval returns 200 with approval and continuation status`() = runBlocking {
+    fun `get approval returns 200 with approval and continuation status`() { runBlocking {
         doReturn(approvalRequest("approval-1")).`when`(approvalStore).get("approval-1")
         doReturn(approvalContinuation("approval-1")).`when`(approvalContinuationStore).get("approval-1")
 
@@ -340,9 +374,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.requestedBy").value("triage-system"))
             .andExpect(jsonPath("$.continuationStatus").value("PENDING"))
     }
+    }
 
     @Test
-    fun `resume Failed returns 500 with safe message not internal exception`() = runBlocking {
+    fun `resume Failed returns 500 with safe message not internal exception`() { runBlocking {
         doReturn(
             ApprovalResumeResult.Failed(
                 approvalId = ApprovalId("approval-1"),
@@ -368,9 +403,10 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.status").value("FAILED"))
             .andExpect(jsonPath("$.message").value("approval-resume-failed"))
     }
+    }
 
     @Test
-    fun `Expired maps to 409`() = runBlocking {
+    fun `Expired maps to 409`() { runBlocking {
         doReturn(
             ApprovalDecisionResult.Expired(
                 approvalId = ApprovalId("approval-1"),
@@ -394,6 +430,7 @@ class ApprovalControlPlaneControllerTest {
         )
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.status").value("EXPIRED"))
+    }
     }
 
     // -- test helpers --

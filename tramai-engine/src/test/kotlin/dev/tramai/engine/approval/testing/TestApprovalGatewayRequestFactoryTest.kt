@@ -15,7 +15,7 @@ class TestApprovalGatewayRequestFactoryTest {
     private val factory = TestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
 
     @Test
-    fun `builds complete ApprovalGatewayPersistenceRequest`() = runTest {
+    fun `builds complete ApprovalGatewayPersistenceRequest`() { runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-1"),
             recommendation = ApprovalRecommendation(
@@ -31,9 +31,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.continuation.approvalId).isEqualTo(request.approvalRequest.approvalId)
         assertThat(request.suspendedInvocationMetadata.approvalId).isEqualTo(request.approvalRequest.approvalId)
     }
+    }
 
     @Test
-    fun `argumentsDigest changes when sensitive arguments change`() = runTest {
+    fun `argumentsDigest changes when sensitive arguments change`() { runTest {
         val builder = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
             .subject(ApprovalSubject("claim-digest"))
             .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
@@ -46,9 +47,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(first.approvalRequest.binding.argumentsDigest)
             .isNotEqualTo(second.approvalRequest.binding.argumentsDigest)
     }
+    }
 
     @Test
-    fun `argumentsDigest is consistent across binding and continuation`() = runTest {
+    fun `argumentsDigest is consistent across binding and continuation`() { runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-2"),
             recommendation = ApprovalRecommendation(
@@ -62,9 +64,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.continuation.argumentsDigest)
             .isEqualTo(request.approvalRequest.binding.argumentsDigest)
     }
+    }
 
     @Test
-    fun `replay envelope digest changes when operation reference changes`() = runTest {
+    fun `replay envelope digest changes when operation reference changes`() { runTest {
         val builder = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
             .subject(ApprovalSubject("claim-digest"))
             .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
@@ -90,9 +93,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(first.suspendedInvocationMetadata.replayEnvelopeDigest)
             .isNotEqualTo(second.suspendedInvocationMetadata.replayEnvelopeDigest)
     }
+    }
 
     @Test
-    fun `replay envelope digest is computed`() = runTest {
+    fun `replay envelope digest is computed`() { runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-3"),
             recommendation = ApprovalRecommendation(
@@ -106,9 +110,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.suspendedInvocationMetadata.replayEnvelopeDigest).isNotNull
         assertThat(request.replayEnvelope).isNotNull
     }
+    }
 
     @Test
-    fun `uses same approvalId across all three records`() = runTest {
+    fun `uses same approvalId across all three records`() { runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-4"),
             recommendation = ApprovalRecommendation(
@@ -123,9 +128,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.continuation.approvalId).isEqualTo(approvalId)
         assertThat(request.suspendedInvocationMetadata.approvalId).isEqualTo(approvalId)
     }
+    }
 
     @Test
-    fun `uses same workflowRunId across binding, continuation, and identity`() = runTest {
+    fun `uses same workflowRunId across binding, continuation, and identity`() { runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-5"),
             recommendation = ApprovalRecommendation(
@@ -140,6 +146,7 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.approvalRequest.binding.workflowRunId).isEqualTo(runId)
         assertThat(request.continuation.workflowRunId).isEqualTo(runId)
         assertThat(request.suspendedInvocationMetadata.identity.workflowRunId).isEqualTo(runId)
+    }
     }
 
     @Test
@@ -161,7 +168,7 @@ class TestApprovalGatewayRequestFactoryTest {
     }
 
     @Test
-    fun `builder supports deterministic approvalId correlationId and toolCallId`() = runTest {
+    fun `builder supports deterministic approvalId correlationId and toolCallId`() { runTest {
         val request = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
             .subject(ApprovalSubject("claim-1"))
             .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
@@ -180,9 +187,10 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(request.continuation.toolCallId).isEqualTo("tool-call-custom")
         assertThat(request.suspendedInvocationMetadata.toolCallId).isEqualTo("tool-call-custom")
     }
+    }
 
     @Test
-    fun `custom builder overrides produce consistent result`() = runTest {
+    fun `custom builder overrides produce consistent result`() { runTest {
         val customRequest = TestApprovalGatewayPersistenceRequestBuilder(
             clock = Clock.systemUTC(),
         )
@@ -210,5 +218,6 @@ class TestApprovalGatewayRequestFactoryTest {
         assertThat(customRequest.approvalRequest.binding.policyVersion).isEqualTo("2.0")
         assertThat(customRequest.suspendedInvocationMetadata.operationReference.serviceInterface)
             .isEqualTo("com.example.CustomWorkflow")
+    }
     }
 }

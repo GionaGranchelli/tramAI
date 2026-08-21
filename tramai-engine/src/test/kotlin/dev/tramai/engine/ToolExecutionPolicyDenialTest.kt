@@ -180,7 +180,7 @@ class ToolExecutionPolicyDenialTest {
     // --- Test 1: Exposure allowed, execution denied ---------------------------
 
     @Test
-    fun `exposure allowed but execution denied`() = runTest {
+    fun `exposure allowed but execution denied`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
         val emitter = capturingEmitter()
@@ -200,11 +200,12 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(1, provider.callCount.get(), "Provider should be called once to request the tool")
         assertEquals(0, tool.callCount.get(), "Tool should never execute")
     }
+    }
 
     // --- Test 2: Policy context contains canonical tool metadata --------------
 
     @Test
-    fun `execution policy context contains canonical tool metadata`() = runTest {
+    fun `execution policy context contains canonical tool metadata`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
         val emitter = capturingEmitter()
@@ -230,11 +231,12 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(RiskLevel.HIGH, ctx.toolSecurity!!.risk)
         assertEquals("payment.execute", ctx.toolSecurity!!.permission)
     }
+    }
 
     // --- Test 3: Denial audit happens before exception propagation ------------
 
     @Test
-    fun `denial audit emitted before PolicyViolationException reaches caller`() = runTest {
+    fun `denial audit emitted before PolicyViolationException reaches caller`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
 
@@ -304,11 +306,12 @@ class ToolExecutionPolicyDenialTest {
 
         assertEquals(0, tool.callCount.get(), "Tool should never execute")
     }
+    }
 
     // --- Test 4: Denial prevents reinjection policy evaluation ----------------
 
     @Test
-    fun `execution denial prevents tool result reinjection`() = runTest {
+    fun `execution denial prevents tool result reinjection`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
         val emitter = capturingEmitter()
@@ -338,11 +341,12 @@ class ToolExecutionPolicyDenialTest {
             "BEFORE_RESPONSE_RETURN must not fire after denied execution",
         )
     }
+    }
 
     // --- Test 5: No provider continuation after denial ------------------------
 
     @Test
-    fun `provider is not called again after execution denial`() = runTest {
+    fun `provider is not called again after execution denial`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
         val engine = TramaiEngine(
@@ -357,11 +361,12 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(1, provider.callCount.get(),
             "Provider should be called exactly once — no continuation after denial")
     }
+    }
 
     // --- Test 6: Audit failure at execution blocks the tool -------------------
 
     @Test
-    fun `audit failure at execution prevents tool execution`() = runTest {
+    fun `audit failure at execution prevents tool execution`() { runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
         val engine = TramaiEngine(
@@ -390,11 +395,12 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(0, tool.callCount.get(), "Tool must not execute when audit fails")
         assertEquals(1, provider.callCount.get(), "Provider should be called once")
     }
+    }
 
     // --- Test 7: Policy is reevaluated before every retry ---------------------
 
     @Test
-    fun `policy is reevaluated and denial respected between retries`() = runTest {
+    fun `policy is reevaluated and denial respected between retries`() { runTest {
         val tool = CountingTool("payment", failFirst = true)
         val provider = ToolCallProvider("payment")
         val evalCount = AtomicInteger(0)
@@ -424,11 +430,12 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(2, evalCount.get(), "Policy should be evaluated twice (once per attempt)")
         assertEquals(1, tool.callCount.get(), "Tool should execute once (first attempt) before denial on retry")
     }
+    }
 
     // --- Test 8: Multiple tool calls stop deterministically at denial ---------
 
     @Test
-    fun `later denied tool stops processing after earlier tools complete`() = runTest {
+    fun `later denied tool stops processing after earlier tools complete`() { runTest {
         val lookup = CountingTool("lookup")
         val payment = CountingTool("payment")
         val notification = CountingTool("notification")
@@ -466,5 +473,6 @@ class ToolExecutionPolicyDenialTest {
         assertEquals(0, payment.callCount.get(), "payment tool should never execute")
         assertEquals(0, notification.callCount.get(), "notification tool should never be reached")
         assertEquals(1, provider.callCount.get(), "Provider should not continue after denial")
+    }
     }
 }

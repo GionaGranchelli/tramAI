@@ -19,6 +19,7 @@ import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
@@ -140,7 +141,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     }
 
     @Test
-    fun `create approval request persists approval suspended invocation and continuation atomically`() = runBlocking {
+    fun `create approval request persists approval suspended invocation and continuation atomically`() { runBlocking {
         val request = request("approval-a")
 
         val result = mutationStore.createApprovalRequest(request)
@@ -165,16 +166,17 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(replayEnvelope).isNotNull
         assertThat(replayEnvelope!!.revealForResume().messages)
             .extracting<String> { it.content }
-            .containsExactly("request-approval-a")
+            .containsExactly("request-approval-a", "")
 
         val continuation = continuationStore.get("approval-a")
         assertThat(continuation).isNotNull
         assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
         assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
     }
+    }
 
     @Test
-    fun `create approval request with audit intent also creates pending outbox record`() = runBlocking {
+    fun `create approval request with audit intent also creates pending outbox record`() { runBlocking {
         val request = request("approval-b")
         val auditIntent = auditIntent("approval-b", "event-key-b")
 
@@ -184,9 +186,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             .isEqualTo("PENDING")
         assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'event-key-b'")).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `duplicate approval request returns existing`() = runBlocking {
+    fun `duplicate approval request returns existing`() { runBlocking {
         val request = request("approval-c")
 
         val created = mutationStore.createApprovalRequest(request)
@@ -198,12 +201,15 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(existing.approval.approvalId).isEqualTo("approval-c")
         assertThat(selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-c'")).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `constraint failure rolls back partial approval request creation`() = runBlocking {
+    fun `constraint failure rolls back partial approval request creation`() { runBlocking {
         val request = request("approval-d")
         suspendedInvocationStore.create(
             metadata = request("existing-conflict").suspendedInvocationMetadata.copy(
+                toolCallId = request.suspendedInvocationMetadata.toolCallId,
+                toolName = request.suspendedInvocationMetadata.toolName,
                 replayEnvelopeDigest = request.suspendedInvocationMetadata.replayEnvelopeDigest,
             ),
             replayEnvelope = request.replayEnvelope,
@@ -221,9 +227,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-d")).isNull()
         assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
     }
+    }
 
     @Test
-    fun `cancellation exception is rethrown and transaction rolls back`() = runBlocking {
+    fun `cancellation exception is rethrown and transaction rolls back`() { runBlocking {
         val request = request("approval-e")
         val cancellingStore = JdbcSovereignOpsApprovalRequestMutationStore(
             dataSource = dataSource,
@@ -251,9 +258,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(suspendedInvocationStore.get("approval-e")).isNull()
         assertThat(continuationStore.get("approval-e")).isNull()
     }
+    }
 
     @Test
-    fun `rejects replay envelope digest mismatch and rolls back all records`() = runBlocking {
+    fun `rejects replay envelope digest mismatch and rolls back all records`() { runBlocking {
         val request = request("approval-f").copy(
             suspendedInvocationMetadata = request("approval-f").suspendedInvocationMetadata.copy(
                 replayEnvelopeDigest = Sha256Digest.of("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
@@ -272,9 +280,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-f")).isNull()
         assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
     }
+    }
 
     @Test
-    fun `rejects already expired approval request and rolls back all records`() = runBlocking {
+    fun `rejects already expired approval request and rolls back all records`() { runBlocking {
         val now = BASE_NOW.plusSeconds(30)
         val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
         val storeWithExpiryCheck = JdbcSovereignOpsApprovalRequestMutationStore(
@@ -303,9 +312,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(suspendedInvocationStore.get("approval-g")).isNull()
         assertThat(continuationStore.get("approval-g")).isNull()
     }
+    }
 
     @Test
-    fun `rejects invalid continuation metadata and rolls back all records`() = runBlocking {
+    fun `rejects invalid continuation metadata and rolls back all records`() { runBlocking {
         val request = request("approval-h").copy(
             continuation = request("approval-h").continuation.copy(
                 workflowRunId = "  ",
@@ -323,9 +333,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(suspendedInvocationStore.get("approval-h")).isNull()
         assertThat(continuationStore.get("approval-h")).isNull()
     }
+    }
 
     @Test
-    fun `rejects future continuation createdAt and rolls back all records`() = runBlocking {
+    fun `rejects future continuation createdAt and rolls back all records`() { runBlocking {
         val now = BASE_NOW.plusSeconds(30)
         val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
         val storeWithTimeCheck = JdbcSovereignOpsApprovalRequestMutationStore(
@@ -354,9 +365,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(suspendedInvocationStore.get("approval-i")).isNull()
         assertThat(continuationStore.get("approval-i")).isNull()
     }
+    }
 
     @Test
-    fun `audit outbox failure rolls back approval request creation`() = runBlocking {
+    fun `audit outbox failure rolls back approval request creation`() { runBlocking {
         val request = request("approval-j")
         val auditIntent = auditIntent("approval-j", "outbox-failure-test")
         val failingCodec = object : JdbcOpsAuditOutboxPayloadCodec {
@@ -387,11 +399,12 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-j")).isNull()
         assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
     }
+    }
 
     // ── Inbox metadata tests ──────────────────────────────────────────
 
     @Test
-    fun `approval request creation persists inbox metadata atomically`() = runBlocking {
+    fun `approval request creation persists inbox metadata atomically`() { runBlocking {
         val request = request("approval-inbox-1")
         val metadata = ApprovalInboxMetadata(
             requiredRole = ApproverRole("medical-reviewer"),
@@ -423,10 +436,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(inbox.has("argumentsDigest")).isFalse()
         assertThat(inbox.has("approvalTokenDigest")).isFalse()
     }
+    }
 
 
     @Test
-    fun `rollback removes inbox metadata when continuation insert fails`() = runBlocking {
+    fun `rollback removes inbox metadata when continuation insert fails`() { runBlocking {
         val request = request("approval-inbox-2")
         val metadata = ApprovalInboxMetadata(
             requiredRole = ApproverRole("medical-reviewer"),
@@ -461,9 +475,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         // Verify approval was rolled back (no row)
         assertThat(approvalStore.get("approval-inbox-2")).isNull()
     }
+    }
 
     @Test
-    fun `existing approval replay returns existing metadata safely without inbox changes`() = runBlocking {
+    fun `existing approval replay returns existing metadata safely without inbox changes`() { runBlocking {
         val request = request("approval-inbox-3")
         val metadata = ApprovalInboxMetadata(
             requiredRole = ApproverRole("medical-reviewer"),
@@ -486,6 +501,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         // Only one row exists
         val count = selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-inbox-3'")
         assertThat(count).isEqualTo(1)
+    }
     }
 
     @Test
@@ -533,7 +549,20 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         val workflowDigest = digest('b')
         val argumentsDigest = digest('a')
         val approvalTokenDigest = digest('c')
-        val messages = listOf(Message(role = MessageRole.USER, content = "request-$approvalId"))
+        val messages = listOf(
+            Message(role = MessageRole.USER, content = "request-$approvalId"),
+            Message(
+                role = MessageRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "tool-call-$approvalId",
+                        name = "tool-$approvalId",
+                        argumentsJson = "{}",
+                    ),
+                ),
+            ),
+        )
         val operationReference = ResumeOperationReference("t.Service", "approve", "(Ljava/lang/String;)V", digest('d'))
         val replayDigest = ReplayEnvelopeDigestHelper.compute(operationReference, messages)
 

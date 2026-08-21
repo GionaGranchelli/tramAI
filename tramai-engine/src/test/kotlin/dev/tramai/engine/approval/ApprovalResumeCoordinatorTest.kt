@@ -166,7 +166,7 @@ class ApprovalResumeCoordinatorTest {
     }
 
     @Test
-    fun `happy resume preserves exact observable security sequence`() = runTest {
+    fun `happy resume preserves exact observable security sequence`() { runTest {
         val (coordinator, events, executor) = harness()
 
         val result = coordinator.resume(command)
@@ -189,9 +189,10 @@ class ApprovalResumeCoordinatorTest {
         // mutation sensitivity: the executor must have been invoked exactly once, after authorize+claim
         assertThat(executor.calls).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `completed continuation is rejected before metadata load`() = runTest {
+    fun `completed continuation is rejected before metadata load`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation(ApprovalContinuationStatus.COMPLETED))
         val suspended = RecordingSuspendedStore(events, metadata(), prepared.envelope)
@@ -211,9 +212,10 @@ class ApprovalResumeCoordinatorTest {
 
         assertThat(events).containsExactly("continuation.inspect")
     }
+    }
 
     @Test
-    fun `missing suspended metadata yields ApprovalNotFoundException`() = runTest {
+    fun `missing suspended metadata yields ApprovalNotFoundException`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
         val suspended = RecordingSuspendedStore(events, null, null)
@@ -233,9 +235,10 @@ class ApprovalResumeCoordinatorTest {
 
         assertThat(events).containsExactly("continuation.inspect", "metadata.load")
     }
+    }
 
     @Test
-    fun `deny policy cancels state and never claims or executes`() = runTest {
+    fun `deny policy cancels state and never claims or executes`() { runTest {
         val events = mutableListOf<String>()
         val (coordinator, _, executor) = harness(
             policyDecision = PolicyDecision.Deny(reason = "blocked", reasonCode = "WF_DENIED"),
@@ -254,9 +257,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "executor.execute" }
         assertThat(executor.calls).isZero()
     }
+    }
 
     @Test
-    fun `nested approval cancels state and never claims or executes`() = runTest {
+    fun `nested approval cancels state and never claims or executes`() { runTest {
         val events = mutableListOf<String>()
         val (coordinator, _, executor) = harness(
             policyDecision = PolicyDecision.RequireApproval(
@@ -275,9 +279,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "continuation.claim" }
         assertThat(events).noneMatch { it == "executor.execute" }
     }
+    }
 
     @Test
-    fun `claim failure propagates before executor or completion`() = runTest {
+    fun `claim failure propagates before executor or completion`() { runTest {
         val events = mutableListOf<String>()
         val (coordinator, _, executor) = harness(
             events = events,
@@ -295,9 +300,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "continuation.complete" }
         assertThat(executor.calls).isZero()
     }
+    }
 
     @Test
-    fun `missing replay envelope leaves continuation claimed and uncompleted`() = runTest {
+    fun `missing replay envelope leaves continuation claimed and uncompleted`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
         val suspended = RecordingSuspendedStore(events, metadata(), null)
@@ -319,9 +325,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).containsSubsequence("continuation.claim", "replay.reveal")
         assertThat(events).noneMatch { it == "continuation.complete" }
     }
+    }
 
     @Test
-    fun `replay digest mismatch emits uncertain outcome and leaves continuation claimed`() = runTest {
+    fun `replay digest mismatch emits uncertain outcome and leaves continuation claimed`() { runTest {
         val events = mutableListOf<String>()
         val tamperedEnvelope = SensitiveReplayEnvelope.of(
             listOf(Message(MessageRole.USER, "tampered")),
@@ -347,9 +354,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "executor.execute" }
         assertThat(events).noneMatch { it == "continuation.complete" }
     }
+    }
 
     @Test
-    fun `argument digest mismatch emits uncertain outcome and leaves continuation claimed`() = runTest {
+    fun `argument digest mismatch emits uncertain outcome and leaves continuation claimed`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(
             events,
@@ -379,9 +387,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "executor.execute" }
         assertThat(events).noneMatch { it == "continuation.complete" }
     }
+    }
 
     @Test
-    fun `executor nested-approval failure emits uncertain outcome and stays claimed`() = runTest {
+    fun `executor nested-approval failure emits uncertain outcome and stays claimed`() { runTest {
         val events = mutableListOf<String>()
         val executor = RecordingExecutor(events, throwWith = NestedApprovalNotSupportedException(approvalId, "nested"))
         val (coordinator, _, _) = harness(events = events, executor = executor)
@@ -393,9 +402,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "continuation.complete" }
         assertThat(events).noneMatch { it == "metadata.remove" }
     }
+    }
 
     @Test
-    fun `executor generic failure emits uncertain outcome and stays claimed`() = runTest {
+    fun `executor generic failure emits uncertain outcome and stays claimed`() { runTest {
         val events = mutableListOf<String>()
         val executor = RecordingExecutor(events, throwWith = RuntimeException("tool-failed"))
         val (coordinator, _, _) = harness(events = events, executor = executor)
@@ -408,9 +418,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "continuation.complete" }
         assertThat(events).noneMatch { it == "metadata.remove" }
     }
+    }
 
     @Test
-    fun `completion audit failure is diagnosed and resume still completes`() = runTest {
+    fun `completion audit failure is diagnosed and resume still completes`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
         val suspended = RecordingSuspendedStore(events, metadata(), prepared.envelope)
@@ -445,9 +456,10 @@ class ApprovalResumeCoordinatorTest {
                 it.contains("authority=AUTHORITATIVE")
         }).isTrue
     }
+    }
 
     @Test
-    fun `uncertain outcome audit failure never substitutes the primary resume failure`() = runTest {
+    fun `uncertain outcome audit failure never substitutes the primary resume failure`() { runTest {
         val events = mutableListOf<String>()
         val executor = RecordingExecutor(events, throwWith = RuntimeException("tool-failed"))
         val store = RecordingContinuationStore(events, continuation())
@@ -481,9 +493,10 @@ class ApprovalResumeCoordinatorTest {
                 it.contains("authority=AUTHORITATIVE")
         }).isTrue
     }
+    }
 
     @Test
-    fun `cancellation after claim during replay reveal stays claimed and is never converted to uncertain outcome`() = runTest {
+    fun `cancellation after claim during replay reveal stays claimed and is never converted to uncertain outcome`() { runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
         val suspended = RecordingSuspendedStore(events, metadata(), null)
@@ -518,9 +531,10 @@ class ApprovalResumeCoordinatorTest {
         assertThat(events).noneMatch { it == "metadata.remove" }
         assertThat(events).noneMatch { it == "audit.complete" }
     }
+    }
 
     @Test
-    fun `resume requires continuation store before loading external state`() = runTest {
+    fun `resume requires continuation store before loading external state`() { runTest {
         val events = mutableListOf<String>()
         val coordinator = ApprovalResumeCoordinator(
             approvalContinuationStore = null,
@@ -541,6 +555,7 @@ class ApprovalResumeCoordinatorTest {
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
             .isInstanceOf(ConfigurationException::class.java)
             .hasMessage("ApprovalContinuationStore is required for resume")
+    }
     }
 
     // ------------------------------------------------------------------

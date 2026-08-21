@@ -126,7 +126,7 @@ class JdbcApprovalStoreTest {
     // ── Create / Get ────────────────────────────────────────────
 
     @Test
-    fun `saves and loads a pending approval`() = runBlocking {
+    fun `saves and loads a pending approval`() { runBlocking {
         val s = store()
         val request = approvalRequest()
 
@@ -140,9 +140,10 @@ class JdbcApprovalStoreTest {
         assertEquals("deploy-service", loaded.binding.toolName)
         assertEquals(0, loaded.version)
     }
+    }
 
     @Test
-    fun `persisted approval survives new store instance`() = runBlocking {
+    fun `persisted approval survives new store instance`() { runBlocking {
         val s1 = store()
         s1.create(approvalRequest(id = "survive-test"))
 
@@ -153,15 +154,17 @@ class JdbcApprovalStoreTest {
         assertEquals(ApprovalStatus.PENDING, loaded.status)
         assertEquals("user:alice", loaded.requestedBy)
     }
-
-    @Test
-    fun `get returns null for non-existent approval`() = runBlocking {
-        val loaded = store().get("non-existent")
-        assertNull(loaded)
     }
 
     @Test
-    fun `duplicate approval ID throws ApprovalStoreConflictException`() = runBlocking {
+    fun `get returns null for non-existent approval`() { runBlocking {
+        val loaded = store().get("non-existent")
+        assertNull(loaded)
+    }
+    }
+
+    @Test
+    fun `duplicate approval ID throws ApprovalStoreConflictException`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "dup-test"))
 
@@ -169,11 +172,12 @@ class JdbcApprovalStoreTest {
             s.create(approvalRequest(id = "dup-test"))
         }
     }
+    }
 
     // ── Transitions ─────────────────────────────────────────────
 
     @Test
-    fun `records approval decision`() = runBlocking {
+    fun `records approval decision`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "approve-test"))
 
@@ -184,9 +188,10 @@ class JdbcApprovalStoreTest {
         assertNotNull(updated.decidedAt)
         assertEquals(1, updated.version)
     }
+    }
 
     @Test
-    fun `records denial decision`() = runBlocking {
+    fun `records denial decision`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "deny-test"))
 
@@ -197,9 +202,10 @@ class JdbcApprovalStoreTest {
         assertEquals("not approved", updated.decisionComment)
         assertEquals(1, updated.version)
     }
+    }
 
     @Test
-    fun `records timeout decision`() = runBlocking {
+    fun `records timeout decision`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "timeout-test"))
 
@@ -214,9 +220,10 @@ class JdbcApprovalStoreTest {
         assertNull(updated.decidedBy)
         assertEquals(1, updated.version)
     }
+    }
 
     @Test
-    fun `transition with wrong version throws ApprovalStoreConflictException`() = runBlocking {
+    fun `transition with wrong version throws ApprovalStoreConflictException`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "version-test"))
         s.transition("version-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -225,16 +232,18 @@ class JdbcApprovalStoreTest {
             s.transition("version-test", 0, ApprovalTransition.Deny("user:mallory"))
         }
     }
+    }
 
     @Test
-    fun `transition on non-existent approval throws ApprovalStoreNotFoundException`() = runBlocking {
+    fun `transition on non-existent approval throws ApprovalStoreNotFoundException`() { runBlocking {
         assertFailsWith<ApprovalStoreNotFoundException> {
             store().transition("non-existent", 0, ApprovalTransition.Approve("user:bob"))
         }
     }
+    }
 
     @Test
-    fun `illegal transition from terminal status throws IllegalApprovalTransitionException`() = runBlocking {
+    fun `illegal transition from terminal status throws IllegalApprovalTransitionException`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "terminal-test"))
         s.transition("terminal-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -243,9 +252,10 @@ class JdbcApprovalStoreTest {
             s.transition("terminal-test", 1, ApprovalTransition.Deny("user:bob"))
         }
     }
+    }
 
     @Test
-    fun `decision update increments version`() = runBlocking {
+    fun `decision update increments version`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "version-inc-test"))
 
@@ -255,9 +265,10 @@ class JdbcApprovalStoreTest {
         val loaded = s.get("version-inc-test")
         assertEquals(1, loaded!!.version)
     }
+    }
 
     @Test
-    fun `competing decisions cannot both win`() = runBlocking {
+    fun `competing decisions cannot both win`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "compete-test"))
 
@@ -267,11 +278,12 @@ class JdbcApprovalStoreTest {
             s.transition("compete-test", 0, ApprovalTransition.Deny("user:mallory"))
         }
     }
+    }
 
     // ── Consume / Replay ────────────────────────────────────────
 
     @Test
-    fun `consumes an approved request`() = runBlocking {
+    fun `consumes an approved request`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "consume-test"))
         s.transition("consume-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -287,9 +299,10 @@ class JdbcApprovalStoreTest {
         assertEquals(2, receipt.request.version)
         assertEquals(false, receipt.replayed)
     }
+    }
 
     @Test
-    fun `exact replay returns replayed receipt`() = runBlocking {
+    fun `exact replay returns replayed receipt`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "replay-test"))
         s.transition("replay-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -309,9 +322,10 @@ class JdbcApprovalStoreTest {
         assertEquals(true, receipt.replayed)
         assertEquals(2, receipt.request.version)
     }
+    }
 
     @Test
-    fun `consuming unapproved request throws ApprovalStoreNotConsumableException`() = runBlocking {
+    fun `consuming unapproved request throws ApprovalStoreNotConsumableException`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "unapproved-consume"))
 
@@ -323,9 +337,10 @@ class JdbcApprovalStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `consuming with wrong token throws ApprovalStoreTokenRejectedException`() = runBlocking {
+    fun `consuming with wrong token throws ApprovalStoreTokenRejectedException`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "wrong-token"))
         s.transition("wrong-token", 0, ApprovalTransition.Approve("user:bob"))
@@ -338,11 +353,12 @@ class JdbcApprovalStoreTest {
             )
         }
     }
+    }
 
     // ── Sanitized persistence ───────────────────────────────────
 
     @Test
-    fun `sanitized metadata round-trips as JSONB`() = runBlocking {
+    fun `sanitized metadata round-trips as JSONB`() { runBlocking {
         val s = store()
         val request = approvalRequest(id = "jsonb-test")
         s.create(request)
@@ -356,9 +372,10 @@ class JdbcApprovalStoreTest {
         assertEquals(request.binding.workflowDigest, loaded.binding.workflowDigest)
         assertEquals(request.binding.approvalTokenDigest, loaded.binding.approvalTokenDigest)
     }
+    }
 
     @Test
-    fun `encrypted_payload remains null for sanitized-only approval records`() = runBlocking {
+    fun `encrypted_payload remains null for sanitized-only approval records`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "enc-null-test"))
 
@@ -374,9 +391,10 @@ class JdbcApprovalStoreTest {
             assertNull(rs.getObject("payload_digest"))
         }
     }
+    }
 
     @Test
-    fun `no raw prompt or model payload is persisted`() = runBlocking {
+    fun `no raw prompt or model payload is persisted`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "sanitized-payload-test"))
         s.transition("sanitized-payload-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -398,9 +416,10 @@ class JdbcApprovalStoreTest {
             assertTrue("argumentsDigest" in metadata)
         }
     }
+    }
 
     @Test
-    fun `decision_actor_hash stores hash not raw identity`() = runBlocking {
+    fun `decision_actor_hash stores hash not raw identity`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "actor-hash-test"))
         s.transition("actor-hash-test", 0, ApprovalTransition.Approve("user:bob"))
@@ -416,11 +435,12 @@ class JdbcApprovalStoreTest {
             assertEquals(71, hash.length)
         }
     }
+    }
 
     // ── RequestedAt round-trip ────────────────────────────────────
 
     @Test
-    fun `requestedAt round-trips when earlier than store clock`() = runBlocking {
+    fun `requestedAt round-trips when earlier than store clock`() { runBlocking {
         val now = fixedClock.instant()
         val request = approvalRequest(id = "requested-at-roundtrip").copy(
             requestedAt = now.minusSeconds(30),
@@ -434,11 +454,12 @@ class JdbcApprovalStoreTest {
         assertEquals(request.requestedAt, loaded.requestedAt)
         assertEquals(request.expiresAt, loaded.expiresAt)
     }
+    }
 
     // ── Concurrent consumption ────────────────────────────────────
 
     @Test
-    fun `concurrent consumption with same version results in exactly one fresh consume`() = runBlocking {
+    fun `concurrent consumption with same version results in exactly one fresh consume`() { runBlocking {
         val s = store()
         s.create(approvalRequest(id = "concurrent-consume"))
         s.transition("concurrent-consume", 0, ApprovalTransition.Approve("user:bob"))
@@ -469,11 +490,12 @@ class JdbcApprovalStoreTest {
         val freshCount = results.count { it == "fresh:false" }
         assertEquals(1, freshCount, "Exactly one concurrent consumer should get fresh consumption")
     }
+    }
 
     // ── Clock ───────────────────────────────────────────────────
 
     @Test
-    fun `created_at uses store clock`() = runBlocking {
+    fun `created_at uses store clock`() { runBlocking {
         val customClock = Clock.fixed(
             Instant.parse("2026-01-15T08:30:00Z"),
             ZoneId.of("UTC"),
@@ -488,5 +510,6 @@ class JdbcApprovalStoreTest {
         val loaded = s.get("clock-test")
         assertNotNull(loaded)
         assertEquals(Instant.parse("2026-01-15T08:30:00Z"), loaded.requestedAt)
+    }
     }
 }

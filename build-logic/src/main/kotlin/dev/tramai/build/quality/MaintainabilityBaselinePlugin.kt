@@ -834,6 +834,30 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        // ---- JUnit test-signature integrity (silently-skipped tests guard) ----
+        // JUnit Jupiter discards @Test methods whose JVM return type is not void.
+        // Kotlin expression-bodied tests ending in a chainable assertion compile
+        // to non-void methods and are silently never discovered. This task scans
+        // every test source and fails on non-Unit expression-bodied @Test fns.
+        project.tasks.register("verifyJUnitTestSignatures") {
+            group = "verification"
+            description = "Fails if any @Test function uses an expression body whose inferred " +
+                "return type is not provably Unit (JUnit silently skips non-void @Test methods)."
+            doLast {
+                val violations = JUnitTestSignatureVerifier.scan(project.rootDir.toPath())
+                if (violations.isNotEmpty()) {
+                    throw GradleException(
+                        "verifyJUnitTestSignatures: ${violations.size} @Test function(s) with " +
+                            "non-Unit expression bodies would be silently skipped by JUnit.\n" +
+                            JUnitTestSignatureVerifier.render(violations),
+                    )
+                }
+            }
+        }
+        verifyPr.configure {
+            dependsOn("verifyJUnitTestSignatures")
+        }
+
         // Wire subproject test tasks lazily — use withPlugin so they register
         // after subproject build scripts evaluate, not as an eager snapshot.
         project.subprojects.forEach { subproject ->

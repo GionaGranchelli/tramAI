@@ -82,7 +82,7 @@ class ProviderFailuresTest {
     }
 
     @Test
-    fun `observed http failure delivers bounded preview and alias`() = runBlocking {
+    fun `observed http failure delivers bounded preview and alias`() { runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
         val oversized = "x".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES + 100)
 
@@ -102,9 +102,10 @@ class ProviderFailuresTest {
         assertThat(event.httpBodyPreviewTruncated).isTrue()
         assertThat(event.failure).isNull()
     }
+    }
 
     @Test
-    fun `provider http failure delivers a bounded body preview to the diagnostic observer`() = runBlocking {
+    fun `provider http failure delivers a bounded body preview to the diagnostic observer`() { runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
 
         providerHttpFailureObserved(
@@ -118,9 +119,10 @@ class ProviderFailuresTest {
             .hasSizeLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
         assertThat(events.single().httpBodyPreviewTruncated).isTrue()
     }
+    }
 
     @Test
-    fun `observed http failure preserves caller truncation flag`() = runBlocking {
+    fun `observed http failure preserves caller truncation flag`() { runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
 
         providerHttpFailureObserved(
@@ -132,6 +134,7 @@ class ProviderFailuresTest {
         )
 
         assertThat(events.single().httpBodyPreviewTruncated).isTrue()
+    }
     }
 
     @Test
@@ -222,7 +225,7 @@ class ProviderFailuresTest {
     }
 
     @Test
-    fun `unchecked io failure is classified as retryable transport failure and observed`() = runBlocking {
+    fun `unchecked io failure is classified as retryable transport failure and observed`() { runBlocking {
         val original = UncheckedIOException(IOException("socket closed"))
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
 
@@ -237,6 +240,7 @@ class ProviderFailuresTest {
         assertThat(error.message).isEqualTo("Provider transport failed")
         assertThat(error.cause).isNull()
         assertThat(events.single().failure).isSameAs(original)
+    }
     }
 
     @Test
@@ -255,7 +259,7 @@ class ProviderFailuresTest {
     }
 
     @Test
-    fun `untrusted provider exception is sanitized and delivered only to observer`() = runBlocking {
+    fun `untrusted provider exception is sanitized and delivered only to observer`() { runBlocking {
         val originalCause = IllegalStateException("cause $secretFixture")
         val original = ProviderException(
             message = "message $secretFixture",
@@ -281,9 +285,10 @@ class ProviderFailuresTest {
         assertThat(result.failureCode).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
         assertThat(events.single().failure).isSameAs(original)
     }
+    }
 
     @Test
-    fun `safe provider failure passes through transport boundary unchanged`() = runBlocking {
+    fun `safe provider failure passes through transport boundary unchanged`() { runBlocking {
         val trusted = safeProviderFailure("trusted caller text", ProviderFailureCode.UNEXPECTED_FAILURE)
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
 
@@ -296,9 +301,10 @@ class ProviderFailuresTest {
         assertThat(result).isSameAs(trusted)
         assertThat(events).isEmpty()
     }
+    }
 
     @Test
-    fun `original transport throwable reaches only the observer`() = runBlocking {
+    fun `original transport throwable reaches only the observer`() { runBlocking {
         val original = IOException("raw $secretFixture")
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
 
@@ -312,9 +318,10 @@ class ProviderFailuresTest {
         assertThat(events.single().failure).isSameAs(original)
         assertThat(events.single().code).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
     }
+    }
 
     @Test
-    fun `cancellation input is rethrown without diagnostics`() = runBlocking {
+    fun `cancellation input is rethrown without diagnostics`() { runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
         val cancellation = CancellationException("parent cancelled")
 
@@ -329,9 +336,10 @@ class ProviderFailuresTest {
         assertThat(thrown).isSameAs(cancellation)
         assertThat(events).isEmpty()
     }
+    }
 
     @Test
-    fun `observer cancellation while job is active leaves provider failure primary`() = runBlocking {
+    fun `observer cancellation while job is active leaves provider failure primary`() { runBlocking {
         val result = async {
             providerTransportFailureObserved(
                 "openai",
@@ -343,9 +351,10 @@ class ProviderFailuresTest {
         assertThat(result.message).isEqualTo("Provider transport failed")
         assertThat(result.cause).isNull()
     }
+    }
 
     @Test
-    fun `parent cancellation during observer delivery remains primary`() = runBlocking {
+    fun `parent cancellation during observer delivery remains primary`() { runBlocking {
         val task = async {
             val job = coroutineContext.job
             providerTransportFailureObserved(
@@ -360,9 +369,10 @@ class ProviderFailuresTest {
 
         assertFailsWith<CancellationException> { task.await() }
     }
+    }
 
     @Test
-    fun `ordinary observer failure is fail open`() = runBlocking {
+    fun `ordinary observer failure is fail open`() { runBlocking {
         val result = providerTransportFailureObserved(
             "openai",
             IOException("boom"),
@@ -370,6 +380,7 @@ class ProviderFailuresTest {
         )
 
         assertThat(result.message).isEqualTo("Provider transport failed")
+    }
     }
 
     private class CountingInputStream(bytes: ByteArray) : InputStream() {

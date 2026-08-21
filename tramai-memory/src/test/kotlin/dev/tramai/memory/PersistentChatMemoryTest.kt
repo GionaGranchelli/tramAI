@@ -192,7 +192,7 @@ class PersistentChatMemoryTest {
     // ── Thread Safety ──────────────────────────────────────────
 
     @Test
-    fun `supports concurrent adds to same conversation`() = runBlocking {
+    fun `supports concurrent adds to same conversation`() { runBlocking {
         val memory = PersistentChatMemory(InMemoryChatMemoryStore())
         val numMessages = 30
         coroutineScope {
@@ -206,9 +206,10 @@ class PersistentChatMemoryTest {
         val history = memory.get("shared")
         assertThat(history).hasSize(numMessages)
     }
+    }
 
     @Test
-    fun `supports concurrent adds to different conversations`() = runBlocking {
+    fun `supports concurrent adds to different conversations`() { runBlocking {
         val memory = PersistentChatMemory(InMemoryChatMemoryStore())
         val numConversations = 20
         coroutineScope {
@@ -223,9 +224,10 @@ class PersistentChatMemoryTest {
             assertThat(memory.get("conv-$i")).isNotEmpty
         }
     }
+    }
 
     @Test
-    fun `supports concurrent read and write on same conversation`() = runBlocking {
+    fun `supports concurrent read and write on same conversation`() { runBlocking {
         val memory = PersistentChatMemory(InMemoryChatMemoryStore())
         memory.add("shared", Message(MessageRole.SYSTEM, "system"))
 
@@ -245,6 +247,7 @@ class PersistentChatMemoryTest {
         // Should not throw. After all writers done, should have expected count.
         val history = memory.get("shared")
         assertThat(history.size).isGreaterThanOrEqualTo(1)
+    }
     }
 
     // ── Test Helpers ─────────────────────────────────────────────

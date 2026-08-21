@@ -34,9 +34,10 @@ class GovernedWorkflowTest {
     private val workflow = buildClaimTriageWorkflow(DeterministicClaimClassifier())
 
     @Test
-    fun `low-risk claim passes governed workflow`() = runBlocking {
+    fun `low-risk claim passes governed workflow`() { runBlocking {
         val result = workflow.run(initialState = ClaimTriageState(claim = lowRiskClaim))
         assertThat(result.status).isEqualTo("ready-for-review")
+    }
     }
 
     @Test
@@ -64,11 +65,12 @@ class GovernedWorkflowTest {
     }
 
     @Test
-    fun `high-risk claim with approval passes`() = runBlocking {
+    fun `high-risk claim with approval passes`() { runBlocking {
         val result = workflow.run(
             initialState = ClaimTriageState(claim = highRiskClaim, approved = true),
         )
         assertThat(result.status).isEqualTo("ready-for-review")
+    }
     }
 
     @Test

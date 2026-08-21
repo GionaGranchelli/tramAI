@@ -199,7 +199,7 @@ class JdbcAuditStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `append first event gets sequence 1 with null previous hash`() = runBlocking {
+    fun `append first event gets sequence 1 with null previous hash`() { runBlocking {
         val s = store()
         val event = s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -208,9 +208,10 @@ class JdbcAuditStoreTest {
         assertEquals("APPROVED", event.decision)
         assertEquals("evt-stream-1-1", event.eventId)
     }
+    }
 
     @Test
-    fun `append second event gets sequence 2 with correct previous hash`() = runBlocking {
+    fun `append second event gets sequence 2 with correct previous hash`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         val second = s.appendNext("stream-1", eventFactory("stream-1"))
@@ -222,9 +223,10 @@ class JdbcAuditStoreTest {
         assertNotNull(first)
         assertEquals(2L, first.sequenceNumber)
     }
+    }
 
     @Test
-    fun `duplicate event ID is rejected`() = runBlocking {
+    fun `duplicate event ID is rejected`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -240,9 +242,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `append with sequence gap is rejected`() = runBlocking {
+    fun `append with sequence gap is rejected`() { runBlocking {
         val s = store()
 
         assertFailsWith<IllegalArgumentException> {
@@ -256,9 +259,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `append with wrong stream ID is rejected`() = runBlocking {
+    fun `append with wrong stream ID is rejected`() { runBlocking {
         val s = store()
 
         assertFailsWith<IllegalArgumentException> {
@@ -272,9 +276,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `append with wrong previous hash is rejected`() = runBlocking {
+    fun `append with wrong previous hash is rejected`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -289,9 +294,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `append with wrong event hash is rejected`() = runBlocking {
+    fun `append with wrong event hash is rejected`() { runBlocking {
         val s = store()
 
         assertFailsWith<IllegalArgumentException> {
@@ -305,13 +311,14 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Read tests
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `readStream returns events in ascending sequence order`() = runBlocking {
+    fun `readStream returns events in ascending sequence order`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -326,9 +333,10 @@ class JdbcAuditStoreTest {
         assertEquals("evt-stream-1-2", events[1].eventId)
         assertEquals("evt-stream-1-3", events[2].eventId)
     }
+    }
 
     @Test
-    fun `readStream validates full chain and rejects corruption`() = runBlocking {
+    fun `readStream validates full chain and rejects corruption`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -347,15 +355,17 @@ class JdbcAuditStoreTest {
             s.readStream("stream-1")
         }
     }
-
-    @Test
-    fun `readStream returns empty for non-existent stream`() = runBlocking {
-        val events = store().readStream("non-existent")
-        assertTrue(events.isEmpty())
     }
 
     @Test
-    fun `readStreamPage with null after returns first page`() = runBlocking {
+    fun `readStream returns empty for non-existent stream`() { runBlocking {
+        val events = store().readStream("non-existent")
+        assertTrue(events.isEmpty())
+    }
+    }
+
+    @Test
+    fun `readStreamPage with null after returns first page`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -366,9 +376,10 @@ class JdbcAuditStoreTest {
         assertEquals(1L, page[0].sequenceNumber)
         assertEquals(2L, page[1].sequenceNumber)
     }
+    }
 
     @Test
-    fun `readStreamPage with cursor returns next page`() = runBlocking {
+    fun `readStreamPage with cursor returns next page`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -379,23 +390,26 @@ class JdbcAuditStoreTest {
         assertEquals(2L, page[0].sequenceNumber)
         assertEquals(3L, page[1].sequenceNumber)
     }
+    }
 
     @Test
-    fun `readStreamPage rejects negative cursor`() = runBlocking {
+    fun `readStreamPage rejects negative cursor`() { runBlocking {
         assertFailsWith<IllegalArgumentException> {
             store().readStreamPage("stream-1", afterSequenceNumber = -1, limit = 10)
         }
     }
+    }
 
     @Test
-    fun `readStreamPage rejects zero limit`() = runBlocking {
+    fun `readStreamPage rejects zero limit`() { runBlocking {
         assertFailsWith<IllegalArgumentException> {
             store().readStreamPage("stream-1", afterSequenceNumber = null, limit = 0)
         }
     }
+    }
 
     @Test
-    fun `latestEvent returns newest event`() = runBlocking {
+    fun `latestEvent returns newest event`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -405,10 +419,12 @@ class JdbcAuditStoreTest {
         assertEquals(2L, latest.sequenceNumber)
         assertEquals("evt-stream-1-2", latest.eventId)
     }
+    }
 
     @Test
-    fun `latestEvent returns null for empty stream`() = runBlocking {
+    fun `latestEvent returns null for empty stream`() { runBlocking {
         assertNull(store().latestEvent("empty-stream"))
+    }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -416,7 +432,7 @@ class JdbcAuditStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `store A appends, store B reads`() = runBlocking {
+    fun `store A appends, store B reads`() { runBlocking {
         val sA = store()
         sA.appendNext("stream-1", eventFactory("stream-1"))
         sA.appendNext("stream-1", eventFactory("stream-1"))
@@ -427,9 +443,10 @@ class JdbcAuditStoreTest {
         assertEquals("evt-stream-1-1", events[0].eventId)
         assertEquals("evt-stream-1-2", events[1].eventId)
     }
+    }
 
     @Test
-    fun `store A appends, store B appends next`() = runBlocking {
+    fun `store A appends, store B appends next`() { runBlocking {
         val sA = store()
         sA.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -438,9 +455,10 @@ class JdbcAuditStoreTest {
         assertEquals(2L, next.sequenceNumber)
         assertEquals("evt-stream-1-2", next.eventId)
     }
+    }
 
     @Test
-    fun `store C reads full stream after A and B appends`() = runBlocking {
+    fun `store C reads full stream after A and B appends`() { runBlocking {
         val sA = store()
         sA.appendNext("stream-1", eventFactory("stream-1"))
         val sB = store()
@@ -451,6 +469,7 @@ class JdbcAuditStoreTest {
         assertEquals(2, events.size)
         val chain = checkChain(events)
         assertTrue(chain)
+    }
     }
 
     private fun checkChain(events: List<AuditEvent>): Boolean {
@@ -471,7 +490,7 @@ class JdbcAuditStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `concurrent appenders to same stream produce ordered sequence`() = runBlocking {
+    fun `concurrent appenders to same stream produce ordered sequence`() { runBlocking {
         val s = store()
         val numAppenders = 5
 
@@ -503,9 +522,10 @@ class JdbcAuditStoreTest {
         // Verify hash chain
         assertTrue(checkChain(events), "Hash chain must be valid after concurrent appends")
     }
+    }
 
     @Test
-    fun `concurrent appenders to different streams both succeed independently`() = runBlocking {
+    fun `concurrent appenders to different streams both succeed independently`() { runBlocking {
         val s = store()
 
         coroutineScope {
@@ -524,13 +544,14 @@ class JdbcAuditStoreTest {
         assertEquals(2, s.readStream("stream-a").size)
         assertEquals(2, s.readStream("stream-b").size)
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Encryption tests
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `encrypted_payload is non-null after append`() = runBlocking {
+    fun `encrypted_payload is non-null after append`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -551,9 +572,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `raw metadata and decision not visible in database`() = runBlocking {
+    fun `raw metadata and decision not visible in database`() { runBlocking {
         val s = store()
         s.appendNext("stream-1") {
             createEvent(
@@ -588,9 +610,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `decode failure fails closed on read`() = runBlocking {
+    fun `decode failure fails closed on read`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -615,13 +638,14 @@ class JdbcAuditStoreTest {
             brokenStore.readStream("stream-1")
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Schema hardening tests
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `schema rejects negative sequence number`() = runBlocking {
+    fun `schema rejects negative sequence number`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -633,9 +657,10 @@ class JdbcAuditStoreTest {
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
+    }
 
     @Test
-    fun `schema rejects blank stream_id`() = runBlocking {
+    fun `schema rejects blank stream_id`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -647,9 +672,10 @@ class JdbcAuditStoreTest {
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
+    }
 
     @Test
-    fun `schema rejects wrong schema version`() = runBlocking {
+    fun `schema rejects wrong schema version`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -661,9 +687,10 @@ class JdbcAuditStoreTest {
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
+    }
 
     @Test
-    fun `schema rejects blank event_hash`() = runBlocking {
+    fun `schema rejects blank event_hash`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -675,13 +702,14 @@ class JdbcAuditStoreTest {
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Dedicated stream isolation
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `different streams have independent sequences`() = runBlocking {
+    fun `different streams have independent sequences`() { runBlocking {
         val s = store()
         s.appendNext("alpha", eventFactory("alpha"))
         s.appendNext("alpha", eventFactory("alpha"))
@@ -696,9 +724,10 @@ class JdbcAuditStoreTest {
         assertEquals(2L, alphaEvents[1].sequenceNumber)
         assertEquals(1L, betaEvents[0].sequenceNumber)
     }
+    }
 
     @Test
-    fun `readStreamPage validates chain within page`() = runBlocking {
+    fun `readStreamPage validates chain within page`() { runBlocking {
         val s = store()
         val numEvents = 10
         for (i in 1..numEvents) {
@@ -718,13 +747,14 @@ class JdbcAuditStoreTest {
         assertEquals(6L, page2[2].sequenceNumber)
         assertTrue(checkChain(page2))
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // P1 regression — tampered queryable DB columns fail closed
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `tampered event_hash column fails read`() = runBlocking {
+    fun `tampered event_hash column fails read`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -741,9 +771,10 @@ class JdbcAuditStoreTest {
             s.readStream("stream-1")
         }
     }
+    }
 
     @Test
-    fun `tampered previous_event_hash column fails read`() = runBlocking {
+    fun `tampered previous_event_hash column fails read`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -761,9 +792,10 @@ class JdbcAuditStoreTest {
             s.readStream("stream-1")
         }
     }
+    }
 
     @Test
-    fun `tampered event_type column fails read`() = runBlocking {
+    fun `tampered event_type column fails read`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -780,9 +812,10 @@ class JdbcAuditStoreTest {
             s.readStream("stream-1")
         }
     }
+    }
 
     @Test
-    fun `tampered schema_version column fails read`() = runBlocking {
+    fun `tampered schema_version column fails read`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -790,14 +823,32 @@ class JdbcAuditStoreTest {
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
         conn.use { c ->
-            c.prepareStatement(
-                "UPDATE audit_events SET schema_version = '0' WHERE event_id = 'evt-stream-1-1'",
-            ).use { stmt -> stmt.executeUpdate() }
-        }
+            // ck_audit_events_schema_version CHECK (schema_version = '1') would
+            // reject the tamper at write time, so drop it, tamper, and restore
+            // it afterwards — the read path must still fail closed.
+            c.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE audit_events DROP CONSTRAINT ck_audit_events_schema_version")
+            }
+            try {
+                c.prepareStatement(
+                    "UPDATE audit_events SET schema_version = '0' WHERE event_id = 'evt-stream-1-1'",
+                ).use { stmt -> stmt.executeUpdate() }
 
-        assertFailsWith<IllegalArgumentException> {
-            s.readStream("stream-1")
+                assertFailsWith<IllegalArgumentException> {
+                    s.readStream("stream-1")
+                }
+            } finally {
+                c.prepareStatement(
+                    "UPDATE audit_events SET schema_version = '1' WHERE event_id = 'evt-stream-1-1'",
+                ).use { stmt -> stmt.executeUpdate() }
+                c.createStatement().use { stmt ->
+                    stmt.execute(
+                        "ALTER TABLE audit_events ADD CONSTRAINT ck_audit_events_schema_version CHECK (schema_version = '1')",
+                    )
+                }
+            }
         }
+    }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -805,7 +856,7 @@ class JdbcAuditStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `sanitized_actor stores hash not raw actor`() = runBlocking {
+    fun `sanitized_actor stores hash not raw actor`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1", actor = "user:secret-agent"))
 
@@ -830,9 +881,10 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `sanitized_actor is null when actor is null`() = runBlocking {
+    fun `sanitized_actor is null when actor is null`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1", actor = null))
 
@@ -851,13 +903,14 @@ class JdbcAuditStoreTest {
             }
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // P1/P2 regression — stream head integrity
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `append fails when stream head points to missing event`() = runBlocking {
+    fun `append fails when stream head points to missing event`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -876,9 +929,10 @@ class JdbcAuditStoreTest {
             s.appendNext("stream-1", eventFactory("stream-1"))
         }
     }
+    }
 
     @Test
-    fun `append fails when stream head event_id mismatches latest event`() = runBlocking {
+    fun `append fails when stream head event_id mismatches latest event`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
         s.appendNext("stream-1", eventFactory("stream-1"))
@@ -899,9 +953,10 @@ class JdbcAuditStoreTest {
             s.appendNext("stream-1", eventFactory("stream-1"))
         }
     }
+    }
 
     @Test
-    fun `append fails when stream head event_hash mismatches latest event`() = runBlocking {
+    fun `append fails when stream head event_hash mismatches latest event`() { runBlocking {
         val s = store()
         s.appendNext("stream-1", eventFactory("stream-1"))
 
@@ -919,5 +974,6 @@ class JdbcAuditStoreTest {
         assertFailsWith<IllegalArgumentException> {
             s.appendNext("stream-1", eventFactory("stream-1"))
         }
+    }
     }
 }

@@ -100,6 +100,7 @@ class JdbcApprovalInboxQueryServiceTest {
         toolName: String = "claim-payout",
         workflowRunId: String = "wf-$id",
         hasContinuation: Boolean = true,
+        inboxRequiredRole: String? = null,
     ) {
         val now = OffsetDateTime.ofInstant(createdAt, ZoneOffset.UTC)
         val metadata = buildString {
@@ -107,7 +108,11 @@ class JdbcApprovalInboxQueryServiceTest {
             append(""""requestedBy":"$requestedBy",""")
             append(""""expiresAt":"${createdAt.plusSeconds(300)}",""")
             append(""""requestedAt":"$requestedAt",""")
-            append(""""decidedBy":null,"decisionComment":null,"consumedBy":null,"consumedAt":null}""")
+            append(""""decidedBy":null,"decisionComment":null,"consumedBy":null,"consumedAt":null""")
+            if (inboxRequiredRole != null) {
+                append(""","inbox":{"requiredRole":"$inboxRequiredRole"}""")
+            }
+            append("}")
         }
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -160,7 +165,7 @@ class JdbcApprovalInboxQueryServiceTest {
     // ── search tests ──────────────────────────────────────────────
 
     @Test
-    fun `search pending returns pending items only`() = runBlocking {
+    fun `search pending returns pending items only`() { runBlocking {
         insertApproval("pending-1", status = "PENDING")
         insertApproval("approved-1", status = "APPROVED")
 
@@ -170,9 +175,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page.items[0].approvalId.value).isEqualTo("pending-1")
         assertThat(page.items[0].status).isEqualTo(ApprovalStatus.PENDING)
     }
+    }
 
     @Test
-    fun `search orders by expiresAt ASC then requestedAt ASC then approvalId ASC`() = runBlocking {
+    fun `search orders by expiresAt ASC then requestedAt ASC then approvalId ASC`() { runBlocking {
         insertApproval(
             id = "early-2", createdAt = baseTime,
             expiresAt = baseTime.plusSeconds(200),
@@ -196,9 +202,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page.items[1].approvalId.value).isEqualTo("early-2")
         assertThat(page.items[2].approvalId.value).isEqualTo("late-1")
     }
+    }
 
     @Test
-    fun `limit returns limit items and nextCursor`() = runBlocking {
+    fun `limit returns limit items and nextCursor`() { runBlocking {
         repeat(5) { i -> insertApproval("limit-$i", requestedAt = baseTime.plusSeconds(i.toLong())) }
 
         val page = service.search(ApprovalInboxQuery(limit = 2))
@@ -206,9 +213,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page.items).hasSize(2)
         assertThat(page.nextCursor).isNotNull
     }
+    }
 
     @Test
-    fun `nextCursor returns next page without duplicates`() = runBlocking {
+    fun `nextCursor returns next page without duplicates`() { runBlocking {
         repeat(5) { i -> insertApproval("cursor-$i", requestedAt = baseTime.plusSeconds(i.toLong())) }
 
         val page1 = service.search(ApprovalInboxQuery(limit = 2))
@@ -219,9 +227,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page1Ids).doesNotContainAnyElementsOf(page2Ids)
         assertThat(page1Ids + page2Ids).hasSize(4)
     }
+    }
 
     @Test
-    fun `invalid cursor fails closed`() = runBlocking {
+    fun `invalid cursor fails closed`() { runBlocking {
         insertApproval("bad-cursor-1")
         try {
             service.search(ApprovalInboxQuery(cursor = "ZGVmZWN0aXZl"))
@@ -231,9 +240,10 @@ class JdbcApprovalInboxQueryServiceTest {
             assertThat(e).hasMessageContaining("invalid-approval-inbox-cursor")
         }
     }
+    }
 
     @Test
-    fun `search by requestedBy filters correctly`() = runBlocking {
+    fun `search by requestedBy filters correctly`() { runBlocking {
         insertApproval("req-1", requestedBy = "user:alice")
         insertApproval("req-2", requestedBy = "user:bob")
 
@@ -242,9 +252,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page.items).hasSize(1)
         assertThat(page.items[0].approvalId.value).isEqualTo("req-1")
     }
+    }
 
     @Test
-    fun `search by expiresBefore filters correctly`() = runBlocking {
+    fun `search by expiresBefore filters correctly`() { runBlocking {
         insertApproval("exp-1", expiresAt = baseTime.plusSeconds(100))
         insertApproval("exp-2", expiresAt = baseTime.plusSeconds(400))
 
@@ -253,9 +264,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(page.items).hasSize(1)
         assertThat(page.items[0].approvalId.value).isEqualTo("exp-1")
     }
+    }
 
     @Test
-    fun `search does not expose resumeToken or token digest`() = runBlocking {
+    fun `search does not expose resumeToken or token digest`() { runBlocking {
         insertApproval("safe-1")
 
         val page = service.search(ApprovalInboxQuery())
@@ -267,17 +279,19 @@ class JdbcApprovalInboxQueryServiceTest {
             assertThat(item.approvalId.value).isNotNull
         }
     }
+    }
 
     // ── getWorkItem tests ─────────────────────────────────────────
 
     @Test
-    fun `getWorkItem returns null for missing approval`() = runBlocking {
+    fun `getWorkItem returns null for missing approval`() { runBlocking {
         val item = service.getWorkItem(ApprovalId("missing-id"))
         assertThat(item).isNull()
     }
+    }
 
     @Test
-    fun `getWorkItem includes continuation status`() = runBlocking {
+    fun `getWorkItem includes continuation status`() { runBlocking {
         insertApproval("cont-1")
 
         val item = service.getWorkItem(ApprovalId("cont-1"))
@@ -285,9 +299,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(item).isNotNull
         assertThat(item!!.continuationStatus).isEqualTo(ApprovalContinuationStatus.PENDING)
     }
+    }
 
     @Test
-    fun `work item uses requestedAt from metadata not created_at`() = runBlocking {
+    fun `work item uses requestedAt from metadata not created_at`() { runBlocking {
         val explicitRequestedAt = baseTime.plus(java.time.Duration.ofMinutes(1))
         insertApproval(
             id = "req-at-test",
@@ -300,9 +315,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(item).isNotNull
         assertThat(item!!.requestedAt).isEqualTo(explicitRequestedAt)
     }
+    }
 
     @Test
-    fun `work item without continuation uses metadata expiresAt`() = runBlocking {
+    fun `work item without continuation uses metadata expiresAt`() { runBlocking {
         insertApproval(
             id = "no-cont",
             hasContinuation = false,
@@ -313,9 +329,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(item).isNotNull
         assertThat(item!!.expiresAt).isEqualTo(baseTime.plusSeconds(300))
     }
+    }
 
     @Test
-    fun `work item workflowRunId comes from continuation not metadata`() = runBlocking {
+    fun `work item workflowRunId comes from continuation not metadata`() { runBlocking {
         insertApproval(
             id = "wf-test",
             workflowRunId = "wf-custom",
@@ -326,9 +343,10 @@ class JdbcApprovalInboxQueryServiceTest {
         assertThat(item).isNotNull
         assertThat(item!!.workflowRunId).isEqualTo("wf-custom")
     }
+    }
 
     @Test
-    fun `nextCursor is URL safe`() = runBlocking {
+    fun `nextCursor is URL safe`() { runBlocking {
         repeat(5) { i -> insertApproval("url-safe-$i", requestedAt = baseTime.plusSeconds(i.toLong())) }
 
         val page = service.search(ApprovalInboxQuery(limit = 2))
@@ -343,16 +361,20 @@ class JdbcApprovalInboxQueryServiceTest {
         // Can round-trip through URL-safe decoder
         Base64.getUrlDecoder().decode(cursor)
     }
+    }
 
     @Test
-    fun `requiredRole filter fails closed`() = runBlocking {
-        insertApproval("role-filter-1")
+    fun `requiredRole filter filters by inbox metadata`() { runBlocking {
+        insertApproval("role-filter-1", inboxRequiredRole = "medical-reviewer")
+        insertApproval("role-filter-2")
 
-        val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
-            service.search(
-                ApprovalInboxQuery(requiredRole = dev.tramai.core.approval.gateway.ApproverRole("medical-reviewer")),
-            )
-        }
-        assertThat(ex).hasMessageContaining("required-role-filter-not-supported")
+        val page = service.search(
+            ApprovalInboxQuery(requiredRole = dev.tramai.core.approval.gateway.ApproverRole("medical-reviewer")),
+        )
+
+        assertThat(page.items).hasSize(1)
+        assertThat(page.items[0].approvalId.value).isEqualTo("role-filter-1")
+        assertThat(page.items[0].requiredRole?.value).isEqualTo("medical-reviewer")
+    }
     }
 }

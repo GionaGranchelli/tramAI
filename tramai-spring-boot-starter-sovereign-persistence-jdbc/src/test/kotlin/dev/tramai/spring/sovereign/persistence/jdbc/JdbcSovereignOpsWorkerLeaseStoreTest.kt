@@ -65,7 +65,7 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
     // ── Acquisition ────────────────────────────────────────────────────
 
     @Test
-    fun `acquire missing lease — acquired by owner A`() = runBlocking {
+    fun `acquire missing lease — acquired by owner A`() { runBlocking {
         val result = store().tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         assertThat(result).isInstanceOf(SovereignOpsWorkerLeaseAcquisition.Acquired::class.java)
         val acquired = result as SovereignOpsWorkerLeaseAcquisition.Acquired
@@ -74,17 +74,19 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         assertThat(acquired.lease.expiresAt).isEqualTo(BASE_NOW.plus(LEASE_DURATION))
         assertThat(acquired.lease.version).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `acquire same lease same owner — already owned`() = runBlocking {
+    fun `acquire same lease same owner — already owned`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val result = s.tryAcquire("my-lease", "worker-a", BASE_NOW.plusSeconds(10), LEASE_DURATION)
         assertThat(result).isInstanceOf(SovereignOpsWorkerLeaseAcquisition.AlreadyOwned::class.java)
     }
+    }
 
     @Test
-    fun `acquire active lease different owner — held by other`() = runBlocking {
+    fun `acquire active lease different owner — held by other`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val result = s.tryAcquire("my-lease", "worker-b", BASE_NOW.plusSeconds(10), LEASE_DURATION)
@@ -92,9 +94,10 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         val held = result as SovereignOpsWorkerLeaseAcquisition.HeldByOther
         assertThat(held.lease.ownerId).isEqualTo("worker-a")
     }
+    }
 
     @Test
-    fun `acquire expired lease different owner — stolen by owner B`() = runBlocking {
+    fun `acquire expired lease different owner — stolen by owner B`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         // Move past expiry
@@ -104,9 +107,10 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         val acquired = result as SovereignOpsWorkerLeaseAcquisition.Acquired
         assertThat(acquired.lease.ownerId).isEqualTo("worker-b")
     }
+    }
 
     @Test
-    fun `concurrent acquire same lease — exactly one owner wins`() = runBlocking {
+    fun `concurrent acquire same lease — exactly one owner wins`() { runBlocking {
         coroutineScope {
             val s = store()
             val a = async { s.tryAcquire("race-lease", "worker-a", BASE_NOW, LEASE_DURATION) }
@@ -117,11 +121,12 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
             assertThat(results.count { it is SovereignOpsWorkerLeaseAcquisition.HeldByOther }).isEqualTo(1)
         }
     }
+    }
 
     // ── Heartbeat ──────────────────────────────────────────────────────
 
     @Test
-    fun `heartbeat by owner extends expiry`() = runBlocking {
+    fun `heartbeat by owner extends expiry`() { runBlocking {
         val s = store()
         val acquired = (s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
             as SovereignOpsWorkerLeaseAcquisition.Acquired)
@@ -133,34 +138,38 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         assertThat(extended.lease.expiresAt).isEqualTo(later.plus(LEASE_DURATION))
         assertThat(extended.lease.version).isGreaterThan(originalVersion)
     }
+    }
 
     @Test
-    fun `heartbeat by non-owner rejected`() = runBlocking {
+    fun `heartbeat by non-owner rejected`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val result = s.heartbeat("my-lease", "worker-b", BASE_NOW.plusSeconds(30), LEASE_DURATION)
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.NotOwner)
     }
-
-    @Test
-    fun `heartbeat on missing lease returns missing`() = runBlocking {
-        val result = store().heartbeat("nonexistent", "worker-a", BASE_NOW, LEASE_DURATION)
-        assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.Missing)
     }
 
     @Test
-    fun `heartbeat by owner after expiry is rejected`() = runBlocking {
+    fun `heartbeat on missing lease returns missing`() { runBlocking {
+        val result = store().heartbeat("nonexistent", "worker-a", BASE_NOW, LEASE_DURATION)
+        assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.Missing)
+    }
+    }
+
+    @Test
+    fun `heartbeat by owner after expiry is rejected`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val afterExpiry = BASE_NOW.plus(LEASE_DURATION).plusSeconds(1)
         val result = s.heartbeat("my-lease", "worker-a", afterExpiry, LEASE_DURATION)
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.Expired)
     }
+    }
 
     // ── Release ────────────────────────────────────────────────────────
 
     @Test
-    fun `release by owner clears ownership`() = runBlocking {
+    fun `release by owner clears ownership`() { runBlocking {
         val s = store()
         val firstAcquire = (s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
             as SovereignOpsWorkerLeaseAcquisition.Acquired)
@@ -177,42 +186,47 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         val acquired = s.tryAcquire("my-lease", "worker-b", BASE_NOW.plusSeconds(20), LEASE_DURATION)
         assertThat(acquired).isInstanceOf(SovereignOpsWorkerLeaseAcquisition.Acquired::class.java)
     }
+    }
 
     @Test
-    fun `release by non-owner rejected`() = runBlocking {
+    fun `release by non-owner rejected`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val result = s.release("my-lease", "worker-b", BASE_NOW.plusSeconds(10))
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseRelease.NotOwner)
     }
+    }
 
     @Test
-    fun `release on missing lease returns missing`() = runBlocking {
+    fun `release on missing lease returns missing`() { runBlocking {
         val result = store().release("nonexistent", "worker-a", BASE_NOW)
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseRelease.Missing)
+    }
     }
 
     // ── Get ────────────────────────────────────────────────────────────
 
     @Test
-    fun `get unknown lease returns null`() = runBlocking {
+    fun `get unknown lease returns null`() { runBlocking {
         val result = store().get("nonexistent")
         assertThat(result).isNull()
     }
+    }
 
     @Test
-    fun `get known lease returns lease`() = runBlocking {
+    fun `get known lease returns lease`() { runBlocking {
         val s = store()
         s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
         val result = s.get("my-lease")
         assertThat(result).isNotNull
         assertThat(result!!.ownerId).isEqualTo("worker-a")
     }
+    }
 
     // ── Restart recovery ───────────────────────────────────────────────
 
     @Test
-    fun `expired lease is recoverable after restart — owner B acquires`() = runBlocking {
+    fun `expired lease is recoverable after restart — owner B acquires`() { runBlocking {
         // Acquire with owner A
         store().tryAcquire("recovery-lease", "worker-a", BASE_NOW, LEASE_DURATION)
 
@@ -223,6 +237,7 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         assertThat(result).isInstanceOf(SovereignOpsWorkerLeaseAcquisition.Acquired::class.java)
         val acquired = result as SovereignOpsWorkerLeaseAcquisition.Acquired
         assertThat(acquired.lease.ownerId).isEqualTo("worker-b")
+    }
     }
 
     // ── Constraint validation ──────────────────────────────────────────

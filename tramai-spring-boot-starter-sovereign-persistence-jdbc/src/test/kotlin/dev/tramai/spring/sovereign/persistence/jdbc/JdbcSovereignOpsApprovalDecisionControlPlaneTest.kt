@@ -37,12 +37,14 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.SpringBootConfiguration
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
@@ -52,8 +54,8 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
+import javax.sql.DataSource
+import org.postgresql.ds.PGSimpleDataSource
 
 /**
  * JDBC-level test proving approve/deny control-plane behavior at the store boundary.
@@ -65,7 +67,6 @@ import org.testcontainers.junit.jupiter.Testcontainers
     classes = [JdbcSovereignOpsTestConfig::class],
 )
 @JdbcTestTag
-@Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
@@ -92,6 +93,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             "tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
             "tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
             "tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+            "tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
         ).forEach { resource ->
             val sql = javaClass.classLoader
                 .getResourceAsStream(resource)
@@ -102,13 +104,18 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         }
     }
 
+    @AfterAll
+    fun stopPostgres() {
+        postgres.stop()
+    }
+
     @BeforeEach
     fun cleanUp() {
         jdbcTemplate.execute("TRUNCATE TABLE approval_continuations, suspended_invocations, audit_outbox, approvals CASCADE")
     }
 
     @Test
-    fun `approve approval creates complete decision evidence record`() = runBlocking {
+    fun `approve approval creates complete decision evidence record`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
             subject = ApprovalSubject("test-approve-evidence"),
@@ -168,9 +175,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(approvalOutbox.reasonDigest).hasSize(71)
         assertThat(approvalOutbox.reasonLength).isEqualTo("Medical necessity established".length)
     }
+    }
 
     @Test
-    fun `deny approval creates complete decision evidence record`() = runBlocking {
+    fun `deny approval creates complete decision evidence record`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
             subject = ApprovalSubject("test-deny-evidence"),
@@ -229,9 +237,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(denialOutbox.reasonDigest).hasSize(71)
         assertThat(denialOutbox.reasonLength).isEqualTo("Denied because evidence is incomplete".length)
     }
+    }
 
     @Test
-    fun `decision evidence stores digest and length not raw comment text`() = runBlocking {
+    fun `decision evidence stores digest and length not raw comment text`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
             subject = ApprovalSubject("test-sanitised-evidence"),
@@ -272,9 +281,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(outbox.aggregateIdDigest).doesNotContain(rawComment)
         assertThat(outbox.operation).doesNotContain(rawComment)
     }
+    }
 
     @Test
-    fun `repeat approve returns AlreadyApproved without creating duplicate evidence`() = runBlocking {
+    fun `repeat approve returns AlreadyApproved without creating duplicate evidence`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
             subject = ApprovalSubject("test-repeat-approve"),
@@ -326,9 +336,10 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(secondOutbox!!.actor).isEqualTo("reviewer-1")
         assertThat(secondOutbox.approvalVersion).isEqualTo(1L)
     }
+    }
 
     @Test
-    fun `repeat deny returns AlreadyDenied without creating duplicate evidence`() = runBlocking {
+    fun `repeat deny returns AlreadyDenied without creating duplicate evidence`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
             subject = ApprovalSubject("test-repeat-deny"),
@@ -385,16 +396,17 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
             """
             SELECT COUNT(*)
             FROM audit_outbox
-            WHERE aggregate_type = 'approval'
+            WHERE event_key LIKE 'approval-denied.%'
               AND status = 'PENDING'
             """.trimIndent(),
             Long::class.java,
         )
         assertThat(pendingOutboxCount).isOne
     }
+    }
 
     @Test
-    fun `can deny two different approvals without audit outbox event key conflict`() = runBlocking {
+    fun `can deny two different approvals without audit outbox event key conflict`() { runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
 
         val result1 = gateway.requestApproval(
@@ -450,14 +462,17 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(outbox1).isNotNull
         assertThat(outbox2).isNotNull
     }
+    }
 
     companion object {
-        @Container
-        @JvmStatic
+        // Started eagerly (not via @Testcontainers/@Container) because the
+        // @DynamicPropertySource lambdas below are resolved while the Spring
+        // context loads — before JUnit's container lifecycle would start it.
         val postgres = PostgreSQLContainer("postgres:17-alpine")
             .withDatabaseName("sovereign_ops_decision_test")
             .withUsername("test")
             .withPassword("test")
+            .apply { start() }
 
         private val keyFile = Files.createTempFile("tramai-sovereign-jdbc-key", ".b64").apply {
             toFile().writeText(
@@ -484,17 +499,40 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 @Tag("jdbc")
 private annotation class JdbcTestTag
 
+/**
+ * Imported FIRST so its DataSource bean definition is registered before the
+ * auto-configurations' condition evaluation (Spring processes @Import list
+ * entries in order; the missing-datasource guard is `@ConditionalOnMissingBean`
+ * and would otherwise match at parse time and fail the context).
+ */
 @SpringBootConfiguration
-@EnableAutoConfiguration
+private open class JdbcSovereignOpsDataSourceConfig {
+    @Bean
+    open fun dataSource(
+        @Value("\${spring.datasource.url}") url: String,
+        @Value("\${spring.datasource.username}") username: String,
+        @Value("\${spring.datasource.password}") password: String,
+    ): DataSource = PGSimpleDataSource().apply {
+        setUrl(url)
+        setUser(username)
+        setPassword(password)
+    }
+
+    @Bean
+    open fun approvalGatewayRequestFactory(): ApprovalGatewayRequestFactory = JdbcTestApprovalGatewayRequestFactory()
+
+    @Bean
+    open fun jdbcTemplate(dataSource: DataSource): JdbcTemplate = JdbcTemplate(dataSource)
+}
+
+@SpringBootConfiguration
 @Import(
+    JdbcSovereignOpsDataSourceConfig::class,
     SovereignJdbcPersistenceAutoConfiguration::class,
     ApprovalGatewayAutoConfiguration::class,
     ApprovalDecisionControlPlaneAutoConfiguration::class,
 )
 private open class JdbcSovereignOpsTestConfig {
-
-    @Bean
-    open fun approvalGatewayRequestFactory(): ApprovalGatewayRequestFactory = JdbcTestApprovalGatewayRequestFactory()
 }
 
 private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFactory {
@@ -504,12 +542,12 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
         requiredRole: ApproverRole,
         workflowRunId: WorkflowRunId?,
     ): ApprovalGatewayPersistenceRequest {
-        val now = Instant.parse("2026-06-25T10:00:00Z")
+        val now = java.time.Instant.now()
         val approvalId = subject.value
         val wfRunId = workflowRunId?.value ?: "wf-$approvalId"
-        val argumentsDigest = Sha256Digest.of("sha256:${"0".repeat(64)}")
-        val workflowDigest = Sha256Digest.of("sha256:${"1".repeat(64)}")
-        val tokenDigest = Sha256Digest.of("sha256:${"2".repeat(64)}")
+        val argumentsDigest = Sha256Digest.of("sha256:${sha256Hex("arguments:$approvalId")}")
+        val workflowDigest = Sha256Digest.of("sha256:${sha256Hex("workflow:$approvalId")}")
+        val tokenDigest = Sha256Digest.of("sha256:${sha256Hex("token:$approvalId")}")
 
         return ApprovalGatewayPersistenceRequest(
             approvalRequest = ApprovalRequest(
@@ -525,7 +563,7 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
                 status = ApprovalStatus.PENDING,
                 requestedBy = "test-requester",
                 requestedAt = now,
-                expiresAt = now.plusSeconds(3600),
+                expiresAt = now.plusSeconds(600),
                 decidedBy = null,
                 decidedAt = null,
                 decisionComment = null,
@@ -544,7 +582,7 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
                 workflowDigest = workflowDigest,
                 status = ApprovalContinuationStatus.PENDING,
                 createdAt = now,
-                approvalExpiresAt = now.plusSeconds(3600),
+                approvalExpiresAt = now.plusSeconds(600),
                 claimedBy = null,
                 claimedAt = null,
                 completedAt = null,
@@ -571,11 +609,25 @@ private class JdbcTestApprovalGatewayRequestFactory : ApprovalGatewayRequestFact
                     jvmMethodDescriptor = "(Ljava/lang/String;)V",
                     resumeDefinitionDigest = argumentsDigest,
                 ),
-                replayEnvelopeDigest = argumentsDigest,
+                replayEnvelopeDigest = dev.tramai.engine.ReplayEnvelopeDigestHelper.compute(
+                    ResumeOperationReference(
+                        serviceInterface = "dev.tramai.test.Workflow",
+                        methodName = "triage",
+                        jvmMethodDescriptor = "(Ljava/lang/String;)V",
+                        resumeDefinitionDigest = argumentsDigest,
+                    ),
+                    emptyList(),
+                ),
                 toolReference = ResumeToolReference("claim-triage", argumentsDigest),
             ),
             replayEnvelope = SensitiveReplayEnvelope.of(emptyList()),
             resumeToken = ResumeToken("resume-$approvalId"),
         )
+    }
+
+    private fun sha256Hex(input: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
+        return hash.joinToString("") { "%02x".format(it) }
     }
 }

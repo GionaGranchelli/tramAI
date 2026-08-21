@@ -164,7 +164,7 @@ class ApprovalGatewayContractTest {
     }
 
     @Test
-    fun `gateway request approval returns Suspended result without blocking`() = runTest {
+    fun `gateway request approval returns Suspended result without blocking`() { runTest {
         val gateway = RecordingApprovalGateway()
 
         val result = gateway.requestApproval(
@@ -180,9 +180,10 @@ class ApprovalGatewayContractTest {
         assertThat(result).isInstanceOf(ApprovalRequestResult.Suspended::class.java)
         assertThat(gateway.calls).isOne()
     }
+    }
 
     @Test
-    fun `gateway request approval defaults workflowRunId to null`() = runTest {
+    fun `gateway request approval defaults workflowRunId to null`() { runTest {
         val gateway = RecordingApprovalGateway()
 
         val result = gateway.requestApproval(
@@ -198,6 +199,7 @@ class ApprovalGatewayContractTest {
         val suspended = result as ApprovalRequestResult.Suspended
         assertThat(suspended.workflowRunId).isEqualTo(WorkflowRunId("workflow-1"))
         assertThat(gateway.calls).isOne()
+    }
     }
 
     // ── SovereignWorkflowResult ──

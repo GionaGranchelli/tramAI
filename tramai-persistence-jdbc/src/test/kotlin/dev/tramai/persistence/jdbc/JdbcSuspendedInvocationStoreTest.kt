@@ -241,7 +241,7 @@ class JdbcSuspendedInvocationStoreTest {
     // ── Tests ─────────────────────────────────────────────────────
 
     @Test
-    fun `stores a suspended invocation`() = runBlocking {
+    fun `stores a suspended invocation`() { runBlocking {
         val s = store()
         s.create(sampleMetadata(), sampleEnvelope())
 
@@ -251,9 +251,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals("tc-1", loaded.toolCallId)
         assertEquals("test_tool", loaded.toolName)
     }
+    }
 
     @Test
-    fun `loads a suspended invocation by ID`() = runBlocking {
+    fun `loads a suspended invocation by ID`() { runBlocking {
         val s = store()
         val messagesA = sampleMessages()
         val messagesB = listOf(
@@ -283,9 +284,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertNotNull(loaded)
         assertEquals("si-load-2", loaded.approvalId)
     }
+    }
 
     @Test
-    fun `persisted invocation survives new store instance`() = runBlocking {
+    fun `persisted invocation survives new store instance`() { runBlocking {
         val s1 = store()
         s1.create(sampleMetadata("si-survive"), sampleEnvelope())
 
@@ -294,9 +296,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertNotNull(loaded)
         assertEquals("si-survive", loaded.approvalId)
     }
+    }
 
     @Test
-    fun `duplicate invocation ID is rejected`() = runBlocking {
+    fun `duplicate invocation ID is rejected`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-duplicate-id"), sampleEnvelope())
 
@@ -305,9 +308,10 @@ class JdbcSuspendedInvocationStoreTest {
         }
         assertTrue(ex.message?.contains("already-exists", ignoreCase = true) == true)
     }
+    }
 
     @Test
-    fun `duplicate replay envelope digest is rejected`() = runBlocking {
+    fun `duplicate replay envelope digest is rejected`() { runBlocking {
         val s = store()
         s.create(
             sampleMetadata("si-digest-1"),
@@ -326,9 +330,10 @@ class JdbcSuspendedInvocationStoreTest {
             "Expected digest/conflict message but got: ${ex.message}",
         )
     }
+    }
 
     @Test
-    fun `create rejects replay envelope digest mismatch`() = runBlocking {
+    fun `create rejects replay envelope digest mismatch`() { runBlocking {
         val s = store()
         val wrongDigest = Sha256Digest.of(
             "sha256:9999999999999999999999999999999999999999999999999999999999999999",
@@ -345,9 +350,10 @@ class JdbcSuspendedInvocationStoreTest {
             "Expected digest mismatch error but got: ${ex.message}",
         )
     }
+    }
 
     @Test
-    fun `same replay envelope cannot be stored with different metadata digest`() = runBlocking {
+    fun `same replay envelope cannot be stored with different metadata digest`() { runBlocking {
         val s = store()
         val messages = sampleMessages()
 
@@ -372,9 +378,10 @@ class JdbcSuspendedInvocationStoreTest {
             "Expected digest mismatch error but got: ${ex.message}",
         )
     }
+    }
 
     @Test
-    fun `replay envelope round-trips through codec`() = runBlocking {
+    fun `replay envelope round-trips through codec`() { runBlocking {
         val s = store()
         val messages = sampleMessages()
         s.create(sampleMetadata("si-roundtrip"), sampleEnvelope(messages))
@@ -386,9 +393,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals("Hello", payload.messages[0].content)
         assertEquals("tc-1", payload.messages[1].toolCalls!![0].id)
     }
+    }
 
     @Test
-    fun `encrypted_replay_envelope is non-null`() = runBlocking {
+    fun `encrypted_replay_envelope is non-null`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-enc-nonnull"), sampleEnvelope())
 
@@ -407,9 +415,10 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `encryption metadata fields are non-null`() = runBlocking {
+    fun `encryption metadata fields are non-null`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-enc-meta"), sampleEnvelope())
 
@@ -433,9 +442,10 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `raw replay envelope is not visible in the database`() = runBlocking {
+    fun `raw replay envelope is not visible in the database`() { runBlocking {
         val s = store()
         // Create with some sensitive content
         val messages = listOf(
@@ -477,21 +487,24 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `returns metadata not found`() = runBlocking {
+    fun `returns metadata not found`() { runBlocking {
         val s = store()
         assertNull(s.get("non-existent"))
     }
-
-    @Test
-    fun `returns envelope not found`() = runBlocking {
-        val s = store()
-        assertNull(s.revealReplayEnvelope("non-existent"))
     }
 
     @Test
-    fun `returns metadata on remove`() = runBlocking {
+    fun `returns envelope not found`() { runBlocking {
+        val s = store()
+        assertNull(s.revealReplayEnvelope("non-existent"))
+    }
+    }
+
+    @Test
+    fun `returns metadata on remove`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-remove"), sampleEnvelope())
 
@@ -502,15 +515,17 @@ class JdbcSuspendedInvocationStoreTest {
         // Gone after removal
         assertNull(s.get("si-remove"))
     }
-
-    @Test
-    fun `returns null on remove for non-existent`() = runBlocking {
-        val s = store()
-        assertNull(s.remove("non-existent"))
     }
 
     @Test
-    fun `version increments on create`() = runBlocking {
+    fun `returns null on remove for non-existent`() { runBlocking {
+        val s = store()
+        assertNull(s.remove("non-existent"))
+    }
+    }
+
+    @Test
+    fun `version increments on create`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-version"), sampleEnvelope())
 
@@ -527,9 +542,10 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `duplicate remove returns null`() = runBlocking {
+    fun `duplicate remove returns null`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-dup-remove"), sampleEnvelope())
 
@@ -539,9 +555,10 @@ class JdbcSuspendedInvocationStoreTest {
         val second = s.remove("si-dup-remove")
         assertNull(second)
     }
+    }
 
     @Test
-    fun `corrupted encrypted payload fails closed`() = runBlocking {
+    fun `corrupted encrypted payload fails closed`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-corrupt"), sampleEnvelope())
 
@@ -570,9 +587,10 @@ class JdbcSuspendedInvocationStoreTest {
             ex.message?.contains("Tag mismatch", ignoreCase = true) == true,
         )
     }
+    }
 
     @Test
-    fun `wrong encryption metadata fails closed`() = runBlocking {
+    fun `wrong encryption metadata fails closed`() { runBlocking {
         // Store with testCodec, then try to read with wrongMetadataCodec
         val sWrite = store(codec = testCodec)
         sWrite.create(sampleMetadata("si-bad-meta"), sampleEnvelope())
@@ -586,9 +604,10 @@ class JdbcSuspendedInvocationStoreTest {
             ex.message?.contains("failed", ignoreCase = true) == true,
         )
     }
+    }
 
     @Test
-    fun `non-unique SQL errors are not mapped to duplicate conflicts`() = runBlocking {
+    fun `non-unique SQL errors are not mapped to duplicate conflicts`() { runBlocking {
         // Verify that a non-23505 SQLException is rethrown, not swallowed as conflict
         val realDs = createDataSource()
         val throwingDs = object : DataSource by realDs {
@@ -619,9 +638,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertTrue(ex.message?.contains("connection failure", ignoreCase = true) == true,
             "Non-23505 SQL error must be rethrown, not mapped to conflict")
     }
+    }
 
     @Test
-    fun `concurrent creation with same digest results in exactly one success`() = runBlocking {
+    fun `concurrent creation with same digest results in exactly one success`() { runBlocking {
         val s = store()
         val messages = sampleMessages()
 
@@ -650,9 +670,10 @@ class JdbcSuspendedInvocationStoreTest {
         val createdCount = results.count { it == "created" }
         assertEquals(1, createdCount, "Exactly one concurrent creation should succeed")
     }
+    }
 
     @Test
-    fun `concurrent remove returns metadata once and null once`() = runBlocking {
+    fun `concurrent remove returns metadata once and null once`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-remove-concurrent"), sampleEnvelope())
 
@@ -666,9 +687,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals(1, results.count { it != null })
         assertEquals(1, results.count { it == null })
     }
+    }
 
     @Test
-    fun `metadata round-trips all fields correctly`() = runBlocking {
+    fun `metadata round-trips all fields correctly`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-full-meta"), sampleEnvelope())
 
@@ -698,9 +720,10 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals(0.005, loaded.tokenBudgetSnapshot!!.totalOutputCost, 0.001)
         assertEquals("test_tool", loaded.toolReference.toolName)
     }
+    }
 
     @Test
-    fun `store clock is used for created_at`() = runBlocking {
+    fun `store clock is used for created_at`() { runBlocking {
         val s = store(clock = Clock.fixed(
             Instant.parse("2026-01-15T08:30:00Z"),
             ZoneId.of("UTC"),
@@ -721,9 +744,10 @@ class JdbcSuspendedInvocationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `service_key and operation_key are stored`() = runBlocking {
+    fun `service_key and operation_key are stored`() { runBlocking {
         val s = store()
         s.create(sampleMetadata("si-keys"), sampleEnvelope())
 
@@ -744,5 +768,6 @@ class JdbcSuspendedInvocationStoreTest {
                 }
             }
         }
+    }
     }
 }

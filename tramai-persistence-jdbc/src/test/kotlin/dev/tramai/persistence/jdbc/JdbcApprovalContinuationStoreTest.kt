@@ -207,7 +207,7 @@ class JdbcApprovalContinuationStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `create and get round-trips continuation`() = runBlocking {
+    fun `create and get round-trips continuation`() { runBlocking {
         val s = store()
         val (continuation, args) = createContinuation("roundtrip-1")
 
@@ -219,9 +219,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.PENDING, retrieved.status)
         assertEquals(0L, retrieved.version)
     }
+    }
 
     @Test
-    fun `create rejects duplicate continuation id`() = runBlocking {
+    fun `create rejects duplicate continuation id`() { runBlocking {
         val s = store()
         val (cont, args) = createContinuation("dup-test")
 
@@ -232,15 +233,17 @@ class JdbcApprovalContinuationStoreTest {
             s.create(cont2, args2)
         }
     }
-
-    @Test
-    fun `get returns null for non-existent continuation`() = runBlocking {
-        val retrieved = store().get("non-existent")
-        assertNull(retrieved)
     }
 
     @Test
-    fun `persisted continuation survives new store instance`() = runBlocking {
+    fun `get returns null for non-existent continuation`() { runBlocking {
+        val retrieved = store().get("non-existent")
+        assertNull(retrieved)
+    }
+    }
+
+    @Test
+    fun `persisted continuation survives new store instance`() { runBlocking {
         val s1 = store()
         s1.create(createContinuation("survive-test").first, createContinuation("survive-test").second)
 
@@ -250,13 +253,14 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals("survive-test", retrieved.approvalId)
         assertEquals(ApprovalContinuationStatus.PENDING, retrieved.status)
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // State-machine invariants
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `PENDING to CLAIMED to COMPLETED full lifecycle`() = runBlocking {
+    fun `PENDING to CLAIMED to COMPLETED full lifecycle`() { runBlocking {
         val s = store()
         s.create(createContinuation("lifecycle-1").first, createContinuation("lifecycle-1").second)
 
@@ -272,9 +276,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(2L, completed.version)
         assertNotNull(completed.completedAt)
     }
+    }
 
     @Test
-    fun `PENDING to EXPIRED transition`() = runBlocking {
+    fun `PENDING to EXPIRED transition`() { runBlocking {
         val creationTime = fixedClock.instant()
         val (continuation, args) = createContinuation("expire-1")
 
@@ -288,9 +293,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.EXPIRED, expired.status)
         assertEquals(1L, expired.version)
     }
+    }
 
     @Test
-    fun `PENDING to CANCELLED transition`() = runBlocking {
+    fun `PENDING to CANCELLED transition`() { runBlocking {
         val s = store()
         s.create(createContinuation("cancel-1").first, createContinuation("cancel-1").second)
 
@@ -298,9 +304,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.CANCELLED, cancelled.status)
         assertEquals(1L, cancelled.version)
     }
+    }
 
     @Test
-    fun `CLAIMED to CANCELLED_UNCERTAIN via force cancel`() = runBlocking {
+    fun `CLAIMED to CANCELLED_UNCERTAIN via force cancel`() { runBlocking {
         val s = store()
         s.create(createContinuation("force-1").first, createContinuation("force-1").second)
         s.claimForExecution("force-1", 0L, "worker:stuck")
@@ -315,9 +322,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals("admin:alice", result.recoveryResolvedBy)
         assertEquals("stuck.worker", result.recoveryReasonCode)
     }
+    }
 
     @Test
-    fun `CLAIMED cannot be claimed again`() = runBlocking {
+    fun `CLAIMED cannot be claimed again`() { runBlocking {
         val s = store()
         s.create(createContinuation("reclaim-1").first, createContinuation("reclaim-1").second)
         s.claimForExecution("reclaim-1", 0L, "worker:eve")
@@ -326,9 +334,10 @@ class JdbcApprovalContinuationStoreTest {
             s.claimForExecution("reclaim-1", 1L, "worker:mallory")
         }
     }
+    }
 
     @Test
-    fun `COMPLETED continuation cannot be claimed again`() = runBlocking {
+    fun `COMPLETED continuation cannot be claimed again`() { runBlocking {
         val s = store()
         s.create(createContinuation("done-1").first, createContinuation("done-1").second)
         s.claimForExecution("done-1", 0L, "worker:alice")
@@ -338,9 +347,10 @@ class JdbcApprovalContinuationStoreTest {
             s.claimForExecution("done-1", 2L, "worker:bob")
         }
     }
+    }
 
     @Test
-    fun `CLAIMED cannot transition to EXPIRED`() = runBlocking {
+    fun `CLAIMED cannot transition to EXPIRED`() { runBlocking {
         val s = store()
         s.create(createContinuation("no-lazy-exp").first, createContinuation("no-lazy-exp").second)
         s.claimForExecution("no-lazy-exp", 0L, "worker:eve")
@@ -350,9 +360,10 @@ class JdbcApprovalContinuationStoreTest {
             s.expire("no-lazy-exp", 1L)
         }
     }
+    }
 
     @Test
-    fun `CLAIMED cannot transition to CANCELLED`() = runBlocking {
+    fun `CLAIMED cannot transition to CANCELLED`() { runBlocking {
         val s = store()
         s.create(createContinuation("no-cancel-claimed").first, createContinuation("no-cancel-claimed").second)
         s.claimForExecution("no-cancel-claimed", 0L, "worker:eve")
@@ -362,13 +373,14 @@ class JdbcApprovalContinuationStoreTest {
             s.cancel("no-cancel-claimed", 1L)
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Version invariants — optimistic locking
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `transition with expected version increments version`() = runBlocking {
+    fun `transition with expected version increments version`() { runBlocking {
         val s = store()
         s.create(createContinuation("ver-inc-1").first, createContinuation("ver-inc-1").second)
 
@@ -382,21 +394,34 @@ class JdbcApprovalContinuationStoreTest {
         assertNotNull(retrieved)
         assertEquals(2L, retrieved.version)
     }
+    }
 
     @Test
-    fun `transition with stale version fails`() = runBlocking {
+    fun `transition with stale version fails`() { runBlocking {
         val s = store()
         s.create(createContinuation("stale-ver-1").first, createContinuation("stale-ver-1").second)
-        s.claimForExecution("stale-ver-1", 0L, "worker:alice")
+
+        // No production path bumps the version while the row stays PENDING,
+        // so simulate a concurrent writer by tampering the row directly.
+        // The version guard fires before the status guard for PENDING rows.
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "UPDATE approval_continuations SET version = 1 WHERE approval_id = 'stale-ver-1'",
+            ).use { stmt -> stmt.executeUpdate() }
+        }
 
         // Try claiming with version 0 (stale) instead of 1
         assertFailsWith<ApprovalContinuationConflictException> {
             s.claimForExecution("stale-ver-1", 0L, "worker:bob")
         }
     }
+    }
 
     @Test
-    fun `complete with stale version fails`() = runBlocking {
+    fun `complete with stale version fails`() { runBlocking {
         val s = store()
         s.create(createContinuation("stale-complete").first, createContinuation("stale-complete").second)
         s.claimForExecution("stale-complete", 0L, "worker:alice")
@@ -405,13 +430,14 @@ class JdbcApprovalContinuationStoreTest {
             s.complete("stale-complete", 0L, "worker:alice")
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Concurrency invariants
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `concurrent claim has exactly one winner`() = runBlocking {
+    fun `concurrent claim has exactly one winner`() { runBlocking {
         val s = store()
         s.create(createContinuation("concurrent-claim").first, createContinuation("concurrent-claim").second)
 
@@ -448,9 +474,10 @@ class JdbcApprovalContinuationStoreTest {
             assertEquals(1, winners, "Exactly one concurrent claim must succeed")
         }
     }
+    }
 
     @Test
-    fun `same continuation cannot be completed twice concurrently`() = runBlocking {
+    fun `same continuation cannot be completed twice concurrently`() { runBlocking {
         val s = store()
         s.create(createContinuation("double-complete").first, createContinuation("double-complete").second)
         s.claimForExecution("double-complete", 0L, "worker:alice")
@@ -480,13 +507,14 @@ class JdbcApprovalContinuationStoreTest {
             assertEquals(1, winners, "Exactly one concurrent complete must succeed")
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Restart invariants (proves persistence, not in-memory state)
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `create store A, write, create store B, read`() = runBlocking {
+    fun `create store A, write, create store B, read`() { runBlocking {
         val sA = store()
         val (cont, args) = createContinuation("store-ab-1")
         sA.create(cont, args)
@@ -497,9 +525,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.PENDING, retrieved.status)
         assertEquals(0L, retrieved.version)
     }
+    }
 
     @Test
-    fun `create store A, claim with store B, complete with store C`() = runBlocking {
+    fun `create store A, claim with store B, complete with store C`() { runBlocking {
         val sA = store()
         sA.create(createContinuation("abc-lifecycle").first, createContinuation("abc-lifecycle").second)
 
@@ -512,9 +541,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.COMPLETED, completed.status)
         assertEquals(2L, completed.version)
     }
+    }
 
     @Test
-    fun `claim arguments survive decryption across store instances`() = runBlocking {
+    fun `claim arguments survive decryption across store instances`() { runBlocking {
         val s1 = store()
         val (cont, args) = createContinuation("enc-roundtrip", arguments = "complex-arg-value")
         s1.create(cont, args)
@@ -523,13 +553,14 @@ class JdbcApprovalContinuationStoreTest {
         val claimed = s2.claimForExecution("enc-roundtrip", 0L, "worker:alice")
         assertEquals("complex-arg-value", claimed.arguments.reveal())
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Stale CLAIMED search and sweep
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `findStaleClaimed returns claimed continuations before timestamp`() = runBlocking {
+    fun `findStaleClaimed returns claimed continuations before timestamp`() { runBlocking {
         val s = store()
         s.create(createContinuation("stale-search-1").first, createContinuation("stale-search-1").second)
         s.claimForExecution("stale-search-1", 0L, "worker:slow")
@@ -541,9 +572,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(1, stale.size)
         assertEquals("stale-search-1", stale.first().approvalId)
     }
+    }
 
     @Test
-    fun `sweepExpired transitions PENDING continuations past expiry`() = runBlocking {
+    fun `sweepExpired transitions PENDING continuations past expiry`() { runBlocking {
         val creationTime = fixedClock.instant()
         val s1 = store(clock = Clock.fixed(creationTime, ZoneId.of("UTC")))
         s1.create(
@@ -570,13 +602,14 @@ class JdbcApprovalContinuationStoreTest {
         assertNotNull(r2)
         assertEquals(ApprovalContinuationStatus.EXPIRED, r2.status)
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Encrypted arguments tests
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `encrypted_arguments is non-null after create`() = runBlocking {
+    fun `encrypted_arguments is non-null after create`() { runBlocking {
         val s = store()
         s.create(createContinuation("enc-nonnull").first, createContinuation("enc-nonnull").second)
 
@@ -597,9 +630,10 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `encryption metadata fields are non-null after create`() = runBlocking {
+    fun `encryption metadata fields are non-null after create`() { runBlocking {
         val s = store()
         s.create(createContinuation("enc-meta").first, createContinuation("enc-meta").second)
 
@@ -622,9 +656,10 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `raw arguments are not visible in the database`() = runBlocking {
+    fun `raw arguments are not visible in the database`() { runBlocking {
         val s = store()
         s.create(
             createContinuation("enc-secret", arguments = "super-sensitive-value").first,
@@ -650,9 +685,10 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `encrypted_arguments are null after claim`() = runBlocking {
+    fun `encrypted_arguments are null after claim`() { runBlocking {
         val s = store()
         s.create(createContinuation("enc-null-after-claim").first,
             createContinuation("enc-null-after-claim").second)
@@ -674,13 +710,14 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Timestamp round-trip invariants
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `createdAt round-trips when earlier than store clock`() = runBlocking {
+    fun `createdAt round-trips when earlier than store clock`() { runBlocking {
         val now = fixedClock.instant()
         val past = now.minusSeconds(30)
         val args = SensitiveToolArguments.of("past-args")
@@ -709,13 +746,14 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(past, retrieved.createdAt)
         assertEquals(now.plus(Duration.ofMinutes(5)), retrieved.approvalExpiresAt)
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Exception mapping
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `SQL unique violation maps to domain conflict`() = runBlocking {
+    fun `SQL unique violation maps to domain conflict`() { runBlocking {
         val s = store()
         s.create(createContinuation("unique-violation").first,
             createContinuation("unique-violation").second)
@@ -725,45 +763,52 @@ class JdbcApprovalContinuationStoreTest {
                 createContinuation("unique-violation").second)
         }
     }
-
-    @Test
-    fun `missing continuation returns null from get`() = runBlocking {
-        assertNull(store().get("does-not-exist"))
     }
 
     @Test
-    fun `claim on missing continuation throws not found`() = runBlocking {
+    fun `missing continuation returns null from get`() { runBlocking {
+        assertNull(store().get("does-not-exist"))
+    }
+    }
+
+    @Test
+    fun `claim on missing continuation throws not found`() { runBlocking {
         assertFailsWith<ApprovalContinuationNotFoundException> {
             store().claimForExecution("does-not-exist", 0L, "worker:test")
         }
     }
+    }
 
     @Test
-    fun `complete on missing continuation throws not found`() = runBlocking {
+    fun `complete on missing continuation throws not found`() { runBlocking {
         assertFailsWith<ApprovalContinuationNotFoundException> {
             store().complete("does-not-exist", 0L, "worker:test")
         }
     }
+    }
 
     @Test
-    fun `expire on missing continuation throws not found`() = runBlocking {
+    fun `expire on missing continuation throws not found`() { runBlocking {
         assertFailsWith<ApprovalContinuationNotFoundException> {
             store().expire("does-not-exist", 0L)
         }
     }
+    }
 
     @Test
-    fun `cancel on missing continuation throws not found`() = runBlocking {
+    fun `cancel on missing continuation throws not found`() { runBlocking {
         assertFailsWith<ApprovalContinuationNotFoundException> {
             store().cancel("does-not-exist", 0L)
         }
     }
+    }
 
     @Test
-    fun `forceCancelClaimed on missing continuation throws not found`() = runBlocking {
+    fun `forceCancelClaimed on missing continuation throws not found`() { runBlocking {
         assertFailsWith<ApprovalContinuationNotFoundException> {
             store().forceCancelClaimed("does-not-exist", 0L, "admin:test", "test.reason")
         }
+    }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -771,7 +816,7 @@ class JdbcApprovalContinuationStoreTest {
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `get auto-expires PENDING continuation past expiry`() = runBlocking {
+    fun `get auto-expires PENDING continuation past expiry`() { runBlocking {
         val creationTime = fixedClock.instant()
         val s1 = store(clock = Clock.fixed(creationTime, ZoneId.of("UTC")))
         s1.create(createContinuation("lazy-expire").first, createContinuation("lazy-expire").second)
@@ -784,9 +829,10 @@ class JdbcApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.EXPIRED, retrieved.status)
         assertEquals(1L, retrieved.version)
     }
+    }
 
     @Test
-    fun `concurrent claim after lazy expiry fails`() = runBlocking {
+    fun `concurrent claim after lazy expiry fails`() { runBlocking {
         val creationTime = fixedClock.instant()
         val s1 = store(clock = Clock.fixed(creationTime, ZoneId.of("UTC")))
         s1.create(createContinuation("lazy-claim-fails").first,
@@ -799,13 +845,14 @@ class JdbcApprovalContinuationStoreTest {
             s2.claimForExecution("lazy-claim-fails", 0L, "worker:late")
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Version overflow safety
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `sweep does not transition non-PENDING continuations`() = runBlocking {
+    fun `sweep does not transition non-PENDING continuations`() { runBlocking {
         val s = store()
         s.create(createContinuation("sweep-non-pending").first,
             createContinuation("sweep-non-pending").second)
@@ -815,9 +862,10 @@ class JdbcApprovalContinuationStoreTest {
         val swept = s.sweepExpired()
         assertEquals(0, swept, "COMPLETED continuations must not be swept")
     }
+    }
 
     @Test
-    fun `findStaleClaimed ignores non-CLAIMED statuses`() = runBlocking {
+    fun `findStaleClaimed ignores non-CLAIMED statuses`() { runBlocking {
         val s = store()
         // Create a PENDING continuation (not stale)
         s.create(createContinuation("not-stale").first, createContinuation("not-stale").second)
@@ -828,9 +876,10 @@ class JdbcApprovalContinuationStoreTest {
         )
         assertTrue(stale.isEmpty(), "PENDING continuation must not appear in stale results")
     }
+    }
 
     @Test
-    fun `expire before expiry time fails`() = runBlocking {
+    fun `expire before expiry time fails`() { runBlocking {
         val s = store()
         s.create(createContinuation("early-expire").first, createContinuation("early-expire").second)
 
@@ -838,13 +887,14 @@ class JdbcApprovalContinuationStoreTest {
             s.expire("early-expire", 0L)
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // P1 regression — decrypt-before-CAS atomicity
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `claim preserves encrypted arguments when decode fails`() = runBlocking {
+    fun `claim preserves encrypted arguments when decode fails`() { runBlocking {
         // Codec that encodes successfully but fails on decode
         val brokenCodec = object : JdbcContinuationArgumentsCodec {
             override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments {
@@ -886,13 +936,14 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // P2 regression — lazy expiry CAS race
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `get re-reads actual state when lazy expiry CAS loses race`() = runBlocking {
+    fun `get re-reads actual state when lazy expiry CAS loses race`() { runBlocking {
         val creationTime = fixedClock.instant()
         val s1 = store(clock = Clock.fixed(creationTime, ZoneId.of("UTC")))
         s1.create(createContinuation("lazy-race").first, createContinuation("lazy-race").second)
@@ -924,13 +975,14 @@ class JdbcApprovalContinuationStoreTest {
             "get() must return actual persisted state, not synthetic EXPIRED")
         assertEquals(1L, retrieved.version)
     }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // P2 regression — V2 schema CHECK constraints
     // ═══════════════════════════════════════════════════════════════
 
     @Test
-    fun `schema rejects invalid status`() = runBlocking {
+    fun `schema rejects invalid status`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -944,9 +996,10 @@ class JdbcApprovalContinuationStoreTest {
             }
         }
     }
+    }
 
     @Test
-    fun `schema rejects approval_expires_at before created_at`() = runBlocking {
+    fun `schema rejects approval_expires_at before created_at`() { runBlocking {
         val conn: Connection = DriverManager.getConnection(
             postgres.jdbcUrl, postgres.username, postgres.password,
         )
@@ -959,5 +1012,6 @@ class JdbcApprovalContinuationStoreTest {
                 stmt.executeUpdate()
             }
         }
+    }
     }
 }

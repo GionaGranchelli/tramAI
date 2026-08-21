@@ -250,7 +250,7 @@ class TokenAwareChatMemoryTest {
     // ── Thread Safety ──────────────────────────────────────────
 
     @Test
-    fun `thread safety concurrent adds to same conversation`() = runBlocking {
+    fun `thread safety concurrent adds to same conversation`() { runBlocking {
         val memory = TokenAwareChatMemory(maxTokens = 200)
         val numMessages = 30
         coroutineScope {
@@ -267,9 +267,10 @@ class TokenAwareChatMemoryTest {
         val totalTokens = history.sumOf { roughTokenizer().countTokens(it.content) }
         assertThat(totalTokens).isLessThanOrEqualTo(200)
     }
+    }
 
     @Test
-    fun `thread safety concurrent read and write on same conversation`() = runBlocking {
+    fun `thread safety concurrent read and write on same conversation`() { runBlocking {
         val memory = TokenAwareChatMemory(maxTokens = 200)
         memory.add("shared", Message(MessageRole.SYSTEM, "system"))
 
@@ -289,6 +290,7 @@ class TokenAwareChatMemoryTest {
         // Should not throw. After all writers done, should have system + some users.
         val history = memory.get("shared")
         assertThat(history.size).isGreaterThanOrEqualTo(1)
+    }
     }
 
     @Test
@@ -345,7 +347,7 @@ class TokenAwareChatMemoryTest {
     }
 
     @Test
-    fun `concurrent eviction with maxConversations does not orphan entries`() = runBlocking {
+    fun `concurrent eviction with maxConversations does not orphan entries`() { runBlocking {
         val memory = TokenAwareChatMemory(maxTokens = 100, maxConversations = 5)
         val numOps = 50
 
@@ -360,5 +362,6 @@ class TokenAwareChatMemoryTest {
 
         val nonEmptyConversations = (0..9).count { memory.get("conv-$it").isNotEmpty() }
         assertThat(nonEmptyConversations).isLessThanOrEqualTo(5)
+    }
     }
 }

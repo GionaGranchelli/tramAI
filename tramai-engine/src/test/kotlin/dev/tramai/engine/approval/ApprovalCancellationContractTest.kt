@@ -123,7 +123,7 @@ class ApprovalCancellationContractTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `seam 1 - cancellation during approval creation propagates with no persisted state`() = runTest {
+    fun `seam 1 - cancellation during approval creation propagates with no persisted state`() { runTest {
         val store = CancellationStore(cancelOn = "approval.create")
         val suspended = CancellationSuspendedStore()
         val gate = CancellationGate(cancelOn = "approval.create")
@@ -138,9 +138,10 @@ class ApprovalCancellationContractTest {
         assertThat(gate.createdApproval).isFalse()
         assertThat(audit.suspendedCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 2 - cancellation during continuation creation propagates without compensation`() = runTest {
+    fun `seam 2 - cancellation during continuation creation propagates without compensation`() { runTest {
         val store = CancellationStore(cancelOn = "continuation.create")
         val suspended = CancellationSuspendedStore()
         val gate = CancellationGate()
@@ -156,9 +157,10 @@ class ApprovalCancellationContractTest {
         assertThat(suspended.removedMetadata).isZero()
         assertThat(audit.cancelledCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 3 - cancellation during suspended-metadata persistence propagates without compensation`() = runTest {
+    fun `seam 3 - cancellation during suspended-metadata persistence propagates without compensation`() { runTest {
         val store = CancellationStore()
         val suspended = CancellationSuspendedStore(cancelOn = "metadata.create")
         val gate = CancellationGate()
@@ -172,13 +174,14 @@ class ApprovalCancellationContractTest {
         assertThat(store.cancelledContinuation).isZero()
         assertThat(suspended.removedMetadata).isZero()
     }
+    }
 
     // ------------------------------------------------------------------
     // Resume seams (4-12)
     // ------------------------------------------------------------------
 
     @Test
-    fun `seam 4 - cancellation during validateResume leaves continuation pending`() = runTest {
+    fun `seam 4 - cancellation during validateResume leaves continuation pending`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "validate")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -189,9 +192,10 @@ class ApprovalCancellationContractTest {
         assertThat(suspended.removedCount).isZero()
         assertThat(store.completeCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 5 - cancellation during resume policy evaluation leaves continuation pending`() = runTest {
+    fun `seam 5 - cancellation during resume policy evaluation leaves continuation pending`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "policy")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -202,9 +206,10 @@ class ApprovalCancellationContractTest {
         assertThat(suspended.removedCount).isZero()
         assertThat(store.completeCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 6 - cancellation during authorizeResume leaves continuation pending`() = runTest {
+    fun `seam 6 - cancellation during authorizeResume leaves continuation pending`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "authorize")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -214,9 +219,10 @@ class ApprovalCancellationContractTest {
         assertThat(store.claimCount).isZero()
         assertThat(suspended.removedCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 7 - cancellation during claimForExecution leaves continuation pending`() = runTest {
+    fun `seam 7 - cancellation during claimForExecution leaves continuation pending`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "claim")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -226,9 +232,10 @@ class ApprovalCancellationContractTest {
         assertThat(store.completeCount).isZero()
         assertThat(suspended.removedCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 8 - cancellation during replay reveal leaves continuation claimed`() = runTest {
+    fun `seam 8 - cancellation during replay reveal leaves continuation claimed`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "reveal")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -239,9 +246,10 @@ class ApprovalCancellationContractTest {
         assertThat(suspended.removedCount).isZero()
         assertThat(store.lastStatus).isEqualTo(ApprovalContinuationStatus.CLAIMED)
     }
+    }
 
     @Test
-    fun `seam 9 - cancellation during claimed execution delegate leaves continuation claimed`() = runTest {
+    fun `seam 9 - cancellation during claimed execution delegate leaves continuation claimed`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "execute")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -251,9 +259,10 @@ class ApprovalCancellationContractTest {
         assertThat(store.completeCount).isZero()
         assertThat(suspended.removedCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 10 - cancellation during continuation completion leaves metadata retained`() = runTest {
+    fun `seam 10 - cancellation during continuation completion leaves metadata retained`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "complete")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -262,9 +271,10 @@ class ApprovalCancellationContractTest {
         assertThat(store.completeCount).isEqualTo(1)
         assertThat(suspended.removedCount).isZero()
     }
+    }
 
     @Test
-    fun `seam 11 - cancellation during cleanup propagates after completion`() = runTest {
+    fun `seam 11 - cancellation during cleanup propagates after completion`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "remove")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -273,9 +283,10 @@ class ApprovalCancellationContractTest {
         assertThat(store.completeCount).isEqualTo(1)
         assertThat(suspended.removedCount).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `seam 12 - cancellation during completion audit propagates after cleanup`() = runTest {
+    fun `seam 12 - cancellation during completion audit propagates after cleanup`() { runTest {
         val (coordinator, store, suspended) = resumeHarness(cancelOn = "audit.complete")
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
@@ -283,6 +294,7 @@ class ApprovalCancellationContractTest {
 
         assertThat(store.completeCount).isEqualTo(1)
         assertThat(suspended.removedCount).isEqualTo(1)
+    }
     }
 
     // ------------------------------------------------------------------

@@ -289,7 +289,7 @@ class StructuredResponseCoordinatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `contract failure short-circuits without provider call`() = runTest {
+    fun `contract failure short-circuits without provider call`() { runTest {
         val handler = RecordingHandler(mutableListOf<StructuredOutputResult>(), contractThrows = IllegalStateException("schema boom"))
         val executor = RecordingAttemptExecutor()
         val diagnostics = RecordingDiagnostics()
@@ -300,9 +300,10 @@ class StructuredResponseCoordinatorTest {
         assertThat(executor.calls).isEmpty()
         assertThat(diagnostics.events.single().code).isEqualTo(StructuredOutputFailureCode.CONTRACT_FAILED)
     }
+    }
 
     @Test
-    fun `cache hit short-circuits attempt executor`() = runTest {
+    fun `cache hit short-circuits attempt executor`() { runTest {
         val handler = RecordingHandler(mutableListOf<StructuredOutputResult>())
         val executor = RecordingAttemptExecutor()
         val cache = RecordingCache()
@@ -317,13 +318,14 @@ class StructuredResponseCoordinatorTest {
         assertThat(result).isEqualTo(StructuredValue("cached"))
         assertThat(executor.calls).isEmpty()
     }
+    }
 
     // ------------------------------------------------------------------
     // first-attempt success ordering
     // ------------------------------------------------------------------
 
     @Test
-    fun `first attempt success with conversation enforces policy before completion before memory persist`() = runTest {
+    fun `first attempt success with conversation enforces policy before completion before memory persist`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -343,9 +345,10 @@ class StructuredResponseCoordinatorTest {
             "memory.persist",
         )
     }
+    }
 
     @Test
-    fun `first attempt success without conversation stores cache after completion`() = runTest {
+    fun `first attempt success without conversation stores cache after completion`() { runTest {
         val op = operation("cached")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -365,9 +368,10 @@ class StructuredResponseCoordinatorTest {
             "cache.store",
         )
     }
+    }
 
     @Test
-    fun `completion true is recorded before memory persistence`() = runTest {
+    fun `completion true is recorded before memory persistence`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -388,13 +392,14 @@ class StructuredResponseCoordinatorTest {
         )
         assertThat(cache.stored).isEmpty()
     }
+    }
 
     // ------------------------------------------------------------------
     // repair path
     // ------------------------------------------------------------------
 
     @Test
-    fun `repairable failure appends raw assistant and feedback then retries`() = runTest {
+    fun `repairable failure appends raw assistant and feedback then retries`() { runTest {
         val op = operation("repairable")
         val handler = RecordingHandler(mutableListOf(failure(feedback = "fix it"), success()))
         val executor = RecordingAttemptExecutor()
@@ -416,9 +421,10 @@ class StructuredResponseCoordinatorTest {
             Message(MessageRole.USER, "fix it"),
         )
     }
+    }
 
     @Test
-    fun `repair exhaustion throws REPAIR_EXHAUSTED with exact count`() = runTest {
+    fun `repair exhaustion throws REPAIR_EXHAUSTED with exact count`() { runTest {
         val op = operation("repairable") // maxRetries = 2 → 3 attempts
         val handler = RecordingHandler(mutableListOf(failure(), failure(), failure()))
         val executor = RecordingAttemptExecutor()
@@ -431,9 +437,10 @@ class StructuredResponseCoordinatorTest {
             }
         assertThat(executor.calls).hasSize(3)
     }
+    }
 
     @Test
-    fun `handler throw is sanitized as HANDLER_FAILED`() = runTest {
+    fun `handler throw is sanitized as HANDLER_FAILED`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf<StructuredOutputResult>(), analyzeThrows = IllegalStateException("handler secret"))
         val executor = RecordingAttemptExecutor()
@@ -446,9 +453,10 @@ class StructuredResponseCoordinatorTest {
             }
         assertThat(diagnostics.events.single().code).isEqualTo(StructuredOutputFailureCode.HANDLER_FAILED)
     }
+    }
 
     @Test
-    fun `diagnostic observer throw is fail-open`() = runTest {
+    fun `diagnostic observer throw is fail-open`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(failure()))
         val executor = RecordingAttemptExecutor()
@@ -459,9 +467,10 @@ class StructuredResponseCoordinatorTest {
             .isInstanceOf(StructuredOutputException::class.java)
             .isNotSameAs(diagnostics.throwOnFailure)
     }
+    }
 
     @Test
-    fun `real parent cancellation during diagnostics stays primary`() = runTest {
+    fun `real parent cancellation during diagnostics stays primary`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(failure()))
         val executor = RecordingAttemptExecutor()
@@ -517,13 +526,14 @@ class StructuredResponseCoordinatorTest {
             assertThat(terminal).isNotInstanceOf(StructuredOutputException::class.java)
         }
     }
+    }
 
     // ------------------------------------------------------------------
     // policy deny on success → no side effects
     // ------------------------------------------------------------------
 
     @Test
-    fun `BEFORE_RESPONSE_RETURN deny with conversation prevents memory persistence`() = runTest {
+    fun `BEFORE_RESPONSE_RETURN deny with conversation prevents memory persistence`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -538,9 +548,10 @@ class StructuredResponseCoordinatorTest {
         assertThat(memory.stored).isEmpty()
         assertThat(sink.events).containsExactly("policy.BEFORE_RESPONSE_RETURN")
     }
+    }
 
     @Test
-    fun `BEFORE_RESPONSE_RETURN deny without conversation prevents cache store`() = runTest {
+    fun `BEFORE_RESPONSE_RETURN deny without conversation prevents cache store`() { runTest {
         val op = operation("cached")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -555,13 +566,14 @@ class StructuredResponseCoordinatorTest {
         assertThat(cache.stored).isEmpty()
         assertThat(sink.events).containsExactly("policy.BEFORE_RESPONSE_RETURN")
     }
+    }
 
     // ------------------------------------------------------------------
     // resumed path
     // ------------------------------------------------------------------
 
     @Test
-    fun `resumed success is single attempt with policy memory and observation`() = runTest {
+    fun `resumed success is single attempt with policy memory and observation`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(success()))
         val sink = OrderedSink()
@@ -591,9 +603,10 @@ class StructuredResponseCoordinatorTest {
         )
         assertThat(memory.stored.single().first).isEqualTo("cid")
     }
+    }
 
     @Test
-    fun `resumed invalid response has no policy memory or cache side effects`() = runTest {
+    fun `resumed invalid response has no policy memory or cache side effects`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf(failure()))
         val executor = RecordingAttemptExecutor()
@@ -611,9 +624,10 @@ class StructuredResponseCoordinatorTest {
         assertThat(memory.stored).isEmpty()
         assertThat(cache.stored).isEmpty()
     }
+    }
 
     @Test
-    fun `resumed handler failure is HANDLER_FAILED`() = runTest {
+    fun `resumed handler failure is HANDLER_FAILED`() { runTest {
         val op = operation("answer")
         val handler = RecordingHandler(mutableListOf<StructuredOutputResult>(), analyzeThrows = IllegalStateException("resume secret"))
         val executor = RecordingAttemptExecutor()
@@ -626,9 +640,10 @@ class StructuredResponseCoordinatorTest {
             }
         assertThat(diagnostics.events.single().code).isEqualTo(StructuredOutputFailureCode.HANDLER_FAILED)
     }
+    }
 
     @Test
-    fun `resumed path never retries`() = runTest {
+    fun `resumed path never retries`() { runTest {
         val op = operation("repairable")
         val handler = RecordingHandler(mutableListOf(failure(), success()))
         val executor = RecordingAttemptExecutor()
@@ -638,9 +653,10 @@ class StructuredResponseCoordinatorTest {
             .isInstanceOf(StructuredOutputException::class.java)
         assertThat(handler.analyzeCalls.get()).isEqualTo(1) // exactly one parse, no repair
     }
+    }
 
     @Test
-    fun `missing structured handler throws configuration error`() = runTest {
+    fun `missing structured handler throws configuration error`() { runTest {
         val op = operation("answer")
         val c = StructuredResponseCoordinator(
             structuredOutputHandler = null,
@@ -666,5 +682,6 @@ class StructuredResponseCoordinatorTest {
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.execute(executeRequest(op)) } }
             .isInstanceOf(ConfigurationException::class.java)
+    }
     }
 }

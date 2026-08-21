@@ -210,7 +210,7 @@ class SovereignTramaiArtifactVerificationTest {
     }
 
     @Test
-    fun `cloud model without local artifact manifest preserves existing behavior`() = runBlocking {
+    fun `cloud model without local artifact manifest preserves existing behavior`() { runBlocking {
         val registeredModel = RegisteredModel(
             registryEntryId = "cloud-entry",
             providerId = "cloud-provider",
@@ -235,9 +235,10 @@ class SovereignTramaiArtifactVerificationTest {
         assertThat(verifier.seenModels).isEmpty()
         assertThat(tramai.verificationReceipts()).isEmpty()
     }
+    }
 
     @Test
-    fun `verification disabled preserves backward compatible behavior`() = runBlocking {
+    fun `verification disabled preserves backward compatible behavior`() { runBlocking {
         val registeredModel = localRegisteredModel(artifactDigest = null)
         val verifier = RecordingVerifier { error("verifier should not be invoked") }
 
@@ -256,6 +257,7 @@ class SovereignTramaiArtifactVerificationTest {
         assertThat(result).isEqualTo("mock response for test-model")
         assertThat(verifier.seenModels).isEmpty()
         assertThat(tramai.verificationReceipts()).isEmpty()
+    }
     }
 
     @Test

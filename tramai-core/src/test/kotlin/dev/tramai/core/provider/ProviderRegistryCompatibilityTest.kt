@@ -52,9 +52,10 @@ class ProviderRegistryCompatibilityTest {
     }
 
     @Test
-    fun `duplicate provider now fails at build`() = assertThatThrownBy {
+    fun `duplicate provider now fails at build`() { assertThatThrownBy {
         ProviderRegistry.builder().provider("one", NamedProvider("one")).provider("one", NamedProvider("replacement")).build()
     }.isInstanceOf(ConfigurationException::class.java)
+    }
 
     private class NamedProvider(private val name: String) : ModelProvider {
         override suspend fun complete(request: ModelRequest): ModelResponse = error("unused")

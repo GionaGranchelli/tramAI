@@ -100,7 +100,7 @@ class ReplayAuthorizationServiceTest {
     }
 
     @Test
-    fun `recorded ordering validate then policy then authorize`() = runTest {
+    fun `recorded ordering validate then policy then authorize`() { runTest {
         val (s, _, events) = service()
         val continuation = continuation()
 
@@ -114,9 +114,10 @@ class ReplayAuthorizationServiceTest {
             "authorize",
         )
     }
+    }
 
     @Test
-    fun `invalid token means policy is never evaluated`() = runTest {
+    fun `invalid token means policy is never evaluated`() { runTest {
         val gate = RecordingGate(failValidateWith = ApprovalTokenRejectedException("a"))
         val (s, _, events) = service(gate = gate)
         val continuation = continuation()
@@ -127,9 +128,10 @@ class ReplayAuthorizationServiceTest {
         assertThat(events).containsExactly("validate")
         assertThat(events).noneMatch { it.startsWith("policy:") }
     }
+    }
 
     @Test
-    fun `valid token deny cancels state and does not authorize`() = runTest {
+    fun `valid token deny cancels state and does not authorize`() { runTest {
         val deny = PolicyDecision.Deny(reason = "blocked", reasonCode = "WF_DENIED")
         val (s, gate, events) = service(policyDecision = deny)
         val continuation = continuation()
@@ -143,9 +145,10 @@ class ReplayAuthorizationServiceTest {
         assertThat(events).contains("cancel-state", "audit:cancelled")
         assertThat(events).noneMatch { it == "authorize" }
     }
+    }
 
     @Test
-    fun `valid token nested approval cancels state and does not authorize`() = runTest {
+    fun `valid token nested approval cancels state and does not authorize`() { runTest {
         val require = PolicyDecision.RequireApproval(
             dev.tramai.core.policy.ApprovalRequirement("tool", "", "testing", 60_000),
         )
@@ -160,9 +163,10 @@ class ReplayAuthorizationServiceTest {
         assertThat(events).contains("cancel-state", "audit:cancelled")
         assertThat(events).noneMatch { it == "authorize" }
     }
+    }
 
     @Test
-    fun `deny cancellation audit failure is diagnosed and never fails the method after transition`() = runTest {
+    fun `deny cancellation audit failure is diagnosed and never fails the method after transition`() { runTest {
         val deny = PolicyDecision.Deny(reason = "blocked", reasonCode = "WF_DENIED")
         val events = mutableListOf<String>()
         val gate = RecordingGate().apply { this.events = events }
@@ -194,9 +198,10 @@ class ReplayAuthorizationServiceTest {
                 it.contains("authority=AUTHORITATIVE")
         }).isTrue
     }
+    }
 
     @Test
-    fun `nested approval cancellation audit failure is diagnosed and never fails the method after transition`() = runTest {
+    fun `nested approval cancellation audit failure is diagnosed and never fails the method after transition`() { runTest {
         val events = mutableListOf<String>()
         val gate = RecordingGate().apply { this.events = events }
         val suspended = RecordingSuspendedStore(events)
@@ -224,9 +229,10 @@ class ReplayAuthorizationServiceTest {
                 it.contains("authority=AUTHORITATIVE")
         }).isTrue
     }
+    }
 
     @Test
-    fun `allow authorizes exactly once`() = runTest {
+    fun `allow authorizes exactly once`() { runTest {
         val (s, gate, _) = service()
         val continuation = continuation()
 
@@ -236,9 +242,10 @@ class ReplayAuthorizationServiceTest {
         assertThat(gate.lastAuthorizeCommand?.consumedBy).isEqualTo("me")
         assertThat(gate.lastAuthorizeCommand?.presentedToken).isEqualTo(token)
     }
+    }
 
     @Test
-    fun `fresh authorization emits no replay event`() = runTest {
+    fun `fresh authorization emits no replay event`() { runTest {
         val (s, _, events) = service()
         val continuation = continuation()
         val auth = s.authorize(command, metadata(), continuation)
@@ -246,18 +253,20 @@ class ReplayAuthorizationServiceTest {
         s.emitAuthorizationReplayed(auth.replayed, command, metadata())
         assertThat(events).noneMatch { it.contains("authorization_replayed") }
     }
+    }
 
     @Test
-    fun `exact authorization replay emits fail-open replay event`() = runTest {
+    fun `exact authorization replay emits fail-open replay event`() { runTest {
         val (s, _, events) = service()
         val continuation = continuation()
 
         s.emitAuthorizationReplayed(replayed = true, command = command, metadata = metadata())
         assertThat(events).contains("tramai.approval.authorization_replayed")
     }
+    }
 
     @Test
-    fun `replay event observer failure is fail-open`() = runTest {
+    fun `replay event observer failure is fail-open`() { runTest {
         val gate = RecordingGate()
         val suspended = RecordingSuspendedStore(mutableListOf())
         val audit = RecordingAuditEmitter(mutableListOf())
@@ -281,9 +290,10 @@ class ReplayAuthorizationServiceTest {
         // must not throw — event observer failures must not prevent resume completion
         s.emitAuthorizationReplayed(replayed = true, command = command, metadata = metadata())
     }
+    }
 
     @Test
-    fun `replay event observer cancellation propagates`() = runTest {
+    fun `replay event observer cancellation propagates`() { runTest {
         val gate = RecordingGate()
         val suspended = RecordingSuspendedStore(mutableListOf())
         val audit = RecordingAuditEmitter(mutableListOf())
@@ -302,15 +312,17 @@ class ReplayAuthorizationServiceTest {
         assertThatThrownBy { kotlinx.coroutines.runBlocking { s.emitAuthorizationReplayed(replayed = true, command = command, metadata = metadata()) } }
             .isSameAs(cancellation)
     }
+    }
 
     @Test
-    fun `real cancellation during validation propagates`() = runTest {
+    fun `real cancellation during validation propagates`() { runTest {
         val cancellation = CancellationException("cancel")
         val gate = RecordingGate(failValidateWith = cancellation)
         val (s, _, _) = service(gate = gate)
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { s.validateToken(command, metadata(), continuation()) } }
             .isSameAs(cancellation)
+    }
     }
 
     // ------------------------------------------------------------------

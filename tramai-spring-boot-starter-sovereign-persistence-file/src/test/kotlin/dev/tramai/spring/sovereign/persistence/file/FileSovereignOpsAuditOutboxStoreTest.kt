@@ -30,13 +30,14 @@ class FileSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
-    fun `append persists PREPARED record`() = runBlocking {
+    fun `append persists PREPARED record`() { runBlocking {
         val store = store()
         val record = record("prepared")
 
         store.append(record)
 
         assertThat(store.get("prepared")).isEqualTo(record)
+    }
     }
 
     @Test
@@ -79,7 +80,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
-    fun `get returns persisted record`() = runBlocking {
+    fun `get returns persisted record`() { runBlocking {
         val store = store()
         val record = record("get-record")
 
@@ -87,9 +88,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(store.get("get-record")).isEqualTo(record)
     }
+    }
 
     @Test
-    fun `findByEventKey works after restart`() = runBlocking {
+    fun `findByEventKey works after restart`() { runBlocking {
         val key = testKey()
         val store = store(key = key)
         val record = record("event-key-record", eventKey = "event-key-after-restart")
@@ -99,9 +101,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(restarted.findByEventKey("event-key-after-restart")).isEqualTo(record)
     }
+    }
 
     @Test
-    fun `listByStatus returns records by status`() = runBlocking {
+    fun `listByStatus returns records by status`() { runBlocking {
         val store = store()
         store.append(record("prepared"))
         store.append(record("pending"))
@@ -117,9 +120,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(store.listByStatus(SovereignOpsAuditOutboxStatus.EMITTING, 10).map { it.outboxId })
             .containsExactly("emitting")
     }
+    }
 
     @Test
-    fun `listExpiredEmitting returns only expired EMITTING`() = runBlocking {
+    fun `listExpiredEmitting returns only expired EMITTING`() { runBlocking {
         val store = store()
         store.append(record("expired"))
         store.markReadyForDispatch("expired", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -132,9 +136,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(expired.map { it.outboxId }).containsExactly("expired")
     }
+    }
 
     @Test
-    fun `markReadyForDispatch moves PREPARED to PENDING`() = runBlocking {
+    fun `markReadyForDispatch moves PREPARED to PENDING`() { runBlocking {
         val store = store()
         store.append(record("ready"))
 
@@ -142,6 +147,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(updated.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
         assertThat(store.get("ready")?.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+    }
     }
 
     @Test
@@ -179,7 +185,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
-    fun `claimPending claims PENDING records`() = runBlocking {
+    fun `claimPending claims PENDING records`() { runBlocking {
         val store = store()
         store.append(record("pending-claim"))
         store.markReadyForDispatch("pending-claim", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -191,9 +197,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(claimed.single().attemptCount).isEqualTo(1)
         assertThat(claimed.single().claimedBy).isEqualTo("dispatcher")
     }
+    }
 
     @Test
-    fun `claimPending claims FAILED_RETRYABLE records`() = runBlocking {
+    fun `claimPending claims FAILED_RETRYABLE records`() { runBlocking {
         val store = store()
         store.append(record("retryable-claim"))
         store.markReadyForDispatch("retryable-claim", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -210,9 +217,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(claimed.map { it.outboxId }).containsExactly("retryable-claim")
         assertThat(claimed.single().attemptCount).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `claimPending reclaims expired EMITTING records`() = runBlocking {
+    fun `claimPending reclaims expired EMITTING records`() { runBlocking {
         val store = store()
         store.append(record("expired-emitting"))
         store.markReadyForDispatch("expired-emitting", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -224,17 +232,19 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(claimed.single().claimedBy).isEqualTo("new-dispatcher")
         assertThat(claimed.single().attemptCount).isEqualTo(2)
     }
+    }
 
     @Test
-    fun `claimPending never claims PREPARED records`() = runBlocking {
+    fun `claimPending never claims PREPARED records`() { runBlocking {
         val store = store()
         store.append(record("prepared-only"))
 
         assertThat(store.claimPending("dispatcher", 10, BASE_NOW)).isEmpty()
     }
+    }
 
     @Test
-    fun `claimPending never claims EMITTED records`() = runBlocking {
+    fun `claimPending never claims EMITTED records`() { runBlocking {
         val store = store()
         store.append(record("emitted"))
         store.markReadyForDispatch("emitted", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -243,9 +253,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(store.claimPending("dispatcher", 10, BASE_NOW.plus(Duration.ofMinutes(10)))).isEmpty()
     }
+    }
 
     @Test
-    fun `claimPending never claims FAILED_PERMANENT records`() = runBlocking {
+    fun `claimPending never claims FAILED_PERMANENT records`() { runBlocking {
         val store = store()
         store.append(record("permanent"))
         store.markFailed(
@@ -257,9 +268,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(store.claimPending("dispatcher", 10, BASE_NOW)).isEmpty()
     }
+    }
 
     @Test
-    fun `markEmitted moves EMITTING to EMITTED`() = runBlocking {
+    fun `markEmitted moves EMITTING to EMITTED`() { runBlocking {
         val store = store()
         store.append(record("emit"))
         store.markReadyForDispatch("emit", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -270,9 +282,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(emitted.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
         assertThat(emitted.emittedAt).isEqualTo(BASE_NOW.plusSeconds(1))
     }
+    }
 
     @Test
-    fun `markFailed retryable moves to FAILED_RETRYABLE`() = runBlocking {
+    fun `markFailed retryable moves to FAILED_RETRYABLE`() { runBlocking {
         val store = store()
         store.append(record("retryable-failure"))
         store.markReadyForDispatch("retryable-failure", SovereignOpsAuditOutboxStatus.PREPARED)
@@ -288,9 +301,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(failed.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE)
         assertThat(failed.lastErrorCode).isEqualTo("retryable-error")
     }
+    }
 
     @Test
-    fun `markFailed non-retryable moves PREPARED to FAILED_PERMANENT`() = runBlocking {
+    fun `markFailed non-retryable moves PREPARED to FAILED_PERMANENT`() { runBlocking {
         val store = store()
         store.append(record("prepared-failure"))
 
@@ -303,9 +317,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(failed.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
     }
+    }
 
     @Test
-    fun `status transitions survive restart`() = runBlocking {
+    fun `status transitions survive restart`() { runBlocking {
         val key = testKey()
         val store = store(key = key)
         store.append(record("restart-status"))
@@ -316,9 +331,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(restarted.get("restart-status")?.status)
             .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
     }
+    }
 
     @Test
-    fun `event-key index survives restart`() = runBlocking {
+    fun `event-key index survives restart`() { runBlocking {
         val key = testKey()
         val store = store(key = key)
         val record = record("restart-index", eventKey = "restart-index-event")
@@ -328,9 +344,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
 
         assertThat(restarted.findByEventKey("restart-index-event")).isEqualTo(record)
     }
+    }
 
     @Test
-    fun `no raw security fields persisted`() = runBlocking {
+    fun `no raw security fields persisted`() { runBlocking {
         val key = testKey()
         val store = store(key = key)
         val rawApprovalId = "approval-raw-secret-123"
@@ -354,9 +371,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(decryptedJson).contains(secureRecord.aggregateIdDigest)
         assertThat(decryptedJson).contains(secureRecord.reasonDigest)
     }
+    }
 
     @Test
-    fun `outboxRecordVersion increments on each write`() = runBlocking {
+    fun `outboxRecordVersion increments on each write`() { runBlocking {
         val key = testKey()
         val store = store(key = key)
         store.append(record("versioned"))
@@ -368,9 +386,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         store.claimPending("dispatcher", 1, BASE_NOW)
         assertThat(persisted("versioned", key).outboxRecordVersion).isEqualTo(2L)
     }
+    }
 
     @Test
-    fun `constructor rebuilds event key index from filesystem`() = runBlocking {
+    fun `constructor rebuilds event key index from filesystem`() { runBlocking {
         val key = testKey()
 
         val first = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
@@ -383,9 +402,10 @@ class FileSovereignOpsAuditOutboxStoreTest {
         val reopened = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
         assertThat(reopened.findByEventKey("same-event")).isNotNull
     }
+    }
 
     @Test
-    fun `append rejects duplicate event key after constructor reopen`() = runBlocking {
+    fun `append rejects duplicate event key after constructor reopen`() { runBlocking {
         val key = testKey()
 
         val first = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
@@ -400,6 +420,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThatThrownBy {
             runBlocking { reopened.append(record("two", eventKey = "same-event")) }
         }.hasMessageContaining("tramai-sovereign-ops-outbox-duplicate-event-key")
+    }
     }
 
     private fun store(

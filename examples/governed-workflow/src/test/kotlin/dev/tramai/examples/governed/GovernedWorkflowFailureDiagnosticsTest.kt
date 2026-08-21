@@ -96,7 +96,7 @@ class GovernedWorkflowFailureDiagnosticsTest {
     // ── Success path (clean diagnostic trail) ─────────────────────
 
     @Test
-    fun `approved high-risk claim has clean diagnostic trail`() = runBlocking {
+    fun `approved high-risk claim has clean diagnostic trail`() { runBlocking {
         val observer = RecordingWorkflowObserver()
 
         val result = workflow.run(
@@ -116,6 +116,7 @@ class GovernedWorkflowFailureDiagnosticsTest {
             .containsExactly("classify", "policy-check", "approval-required", "finalize")
 
         assertThat(observer.failedSteps).isEmpty()
+    }
     }
 
     // ── Local observer ───────────────────────────────────────────
