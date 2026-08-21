@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.orchestration
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 
@@ -118,7 +121,7 @@ class TramaiWorker(
         checkpointCatalog = checkpointCatalog,
         stepAttemptStore = stepAttemptStore,
         workflowBindings = workflowBindings,
-        observability = observability,
+        observability = FailureIsolatingTramaiWorkerObserver(observability),
         partitionStrategy = partitionStrategy,
     )
 

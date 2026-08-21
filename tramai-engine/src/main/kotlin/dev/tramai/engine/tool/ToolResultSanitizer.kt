@@ -67,9 +67,10 @@ internal class ToolResultSanitizer(
     }
 
     private fun emitEngineEventSafely(event: RuntimeEvent) {
-        try { engineEventObserver.onEngineEvent(event.name, event.attributes()) } catch (error: Exception) {
-            System.getLogger("dev.tramai.engine.TramaiEngine").log(System.Logger.Level.WARNING, "Engine event observer failed for '${event.name}': ${error::class.simpleName}")
-        }
+        // Epic 5.3: typed overload — the failure-isolating boundary honours the
+        // event's declared failure policy (FAIL_CLOSED propagates). No local
+        // catch: a FAIL_CLOSED event must NOT be swallowed at the call site.
+        engineEventObserver.onEngineEvent(event)
     }
 
     private fun emitToolResultRejected(scope: ToolReinjectionDlpScope, reasonCode: String, actualLength: Long?) {

@@ -147,6 +147,45 @@ public abstract interface class dev/tramai/orchestration/ExternalStepExecutorRes
 	public abstract fun registeredTypeIds ()Ljava/util/Set;
 }
 
+public final class dev/tramai/orchestration/FailureIsolatingTramaiWorkerObserver : dev/tramai/orchestration/TramaiWorkerObserver {
+	public fun <init> (Ldev/tramai/orchestration/TramaiWorkerObserver;)V
+	public fun onDrainProgress (Ljava/lang/String;II)V
+	public fun onLeaseAcquired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseContested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseExpired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseReleaseFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseReleased (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseRenewalFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseRenewed (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onPollFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onShutdownComplete (Ljava/lang/String;)V
+	public fun onShutdownStarted (Ljava/lang/String;)V
+	public fun onStepAttemptCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onStepAttemptFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onStepAttemptStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onUnknownAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onWorkTakenOver (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onWorkerHeartbeat (Ljava/lang/String;JI)V
+	public fun onWorkerStarted (Ljava/lang/String;)V
+	public fun onWorkerStopped (Ljava/lang/String;)V
+	public fun onWorkflowAbandoned (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/orchestration/FailureIsolatingWorkflowObserver : dev/tramai/orchestration/WorkflowObserver {
+	public fun <init> (Ldev/tramai/orchestration/WorkflowObserver;)V
+	public fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onSkippedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepCompleted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEvent;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+
 public final class dev/tramai/orchestration/FileStepAttemptRecordStore : dev/tramai/orchestration/StepAttemptRecordStore {
 	public fun <init> (Ljava/nio/file/Path;)V
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
@@ -668,6 +707,7 @@ public final class dev/tramai/orchestration/NoOpWorkflowObserver : dev/tramai/or
 	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEvent;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
@@ -1314,6 +1354,7 @@ public abstract interface class dev/tramai/orchestration/WorkflowObserver {
 	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEvent;Ldev/tramai/orchestration/WorkflowContext;)V
 	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
 	public static synthetic fun onWorkflowEvent$default (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;ILjava/lang/Object;)V
 	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
@@ -1328,6 +1369,7 @@ public final class dev/tramai/orchestration/WorkflowObserver$DefaultImpls {
 	public static fun onStepFailed (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
 	public static fun onStepStarted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
 	public static fun onWorkflowCompleted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onWorkflowEvent (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ldev/tramai/core/observation/event/RuntimeEvent;Ldev/tramai/orchestration/WorkflowContext;)V
 	public static fun onWorkflowEvent (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
 	public static synthetic fun onWorkflowEvent$default (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;ILjava/lang/Object;)V
 	public static fun onWorkflowFailed (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V

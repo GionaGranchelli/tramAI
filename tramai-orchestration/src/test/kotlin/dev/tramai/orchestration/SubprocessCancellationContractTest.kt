@@ -873,7 +873,7 @@ class SubprocessCancellationContractTest {
     // ═══ 9b. Observer failure after process start still owns the process (P1) ═══
 
     @Test
-    fun `agent observer failure after process start still cleans up the process`() {
+    fun `agent observer failure after process start is contained and process is cleaned up`() {
         val pidFile = Files.createTempFile("subproc-agent-obs-fail", ".pid")
         val observedProcess = AtomicReference<ProcessHandle>()
         val throwingObserver = object : WorkflowObserver {
@@ -884,8 +884,8 @@ class SubprocessCancellationContractTest {
                 context: WorkflowContext,
             ) {
                 // Throws on the started event — the process has already been spawned and
-                // its stdin closed. Ownership must have begun before this observer runs,
-                // so the finally still terminates the tree.
+                // its stdin closed. Epic 5.3: observer failures are NON-AUTHORITATIVE and
+                // contained; the process lifecycle must still complete normally.
                 if (name.endsWith(".started")) {
                     observedProcess.set(runBlocking { awaitProcessHandle(pidFile) })
                     throw IllegalStateException("observer failure after start")
@@ -898,7 +898,7 @@ class SubprocessCancellationContractTest {
                 content = """
                     |#!/bin/sh
                     |echo $$ > '${pidFile.toAbsolutePath()}'
-                    |exec sleep 30
+                    |exec sleep 5
                 """.trimMargin(),
             ) { hermesCli ->
                 val workflow = agentWorkflow("hermes-obs-fail") {
@@ -911,7 +911,7 @@ class SubprocessCancellationContractTest {
                 }
 
                 runBlocking {
-                    withTimeout(15_000) {
+                    withTimeout(30_000) {
                         val captured = AtomicReference<Throwable?>()
                         val job = launch {
                             try {
@@ -921,11 +921,12 @@ class SubprocessCancellationContractTest {
                             }
                         }
                         job.join()
+                        // Epic 5.3: the observer failure is CONTAINED (fail-open) —
+                        // the run completes normally; the business outcome is unchanged.
+                        assertThat(captured.get()).isNull()
                         val pid = checkNotNull(observedProcess.get())
                         awaitProcessExit(pid)
                         assertThat(pidIsAlive(pid)).isFalse()
-                        // The observer failure is surfaced (wrapped), never swallowed.
-                        assertThat(captured.get()).isNotNull()
                     }
                 }
             }

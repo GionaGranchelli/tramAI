@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.approval
 
 import dev.tramai.core.approval.ApprovalContinuation
@@ -15,6 +16,8 @@ import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.PolicyViolationException
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.engine.FailureIsolatingEngineEventObserver
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
@@ -29,6 +32,7 @@ import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.ResumeApprovalCommand
 import dev.tramai.engine.approval.ReplayAuthorizationServiceTest.RecordingGate
+import dev.tramai.engine.withCapturedSecondaryDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
@@ -158,6 +162,70 @@ class ReplayAuthorizationServiceTest {
     }
 
     @Test
+    fun `deny cancellation audit failure is diagnosed and never fails the method after transition`() = runTest {
+        val deny = PolicyDecision.Deny(reason = "blocked", reasonCode = "WF_DENIED")
+        val events = mutableListOf<String>()
+        val gate = RecordingGate().apply { this.events = events }
+        val suspended = RecordingSuspendedStore(events)
+        val audit = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by RecordingAuditEmitter(events) {
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String, toolName: String, reason: String,
+            ) = throw RuntimeException("audit-down")
+        }
+        val policy = PolicyEnforcementHelper(
+            policyEngine = PolicyEngine { deny },
+            migrationWarningGuard = AtomicBoolean(false),
+        )
+        val s = ReplayAuthorizationService(gate, suspended, audit, policy, RecordingObserver(events))
+        val store = RecordingContinuationStore(events)
+
+        val diagnostics = withCapturedSecondaryDiagnostics {
+            // Epic 5.3: both stores mutated before the audit; the audit failure
+            // must not undo the transition or escape as the method failure —
+            // the caller still throws its own PolicyViolationException.
+            assertThatThrownBy { kotlinx.coroutines.runBlocking { s.denyAndCancel(command, metadata(), deny, store) } }
+                .isInstanceOf(PolicyViolationException::class.java)
+        }
+
+        assertThat(events).contains("cancel-state", "suspended.remove")
+        assertThat(diagnostics.any {
+            it.contains("callback=onSuspensionCancelled") &&
+                it.contains("failurePolicy=FAIL_CLOSED") &&
+                it.contains("authority=AUTHORITATIVE")
+        }).isTrue
+    }
+
+    @Test
+    fun `nested approval cancellation audit failure is diagnosed and never fails the method after transition`() = runTest {
+        val events = mutableListOf<String>()
+        val gate = RecordingGate().apply { this.events = events }
+        val suspended = RecordingSuspendedStore(events)
+        val audit = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by RecordingAuditEmitter(events) {
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String, toolName: String, reason: String,
+            ) = throw RuntimeException("audit-down")
+        }
+        val policy = PolicyEnforcementHelper(
+            policyEngine = PolicyEngine { PolicyDecision.Allow },
+            migrationWarningGuard = AtomicBoolean(false),
+        )
+        val s = ReplayAuthorizationService(gate, suspended, audit, policy, RecordingObserver(events))
+        val store = RecordingContinuationStore(events)
+
+        val diagnostics = withCapturedSecondaryDiagnostics {
+            assertThatThrownBy { kotlinx.coroutines.runBlocking { s.cancelForNestedApproval(command, metadata(), store) } }
+                .isInstanceOf(NestedApprovalNotSupportedException::class.java)
+        }
+
+        assertThat(events).contains("cancel-state", "suspended.remove")
+        assertThat(diagnostics.any {
+            it.contains("callback=onSuspensionCancelled") &&
+                it.contains("failurePolicy=FAIL_CLOSED") &&
+                it.contains("authority=AUTHORITATIVE")
+        }).isTrue
+    }
+
+    @Test
     fun `allow authorizes exactly once`() = runTest {
         val (s, gate, _) = service()
         val continuation = continuation()
@@ -202,7 +270,13 @@ class ReplayAuthorizationServiceTest {
                 throw RuntimeException("observer-down")
             }
         }
-        val s = ReplayAuthorizationService(gate, suspended, audit, policy, throwing)
+        // Epic 5.3: the isolation boundary is FailureIsolatingEngineEventObserver
+        // (the engine wraps the observer there, see EngineComponentFactory) — the
+        // service itself no longer catches; the FAIL_OPEN replay event is
+        // contained by the wrapper.
+        val s = ReplayAuthorizationService(
+            gate, suspended, audit, policy, FailureIsolatingEngineEventObserver(throwing),
+        )
 
         // must not throw — event observer failures must not prevent resume completion
         s.emitAuthorizationReplayed(replayed = true, command = command, metadata = metadata())

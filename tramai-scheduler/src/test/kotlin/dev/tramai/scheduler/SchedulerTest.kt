@@ -347,6 +347,7 @@ class SchedulerTest {
                 store = store,
                 clock = clock,
                 pollInterval = Duration.ofMillis(10),
+                observer = observer,
             )
 
             timer.register(
@@ -550,6 +551,7 @@ class SchedulerTest {
                 store = store,
                 clock = clock,
                 misfireThreshold = Duration.ofSeconds(1),
+                observer = observer,
             )
 
             timer.register(

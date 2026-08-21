@@ -40,6 +40,7 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.withCapturedSecondaryDiagnostics
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -409,6 +410,79 @@ class ApprovalResumeCoordinatorTest {
     }
 
     @Test
+    fun `completion audit failure is diagnosed and resume still completes`() = runTest {
+        val events = mutableListOf<String>()
+        val store = RecordingContinuationStore(events, continuation())
+        val suspended = RecordingSuspendedStore(events, metadata(), prepared.envelope)
+        val registry = ResumeOperationRegistry().also { it.register(service, operation, RecordingExecutor(events)) }
+        val gate = RecordingGate(events)
+        val policy = PolicyEnforcementHelper(PolicyEngine { PolicyDecision.Allow }, AtomicBoolean(false))
+        val audit = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by RecordingAuditEmitter(events) {
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String, toolName: String, completedBy: String,
+            ) = throw RuntimeException("audit-down")
+        }
+        val observer = RecordingObserver(events)
+        val coordinator = ApprovalResumeCoordinator(
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
+            Sha256ToolArgumentsDigester(), audit, observer,
+            ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
+        )
+
+        val diagnostics = withCapturedSecondaryDiagnostics {
+            val result = kotlinx.coroutines.runBlocking { coordinator.resume(command) }
+            assertThat(result).isEqualTo("executed")
+        }
+
+        // Epic 5.3: the tool side effect and the COMPLETED transition happened
+        // before the audit — the audit failure is diagnosed (recorded, not
+        // swallowed to telemetry) and the resume still completes.
+        assertThat(store.completedStatus).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+        assertThat(events).contains("continuation.complete", "metadata.remove")
+        assertThat(diagnostics.any {
+            it.contains("callback=onToolExecutionCompleted") &&
+                it.contains("failurePolicy=FAIL_CLOSED") &&
+                it.contains("authority=AUTHORITATIVE")
+        }).isTrue
+    }
+
+    @Test
+    fun `uncertain outcome audit failure never substitutes the primary resume failure`() = runTest {
+        val events = mutableListOf<String>()
+        val executor = RecordingExecutor(events, throwWith = RuntimeException("tool-failed"))
+        val store = RecordingContinuationStore(events, continuation())
+        val suspended = RecordingSuspendedStore(events, metadata(), prepared.envelope)
+        val registry = ResumeOperationRegistry().also { it.register(service, operation, executor) }
+        val gate = RecordingGate(events)
+        val policy = PolicyEnforcementHelper(PolicyEngine { PolicyDecision.Allow }, AtomicBoolean(false))
+        val audit = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by RecordingAuditEmitter(events) {
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String, toolName: String, reason: String,
+            ) = throw RuntimeException("audit-down")
+        }
+        val observer = RecordingObserver(events)
+        val coordinator = ApprovalResumeCoordinator(
+            store, suspended, registry, ToolRegistry(mapOf(toolName to tool)),
+            Sha256ToolArgumentsDigester(), audit, observer,
+            ContinuationClaimService(store), ReplayAuthorizationService(gate, suspended, audit, policy, observer),
+        )
+
+        val diagnostics = withCapturedSecondaryDiagnostics {
+            assertThatThrownBy { kotlinx.coroutines.runBlocking { coordinator.resume(command) } }
+                .isInstanceOf(RuntimeException::class.java)
+                .hasMessage("tool-failed")
+        }
+
+        // Epic 5.3: the resume failure is primary; the failing uncertain-outcome
+        // audit is diagnosed, never substituted for the primary failure.
+        assertThat(diagnostics.any {
+            it.contains("callback=onUncertainOutcome") &&
+                it.contains("failurePolicy=FAIL_CLOSED") &&
+                it.contains("authority=AUTHORITATIVE")
+        }).isTrue
+    }
+
+    @Test
     fun `cancellation after claim during replay reveal stays claimed and is never converted to uncertain outcome`() = runTest {
         val events = mutableListOf<String>()
         val store = RecordingContinuationStore(events, continuation())
@@ -479,6 +553,7 @@ class ApprovalResumeCoordinatorTest {
         private val claimReturnsWith: ClaimedApprovalContinuation? = null,
         private val claimFailsWith: Throwable? = null,
     ) : dev.tramai.core.approval.ApprovalContinuationStore {
+        var completedStatus: ApprovalContinuationStatus? = null
         override suspend fun create(continuation: ApprovalContinuation, arguments: SensitiveToolArguments): ApprovalContinuation = continuation
         override suspend fun get(approvalId: String): ApprovalContinuation? {
             events += "continuation.inspect"
@@ -491,6 +566,7 @@ class ApprovalResumeCoordinatorTest {
         }
         override suspend fun complete(approvalId: String, expectedVersion: Long, completedBy: String): ApprovalContinuation {
             events += "continuation.complete"
+            completedStatus = ApprovalContinuationStatus.COMPLETED
             return value.copy(status = ApprovalContinuationStatus.COMPLETED, version = expectedVersion)
         }
         override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation = value

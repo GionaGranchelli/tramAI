@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.scheduler
 
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.orchestration.FailureIsolatingWorkflowObserver
 import dev.tramai.core.observation.event.RuntimeAttributes
 
 import dev.tramai.orchestration.NoOpWorkflowObserver
@@ -29,6 +32,10 @@ class JdbcWorkflowSchedulerStore(
     private val dataSource: DataSource,
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
 ) : WorkflowSchedulerStore {
+    // Epic 5.3: the store invokes tick callbacks during startup recovery and
+    // next-fire computation; wrap at the boundary so a throwing observer can
+    // never abort a durable scheduler transition.
+    private val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
     override suspend fun upsertSchedule(schedule: ScheduleRecord) {
         val cronSchedule = cronSchedule(schedule.schedule, "JdbcWorkflowSchedulerStore")
         transaction { connection ->
@@ -447,7 +454,7 @@ class JdbcWorkflowSchedulerStore(
                         )
                         if (inserted) {
                             recovered += 1
-                            observer.onMissedTick(
+                            isolatedObserver.onMissedTick(
                                 workflowName = workflowName,
                                 scheduledFireAt = scheduledFireAt,
                                 reason = "scheduler_startup_recovery",
@@ -822,7 +829,7 @@ class JdbcWorkflowSchedulerStore(
         workflowName: String,
         after: Instant,
     ): Instant = schedule.nextFireAfter(after) { skippedFireAt, reason ->
-        observer.onSkippedTick(
+        isolatedObserver.onSkippedTick(
             workflowName = workflowName,
             scheduledFireAt = skippedFireAt,
             reason = reason,

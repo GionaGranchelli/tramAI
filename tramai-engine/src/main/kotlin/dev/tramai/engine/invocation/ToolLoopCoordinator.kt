@@ -1,10 +1,14 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 package dev.tramai.engine.invocation
 
+
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.SecondaryFailureRecording
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
@@ -19,6 +23,8 @@ import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import dev.tramai.engine.ToolRegistry
 import kotlinx.coroutines.CancellationException
+import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
+import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
 
 /**
  * Runs the provider ↔ tool loop for one operation: at most five
@@ -150,17 +156,37 @@ internal class ToolLoopCoordinator(
     ) {
         try {
             onCallCompleted(parseSuccess = null)
-        } catch (observerError: Throwable) {
+        } catch (observerError: Exception) {
             if (primaryError != null) {
                 primaryError.addSuppressed(observerError)
             } else {
-                System.getLogger("dev.tramai.engine.TramaiEngine").log(
-                    System.Logger.Level.WARNING,
-                    "Operation observer failed after successful tool processing",
-                    observerError,
-                )
+                reportCompletionFailure(observerError)
             }
         }
+        // Epic 5.3: the failure-isolating observation contains onCallCompleted
+        // failures (so a success path is never invalidated by telemetry), but
+        // records them; surface the recorded failure exactly as the direct
+        // throw path above — suppressed on the primary error, safe diagnostic
+        // otherwise.
+        (this as? SecondaryFailureRecording)?.lastCompletionFailure?.let { observerError ->
+            if (primaryError != null) {
+                primaryError.addSuppressed(observerError)
+            } else {
+                reportCompletionFailure(observerError)
+            }
+        }
+    }
+
+    private fun reportCompletionFailure(observerError: Throwable) {
+        // Epic 5.3 (P2-4): success path uses the SAFE diagnostic only — error
+        // type and identifiers, never the observer's message or stack trace.
+        SecondaryFailureDiagnostic.report(
+            extensionPoint = "operation_observation",
+            callback = "onCallCompleted",
+            errorType = observerError.javaClass.simpleName,
+            failurePolicy = "FAIL_OPEN",
+            authority = SecondaryEffectAuthority.NON_AUTHORITATIVE.name,
+        )
     }
 }
 
