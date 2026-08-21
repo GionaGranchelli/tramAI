@@ -6,6 +6,7 @@ import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
+import dev.tramai.core.provider.transport.parseRetryAfterMillis
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -14,9 +15,6 @@ import java.net.ConnectException
 import java.net.http.HttpRequest
 import java.net.http.HttpTimeoutException
 import java.time.Duration
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -298,16 +296,3 @@ private suspend fun deliver(
 }
 
 private fun isRetryableStatus(statusCode: Int): Boolean = statusCode in setOf(408, 425, 429, 500, 502, 503, 504)
-
-private fun parseRetryAfterMillis(value: String?): Long? {
-    val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    trimmed.toLongOrNull()?.let { seconds ->
-        return if (seconds >= 0) seconds * 1_000 else null
-    }
-
-    val retryAt = runCatching {
-        Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC).parse(trimmed))
-    }.getOrNull() ?: return null
-
-    return (retryAt.toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0L)
-}
