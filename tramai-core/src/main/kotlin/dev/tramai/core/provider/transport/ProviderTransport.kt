@@ -104,14 +104,22 @@ suspend fun rejectedProviderHttpResponse(
 fun readSseDataPayload(reader: BufferedReader): String? {
     while (true) {
         val line = reader.readLine() ?: return null
-        if (line.startsWith("data: ")) return line.substring(6).trim()
+        sseDataPayload(line)?.let { return it }
     }
 }
 
 /**
+ * Returns the payload of an SSE `data: ` line, or `null` for any other line.
+ * Callers that need event context (e.g. Anthropic) pair this with
+ * [sseEventName] in their own loop.
+ */
+fun sseDataPayload(line: String): String? =
+    if (line.startsWith("data: ")) line.substring(6).trim() else null
+
+/**
  * Returns the event name of an SSE `event: ` line, or `null` for any other
  * line. Callers that need event context (e.g. Anthropic) pair this with
- * [readSseDataPayload] in their own loop.
+ * [sseDataPayload] in their own loop.
  */
 fun sseEventName(line: String): String? =
     if (line.startsWith("event: ")) line.substring(7).trim() else null

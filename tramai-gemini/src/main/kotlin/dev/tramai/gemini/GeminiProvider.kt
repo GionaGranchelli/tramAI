@@ -16,11 +16,10 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
-import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailureObserved
 import dev.tramai.core.provider.providerTransportFailureObserved
-import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.transport.providerJsonRequest
+import dev.tramai.core.provider.transport.readSseDataPayload
+import dev.tramai.core.provider.transport.rejectedProviderHttpResponse
 import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.util.ImageDownloader
@@ -83,30 +82,22 @@ class GeminiProvider @JvmOverloads constructor(
             val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
             val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:generateContent"
             val payload = buildPayload(request)
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Content-Type", APPLICATION_JSON)
-                .header("X-Goog-Api-Key", apiKey)
-                .applyTramaiTimeout(request)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest = providerJsonRequest(
+                URI.create(url),
+                request,
+                objectMapper.writeValueAsString(payload),
+            ).apply {
+                header("X-Goog-Api-Key", apiKey)
+            }.build()
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
-                val errorBody = readErrorBodyPreview(response.body())
-                logProviderHttpFailureDebug(
-                    logger = providerLogger,
-                    providerName = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                )
-                throw providerHttpFailureObserved(
+                throw rejectedProviderHttpResponse(
                     providerId = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                    bodyTruncated = errorBody.truncated,
-                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    providerAlias = null,
+                    response = response,
                     observer = providerFailureDiagnosticObserver,
+                    logger = providerLogger,
                 )
             }
 
@@ -124,13 +115,13 @@ class GeminiProvider @JvmOverloads constructor(
                 val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
                 val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"
                 val payload = buildPayload(request)
-                val httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", APPLICATION_JSON)
-                    .header("X-Goog-Api-Key", apiKey)
-                    .applyTramaiTimeout(request)
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build()
+                val httpRequest = providerJsonRequest(
+                    URI.create(url),
+                    request,
+                    objectMapper.writeValueAsString(payload),
+                ).apply {
+                    header("X-Goog-Api-Key", apiKey)
+                }.build()
                 httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             }
         } catch (error: Throwable) {
@@ -156,28 +147,13 @@ class GeminiProvider @JvmOverloads constructor(
         response: HttpResponse<InputStream>,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = try {
-            readErrorBodyPreview(response.body())
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            return StreamChunk.Error(
-                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
-            )
-        }
-        logProviderHttpFailureDebug(
-            logger = providerLogger,
-            providerName = PROVIDER_ID,
-            statusCode = response.statusCode(),
-            body = errorBody.text,
-        )
         return StreamChunk.Error(
-            providerHttpFailureObserved(
+            rejectedProviderHttpResponse(
                 providerId = PROVIDER_ID,
-                statusCode = response.statusCode(),
-                body = errorBody.text,
-                bodyTruncated = errorBody.truncated,
-                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                providerAlias = null,
+                response = response,
                 observer = providerFailureDiagnosticObserver,
+                logger = providerLogger,
             ),
         )
     }
@@ -196,14 +172,11 @@ class GeminiProvider @JvmOverloads constructor(
         try {
             response.body().bufferedReader(UTF_8).use { reader ->
                 while (true) {
-                    val line = reader.readLine() ?: break
+                    val data = readSseDataPayload(reader) ?: break
                     // Gemini SSE format: "data: {...}"
-                    if (line.startsWith("data: ")) {
-                        val data = line.substring(6).trim()
-                        if (data.isEmpty()) continue
-                        if (data == "[DONE]") break
-                        lastUsage = handleGeminiDataLine(data, fullText, lastUsage)
-                    }
+                    if (data.isEmpty()) continue
+                    if (data == "[DONE]") break
+                    lastUsage = handleGeminiDataLine(data, fullText, lastUsage)
                 }
             }
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))

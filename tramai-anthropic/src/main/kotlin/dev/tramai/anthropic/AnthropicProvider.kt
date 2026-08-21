@@ -15,11 +15,11 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailureObserved
 import dev.tramai.core.provider.providerTransportFailureObserved
-import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.transport.providerJsonRequest
+import dev.tramai.core.provider.transport.rejectedProviderHttpResponse
+import dev.tramai.core.provider.transport.sseDataPayload
+import dev.tramai.core.provider.transport.sseEventName
 import dev.tramai.core.provider.safeProviderFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -75,31 +75,23 @@ class AnthropicProvider @JvmOverloads constructor(
                 }
             }
 
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
-                .header("Content-Type", "application/json")
-                .header("x-api-key", apiKey)
-                .header("anthropic-version", anthropicVersion)
-                .applyTramaiTimeout(request)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest = providerJsonRequest(
+                URI.create("${baseUrl.trimEnd('/')}/v1/messages"),
+                request,
+                objectMapper.writeValueAsString(payload),
+            ).apply {
+                header("x-api-key", apiKey)
+                header("anthropic-version", anthropicVersion)
+            }.build()
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
-                val errorBody = readErrorBodyPreview(response.body())
-                logProviderHttpFailureDebug(
-                    logger = providerLogger,
-                    providerName = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                )
-                throw providerHttpFailureObserved(
+                throw rejectedProviderHttpResponse(
                     providerId = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                    bodyTruncated = errorBody.truncated,
-                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    providerAlias = null,
+                    response = response,
                     observer = providerFailureDiagnosticObserver,
+                    logger = providerLogger,
                 )
             }
 
@@ -177,14 +169,14 @@ class AnthropicProvider @JvmOverloads constructor(
                     }
                 }
 
-                val httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
-                    .header("Content-Type", "application/json")
-                    .header("x-api-key", apiKey)
-                    .header("anthropic-version", anthropicVersion)
-                    .applyTramaiTimeout(request)
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build()
+                val httpRequest = providerJsonRequest(
+                    URI.create("${baseUrl.trimEnd('/')}/v1/messages"),
+                    request,
+                    objectMapper.writeValueAsString(payload),
+                ).apply {
+                    header("x-api-key", apiKey)
+                    header("anthropic-version", anthropicVersion)
+                }.build()
                 httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             }
         } catch (error: Throwable) {
@@ -210,28 +202,13 @@ class AnthropicProvider @JvmOverloads constructor(
         response: HttpResponse<InputStream>,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = try {
-            readErrorBodyPreview(response.body())
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            return StreamChunk.Error(
-                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
-            )
-        }
-        logProviderHttpFailureDebug(
-            logger = providerLogger,
-            providerName = PROVIDER_ID,
-            statusCode = response.statusCode(),
-            body = errorBody.text,
-        )
         return StreamChunk.Error(
-            providerHttpFailureObserved(
+            rejectedProviderHttpResponse(
                 providerId = PROVIDER_ID,
-                statusCode = response.statusCode(),
-                body = errorBody.text,
-                bodyTruncated = errorBody.truncated,
-                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                providerAlias = null,
+                response = response,
                 observer = providerFailureDiagnosticObserver,
+                logger = providerLogger,
             ),
         )
     }
@@ -253,13 +230,10 @@ class AnthropicProvider @JvmOverloads constructor(
                 var currentEvent: String? = null
                 while (true) {
                     val line = reader.readLine() ?: break
-                    if (line.startsWith("event: ")) {
-                        currentEvent = line.substring(7).trim()
-                    } else if (line.startsWith("data: ")) {
-                        val data = line.substring(6).trim()
-                        val node = objectMapper.readTree(data)
-                        lastUsage = handleAnthropicEvent(currentEvent, node, fullText, lastUsage)
-                    }
+                    sseEventName(line)?.let { currentEvent = it }
+                    val data = sseDataPayload(line) ?: continue
+                    val node = objectMapper.readTree(data)
+                    lastUsage = handleAnthropicEvent(currentEvent, node, fullText, lastUsage)
                 }
             }
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
