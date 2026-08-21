@@ -17,12 +17,11 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailureObserved
 import dev.tramai.core.provider.providerTransportFailureObserved
-import dev.tramai.core.provider.readErrorBodyPreview
 import dev.tramai.core.provider.safeProviderFailure
+import dev.tramai.core.provider.transport.providerJsonRequest
+import dev.tramai.core.provider.transport.readSseDataPayload
+import dev.tramai.core.provider.transport.rejectedProviderHttpResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
@@ -137,35 +136,24 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
             request.maxTokens?.let { payload["max_tokens"] = it }
             request.temperature?.let { payload["temperature"] = it }
 
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
-                .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
-                .header("Content-Type", "application/json")
-                .apply {
-                    organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
-                    project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
-                }
-                .applyTramaiTimeout(request)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest = providerJsonRequest(
+                URI.create("${baseUrl.trimEnd('/')}/chat/completions"),
+                request,
+                objectMapper.writeValueAsString(payload),
+            ).apply {
+                header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
+                organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
+                project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+            }.build()
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
-                val errorBody = readErrorBodyPreview(response.body())
-                logProviderHttpFailureDebug(
-                    logger = providerLogger,
-                    providerName = diagnosticProviderId,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                )
-                throw providerHttpFailureObserved(
+                throw rejectedProviderHttpResponse(
                     providerId = diagnosticProviderId,
                     providerAlias = providerName,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                    bodyTruncated = errorBody.truncated,
-                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    response = response,
                     observer = providerFailureDiagnosticObserver,
+                    logger = providerLogger,
                 )
             }
 
@@ -231,17 +219,15 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
                 request.maxTokens?.let { payload["max_tokens"] = it }
                 request.temperature?.let { payload["temperature"] = it }
 
-                val httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
-                    .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
-                    .header("Content-Type", "application/json")
-                    .apply {
-                        organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
-                        project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
-                    }
-                    .applyTramaiTimeout(request)
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build()
+                val httpRequest = providerJsonRequest(
+                    URI.create("${baseUrl.trimEnd('/')}/chat/completions"),
+                    request,
+                    objectMapper.writeValueAsString(payload),
+                ).apply {
+                    header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
+                    organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
+                    project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+                }.build()
 
                 httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             }
@@ -268,10 +254,7 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
                 var lastUsage: UsageMetrics? = null
 
                 while (true) {
-                    val line = reader.readLine() ?: break
-                    if (!line.startsWith("data: ")) continue
-
-                    val data = line.substring(6).trim()
+                    val data = readSseDataPayload(reader) ?: break
                     val result = parseSseData(data)
                     if (result.isDone) break
                     if (result.tokenText.isNotEmpty()) {
@@ -312,38 +295,14 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
     ): Boolean {
         if (response.statusCode() in 200..299) return false
 
-        val errorBody = try {
-            readErrorBodyPreview(response.body())
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            emit(
-                StreamChunk.Error(
-                    providerTransportFailureObserved(
-                        diagnosticProviderId,
-                        providerName,
-                        error,
-                        providerFailureDiagnosticObserver,
-                    ),
-                ),
-            )
-            return true
-        }
-        logProviderHttpFailureDebug(
-            logger = providerLogger,
-            providerName = diagnosticProviderId,
-            statusCode = response.statusCode(),
-            body = errorBody.text,
-        )
         emit(
             StreamChunk.Error(
-                providerHttpFailureObserved(
+                rejectedProviderHttpResponse(
                     providerId = diagnosticProviderId,
                     providerAlias = providerName,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                    bodyTruncated = errorBody.truncated,
-                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    response = response,
                     observer = providerFailureDiagnosticObserver,
+                    logger = providerLogger,
                 ),
             ),
         )
