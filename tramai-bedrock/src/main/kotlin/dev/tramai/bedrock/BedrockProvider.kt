@@ -16,21 +16,54 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.provider.providerTransportFailure
 import dev.tramai.core.provider.providerTransportFailureObserved
+import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.exception.ProviderFailureCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
+import org.reactivestreams.Subscriber
+import org.reactivestreams.Subscription
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.core.SdkBytes
+import software.amazon.awssdk.core.async.SdkPublisher
 import software.amazon.awssdk.regions.Region
-import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient
 import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest
+import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelWithResponseStreamRequest
+import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelWithResponseStreamResponse
+import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelWithResponseStreamResponseHandler
+import software.amazon.awssdk.services.bedrockruntime.model.PayloadPart
+import software.amazon.awssdk.services.bedrockruntime.model.ResponseStream
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Internal seam for the AWS Bedrock runtime client.
+ *
+ * Production uses the default factory (real [BedrockRuntimeAsyncClient] builder);
+ * tests inject a recording fake. The AWS SDK types never enter Tramai's public
+ * API — the factory is `internal` and the AWS client is closed by the provider
+ * after every call.
+ *
+ * The async client is used for both operations because the sync
+ * [software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient] in the
+ * pinned SDK version (2.31.67) has no `invokeModelWithResponseStream` — real
+ * incremental streaming is only available through the async surface.
+ */
+internal fun interface BedrockRuntimeClientFactory {
+    fun create(): BedrockRuntimeAsyncClient
+}
 
 /**
  * [ModelProvider] implementation for Amazon Bedrock using the InvokeModel API.
@@ -60,6 +93,26 @@ class BedrockProvider @JvmOverloads constructor(
         NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
+    /**
+     * Test seam constructor: injects a [BedrockRuntimeClientFactory] so tests can
+     * substitute a recording fake client. Internal — the AWS SDK types never
+     * enter the stable public API.
+     */
+    internal constructor(
+        region: String,
+        modelId: String = DEFAULT_MODEL_ID,
+        credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.builder().build(),
+        objectMapper: ObjectMapper = ObjectMapper(),
+        ioDispatcher: CoroutineContext = Dispatchers.IO,
+        providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+            NoOpProviderFailureDiagnosticObserver,
+        bedrockRuntimeClientFactory: BedrockRuntimeClientFactory,
+    ) : this(region, modelId, credentialsProvider, objectMapper, ioDispatcher, providerFailureDiagnosticObserver) {
+        this.clientFactory = bedrockRuntimeClientFactory
+    }
+
+    private var clientFactory: BedrockRuntimeClientFactory = BedrockRuntimeClientFactory { buildDefaultClient() }
+
     override fun providerId(): String = PROVIDER_ID
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
@@ -70,9 +123,9 @@ class BedrockProvider @JvmOverloads constructor(
     }
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
+        val client = clientFactory.create()
         try {
             val effectiveModel = request.model.takeIf { it.isNotBlank() } ?: modelId
-            val client = buildClient()
             val payload = buildClaudePayload(request)
 
             val invokeRequest = InvokeModelRequest.builder()
@@ -81,48 +134,153 @@ class BedrockProvider @JvmOverloads constructor(
                 .contentType("application/json")
                 .build()
 
-            val response = client.invokeModel(invokeRequest)
+            val response = client.invokeModel(invokeRequest).awaitCancellable()
             val body = objectMapper.readTree(response.body().asUtf8String())
-            mapClaudeResponse(body, effectiveModel)
+            val mapped = mapClaudeResponse(body, effectiveModel)
+            if (mapped.content.isBlank() && mapped.toolCalls.isNullOrEmpty()) {
+                throw safeProviderFailure(
+                    "Provider response did not contain any completion content",
+                    ProviderFailureCode.UNEXPECTED_FAILURE,
+                )
+            }
+            mapped
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
+            throw providerTransportFailureObserved(
+                PROVIDER_ID,
+                error.unwrapCompletionException(),
+                providerFailureDiagnosticObserver,
+            )
+        } finally {
+            client.close()
         }
     }
 
-    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = channelFlow {
         val effectiveModel = request.model.takeIf { it.isNotBlank() } ?: modelId
+        val client = clientFactory.create()
+        // Single atomic owner of the terminal state: the first path to flip
+        // false → true emits the terminal chunk and cancels the subscription;
+        // every later path (duplicate onError, tokens after Error, a second
+        // Error) is silenced by the CAS.
+        val terminal = AtomicBoolean(false)
+        var subscription: Subscription? = null
+
+        fun emitTerminalError(error: Throwable) {
+            error.rethrowIfCancellation()
+            if (terminal.compareAndSet(false, true)) {
+                subscription?.cancel()
+                trySend(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, error.unwrapCompletionException())))
+            }
+        }
 
         try {
-            val client = withContext(ioDispatcher) { buildClient() }
             val payload = buildClaudePayload(request)
 
-            val invokeRequest = InvokeModelRequest.builder()
+            val invokeRequest = InvokeModelWithResponseStreamRequest.builder()
                 .modelId(effectiveModel)
                 .body(SdkBytes.fromUtf8String(objectMapper.writeValueAsString(payload)))
                 .contentType("application/json")
                 .build()
 
-            val response = withContext(ioDispatcher) {
-                client.invokeModel(invokeRequest)
+            val fullText = StringBuilder()
+            var usage: UsageMetrics? = null
+
+            val handler = object : InvokeModelWithResponseStreamResponseHandler {
+                override fun onEventStream(stream: SdkPublisher<ResponseStream>) {
+                    stream.subscribe(object : Subscriber<ResponseStream> {
+                        override fun onSubscribe(s: Subscription) {
+                            subscription = s
+                            s.request(Long.MAX_VALUE)
+                        }
+
+                        override fun onNext(item: ResponseStream) {
+                            if (item !is PayloadPart || terminal.get()) return
+                            try {
+                                val node = objectMapper.readTree(item.bytes().asUtf8String())
+                                when (node.path("type").asText("")) {
+                                    "message_start" -> {
+                                        // Anthropic streaming carries input_tokens on message_start.
+                                        val initial = node.path("message").path("usage")
+                                        if (!initial.isMissingNode) {
+                                            usage = UsageMetrics(
+                                                inputTokens = initial.path("input_tokens")
+                                                    .takeIf { !it.isMissingNode }?.asInt(),
+                                                outputTokens = initial.path("output_tokens")
+                                                    .takeIf { !it.isMissingNode }?.asInt(),
+                                            )
+                                        }
+                                    }
+                                    "content_block_delta" -> {
+                                        val delta = node.path("delta")
+                                        if (delta.path("type").asText("") == "text_delta") {
+                                            val text = delta.path("text").asText("")
+                                            if (text.isNotEmpty()) {
+                                                fullText.append(text)
+                                                trySend(StreamChunk.Token(text))
+                                            }
+                                        }
+                                    }
+                                    "message_delta" -> {
+                                        // message_delta reports the final output_tokens; keep the
+                                        // input_tokens captured on message_start.
+                                        val deltaUsage = node.path("usage")
+                                        if (!deltaUsage.isMissingNode) {
+                                            usage = UsageMetrics(
+                                                inputTokens = usage?.inputTokens,
+                                                outputTokens = deltaUsage.path("output_tokens")
+                                                    .takeIf { !it.isMissingNode }?.asInt(),
+                                            )
+                                        }
+                                    }
+                                }
+                            } catch (parseError: Exception) {
+                                emitTerminalError(parseError)
+                            }
+                        }
+
+                        override fun onError(t: Throwable) {
+                            emitTerminalError(t)
+                        }
+
+                        override fun onComplete() {
+                            // Stream finished; Complete is emitted once the invoke future resolves.
+                        }
+                    })
+                }
+
+                override fun responseReceived(response: InvokeModelWithResponseStreamResponse) {
+                    // Response headers only; the stream arrives via onEventStream.
+                }
+
+                override fun exceptionOccurred(t: Throwable) {
+                    emitTerminalError(t)
+                }
+
+                override fun complete() {
+                    // Stream finished; Complete is emitted once the invoke future resolves.
+                }
             }
-            val body = objectMapper.readTree(response.body().asUtf8String())
-            val fullText = mapClaudeContent(body)
-            emit(StreamChunk.Token(fullText))
-            emit(StreamChunk.Complete(
-                fullText = fullText,
-                usage = extractUsage(body),
-            ))
+
+            withContext(ioDispatcher) {
+                client.invokeModelWithResponseStream(invokeRequest, handler).awaitCancellable()
+            }
+
+            if (terminal.compareAndSet(false, true)) {
+                send(StreamChunk.Complete(fullText.toString(), usage ?: UsageMetrics()))
+            }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
+            emitTerminalError(e)
+        } finally {
+            withContext(NonCancellable + ioDispatcher) { client.close() }
         }
     }
 
     // ---- Client construction ----
 
-    private fun buildClient(): BedrockRuntimeClient {
-        return BedrockRuntimeClient.builder()
+    private fun buildDefaultClient(): BedrockRuntimeAsyncClient {
+        return BedrockRuntimeAsyncClient.builder()
             .region(Region.of(region))
             .credentialsProvider(credentialsProvider)
             .build()
@@ -298,27 +456,6 @@ class BedrockProvider @JvmOverloads constructor(
         )
     }
 
-    private fun mapClaudeContent(body: JsonNode): String {
-        val contentArray = body.path("content")
-        val text = StringBuilder()
-        if (contentArray.isArray) {
-            for (block in contentArray) {
-                if (block.path("type").asText("") == "text") {
-                    text.append(block.path("text").asText(""))
-                }
-            }
-        }
-        return text.toString()
-    }
-
-    private fun extractUsage(body: JsonNode): UsageMetrics {
-        val usage = body.path("usage")
-        return UsageMetrics(
-            inputTokens = usage.path("input_tokens").takeIf { !it.isMissingNode }?.asInt(),
-            outputTokens = usage.path("output_tokens").takeIf { !it.isMissingNode }?.asInt(),
-        )
-    }
-
     companion object {
         private const val PROVIDER_ID = "bedrock"
 
@@ -327,3 +464,25 @@ class BedrockProvider @JvmOverloads constructor(
         val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
     }
 }
+
+/**
+ * Bridges a [CompletableFuture] into coroutine cancellation: cancelling the
+ * collecting coroutine cancels the in-flight AWS operation. Equivalent to the
+ * kotlinx `future.await()` (kotlinx-coroutines-jdk8 is intentionally not on
+ * the classpath), including the CompletionException unwrap at join points.
+ */
+private suspend fun <T> CompletableFuture<T>.awaitCancellable(): T =
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel(true) }
+        whenComplete { value, error ->
+            if (error == null) {
+                continuation.resumeWith(Result.success(value))
+            } else {
+                continuation.resumeWith(Result.failure(error))
+            }
+        }
+    }
+
+/** Strips the [CompletionException] wrapper so the transport cause reaches safe-failure normalization. */
+private fun Throwable.unwrapCompletionException(): Throwable =
+    (this as? CompletionException)?.cause ?: this

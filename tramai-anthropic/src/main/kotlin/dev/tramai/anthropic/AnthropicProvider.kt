@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
@@ -63,6 +65,16 @@ class AnthropicProvider @JvmOverloads constructor(
                 payload["system"] = systemMessage
             }
 
+            request.tools?.let { tools ->
+                payload["tools"] = tools.map { tool ->
+                    mapOf(
+                        "name" to tool.name,
+                        "description" to tool.description,
+                        "input_schema" to objectMapper.readTree(tool.inputSchemaJson),
+                    )
+                }
+            }
+
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
                 .header("Content-Type", "application/json")
@@ -92,15 +104,27 @@ class AnthropicProvider @JvmOverloads constructor(
             }
 
             val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
-            val firstTextBlock = body.path("content")
-                .firstOrNull { node -> node.path("type").asText("") == "text" }
-                ?: throw safeProviderFailure(
-                    "Anthropic response did not contain a text content block",
+            val contentBlocks = body.path("content")
+            val textBlocks = contentBlocks.filter { node -> node.path("type").asText("") == "text" }
+            val toolCalls = contentBlocks
+                .filter { node -> node.path("type").asText("") == "tool_use" }
+                .map { node ->
+                    ToolCall(
+                        id = node.path("id").asText(),
+                        name = node.path("name").asText(),
+                        argumentsJson = node.path("input").toString(),
+                    )
+                }
+            if (textBlocks.isEmpty() && toolCalls.isEmpty()) {
+                throw safeProviderFailure(
+                    "Anthropic response did not contain a text or tool_use content block",
                     ProviderFailureCode.UNEXPECTED_FAILURE,
                 )
+            }
 
             ModelResponse(
-                content = firstTextBlock.path("text").asText(""),
+                content = textBlocks.joinToString("") { it.path("text").asText("") },
+                toolCalls = toolCalls.ifEmpty { null },
                 inputTokens = body.path("usage").path("input_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("usage").path("output_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 thinkingTokens = null,
@@ -142,6 +166,16 @@ class AnthropicProvider @JvmOverloads constructor(
                 )
                 val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
                 if (!systemMessage.isNullOrBlank()) payload["system"] = systemMessage
+
+                request.tools?.let { tools ->
+                    payload["tools"] = tools.map { tool ->
+                        mapOf(
+                            "name" to tool.name,
+                            "description" to tool.description,
+                            "input_schema" to objectMapper.readTree(tool.inputSchemaJson),
+                        )
+                    }
+                }
 
                 val httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
@@ -278,57 +312,109 @@ class AnthropicProvider @JvmOverloads constructor(
     }
 
     /**
-     * Converts a Tramai [Message] to an Anthropic-compatible request map.
+     * Converts a Tramai [dev.tramai.core.model.Message] to an Anthropic-compatible request map.
      *
-     * When the message carries [ContentPart.ImagePart] items, the content is
-     * serialised as Anthropic content blocks; otherwise a plain string is used.
+     * Three shapes are produced:
+     * - Plain text (and image-carrying) messages keep the existing string/block content.
+     * - Assistant messages carrying [dev.tramai.core.model.ToolCall]s become a content array
+     *   of a text block (when non-blank) plus one `tool_use` block per call.
+     * - [MessageRole.TOOL] results become a `user`-role message with a `tool_result` block.
      */
     private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
-        val msgParts = message.contentParts
-        val content: Any = if (!msgParts.isNullOrEmpty()) {
-            msgParts.map { part ->
-                when (part) {
-                    is ContentPart.TextPart -> mapOf(
-                        "type" to "text",
-                        "text" to part.text,
-                    )
-                    is ContentPart.ImagePart -> {
-                        require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
-                            "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                        }
-                        mapOf(
-                            "type" to "image",
-                            "source" to mapOf(
-                                "type" to "base64",
-                                "media_type" to part.mimeType,
-                                "data" to Base64.getEncoder().encodeToString(part.data),
-                            ),
-                        )
+        val role = when (message.role) {
+            MessageRole.TOOL -> "user" // Anthropic requires tool results in user-role messages
+            else -> message.role.name.lowercase()
+        }
+        val content: Any = when {
+            message.role == MessageRole.TOOL -> {
+                val toolCallId = requireNotNull(message.toolCallId) {
+                    "TOOL message must carry a toolCallId to map to an Anthropic tool_result block"
+                }
+                // Rich tool results carry their payload in contentParts (the engine
+                // empties content for those); a text-only result stays a plain string.
+                // Anthropic accepts tool_result.content as a string or a block array.
+                val toolParts = message.contentParts
+                val resultContent =
+                    if (!toolParts.isNullOrEmpty()) {
+                        toolParts.map(::anthropicContentPart)
+                    } else {
+                        message.content
                     }
-                    is ContentPart.ImageUrlContent -> {
-                        val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
-                        require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
-                            "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                        }
-                        mapOf(
-                            "type" to "image",
-                            "source" to mapOf(
-                                "type" to "base64",
-                                "media_type" to resolved.mimeType,
-                                "data" to Base64.getEncoder().encodeToString(resolved.data),
+                listOf(
+                    mapOf(
+                        "type" to "tool_result",
+                        "tool_use_id" to toolCallId,
+                        "content" to resultContent,
+                    ),
+                )
+            }
+            message.role == MessageRole.ASSISTANT && !message.toolCalls.isNullOrEmpty() -> {
+                val toolCalls = message.toolCalls.orEmpty()
+                buildList {
+                    if (message.content.isNotBlank()) {
+                        add(mapOf("type" to "text", "text" to message.content))
+                    }
+                    toolCalls.forEach { call ->
+                        add(
+                            mapOf(
+                                "type" to "tool_use",
+                                "id" to call.id,
+                                "name" to call.name,
+                                "input" to objectMapper.readTree(call.argumentsJson),
                             ),
                         )
                     }
                 }
             }
-        } else {
-            message.content
+            else -> {
+                val msgParts = message.contentParts
+                if (!msgParts.isNullOrEmpty()) {
+                    msgParts.map(::anthropicContentPart)
+                } else {
+                    message.content
+                }
+            }
         }
 
         return mapOf(
-            "role" to message.role.name.lowercase(),
+            "role" to role,
             "content" to content,
         )
+    }
+
+    /** Converts one TramAI content part to an Anthropic content block (text or image). */
+    private fun anthropicContentPart(part: ContentPart): Map<String, Any?> = when (part) {
+        is ContentPart.TextPart -> mapOf(
+            "type" to "text",
+            "text" to part.text,
+        )
+        is ContentPart.ImagePart -> {
+            require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
+                "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+            }
+            mapOf(
+                "type" to "image",
+                "source" to mapOf(
+                    "type" to "base64",
+                    "media_type" to part.mimeType,
+                    "data" to Base64.getEncoder().encodeToString(part.data),
+                ),
+            )
+        }
+        is ContentPart.ImageUrlContent -> {
+            val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+            require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
+                "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+            }
+            mapOf(
+                "type" to "image",
+                "source" to mapOf(
+                    "type" to "base64",
+                    "media_type" to resolved.mimeType,
+                    "data" to Base64.getEncoder().encodeToString(resolved.data),
+                ),
+            )
+        }
     }
 
     private companion object {

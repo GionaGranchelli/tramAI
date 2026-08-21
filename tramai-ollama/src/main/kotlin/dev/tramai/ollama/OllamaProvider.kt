@@ -89,9 +89,16 @@ class OllamaProvider @JvmOverloads constructor(
                     ProviderFailureCode.UNEXPECTED_FAILURE,
                 )
             }
+            val content = message.path("content").asText("")
+            if (content.isBlank()) {
+                throw safeProviderFailure(
+                    "Ollama response contained no content",
+                    ProviderFailureCode.UNEXPECTED_FAILURE,
+                )
+            }
 
             ModelResponse(
-                content = message.path("content").asText(""),
+                content = content,
                 inputTokens = body.path("prompt_eval_count").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("eval_count").takeIf { !it.isMissingNode }?.asInt(),
                 modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
@@ -114,6 +121,7 @@ class OllamaProvider @JvmOverloads constructor(
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
         ProviderCapability.VISION -> true
+        ProviderCapability.STREAMING -> true
         else -> false
     }
 

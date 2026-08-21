@@ -9,6 +9,7 @@ import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import kotlinx.coroutines.runBlocking
@@ -165,16 +166,23 @@ class AnthropicProviderTest {
     }
 
     @Test
-    fun `fails clearly when no text content block exists`() {
+    fun `tool-only response maps to empty text with populated tool calls`() {
         responseBody = """
             {
               "model": "claude-sonnet-4-20250514",
               "content": [
                 {
                   "type": "tool_use",
-                  "name": "noop"
+                  "id": "toolu_01",
+                  "name": "get_weather",
+                  "input": {"location": "Amsterdam"}
                 }
-              ]
+              ],
+              "stop_reason": "tool_use",
+              "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5
+              }
             }
         """.trimIndent()
         val provider = AnthropicProvider(
@@ -182,18 +190,23 @@ class AnthropicProviderTest {
             baseUrl = "http://localhost:${server.address.port}",
         )
 
-        assertThatThrownBy {
-            runBlocking {
-                provider.complete(
-                    ModelRequest(
-                        model = "claude-sonnet-4-20250514",
-                        messages = listOf(Message(MessageRole.USER, "say hello")),
-                    ),
-                )
-            }
+        val result = runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "claude-sonnet-4-20250514",
+                    messages = listOf(Message(MessageRole.USER, "say hello")),
+                ),
+            )
         }
-            .isInstanceOf(ProviderException::class.java)
-            .hasMessageContaining("text content block")
+
+        assertThat(result.content).isEmpty()
+        assertThat(result.toolCalls).containsExactly(
+            ToolCall(
+                id = "toolu_01",
+                name = "get_weather",
+                argumentsJson = """{"location":"Amsterdam"}""",
+            ),
+        )
     }
 
     @Test

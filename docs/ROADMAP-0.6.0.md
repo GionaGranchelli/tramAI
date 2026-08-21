@@ -959,9 +959,21 @@ For each extension point, document whether failure is:
 
 # Phase 6 — Provider and Integration Architecture
 
-## Epic 6.1: Provider Technology Compatibility Kit
+## Epic 6.1: Provider Technology Compatibility Kit ✅
 
 **Goal:** Make every provider adapter satisfy the same observable contract.
+
+**Status: complete (PR #257).** Contract implementation lives in
+`tramai-testing` test fixtures (`ProviderTck` + `StubHttpClient` +
+`ProviderHttpFixtures`); all eight published providers have green runners
+pinned in `ProviderTckEnrollmentArchitectureTest`; intentional deviations are
+documented in `docs/reference/provider-compatibility-contract.md`. The TCK
+forced three production fixes: Anthropic tool translation, Ollama `VISION` +
+`STREAMING` pinned via a protocol-aware `VisionSpec` (base64 image payload
+without a MIME marker, per the Ollama wire protocol), and Bedrock
+client-ownership + real incremental streaming through an internal client
+factory seam. No shared transport
+abstraction was introduced — Epic 6.2 owns transport consolidation.
 
 ### Contract areas
 
