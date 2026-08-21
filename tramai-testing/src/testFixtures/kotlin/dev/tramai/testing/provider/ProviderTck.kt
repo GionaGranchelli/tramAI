@@ -22,7 +22,7 @@ import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -497,22 +497,25 @@ abstract class ProviderTck {
         runBlocking {
             // Deterministic: block the collector inside the first token callback,
             // cancel the job, then release the collector so the next emit observes
-            // the cancellation.
-            val gate = Channel<Unit>(1)
+            // the cancellation. One-shot deferreds have a single semantic
+            // direction each (provider->test readiness, test->provider release),
+            // so neither side can consume its own signal under load.
+            val reachedToken = CompletableDeferred<Unit>()
+            val releaseCollector = CompletableDeferred<Unit>()
             val deferred = async(Dispatchers.Default) {
                 p.stream(request()).collect { chunk ->
-                    if (chunk is StreamChunk.Token) {
-                        gate.trySend(Unit)
-                        gate.receive()
+                    if (chunk is StreamChunk.Token && !reachedToken.isCompleted) {
+                        reachedToken.complete(Unit)
+                        releaseCollector.await()
                     }
                 }
             }
             // Generous budget: under 16-module parallel test execution the
             // collector coroutine can be starved for seconds; the assertion is
             // about cancellation semantics, not speed.
-            withTimeout(30_000) { gate.receive() } // collector is inside the first token
+            withTimeout(30_000) { reachedToken.await() } // collector is inside the first token
             deferred.cancel()
-            gate.send(Unit) // release the collector
+            releaseCollector.complete(Unit) // release the collector
             val ex = runCatching { deferred.await() }.exceptionOrNull()
             assertThat(ex)
                 .withFailMessage("parent cancellation must remain cancellation, was: $ex")
