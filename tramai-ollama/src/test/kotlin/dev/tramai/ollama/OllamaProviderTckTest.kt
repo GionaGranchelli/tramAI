@@ -6,21 +6,21 @@ import dev.tramai.testing.provider.ProviderTckHarness
 import dev.tramai.testing.provider.RecordingProviderFailureDiagnosticObserver
 import dev.tramai.testing.provider.StreamingSpec
 import dev.tramai.testing.provider.UsageSpec
+import dev.tramai.testing.provider.VisionSpec
 
 /**
  * Epic 6.1 TCK runner for [OllamaProvider] (Ollama `/api/chat`).
  *
  * Expected capability matrix is pinned here, not read from the provider:
- * STREAMING.
+ * VISION + STREAMING.
  *
- * VISION is deliberately NOT pinned. The adapter does encode
- * [dev.tramai.core.model.ContentPart.ImagePart], but the Ollama wire protocol
- * carries images as bare base64 strings in `images` — the Go server
- * base64-decodes each entry and rejects data URIs (`illegal base64 data at
- * input byte 4`), so no mime type can appear in the outbound body. The TCK's
- * vision contract (mime-preserving outbound encoding) is therefore not
- * satisfiable without corrupting the wire format; the image encoding itself
- * stays covered by `OllamaProviderTest`.
+ * VISION is pinned via a protocol-aware [VisionSpec]: the adapter encodes
+ * [dev.tramai.core.model.ContentPart.ImagePart] as base64 strings in the
+ * outbound `images` array, and the Ollama wire protocol carries those images
+ * WITHOUT a MIME marker — the Go server base64-decodes each entry directly
+ * and rejects data URIs (`illegal base64 data at input byte 4`). The runner
+ * therefore requires the base64 payload but not the MIME marker; production
+ * capabilities are not downgraded to fit a generic assertion.
  *
  * Body fixtures are chat-shaped NDJSON matching the adapter's parser
  * (`message.content` + `done`), because the shared
@@ -33,7 +33,7 @@ class OllamaProviderTckTest : ProviderTck() {
 
     override val harness = ProviderTckHarness(
         expectedProviderId = "ollama",
-        expectedCapabilities = setOf(ProviderCapability.STREAMING),
+        expectedCapabilities = setOf(ProviderCapability.VISION, ProviderCapability.STREAMING),
         createProvider = { stub ->
             OllamaProvider(
                 httpClient = stub,
@@ -49,6 +49,11 @@ class OllamaProviderTckTest : ProviderTck() {
             body = """{"model":"ollama-tck","created_at":"2026-01-01T00:00:00Z","message":{"role":"assistant","content":"Usage check"},"done":true,"prompt_eval_count":100,"eval_count":42}""",
             expectedInputTokens = 100,
             expectedOutputTokens = 42,
+        ),
+        vision = VisionSpec(
+            body = chatBody(content = "The image shows a cat."),
+            requireBase64Payload = true,
+            requireMimeTypeMarker = false,
         ),
         streaming = StreamingSpec(
             body = streamBody(listOf("Hello", " world")),

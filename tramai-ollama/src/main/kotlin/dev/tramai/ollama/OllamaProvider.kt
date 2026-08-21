@@ -120,6 +120,7 @@ class OllamaProvider @JvmOverloads constructor(
     override fun providerId(): String = PROVIDER_ID
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
         ProviderCapability.STREAMING -> true
         else -> false
     }

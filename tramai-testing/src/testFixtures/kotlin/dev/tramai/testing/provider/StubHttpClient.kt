@@ -232,6 +232,10 @@ class StubHttpClient : HttpClient() {
 /** Reads and closes [publisher]'s content as UTF-8 text. */
 private fun readBodyPublisher(publisher: HttpRequest.BodyPublisher): String {
     val bytes = java.io.ByteArrayOutputStream()
+    // A BodyPublisher may deliver asynchronously — wait for the terminal
+    // signal instead of racing on the buffer (a racy recorder could capture
+    // "" or a partial body for a legitimate async publisher).
+    val completed = java.util.concurrent.CompletableFuture<Unit>()
     val subscriber = object : Flow.Subscriber<ByteBuffer> {
         override fun onSubscribe(subscription: Flow.Subscription) = subscription.request(Long.MAX_VALUE)
         override fun onNext(item: ByteBuffer) {
@@ -240,10 +244,16 @@ private fun readBodyPublisher(publisher: HttpRequest.BodyPublisher): String {
             bytes.write(copy)
         }
 
-        override fun onError(throwable: Throwable) {}
-        override fun onComplete() {}
+        override fun onError(throwable: Throwable) {
+            completed.completeExceptionally(throwable)
+        }
+
+        override fun onComplete() {
+            completed.complete(Unit)
+        }
     }
     publisher.subscribe(subscriber)
+    completed.join()
     return String(bytes.toByteArray(), StandardCharsets.UTF_8)
 }
 

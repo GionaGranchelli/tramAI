@@ -75,6 +75,10 @@ no network, no credentials.
 - **Ollama — capability set:** pins VISION + STREAMING. Ollama's stream()
   exists and is pinned by the TCK; tool calling and structured output are not
   implemented by this adapter and are pinned as absent rather than claimed.
+  VISION is asserted protocol-aware: the outbound `images` array carries
+  base64 image bytes WITHOUT a MIME marker (the Ollama server base64-decodes
+  each entry directly and rejects data URIs), so `requireMimeTypeMarker` is
+  N/A for this protocol.
 - **DeepSeek — wire format:** uses the OpenAI-compatible wire format and
   delegates to `OpenAiCompatibleProvider`; it still ships its own runner so
   its identity and capability configuration cannot drift unnoticed.

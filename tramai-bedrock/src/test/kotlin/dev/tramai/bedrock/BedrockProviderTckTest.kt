@@ -3,6 +3,7 @@ package dev.tramai.bedrock
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.core.provider.StreamCapable
 import dev.tramai.testing.provider.ProviderHttpFixtures
 import dev.tramai.testing.provider.ProviderTck
 import dev.tramai.testing.provider.ProviderTckHarness
@@ -29,6 +30,13 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.concurrent.CompletableFuture
 import kotlin.test.Test
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.reactivestreams.Subscriber
 import org.reactivestreams.Subscription
 
@@ -101,14 +109,14 @@ class BedrockProviderTckTest : ProviderTck() {
 
     // ── seam wiring ────────────────────────────────────────────────────
 
-    private fun createProvider(stub: StubHttpClient): BedrockProvider {
+    private fun createProvider(stub: StubHttpClient, script: StreamScript? = null): BedrockProvider {
         val programmed = probeStub(stub)
         if (programmed.failure == null) {
             // Re-arm a canned response so the fake's outbound mirror send
             // (which feeds the TCK's wire observations) has something to consume.
             stub.enqueue(200, "{}")
         }
-        val client = FakeBedrockRuntimeClient(programmed, stub)
+        val client = FakeBedrockRuntimeClient(programmed, stub, script)
         createdClients += client
         return BedrockProvider(
             region = "us-east-1",
@@ -152,6 +160,73 @@ class BedrockProviderTckTest : ProviderTck() {
         assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
     }
 
+    // ── terminal-state machine (review findings P1-3 / P1-4 / P2-1) ────
+
+    @Test
+    fun `parse error followed by SDK onError emits exactly one terminal Error`() {
+        val failure = IOException("sdk stream failed after parse error")
+        val script = StreamScript(
+            parts = listOf(malformedPart()),
+            subscriberOnError = failure,
+            future = CompletableFuture.failedFuture<Void>(failure),
+        )
+        val chunks = collectScripted(script)
+        val errors = chunks.filterIsInstance<StreamChunk.Error>()
+        assertThat(errors).hasSize(1)
+        assertThat(chunks.last()).isInstanceOf(StreamChunk.Error::class.java)
+        assertThat(chunks.filterIsInstance<StreamChunk.Complete>()).isEmpty()
+        assertThat(chunks.filterIsInstance<StreamChunk.Token>()).isEmpty()
+    }
+
+    @Test
+    fun `payload delivered after a parse error emits no tokens and cancels the subscription`() {
+        val script = StreamScript(parts = listOf(malformedPart(), tokenPart("late")))
+        val chunks = collectScripted(script)
+        assertThat(chunks.filterIsInstance<StreamChunk.Error>()).hasSize(1)
+        assertThat(chunks.filterIsInstance<StreamChunk.Token>()).isEmpty()
+        assertThat(chunks.filterIsInstance<StreamChunk.Complete>()).isEmpty()
+        assertThat(script.subscriptionCancelled).isTrue()
+    }
+
+    @Test
+    fun `exceptionOccurred followed by subscriber onError emits exactly one terminal Error`() {
+        val failure = IOException("sdk stream failed")
+        val script = StreamScript(
+            exceptionOccurred = failure,
+            subscriberOnError = failure,
+            future = CompletableFuture.failedFuture<Void>(failure),
+        )
+        val chunks = collectScripted(script)
+        val errors = chunks.filterIsInstance<StreamChunk.Error>()
+        assertThat(errors).hasSize(1)
+        assertThat(chunks.last()).isInstanceOf(StreamChunk.Error::class.java)
+        assertThat(chunks.filterIsInstance<StreamChunk.Complete>()).isEmpty()
+        assertThat(chunks.filterIsInstance<StreamChunk.Token>()).isEmpty()
+    }
+
+    @Test
+    fun `cancelling the collector cancels the in-flight invoke future and closes the client`() {
+        val future = CompletableFuture<Void>()
+        val script = StreamScript(parts = listOf(tokenPart("late")), future = future)
+        val p = createProvider(StubHttpClient(), script) as StreamCapable
+        runBlocking {
+            val deferred = async(Dispatchers.Default) { p.stream(request()).toList() }
+            // Deterministic: the provider registers whenComplete on the invoke
+            // future before suspending — wait for that, then cancel.
+            withTimeout(5_000) { while (future.getNumberOfDependents() == 0) delay(1) }
+            deferred.cancel()
+            val ex = runCatching { deferred.await() }.exceptionOrNull()
+            assertThat(ex)
+                .withFailMessage("cancellation must remain cancellation, was: $ex")
+                .isInstanceOf(CancellationException::class.java)
+            assertThat(future.isCancelled).isTrue()
+            assertThat(createdClients.last().closed).isTrue()
+        }
+    }
+
+    private fun collectScripted(script: StreamScript): List<StreamChunk> =
+        runBlocking { (createProvider(StubHttpClient(), script) as StreamCapable).stream(request()).toList() }
+
     // ── test doubles ───────────────────────────────────────────────────
 
     private data class ProgrammedResponse(
@@ -160,12 +235,35 @@ class BedrockProviderTckTest : ProviderTck() {
     )
 
     /**
+     * Scripted streaming scenario for mutation-sensitive terminal-state tests.
+     * Drives the exact callback sequences a real SDK would produce and exposes
+     * the invoke future so tests can assert cancellation propagation. A real
+     * [BedrockRuntimeAsyncClient] reports failures through an exceptionally
+     * completed [CompletableFuture] — never by synchronously throwing.
+     */
+    private class StreamScript(
+        val parts: List<PayloadPart> = emptyList(),
+        val exceptionOccurred: Throwable? = null,
+        val subscriberOnError: Throwable? = null,
+        val future: CompletableFuture<Void> = CompletableFuture.completedFuture(null),
+    ) {
+        @Volatile
+        var subscriptionCancelled: Boolean = false
+            private set
+
+        fun recordSubscriptionCancellation() {
+            subscriptionCancelled = true
+        }
+    }
+
+    /**
      * Recording fake over the AWS [BedrockRuntimeAsyncClient] interface
      * (interface in the SDK — only [serviceName] and [close] are abstract).
      */
     private class FakeBedrockRuntimeClient(
         private val programmed: ProgrammedResponse,
         private val stub: StubHttpClient,
+        private val streamScript: StreamScript? = null,
     ) : BedrockRuntimeAsyncClient {
 
         @Volatile
@@ -182,7 +280,7 @@ class BedrockProviderTckTest : ProviderTck() {
 
         override fun invokeModel(request: InvokeModelRequest): CompletableFuture<InvokeModelResponse> {
             lastInvokeRequest = request
-            programmed.failure?.let { throw it }
+            programmed.failure?.let { return CompletableFuture.failedFuture<InvokeModelResponse>(it) }
             mirrorOutboundPayload(request.body().asUtf8String())
             return CompletableFuture.completedFuture(
                 InvokeModelResponse.builder()
@@ -197,7 +295,13 @@ class BedrockProviderTckTest : ProviderTck() {
             handler: InvokeModelWithResponseStreamResponseHandler,
         ): CompletableFuture<Void> {
             lastStreamRequest = request
-            programmed.failure?.let { throw it }
+            programmed.failure?.let { return CompletableFuture.failedFuture<Void>(it) }
+            streamScript?.let { script ->
+                handler.onEventStream(
+                    ScriptedPublisher(script, handler),
+                )
+                return script.future
+            }
             handler.onEventStream(
                 SynchronousPublisher(programmed.body?.let { ssePayloadParts(it) } ?: emptyList()),
             )
@@ -254,6 +358,41 @@ class BedrockProviderTckTest : ProviderTck() {
         }
     }
 
+    /**
+     * Scripted publisher: replays the script's parts, then fires the scripted
+     * handler/subscriber failure sequence exactly as the real SDK does
+     * (exceptionOccurred → subscriber.onError; never onComplete after an
+     * error). Records cancellation so tests can assert the provider cancelled
+     * the subscription on its terminal Error.
+     */
+    private class ScriptedPublisher(
+        private val script: StreamScript,
+        private val handler: InvokeModelWithResponseStreamResponseHandler,
+    ) : SdkPublisher<ResponseStream> {
+        override fun subscribe(subscriber: Subscriber<in ResponseStream>) {
+            subscriber.onSubscribe(object : Subscription {
+                override fun request(n: Long) {
+                    script.parts.forEach { subscriber.onNext(it) }
+                    when {
+                        script.exceptionOccurred != null -> {
+                            handler.exceptionOccurred(script.exceptionOccurred)
+                            script.subscriberOnError?.let { subscriber.onError(it) }
+                        }
+                        script.subscriberOnError != null -> subscriber.onError(script.subscriberOnError)
+                        else -> {
+                            subscriber.onComplete()
+                            handler.complete()
+                        }
+                    }
+                }
+
+                override fun cancel() {
+                    script.recordSubscriptionCancellation()
+                }
+            })
+        }
+    }
+
     companion object {
         private val TCK_TOOL_CALL = ToolCall(
             id = "call_tck_1",
@@ -262,5 +401,14 @@ class BedrockProviderTckTest : ProviderTck() {
         )
 
         private val PROBE_URI = URI.create("https://bedrock-runtime.tck.invalid/invoke")
+
+        private fun payloadPart(json: String): PayloadPart =
+            PayloadPart.builder().bytes(SdkBytes.fromUtf8String(json)).build()
+
+        private fun tokenPart(text: String): PayloadPart =
+            payloadPart("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"$text"}}""")
+
+        private fun malformedPart(): PayloadPart =
+            payloadPart("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel""")
     }
 }

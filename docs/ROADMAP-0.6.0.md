@@ -968,9 +968,11 @@ For each extension point, document whether failure is:
 `ProviderHttpFixtures`); all eight published providers have green runners
 pinned in `ProviderTckEnrollmentArchitectureTest`; intentional deviations are
 documented in `docs/reference/provider-compatibility-contract.md`. The TCK
-forced three production fixes: Anthropic tool translation, Ollama `STREAMING`
-capability pinned true, and Bedrock client-ownership + real incremental
-streaming through an internal client factory seam. No shared transport
+forced three production fixes: Anthropic tool translation, Ollama `VISION` +
+`STREAMING` pinned via a protocol-aware `VisionSpec` (base64 image payload
+without a MIME marker, per the Ollama wire protocol), and Bedrock
+client-ownership + real incremental streaming through an internal client
+factory seam. No shared transport
 abstraction was introduced — Epic 6.2 owns transport consolidation.
 
 ### Contract areas

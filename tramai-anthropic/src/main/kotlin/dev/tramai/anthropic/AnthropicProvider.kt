@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
@@ -311,55 +312,96 @@ class AnthropicProvider @JvmOverloads constructor(
     }
 
     /**
-     * Converts a Tramai [Message] to an Anthropic-compatible request map.
+     * Converts a Tramai [dev.tramai.core.model.Message] to an Anthropic-compatible request map.
      *
-     * When the message carries [ContentPart.ImagePart] items, the content is
-     * serialised as Anthropic content blocks; otherwise a plain string is used.
+     * Three shapes are produced:
+     * - Plain text (and image-carrying) messages keep the existing string/block content.
+     * - Assistant messages carrying [dev.tramai.core.model.ToolCall]s become a content array
+     *   of a text block (when non-blank) plus one `tool_use` block per call.
+     * - [MessageRole.TOOL] results become a `user`-role message with a `tool_result` block.
      */
     private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
-        val msgParts = message.contentParts
-        val content: Any = if (!msgParts.isNullOrEmpty()) {
-            msgParts.map { part ->
-                when (part) {
-                    is ContentPart.TextPart -> mapOf(
-                        "type" to "text",
-                        "text" to part.text,
-                    )
-                    is ContentPart.ImagePart -> {
-                        require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
-                            "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                        }
-                        mapOf(
-                            "type" to "image",
-                            "source" to mapOf(
-                                "type" to "base64",
-                                "media_type" to part.mimeType,
-                                "data" to Base64.getEncoder().encodeToString(part.data),
-                            ),
-                        )
+        val role = when (message.role) {
+            MessageRole.TOOL -> "user" // Anthropic requires tool results in user-role messages
+            else -> message.role.name.lowercase()
+        }
+        val content: Any = when {
+            message.role == MessageRole.TOOL -> {
+                val toolCallId = requireNotNull(message.toolCallId) {
+                    "TOOL message must carry a toolCallId to map to an Anthropic tool_result block"
+                }
+                listOf(
+                    mapOf(
+                        "type" to "tool_result",
+                        "tool_use_id" to toolCallId,
+                        "content" to message.content,
+                    ),
+                )
+            }
+            message.role == MessageRole.ASSISTANT && !message.toolCalls.isNullOrEmpty() -> {
+                val toolCalls = message.toolCalls.orEmpty()
+                buildList {
+                    if (message.content.isNotBlank()) {
+                        add(mapOf("type" to "text", "text" to message.content))
                     }
-                    is ContentPart.ImageUrlContent -> {
-                        val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
-                        require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
-                            "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                        }
-                        mapOf(
-                            "type" to "image",
-                            "source" to mapOf(
-                                "type" to "base64",
-                                "media_type" to resolved.mimeType,
-                                "data" to Base64.getEncoder().encodeToString(resolved.data),
+                    toolCalls.forEach { call ->
+                        add(
+                            mapOf(
+                                "type" to "tool_use",
+                                "id" to call.id,
+                                "name" to call.name,
+                                "input" to objectMapper.readTree(call.argumentsJson),
                             ),
                         )
                     }
                 }
             }
-        } else {
-            message.content
+            else -> {
+                val msgParts = message.contentParts
+                if (!msgParts.isNullOrEmpty()) {
+                    msgParts.map { part ->
+                        when (part) {
+                            is ContentPart.TextPart -> mapOf(
+                                "type" to "text",
+                                "text" to part.text,
+                            )
+                            is ContentPart.ImagePart -> {
+                                require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
+                                    "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+                                }
+                                mapOf(
+                                    "type" to "image",
+                                    "source" to mapOf(
+                                        "type" to "base64",
+                                        "media_type" to part.mimeType,
+                                        "data" to Base64.getEncoder().encodeToString(part.data),
+                                    ),
+                                )
+                            }
+                            is ContentPart.ImageUrlContent -> {
+                                val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+                                require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
+                                    "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+                                }
+                                mapOf(
+                                    "type" to "image",
+                                    "source" to mapOf(
+                                        "type" to "base64",
+                                        "media_type" to resolved.mimeType,
+                                        "data" to Base64.getEncoder().encodeToString(resolved.data),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    message.content
+                }
+            }
         }
 
         return mapOf(
-            "role" to message.role.name.lowercase(),
+            "role" to role,
             "content" to content,
         )
     }

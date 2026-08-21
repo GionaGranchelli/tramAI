@@ -352,12 +352,16 @@ abstract class ProviderTck {
             ),
         )
         val body = stub.lastRequestBody ?: ""
-        assertThat(body)
-            .withFailMessage("outbound request must carry the base64 image payload")
-            .contains(base64)
-        assertThat(body)
-            .withFailMessage("outbound request must carry the image mime type")
-            .contains("image/png")
+        if (vision.requireBase64Payload) {
+            assertThat(body)
+                .withFailMessage("outbound request must carry the base64 image payload")
+                .contains(base64)
+        }
+        if (vision.requireMimeTypeMarker) {
+            assertThat(body)
+                .withFailMessage("outbound request must carry the image mime type")
+                .contains("image/png")
+        }
     }
 
     @Test
@@ -369,9 +373,15 @@ abstract class ProviderTck {
     }
 
     // ── structured-output contract ─────────────────────────────────────
+    //
+    // NOTE (Epic 6.1 scope): ModelRequest has no structured-schema contract
+    // yet, so this proves the provider returns the fixture content for a
+    // completion whose prompt requests JSON — it does NOT prove a
+    // provider-native structured-output request. Native structured-output
+    // enforcement is Phase 7 territory.
 
     @Test
-    fun `structured output completion succeeds`() {
+    fun `structured output completion returns the fixture content`() {
         val structured = harness.structuredOutput ?: return
         val stub = StubHttpClient().apply { enqueue(200, structured.body) }
         val response = complete(stub)
@@ -434,19 +444,25 @@ abstract class ProviderTck {
     }
 
     @Test
-    fun `malformed stream terminates deterministically`() {
+    fun `malformed stream terminates deterministically with exactly one Error and no Complete`() {
         val streaming = harness.streaming ?: return
         val stub = StubHttpClient().apply { enqueue(200, streaming.malformedBody) }
         val chunks = streamChunks(stub)
         val error = chunks.filterIsInstance<StreamChunk.Error>()
-        assertThat(error.size).isLessThanOrEqualTo(1)
-        if (error.isNotEmpty()) {
-            assertThat(error.single().cause).isInstanceOf(ProviderException::class.java)
-        } else {
-            // terminated without an explicit Error chunk — still acceptable, but the
-            // flow must have ended (no hang) and no raw parser exception escaped.
-            assertThat(chunks).isNotEmpty()
-        }
+        // A malformed fixture is a contract violation, not a silent success:
+        // exactly one terminal Error, no Complete, no chunks after the Error.
+        assertThat(error)
+            .withFailMessage(
+                "malformed stream must produce exactly one Error chunk, was ${error.size}. " +
+                    "If this protocol legitimately treats EOF as successful termination, " +
+                    "model that as a named provider deviation — not a generic loophole.",
+            )
+            .hasSize(1)
+        assertThat(chunks.last()).isInstanceOf(StreamChunk.Error::class.java)
+        assertThat(chunks.filterIsInstance<StreamChunk.Complete>())
+            .withFailMessage("malformed stream must not end in a successful Complete")
+            .isEmpty()
+        assertThat(error.single().cause).isInstanceOf(ProviderException::class.java)
         assertThat(stub.lastBodyClosed())
             .withFailMessage("malformed-stream termination must close the response body")
             .isTrue()

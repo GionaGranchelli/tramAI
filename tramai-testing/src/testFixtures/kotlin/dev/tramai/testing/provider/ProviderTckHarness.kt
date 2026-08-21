@@ -45,6 +45,20 @@ data class ToolSpec(
 data class VisionSpec(
     /** Body answering a request that contained an image part. */
     val body: String,
+    /**
+     * Whether the outbound request must carry the base64-encoded image bytes.
+     * Always true for every published provider (all current protocols send
+     * base64); kept as a knob for future protocols that send raw bytes.
+     */
+    val requireBase64Payload: Boolean = true,
+    /**
+     * Whether the outbound request must carry the image MIME type marker.
+     * False for protocols that accept image bytes without a MIME marker
+     * (e.g. Ollama's `images` array). Production capabilities must never be
+     * downgraded to fit a generic assertion — the assertion adapts to the
+     * protocol instead.
+     */
+    val requireMimeTypeMarker: Boolean = true,
 )
 
 /** Expected structured-output behaviour for a provider completion fixture. */
@@ -63,8 +77,6 @@ data class StreamingSpec(
     val malformedBody: String,
     /** Ordered text fragments the adapter must emit as [dev.tramai.core.model.StreamChunk.Token]. */
     val expectedTokens: List<String>,
-    /** Transport-failure stream: adapter must emit a terminal Error chunk. */
-    val transportFailureBody: String? = null,
 )
 
 /**
@@ -118,9 +130,6 @@ class ProviderTckHarness(
         }
         require(ProviderCapability.STREAMING !in expectedCapabilities || streaming != null) {
             "STREAMING is pinned in expectedCapabilities ⇒ streaming spec is required"
-        }
-        require(transport == ProviderTransport.SDK || createProvider != null) {
-            "HTTP providers must supply a createProvider hook"
         }
         require(transport == ProviderTransport.SDK || diagnosticObserver != null) {
             "HTTP providers must wire a diagnostic observer for the bounded-preview contract"

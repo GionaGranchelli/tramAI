@@ -12,9 +12,12 @@ import org.junit.jupiter.api.Test
  *
  * 1. The eight roadmap providers (pinned allowlist) must each ship a
  *    `*ProviderTckTest` runner. Deleting or renaming a runner breaks the gate.
- * 2. Any provider module that implements [dev.tramai.core.provider.ModelProvider]
- *    in its main source set must have a matching TCK runner. Adding a new
- *    provider without enrolling it in the contract breaks the gate.
+ * 2. **Every concrete `ModelProvider` implementation** in a provider module's
+ *    main source set must have a runner named after it (`<Provider>TckTest`),
+ *    in the same module. The mapping is implementation → runner, not
+ *    module → any runner: adding a second provider to an already-enrolled
+ *    module without a runner of its own fails the gate, as does a multiline
+ *    class declaration, a renamed provider, or a deleted runner.
  *
  * The runner file IS the reviewed contract matrix: it pins the expected
  * provider id, the exact capability set, and every fixture. A provider can
@@ -49,11 +52,15 @@ class ProviderTckEnrollmentArchitectureTest {
     }
 
     @Test
-    fun `every ModelProvider implementation is enrolled in the TCK`() {
-        val unenrolled = providerModules().filter { module -> !hasRunner(module) }
+    fun `every ModelProvider implementation has a runner named after it in its module`() {
+        val unenrolled = providerModules().flatMap { (module, implementations) ->
+            implementations
+                .filter { providerName -> !hasRunner(module, providerName) }
+                .map { provider -> "$module/$provider" }
+        }
         assertThat(unenrolled)
             .withFailMessage(
-                "Provider modules without a *ProviderTckTest runner: $unenrolled. " +
+                "Provider implementations without a <Provider>TckTest runner in the same module: $unenrolled. " +
                     "Adding a published provider without enrolling it in the compatibility contract " +
                     "must make a gate fail (the phrase 'future providers must pass the TCK' is " +
                     "otherwise documentation, not architecture).",
@@ -63,42 +70,51 @@ class ProviderTckEnrollmentArchitectureTest {
 
     // ── helpers ─────────────────────────────────────────────────────────
 
-    private fun providerModules(): List<String> {
+    private fun providerModules(): List<Pair<String, List<String>>> {
         val modules = repoRoot.listFiles { file -> file.isDirectory && file.name.startsWith("tramai-") }
             ?: return emptyList()
         return modules
-            .filter { module ->
+            .mapNotNull { module ->
                 // Mock/test providers live in the testing module and are deliberately not published.
-                if (module.name == "tramai-testing") return@filter false
+                if (module.name == "tramai-testing") return@mapNotNull null
                 val main = File(module, "src/main/kotlin")
-                if (!main.isDirectory) return@filter false
-                main.walkTopDown()
+                if (!main.isDirectory) return@mapNotNull null
+                val implementations = main.walkTopDown()
                     .filter { it.isFile && it.extension == "kt" }
-                    .any { file -> file.readLines().any(::isProviderImplementation) }
+                    .flatMap { file -> providerImplementations(file).asSequence() }
+                    .distinct()
+                    .sorted()
+                    .toList()
+                if (implementations.isEmpty()) null else module.name to implementations
             }
-            .map { it.name }
-            .sorted()
+            .toList()
     }
 
-    /** True when a source line declares a class implementing [dev.tramai.core.provider.ModelProvider]. */
-    private fun isProviderImplementation(line: String): Boolean {
-        if (!line.contains("class ") && !line.contains("object ")) return false
-        if (!line.contains("ModelProvider")) return false
-        // Supertype colon is preceded by ')' or whitespace — a constructor
-        // parameter like `val provider: ModelProvider` has a word-char prefix.
-        return SUPER_TYPE_REGEX.containsMatchIn(line) || line.contains("ModelProvider by")
+    /**
+     * Concrete [dev.tramai.core.provider.ModelProvider] implementations declared in [file].
+     *
+     * A class/object implements ModelProvider when its header (text between the
+     * name and the first `{`) lists ModelProvider among its supertypes. The
+     * supertype section is everything after the last `)` of the primary
+     * constructor (or the whole header when there is no constructor) — this
+     * distinguishes `class X(...) : ModelProvider` from a constructor
+     * parameter like `class X(val provider: ModelProvider, ...)`.
+     */
+    private fun providerImplementations(file: File): List<String> {
+        val text = file.readText()
+        return CLASS_HEADER.findAll(text).mapNotNull { match ->
+            val name = match.groupValues[1]
+            val header = match.groupValues[2]
+            val supertypeSection = header.substringAfterLast(')').substringAfterLast(':')
+            if ("ModelProvider" in supertypeSection) name else null
+        }.toList()
     }
 
-    private companion object {
-        val SUPER_TYPE_REGEX = Regex("""[^A-Za-z0-9_]: ModelProvider""")
-    }
-
-    private fun hasRunner(module: String): Boolean {
+    private fun hasRunner(module: String, providerName: String): Boolean {
         val testDir = File(repoRoot, "$module/src/test/kotlin")
         if (!testDir.isDirectory) return false
         return testDir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" && it.name.endsWith("ProviderTckTest.kt") }
-            .any()
+            .any { it.isFile && it.name == "${providerName}TckTest.kt" }
     }
 
     private fun findRunnerFile(runnerName: String): File? {
@@ -109,5 +125,10 @@ class ProviderTckEnrollmentArchitectureTest {
             .filter { it.isDirectory }
             .flatMap { it.walkTopDown().asSequence() }
             .firstOrNull { it.isFile && it.name == "$runnerName.kt" }
+    }
+
+    private companion object {
+        /** Class/object name + header up to the first `{`, spanning newlines. */
+        val CLASS_HEADER = Regex("""(?s)(?:class|object)\s+(\w+)(.*?)\{""")
     }
 }

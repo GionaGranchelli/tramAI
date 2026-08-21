@@ -22,8 +22,10 @@ import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ProviderFailureCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import org.reactivestreams.Subscriber
@@ -42,6 +44,9 @@ import software.amazon.awssdk.services.bedrockruntime.model.PayloadPart
 import software.amazon.awssdk.services.bedrockruntime.model.ResponseStream
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Internal seam for the AWS Bedrock runtime client.
@@ -129,7 +134,7 @@ class BedrockProvider @JvmOverloads constructor(
                 .contentType("application/json")
                 .build()
 
-            val response = client.invokeModel(invokeRequest).join()
+            val response = client.invokeModel(invokeRequest).awaitCancellable()
             val body = objectMapper.readTree(response.body().asUtf8String())
             val mapped = mapClaudeResponse(body, effectiveModel)
             if (mapped.content.isBlank() && mapped.toolCalls.isNullOrEmpty()) {
@@ -141,7 +146,11 @@ class BedrockProvider @JvmOverloads constructor(
             mapped
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
+            throw providerTransportFailureObserved(
+                PROVIDER_ID,
+                error.unwrapCompletionException(),
+                providerFailureDiagnosticObserver,
+            )
         } finally {
             client.close()
         }
@@ -150,7 +159,21 @@ class BedrockProvider @JvmOverloads constructor(
     override fun stream(request: ModelRequest): Flow<StreamChunk> = channelFlow {
         val effectiveModel = request.model.takeIf { it.isNotBlank() } ?: modelId
         val client = clientFactory.create()
-        var failed = false
+        // Single atomic owner of the terminal state: the first path to flip
+        // false → true emits the terminal chunk and cancels the subscription;
+        // every later path (duplicate onError, tokens after Error, a second
+        // Error) is silenced by the CAS.
+        val terminal = AtomicBoolean(false)
+        var subscription: Subscription? = null
+
+        fun emitTerminalError(error: Throwable) {
+            error.rethrowIfCancellation()
+            if (terminal.compareAndSet(false, true)) {
+                subscription?.cancel()
+                trySend(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, error.unwrapCompletionException())))
+            }
+        }
+
         try {
             val payload = buildClaudePayload(request)
 
@@ -166,12 +189,13 @@ class BedrockProvider @JvmOverloads constructor(
             val handler = object : InvokeModelWithResponseStreamResponseHandler {
                 override fun onEventStream(stream: SdkPublisher<ResponseStream>) {
                     stream.subscribe(object : Subscriber<ResponseStream> {
-                        override fun onSubscribe(subscription: Subscription) {
-                            subscription.request(Long.MAX_VALUE)
+                        override fun onSubscribe(s: Subscription) {
+                            subscription = s
+                            s.request(Long.MAX_VALUE)
                         }
 
                         override fun onNext(item: ResponseStream) {
-                            if (item !is PayloadPart) return
+                            if (item !is PayloadPart || terminal.get()) return
                             try {
                                 val node = objectMapper.readTree(item.bytes().asUtf8String())
                                 when (node.path("type").asText("")) {
@@ -198,20 +222,16 @@ class BedrockProvider @JvmOverloads constructor(
                                     }
                                 }
                             } catch (parseError: Exception) {
-                                parseError.rethrowIfCancellation()
-                                failed = true
-                                trySend(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, parseError)))
+                                emitTerminalError(parseError)
                             }
                         }
 
                         override fun onError(t: Throwable) {
-                            t.rethrowIfCancellation()
-                            failed = true
-                            trySend(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, t)))
+                            emitTerminalError(t)
                         }
 
                         override fun onComplete() {
-                            // Stream finished; Complete is emitted once the SDK future resolves.
+                            // Stream finished; Complete is emitted once the invoke future resolves.
                         }
                     })
                 }
@@ -221,30 +241,26 @@ class BedrockProvider @JvmOverloads constructor(
                 }
 
                 override fun exceptionOccurred(t: Throwable) {
-                    t.rethrowIfCancellation()
-                    failed = true
-                    trySend(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, t)))
+                    emitTerminalError(t)
                 }
 
                 override fun complete() {
-                    // Stream finished; Complete is emitted once the SDK future resolves.
+                    // Stream finished; Complete is emitted once the invoke future resolves.
                 }
             }
 
             withContext(ioDispatcher) {
-                client.invokeModelWithResponseStream(invokeRequest, handler).join()
+                client.invokeModelWithResponseStream(invokeRequest, handler).awaitCancellable()
             }
 
-            if (!failed) {
+            if (terminal.compareAndSet(false, true)) {
                 send(StreamChunk.Complete(fullText.toString(), usage ?: UsageMetrics()))
             }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            if (!failed) {
-                trySend(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
-            }
+            emitTerminalError(e)
         } finally {
-            withContext(ioDispatcher) { client.close() }
+            withContext(NonCancellable + ioDispatcher) { client.close() }
         }
     }
 
@@ -435,3 +451,25 @@ class BedrockProvider @JvmOverloads constructor(
         val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
     }
 }
+
+/**
+ * Bridges a [CompletableFuture] into coroutine cancellation: cancelling the
+ * collecting coroutine cancels the in-flight AWS operation. Equivalent to the
+ * kotlinx `future.await()` (kotlinx-coroutines-jdk8 is intentionally not on
+ * the classpath), including the CompletionException unwrap at join points.
+ */
+private suspend fun <T> CompletableFuture<T>.awaitCancellable(): T =
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel(true) }
+        whenComplete { value, error ->
+            if (error == null) {
+                continuation.resumeWith(Result.success(value))
+            } else {
+                continuation.resumeWith(Result.failure(error))
+            }
+        }
+    }
+
+/** Strips the [CompletionException] wrapper so the transport cause reaches safe-failure normalization. */
+private fun Throwable.unwrapCompletionException(): Throwable =
+    (this as? CompletionException)?.cause ?: this
