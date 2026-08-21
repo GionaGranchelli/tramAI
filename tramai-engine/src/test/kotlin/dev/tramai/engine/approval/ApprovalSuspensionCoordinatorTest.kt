@@ -114,7 +114,7 @@ class ApprovalSuspensionCoordinatorTest {
     )
 
     @Test
-    fun `happy suspension persists challenge continuation and metadata then throws ApprovalSuspendedException`() = runTest {
+    fun `happy suspension persists challenge continuation and metadata then throws ApprovalSuspendedException`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -138,9 +138,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(audit.suspendedCount).isEqualTo(1)
         assertThat(suspended.createdMetadata.approvalId).isEqualTo("challenge-1")
     }
+    }
 
     @Test
-    fun `tool name binding mismatch fails before any persistence`() = runTest {
+    fun `tool name binding mismatch fails before any persistence`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -157,9 +158,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.createCount).isZero()
         assertThat(suspended.createCount).isZero()
     }
+    }
 
     @Test
-    fun `arguments digest mismatch fails before any persistence`() = runTest {
+    fun `arguments digest mismatch fails before any persistence`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -176,9 +178,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.createCount).isZero()
         assertThat(suspended.createCount).isZero()
     }
+    }
 
     @Test
-    fun `invalid timeout fails before any persistence`() = runTest {
+    fun `invalid timeout fails before any persistence`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -194,9 +197,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(gate.createCount).isZero()
         assertThat(store.createCount).isZero()
     }
+    }
 
     @Test
-    fun `continuation create failure compensates in reverse order and rethrows original`() = runTest {
+    fun `continuation create failure compensates in reverse order and rethrows original`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore(failOnCreate = true)
         val suspended = FakeSuspendedStore()
@@ -213,9 +217,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.cancelCount).isEqualTo(1)
         assertThat(suspended.removeCount).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `metadata create failure compensates continuation and approval`() = runTest {
+    fun `metadata create failure compensates continuation and approval`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore(failOnCreate = true)
@@ -231,9 +236,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.cancelCount).isEqualTo(1)
         assertThat(suspended.removeCount).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `compensation failure never replaces the original failure`() = runTest {
+    fun `compensation failure never replaces the original failure`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore(failOnCreate = true)
         val suspended = FakeSuspendedStore()
@@ -243,9 +249,10 @@ class ApprovalSuspensionCoordinatorTest {
             .isInstanceOf(RuntimeException::class.java)
             .hasMessage("create-failure")
     }
+    }
 
     @Test
-    fun `successful ApprovalSuspendedException never triggers compensation`() = runTest {
+    fun `successful ApprovalSuspendedException never triggers compensation`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -260,9 +267,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(suspended.removeCount).isZero()
         assertThat(audit.cancelledCount).isZero()
     }
+    }
 
     @Test
-    fun `renewed approved binding returns without creating another approval`() = runTest {
+    fun `renewed approved binding returns without creating another approval`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -274,9 +282,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.createCount).isZero()
         assertThat(suspended.createCount).isZero()
     }
+    }
 
     @Test
-    fun `renewed binding tool name mismatch is rejected`() = runTest {
+    fun `renewed binding tool name mismatch is rejected`() { runTest {
         val c = coordinator()
         val decision = PolicyDecision.RequireApproval(
             ApprovalRequirement("different-tool", "", "testing", 60_000),
@@ -286,17 +295,19 @@ class ApprovalSuspensionCoordinatorTest {
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("tool name mismatch")
     }
+    }
 
     @Test
-    fun `nested approval is rejected during resumed workflow`() = runTest {
+    fun `nested approval is rejected during resumed workflow`() { runTest {
         val c = coordinator()
 
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.requireApproval(request(resumingApproval = true), requireDecision(), input) } }
             .isInstanceOf(NestedApprovalNotSupportedException::class.java)
     }
+    }
 
     @Test
-    fun `cancellation during approval creation propagates and skips compensation`() = runTest {
+    fun `cancellation during approval creation propagates and skips compensation`() { runTest {
         val gate = FakeApprovalGate(failOnCreateWith = CancellationException("boom"))
         val store = FakeStore()
         val suspended = FakeSuspendedStore()
@@ -310,9 +321,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(gate.cancelCount).isZero()
         assertThat(suspended.removeCount).isZero()
     }
+    }
 
     @Test
-    fun `cancellation during continuation creation propagates and skips compensation`() = runTest {
+    fun `cancellation during continuation creation propagates and skips compensation`() { runTest {
         val gate = FakeApprovalGate()
         val store = FakeStore(failOnCreateWith = CancellationException("boom"))
         val suspended = FakeSuspendedStore()
@@ -326,9 +338,10 @@ class ApprovalSuspensionCoordinatorTest {
         assertThat(store.cancelCount).isZero()
         assertThat(suspended.removeCount).isZero()
     }
+    }
 
     @Test
-    fun `missing gate coordinator fails explicitly`() = runTest {
+    fun `missing gate coordinator fails explicitly`() { runTest {
         val c = ApprovalSuspensionCoordinator(
             approvalGateCoordinator = null,
             approvalContinuationStore = FakeStore(),
@@ -344,6 +357,7 @@ class ApprovalSuspensionCoordinatorTest {
         assertThatThrownBy { kotlinx.coroutines.runBlocking { c.requireApproval(request(), requireDecision(), input) } }
             .isInstanceOf(ConfigurationException::class.java)
             .hasMessage("ApprovalGateCoordinator is required for tool execution suspension")
+    }
     }
 
     // ------------------------------------------------------------------

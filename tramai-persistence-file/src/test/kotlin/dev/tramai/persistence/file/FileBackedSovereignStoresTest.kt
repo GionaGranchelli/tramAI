@@ -212,7 +212,7 @@ class FileBackedSovereignStoresTest {
     }
 
     @Test
-    fun `corrupted suspended record fails startup verification`() = runBlocking {
+    fun `corrupted suspended record fails startup verification`() { runBlocking {
         val config = createConfig()
         val approvalId = "bundle-suspended-corrupt-1"
 
@@ -241,9 +241,10 @@ class FileBackedSovereignStoresTest {
             )
         }
     }
+    }
 
     @Test
-    fun `operations after close are rejected on suspended store`() = runBlocking {
+    fun `operations after close are rejected on suspended store`() { runBlocking {
         val stores = FileBackedSovereignStores.open(createConfig())
         val suspendedStore = stores.suspendedInvocationStore
         stores.close()
@@ -257,6 +258,7 @@ class FileBackedSovereignStoresTest {
         assertThrows<IllegalStateException> {
             runBlocking { suspendedStore.remove("approval-closed") }
         }
+    }
     }
 
     // ── activeKeyId validation ──────────────────────────────────────────

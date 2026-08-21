@@ -85,7 +85,7 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
     // ── 1. Suspended → SuspendedForApproval ──
 
     @Test
-    fun `high risk workflow suspends through approval gateway without store wiring`() = runTest {
+    fun `high risk workflow suspends through approval gateway without store wiring`() { runTest {
         val gateway = RecordingApprovalGateway(
             ApprovalRequestResult.Suspended(
                 approvalId = ApprovalId("approval-1"),
@@ -113,11 +113,12 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
         assertThat(suspended.auditStreamId).isEqualTo(AuditStreamId("audit-1"))
         assertThat(suspended.resumeToken).isEqualTo(ResumeToken("token-1"))
     }
+    }
 
     // ── 2. AlreadyApproved → Completed ──
 
     @Test
-    fun `already approved result maps to Completed workflow result`() = runTest {
+    fun `already approved result maps to Completed workflow result`() { runTest {
         val gateway = RecordingApprovalGateway(
             ApprovalRequestResult.AlreadyApproved(
                 decision = HumanApprovalDecision.Approved(
@@ -135,11 +136,12 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
         val completed = result as SovereignWorkflowResult.Completed
         assertThat(completed.value).isEqualTo("approved-continue")
     }
+    }
 
     // ── 3. AlreadyDenied → Rejected ──
 
     @Test
-    fun `already denied result maps to Rejected workflow result`() = runTest {
+    fun `already denied result maps to Rejected workflow result`() { runTest {
         val gateway = RecordingApprovalGateway(
             ApprovalRequestResult.AlreadyDenied(
                 decision = HumanApprovalDecision.Denied(
@@ -158,11 +160,12 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
         val rejected = result as SovereignWorkflowResult.Rejected
         assertThat(rejected.reason).isEqualTo("requires-legal-review")
     }
+    }
 
     // ── 4. Expired → Expired ──
 
     @Test
-    fun `expired approval result maps to Expired workflow result`() = runTest {
+    fun `expired approval result maps to Expired workflow result`() { runTest {
         val gateway = RecordingApprovalGateway(
             ApprovalRequestResult.Expired(
                 approvalId = ApprovalId("approval-1"),
@@ -177,5 +180,6 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
         assertThat(result).isInstanceOf(SovereignWorkflowResult.Expired::class.java)
         val expired = result as SovereignWorkflowResult.Expired
         assertThat(expired.reason).isEqualTo("approval-expired")
+    }
     }
 }

@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 class InMemoryVectorStoreTest {
 
     @Test
-    fun `upsert and search returns nearest vectors`() = runBlocking {
+    fun `upsert and search returns nearest vectors`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("test", listOf(
@@ -23,16 +23,18 @@ class InMemoryVectorStoreTest {
         assertEquals("1", results[0].id)
         assertTrue(results[0].score > 0.99)
     }
+    }
 
     @Test
-    fun `search with empty collection returns empty`() = runBlocking {
+    fun `search with empty collection returns empty`() { runBlocking {
         val store = InMemoryVectorStore()
         val results = store.search("nonexistent", floatArrayOf(1f, 0f, 0f), topK = 5)
         assertTrue(results.isEmpty())
     }
+    }
 
     @Test
-    fun `search with metadata filter`() = runBlocking {
+    fun `search with metadata filter`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("test", listOf(
@@ -45,9 +47,10 @@ class InMemoryVectorStoreTest {
         assertEquals("Article A", results[0].content)
         assertEquals("1", results[0].id)
     }
+    }
 
     @Test
-    fun `delete removes specific vectors`() = runBlocking {
+    fun `delete removes specific vectors`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("test", listOf(
@@ -61,9 +64,10 @@ class InMemoryVectorStoreTest {
         assertEquals(1, results.size)
         assertEquals("Doc B", results[0].content)
     }
+    }
 
     @Test
-    fun `listCollections returns collection names`() = runBlocking {
+    fun `listCollections returns collection names`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("alpha", listOf(VectorEntry("1", floatArrayOf(1f), "A")))
@@ -72,9 +76,10 @@ class InMemoryVectorStoreTest {
         val collections = store.listCollections()
         assertEquals(listOf("alpha", "beta"), collections)
     }
+    }
 
     @Test
-    fun `cosine similarity of orthogonal vectors`() = runBlocking {
+    fun `cosine similarity of orthogonal vectors`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("test", listOf(
@@ -86,9 +91,10 @@ class InMemoryVectorStoreTest {
         assertEquals(1, results.size)
         assertTrue(results[0].score <= 0.01)
     }
+    }
 
     @Test
-    fun `search result includes id`() = runBlocking {
+    fun `search result includes id`() { runBlocking {
         val store = InMemoryVectorStore()
 
         store.upsert("test", listOf(
@@ -98,5 +104,6 @@ class InMemoryVectorStoreTest {
         val results = store.search("test", floatArrayOf(1f, 0f), topK = 5)
         assertEquals(1, results.size)
         assertEquals("my-id-42", results[0].id)
+    }
     }
 }

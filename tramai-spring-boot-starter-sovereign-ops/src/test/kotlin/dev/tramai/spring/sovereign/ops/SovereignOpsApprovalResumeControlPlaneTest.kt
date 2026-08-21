@@ -30,7 +30,7 @@ class SovereignOpsApprovalResumeControlPlaneTest {
     private val clock: Clock = Clock.fixed(now, ZoneOffset.UTC)
 
     @Test
-    fun `resume approved approval returns Resumed with workflow result`() = runBlocking {
+    fun `resume approved approval returns Resumed with workflow result`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -67,9 +67,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume missing approval returns NotFound`() = runBlocking {
+    fun `resume missing approval returns NotFound`() { runBlocking {
         val controlPlane = SovereignOpsApprovalResumeControlPlane(
             approvalStore = ResumeMutableApprovalStore(),
             approvalContinuationStore = ResumeMutableApprovalContinuationStore(),
@@ -81,9 +82,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
 
         assertThat(result).isEqualTo(ApprovalResumeResult.NotFound(ApprovalId("approval-404")))
     }
+    }
 
     @Test
-    fun `resume pending approval returns NotApproved`() = runBlocking {
+    fun `resume pending approval returns NotApproved`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approval("approval-1", ApprovalStatus.PENDING)),
         )
@@ -100,9 +102,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ApprovalResumeResult.NotApproved(ApprovalId("approval-1"), ApprovalStatus.PENDING),
         )
     }
+    }
 
     @Test
-    fun `resume denied approval returns NotApproved`() = runBlocking {
+    fun `resume denied approval returns NotApproved`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approval("approval-1", ApprovalStatus.DENIED, version = 1L)),
         )
@@ -119,9 +122,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ApprovalResumeResult.NotApproved(ApprovalId("approval-1"), ApprovalStatus.DENIED),
         )
     }
+    }
 
     @Test
-    fun `resume expired pending approval returns NotApproved while approved expired approval can still resume`() = runBlocking {
+    fun `resume expired pending approval returns NotApproved while approved expired approval can still resume`() { runBlocking {
         val pendingApprovalStore = ResumeMutableApprovalStore(
             mutableMapOf(
                 "pending-expired" to approval(
@@ -169,9 +173,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume missing continuation returns Conflict`() = runBlocking {
+    fun `resume missing continuation returns Conflict`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -191,9 +196,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume completed continuation returns AlreadyCompleted`() = runBlocking {
+    fun `resume completed continuation returns AlreadyCompleted`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -213,9 +219,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
 
         assertThat(result).isEqualTo(ApprovalResumeResult.AlreadyCompleted(ApprovalId("approval-1")))
     }
+    }
 
     @Test
-    fun `resume claimed continuation returns Conflict`() = runBlocking {
+    fun `resume claimed continuation returns Conflict`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -244,9 +251,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume expired continuation returns Conflict`() = runBlocking {
+    fun `resume expired continuation returns Conflict`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -273,9 +281,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume cancelled continuation returns Conflict`() = runBlocking {
+    fun `resume cancelled continuation returns Conflict`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -302,9 +311,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `resume with invalid resume token returns Conflict`() = runBlocking {
+    fun `resume with invalid resume token returns Conflict`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -329,9 +339,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `runtime exception returns Failed without deleting continuation`() = runBlocking {
+    fun `runtime exception returns Failed without deleting continuation`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -355,9 +366,10 @@ class SovereignOpsApprovalResumeControlPlaneTest {
         )
         assertThat(continuationStore.get("approval-1")).isEqualTo(pendingContinuation("approval-1"))
     }
+    }
 
     @Test
-    fun `cancellation exception is rethrown`() = runBlocking {
+    fun `cancellation exception is rethrown`() { runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),
         )
@@ -374,6 +386,7 @@ class SovereignOpsApprovalResumeControlPlaneTest {
         assertThatThrownBy {
             runBlocking { controlPlane.resume(resumeCommand("approval-1")) }
         }.isInstanceOf(CancellationException::class.java)
+    }
     }
 
     private fun resumeCommand(approvalId: String): ApprovalResumeCommand =

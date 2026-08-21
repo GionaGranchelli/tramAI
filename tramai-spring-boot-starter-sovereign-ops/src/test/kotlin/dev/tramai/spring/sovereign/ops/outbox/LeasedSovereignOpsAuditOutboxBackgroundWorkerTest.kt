@@ -57,7 +57,7 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
     }
 
     @Test
-    fun `acquired lease runs delegate`() = runBlocking {
+    fun `acquired lease runs delegate`() { runBlocking {
         leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.Acquired(
             SovereignOpsWorkerLease(
                 leaseName = "test-lease",
@@ -73,9 +73,10 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
         assertThat(operations.recoverCalled).isTrue
         assertThat(summary.skipped).isNull()
     }
+    }
 
     @Test
-    fun `already owned lease runs delegate`() = runBlocking {
+    fun `already owned lease runs delegate`() { runBlocking {
         leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.AlreadyOwned(
             SovereignOpsWorkerLease(
                 leaseName = "test-lease",
@@ -91,9 +92,10 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
         assertThat(operations.recoverCalled).isTrue
         assertThat(summary.skipped).isNull()
     }
+    }
 
     @Test
-    fun `held by other does not invoke delegate`() = runBlocking {
+    fun `held by other does not invoke delegate`() { runBlocking {
         leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.HeldByOther(
             SovereignOpsWorkerLease(
                 leaseName = "test-lease",
@@ -112,9 +114,10 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
         assertThat(summary.recovered).isNull()
         assertThat(summary.dispatched).isNull()
     }
+    }
 
     @Test
-    fun `heartbeat is called during run`() = runBlocking {
+    fun `heartbeat is called during run`() { runBlocking {
         leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.Acquired(
             SovereignOpsWorkerLease(
                 leaseName = "test-lease",
@@ -132,9 +135,10 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
         worker().runOnce()
         assertThat(leaseStore.heartbeatCalled).isTrue
     }
+    }
 
     @Test
-    fun `lost lease during run cancels delegate`() = runBlocking {
+    fun `lost lease during run cancels delegate`() { runBlocking {
         leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.Acquired(
             SovereignOpsWorkerLease(
                 leaseName = "test-lease",
@@ -165,6 +169,7 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
 
         assertThat(thrown.message).contains("tramai-sovereign-ops-worker-lease-lost")
         assertThat(cancelledDuringRun).isTrue()
+    }
     }
 
     // ── Fakes ──────────────────────────────────────────────────────────

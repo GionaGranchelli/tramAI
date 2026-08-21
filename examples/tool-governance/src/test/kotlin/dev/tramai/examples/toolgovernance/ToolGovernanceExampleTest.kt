@@ -138,7 +138,7 @@ class ToolGovernanceExampleTest {
     // ── Test 1: ALLOW scenario (customer_lookup) ─────────────────────────
 
     @Test
-    fun `customer lookup tool is allowed at all enforcement points`() = runTest {
+    fun `customer lookup tool is allowed at all enforcement points`() { runTest {
         val (engine, store, tool, streamId) = allowFixture()
         val service = engine.create<SingleToolService>()
         val lookupTool = tool as CustomerLookupTool
@@ -171,11 +171,12 @@ class ToolGovernanceExampleTest {
         assertTrue(allowRecords.isNotEmpty(), "Must have tool.permission records for customer_lookup")
         assertEquals("tool.permission", allowRecords.first().eventType)
     }
+    }
 
     // ── Test 2: DENY scenario (account_delete) ───────────────────────────
 
     @Test
-    fun `account delete tool is denied at execution`() = runTest {
+    fun `account delete tool is denied at execution`() { runTest {
         val (engine, store, tool, streamId) = denyFixture()
         val service = engine.create<DeleteToolService>()
         val deleteTool = tool as AccountDeleteTool
@@ -213,11 +214,12 @@ class ToolGovernanceExampleTest {
         assertEquals("tool.permission", denyRecords.first().eventType)
         assertEquals("BEFORE_TOOL_EXECUTION", denyRecords.first().metadata["enforcementPoint"])
     }
+    }
 
     // ── Test 3: REQUIRE_APPROVAL scenario (payment) ──────────────────────
 
     @Test
-    fun `payment tool requires approval at execution`() = runTest {
+    fun `payment tool requires approval at execution`() { runTest {
         val (engine, store, tool, streamId) = requireApprovalFixture()
         val service = engine.create<PaymentToolService>()
         val paymentTool = tool as PaymentTool
@@ -256,11 +258,12 @@ class ToolGovernanceExampleTest {
         assertEquals("tool.permission", requireApprovalRecords.first().eventType)
         assertEquals("BEFORE_TOOL_EXECUTION", requireApprovalRecords.first().metadata["enforcementPoint"])
     }
+    }
 
     // ── Test 4: Tool events excluded from policy.decision evidence ───────
 
     @Test
-    fun `tool enforcement events are excluded from policy decision evidence`() = runTest {
+    fun `tool enforcement events are excluded from policy decision evidence`() { runTest {
         val (engine, store, tool, streamId) = allowFixture()
         val service = engine.create<SingleToolService>()
 
@@ -290,11 +293,12 @@ class ToolGovernanceExampleTest {
             "Every tool audit event must appear in tool.permission evidence"
         )
     }
+    }
 
     // ── Test 5: Evidence isolation across three tools ────────────────────
 
     @Test
-    fun `three tools produce distinct audit streams with correct evidence`() = runTest {
+    fun `three tools produce distinct audit streams with correct evidence`() { runTest {
         // Run all three scenarios
         val (engine1, store1, _, streamId1) = allowFixture()
         val service1 = engine1.create<SingleToolService>()
@@ -326,11 +330,12 @@ class ToolGovernanceExampleTest {
         val toolRecords3 = toolExporter.export(events3)
         assertTrue(toolRecords3.any { it.decision.kind == "REQUIRE_APPROVAL" && it.metadata["toolName"] == "payment" })
     }
+    }
 
     // ── Test 6: Provider not called again after denial ───────────────────
 
     @Test
-    fun `provider is not called again after execution denial`() = runTest {
+    fun `provider is not called again after execution denial`() { runTest {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val tool = AccountDeleteTool()
@@ -357,6 +362,7 @@ class ToolGovernanceExampleTest {
             // expected
         }
         assertEquals(1, provider.callCount.get(), "Provider must be called exactly once")
+    }
     }
 
     // ── Test 7: Customer lookup tool security metadata is correct ────────
@@ -398,7 +404,7 @@ class ToolGovernanceExampleTest {
     // ── Test 11: Sensitive arguments never appear in serialized evidence ──
 
     @Test
-    fun `sensitive tool arguments never appear in serialized evidence`() = runTest {
+    fun `sensitive tool arguments never appear in serialized evidence`() { runTest {
         // Configure a fixture with deliberately sensitive arguments
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
@@ -449,5 +455,6 @@ class ToolGovernanceExampleTest {
         assertFalse(jsonlLines.contains("secret-value"), "Evidence must not contain raw API key")
         assertFalse(jsonlLines.contains("5000"), "Evidence must not contain raw amount")
         assertFalse(jsonlLines.contains("\"account\""), "Evidence must not contain the substring 'account' in raw form")
+    }
     }
 }

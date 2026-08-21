@@ -30,7 +30,7 @@ class TramaiWorkerCancellationContractTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `graceful shutdown finishes running work within drain window`() = runBlocking {
+    fun `graceful shutdown finishes running work within drain window`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val stepStarted = CompletableDeferred<Unit>()
@@ -83,13 +83,14 @@ class TramaiWorkerCancellationContractTest {
             leaseStore.currentLease(workflow.name, runId),
         ).isNull()
     }
+    }
 
     // -------------------------------------------------------------------------
     // Test 2: Drain timeout cancels running step – CANCELLED not FAILED
     // -------------------------------------------------------------------------
 
     @Test
-    fun `drain timeout cancels running step as CANCELLED not FAILED`() = runBlocking {
+    fun `drain timeout cancels running step as CANCELLED not FAILED`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val workflow = workerWorkflow("drain-cancelled") {
@@ -127,13 +128,14 @@ class TramaiWorkerCancellationContractTest {
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
         assertThat(worker.latestFailure(runId)).isNull()
     }
+    }
 
     // -------------------------------------------------------------------------
     // Test 3: Observer throws during abandonment – cancellation still survives
     // -------------------------------------------------------------------------
 
     @Test
-    fun `observer throw during abandonment does not replace cancellation`() = runBlocking {
+    fun `observer throw during abandonment does not replace cancellation`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val workflow = workerWorkflow("observer-throws") {
@@ -181,13 +183,14 @@ class TramaiWorkerCancellationContractTest {
         // No normal failure was recorded
         assertThat(worker.latestFailure(runId)).isNull()
     }
+    }
 
     // -------------------------------------------------------------------------
     // Test 4: Poll job cancellation does not trigger onPollFailed
     // -------------------------------------------------------------------------
 
     @Test
-    fun `poll job cancellation does not trigger onPollFailed`() = runBlocking {
+    fun `poll job cancellation does not trigger onPollFailed`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val checkpointCatalog = BlockingCheckpointCatalog()
@@ -222,13 +225,14 @@ class TramaiWorkerCancellationContractTest {
 
         assertThat(observer.pollFailedCount).isZero()
     }
+    }
 
     // -------------------------------------------------------------------------
     // Test 5: Lease-renewal cancellation does not trigger onLeaseRenewalFailed
     // -------------------------------------------------------------------------
 
     @Test
-    fun `lease renewal cancellation does not trigger onLeaseRenewalFailed`() = runBlocking {
+    fun `lease renewal cancellation does not trigger onLeaseRenewalFailed`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val delegateLeaseStore = InMemoryWorkflowLeaseStore()
         val leaseStore = BlockingRenewLeaseStore(delegateLeaseStore)
@@ -293,6 +297,7 @@ class TramaiWorkerCancellationContractTest {
         assertThat(
             delegateLeaseStore.currentLease(workflow.name, runId),
         ).isNull()
+    }
     }
 
     // -------------------------------------------------------------------------

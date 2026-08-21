@@ -49,7 +49,7 @@ class TramaiMcpServerTest @Autowired constructor(
     private val objectMapper: ObjectMapper,
 ) {
     @Test
-    fun `mcp client discovers tools and list_workflows tool works`() = runBlocking {
+    fun `mcp client discovers tools and list_workflows tool works`() { runBlocking {
         val clientToServer = PipedOutputStream()
         val serverInput = PipedInputStream(clientToServer)
         val serverToClient = PipedOutputStream()
@@ -86,6 +86,7 @@ class TramaiMcpServerTest @Autowired constructor(
 
         val workflows = client.callTool("list_workflows", emptyMap())
         assertThat(workflows.structuredContent.toString()).contains("invoice")
+    }
     }
 
     @Test

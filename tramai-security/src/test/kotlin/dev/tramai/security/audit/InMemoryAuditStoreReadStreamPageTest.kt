@@ -36,45 +36,50 @@ class InMemoryAuditStoreReadStreamPageTest {
     }
 
     @Test
-    fun `readStreamPage returns first page when cursor is null`() = runTest {
+    fun `readStreamPage returns first page when cursor is null`() { runTest {
         val store = createStoreWithEvents(10)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = null, limit = 5)
 
         assertEquals(5, page.size)
         assertEquals(listOf(1L, 2L, 3L, 4L, 5L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage returns events after cursor`() = runTest {
+    fun `readStreamPage returns events after cursor`() { runTest {
         val store = createStoreWithEvents(10)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = 5L, limit = 5)
 
         assertEquals(5, page.size)
         assertEquals(listOf(6L, 7L, 8L, 9L, 10L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage respects limit`() = runTest {
+    fun `readStreamPage respects limit`() { runTest {
         val store = createStoreWithEvents(100)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = null, limit = 10)
 
         assertEquals(10, page.size)
     }
+    }
 
     @Test
-    fun `readStreamPage returns empty list after last event`() = runTest {
+    fun `readStreamPage returns empty list after last event`() { runTest {
         val store = createStoreWithEvents(5)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = 5L, limit = 10)
 
         assertTrue(page.isEmpty())
     }
+    }
 
     @Test
-    fun `readStreamPage returns empty list for unknown stream`() = runTest {
+    fun `readStreamPage returns empty list for unknown stream`() { runTest {
         val store = createStoreWithEvents(5)
         val page = store.readStreamPage("unknown-stream", afterSequenceNumber = null, limit = 10)
 
         assertTrue(page.isEmpty())
+    }
     }
 
     @Test
@@ -108,16 +113,17 @@ class InMemoryAuditStoreReadStreamPageTest {
     }
 
     @Test
-    fun `readStreamPage with cursor returns partial page at end`() = runTest {
+    fun `readStreamPage with cursor returns partial page at end`() { runTest {
         val store = createStoreWithEvents(10)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = 8L, limit = 5)
 
         assertEquals(2, page.size)
         assertEquals(listOf(9L, 10L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage returns valid event hashes`() = runTest {
+    fun `readStreamPage returns valid event hashes`() { runTest {
         val store = createStoreWithEvents(3)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = null, limit = 3)
 
@@ -126,9 +132,10 @@ class InMemoryAuditStoreReadStreamPageTest {
             assertEquals(event.eventHash, event.copy(eventHash = "").calculateHash())
         }
     }
+    }
 
     @Test
-    fun `readStreamPage results are consistent with readStream`() = runTest {
+    fun `readStreamPage results are consistent with readStream`() { runTest {
         val store = createStoreWithEvents(20)
         val full = store.readStream("test-stream")
         val page = store.readStreamPage("test-stream", afterSequenceNumber = 5L, limit = 10)
@@ -136,23 +143,26 @@ class InMemoryAuditStoreReadStreamPageTest {
         assertEquals(full.drop(5).take(10).map { it.sequenceNumber }, page.map { it.sequenceNumber })
         assertEquals(full.drop(5).take(10).map { it.eventId }, page.map { it.eventId })
     }
+    }
 
     @Test
-    fun `readStream returns latestEvent unchanged`() = runTest {
+    fun `readStream returns latestEvent unchanged`() { runTest {
         val store = createStoreWithEvents(5)
         val latest = store.latestEvent("test-stream")
         assertEquals(5L, latest?.sequenceNumber)
     }
+    }
 
     @Test
-    fun `latestEvent returns null for empty stream`() = runTest {
+    fun `latestEvent returns null for empty stream`() { runTest {
         val store = InMemoryAuditStore()
         val latest = store.latestEvent("empty-stream")
         assertEquals(null, latest)
     }
+    }
 
     @Test
-    fun `separate streams have independent pagination`() = runTest {
+    fun `separate streams have independent pagination`() { runTest {
         val store = InMemoryAuditStore()
         val engine = AuditEngine(store, clock = clock)
 
@@ -177,5 +187,6 @@ class InMemoryAuditStoreReadStreamPageTest {
         val pageB = store.readStreamPage("stream-b", afterSequenceNumber = 2L, limit = 10)
         assertEquals(3, pageB.size)
         assertEquals(listOf(3L, 4L, 5L), pageB.map { it.sequenceNumber })
+    }
     }
 }

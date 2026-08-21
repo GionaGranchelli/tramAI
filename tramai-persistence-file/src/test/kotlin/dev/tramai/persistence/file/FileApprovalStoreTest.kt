@@ -69,7 +69,7 @@ class FileApprovalStoreTest {
     }
 
     @Test
-    fun `create and reopen`() = runBlocking {
+    fun `create and reopen`() { runBlocking {
         val store1 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -105,9 +105,10 @@ class FileApprovalStoreTest {
         assertEquals(0L, retrieved.version)
         assertEquals("alice", retrieved.requestedBy)
     }
+    }
 
     @Test
-    fun `transition and reopen`() = runBlocking {
+    fun `transition and reopen`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -151,9 +152,10 @@ class FileApprovalStoreTest {
         assertEquals(1L, retrieved.version)
         assertEquals("carol", retrieved.decidedBy)
     }
+    }
 
     @Test
-    fun `duplicate create rejected`() = runBlocking {
+    fun `duplicate create rejected`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -161,10 +163,10 @@ class FileApprovalStoreTest {
             binding = ApprovalBinding(
                 workflowRunId = "wf-3",
                 toolName = "deleter",
-                argumentsDigest = makeDigest("g".repeat(64)),
+                argumentsDigest = makeDigest("b".repeat(64)),
                 policyVersion = "v1",
-                workflowDigest = makeDigest("h".repeat(64)),
-                approvalTokenDigest = makeDigest("i".repeat(64)),
+                workflowDigest = makeDigest("c".repeat(64)),
+                approvalTokenDigest = makeDigest("e".repeat(64)),
             ),
             status = ApprovalStatus.PENDING,
             requestedBy = "dave",
@@ -183,9 +185,10 @@ class FileApprovalStoreTest {
             store.create(request)
         }
     }
+    }
 
     @Test
-    fun `stale expected version rejected`() = runBlocking {
+    fun `stale expected version rejected`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -193,10 +196,10 @@ class FileApprovalStoreTest {
             binding = ApprovalBinding(
                 workflowRunId = "wf-4",
                 toolName = "checker",
-                argumentsDigest = makeDigest("j".repeat(64)),
+                argumentsDigest = makeDigest("b".repeat(64)),
                 policyVersion = "v1",
-                workflowDigest = makeDigest("k".repeat(64)),
-                approvalTokenDigest = makeDigest("l".repeat(64)),
+                workflowDigest = makeDigest("c".repeat(64)),
+                approvalTokenDigest = makeDigest("e".repeat(64)),
             ),
             status = ApprovalStatus.PENDING,
             requestedBy = "eve",
@@ -226,9 +229,10 @@ class FileApprovalStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `wrong token digest rejected`() = runBlocking {
+    fun `wrong token digest rejected`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -236,10 +240,10 @@ class FileApprovalStoreTest {
             binding = ApprovalBinding(
                 workflowRunId = "wf-5",
                 toolName = "consumer",
-                argumentsDigest = makeDigest("m".repeat(64)),
+                argumentsDigest = makeDigest("b".repeat(64)),
                 policyVersion = "v1",
-                workflowDigest = makeDigest("n".repeat(64)),
-                approvalTokenDigest = makeDigest("o".repeat(64)),
+                workflowDigest = makeDigest("c".repeat(64)),
+                approvalTokenDigest = makeDigest("e".repeat(64)),
             ),
             status = ApprovalStatus.PENDING,
             requestedBy = "hank",
@@ -260,7 +264,7 @@ class FileApprovalStoreTest {
             transition = ApprovalTransition.Approve(decidedBy = "ivy"),
         )
 
-        val wrongDigest = makeDigest("z".repeat(64))
+        val wrongDigest = makeDigest("d".repeat(64))
         assertThrows<ApprovalStoreTokenRejectedException> {
             store.consumeApprovedOrReplay(
                 approvalId = "test-token-1",
@@ -270,9 +274,10 @@ class FileApprovalStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `exact replay after reopen succeeds without mutation`() = runBlocking {
+    fun `exact replay after reopen succeeds without mutation`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val tokenDigest = makeDigest("f".repeat(64))
@@ -327,20 +332,21 @@ class FileApprovalStoreTest {
         assertEquals(receipt1.request.consumedAt, receipt2.request.consumedAt)
         assertEquals(receipt1.request.version, receipt2.request.version)
     }
+    }
 
     @Test
-    fun `non-exact replay after reopen rejected`() = runBlocking {
+    fun `non-exact replay after reopen rejected`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
-        val tokenDigest = makeDigest("s".repeat(64))
+        val tokenDigest = makeDigest("b".repeat(64))
         val request = ApprovalRequest(
             approvalId = "test-bad-replay-1",
             binding = ApprovalBinding(
                 workflowRunId = "wf-7",
                 toolName = "bad-replay",
-                argumentsDigest = makeDigest("t".repeat(64)),
+                argumentsDigest = makeDigest("c".repeat(64)),
                 policyVersion = "v1",
-                workflowDigest = makeDigest("u".repeat(64)),
+                workflowDigest = makeDigest("e".repeat(64)),
                 approvalTokenDigest = tokenDigest,
             ),
             status = ApprovalStatus.PENDING,
@@ -381,9 +387,10 @@ class FileApprovalStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `concurrent mutation has exactly one winner`() = runBlocking {
+    fun `concurrent mutation has exactly one winner`() { runBlocking {
         val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
@@ -452,5 +459,6 @@ class FileApprovalStoreTest {
             finalRequest.status == ApprovalStatus.APPROVED || finalRequest.status == ApprovalStatus.DENIED,
             "Status must be either APPROVED or DENIED, got ${finalRequest.status}",
         )
+    }
     }
 }

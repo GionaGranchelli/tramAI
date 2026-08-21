@@ -21,7 +21,7 @@ import org.assertj.core.api.Assertions.assertThatIllegalStateException
 class FileSystemModelArtifactVerifierTest {
 
     @Test
-    fun `valid single file passes`() = runBlocking {
+    fun `valid single file passes`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val content = "hello verifier".toByteArray(StandardCharsets.UTF_8)
         root.resolve("model.bin").writeBytes(content)
@@ -43,9 +43,10 @@ class FileSystemModelArtifactVerifierTest {
         assertThat(receipt?.verifiedAt).isEqualTo(clock.instant())
         assertThat(receipt?.manifestDigest).isEqualTo(manifestDigest(manifest))
     }
+    }
 
     @Test
-    fun `modified byte rejects with digest mismatch`() = runBlocking {
+    fun `modified byte rejects with digest mismatch`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val path = root.resolve("model.bin")
         path.writeBytes("original".toByteArray(StandardCharsets.UTF_8))
@@ -60,9 +61,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-digest-mismatch")
     }
+    }
 
     @Test
-    fun `missing file rejects with file not found`() = runBlocking {
+    fun `missing file rejects with file not found`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val path = createFile(root, "missing.bin", byteArrayOf(1))
         val manifest = manifestFor(root, "missing.bin")
@@ -76,9 +78,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-not-found")
     }
+    }
 
     @Test
-    fun `empty file passes`() = runBlocking {
+    fun `empty file passes`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         root.resolve("empty.bin").writeBytes(byteArrayOf())
         val manifest = manifestFor(root, "empty.bin")
@@ -88,9 +91,10 @@ class FileSystemModelArtifactVerifierTest {
         assertThat(receipt?.totalSizeBytes).isEqualTo(0)
         assertThat(receipt?.artifactCount).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `file size mismatch rejects`() = runBlocking {
+    fun `file size mismatch rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val path = root.resolve("model.bin")
         path.writeBytes("abc".toByteArray(StandardCharsets.UTF_8))
@@ -111,9 +115,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-size-mismatch")
     }
+    }
 
     @Test
-    fun `directory substitution rejects`() = runBlocking {
+    fun `directory substitution rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         root.resolve("model-dir").createDirectories()
         val manifest = manifestWithFile(
@@ -132,9 +137,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-directory-substituted-for-file")
     }
+    }
 
     @Test
-    fun `symlink within allowed root rejects`() = runBlocking {
+    fun `symlink within allowed root rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val target = createFile(root, "real/model.bin", "allowed".toByteArray(StandardCharsets.UTF_8))
         val link = root.resolve("links/model.bin")
@@ -156,9 +162,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-symlink-rejected")
     }
+    }
 
     @Test
-    fun `symlink escaping root rejects`() = runBlocking {
+    fun `symlink escaping root rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val outsideRoot = Files.createTempDirectory("artifact-outside")
         val target = createFile(outsideRoot, "escape.bin", "escape".toByteArray(StandardCharsets.UTF_8))
@@ -179,9 +186,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-symlink-rejected")
     }
+    }
 
     @Test
-    fun `parent symlink rejects when target stays within allowed root`() = runBlocking {
+    fun `parent symlink rejects when target stays within allowed root`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val targetDir = root.resolve("actual")
         Files.createDirectories(targetDir)
@@ -203,9 +211,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-file-symlink-rejected")
     }
+    }
 
     @Test
-    fun `digest optional mode verifies bytes without registry pinned digest`() = runBlocking {
+    fun `digest optional mode verifies bytes without registry pinned digest`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val content = "transitional bytes".toByteArray(StandardCharsets.UTF_8)
         root.resolve("model.bin").writeBytes(content)
@@ -219,9 +228,10 @@ class FileSystemModelArtifactVerifierTest {
         assertThat(receipt?.totalSizeBytes).isEqualTo(content.size.toLong())
         assertThat(receipt?.manifestDigest).isEqualTo(manifestDigest(manifest))
     }
+    }
 
     @Test
-    fun `total size overflow rejects`() = runBlocking {
+    fun `total size overflow rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val firstContent = byteArrayOf(1)
         val secondContent = byteArrayOf(2)
@@ -255,9 +265,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-total-size-overflow")
     }
+    }
 
     @Test
-    fun `unknown manifest returns null`() = runBlocking {
+    fun `unknown manifest returns null`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val manifest = manifestForExistingBytes(
             relativePath = "model.bin",
@@ -273,9 +284,10 @@ class FileSystemModelArtifactVerifierTest {
 
         assertThat(result).isNull()
     }
+    }
 
     @Test
-    fun `identity drift rejects`() = runBlocking {
+    fun `identity drift rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val manifest = manifestForExistingBytes(
             relativePath = "model.bin",
@@ -292,9 +304,10 @@ class FileSystemModelArtifactVerifierTest {
             }
             .withMessage("artifact-manifest-identity-drift")
     }
+    }
 
     @Test
-    fun `aggregate digest mismatch rejects`() = runBlocking {
+    fun `aggregate digest mismatch rejects`() { runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val manifest = manifestForExistingBytes(
             relativePath = "model.bin",
@@ -312,6 +325,7 @@ class FileSystemModelArtifactVerifierTest {
                 }
             }
             .withMessage("artifact-aggregate-digest-mismatch")
+    }
     }
 
     private fun verifier(

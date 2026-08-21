@@ -515,7 +515,7 @@ class TramaiWorkerTest {
     }
 
     @Test
-    fun `shutdown returns after drain timeout when a step ignores cancellation`() = runBlocking {
+    fun `shutdown returns after drain timeout when a step ignores cancellation`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val workflow = workerWorkflow("drain-timeout") {
@@ -552,9 +552,10 @@ class TramaiWorkerTest {
             .isIn(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED)
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
     }
+    }
 
     @Test
-    fun `partition pinning distributes workflows by stable hash`() = runBlocking {
+    fun `partition pinning distributes workflows by stable hash`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
         val workflow = workerWorkflow("partitioned-work") {
@@ -597,6 +598,7 @@ class TramaiWorkerTest {
             worker0.shutdown()
             worker1.shutdown()
         }
+    }
     }
 
     @Test
@@ -656,7 +658,7 @@ class TramaiWorkerTest {
     }
 
     @Test
-    fun `lease renewal retries transient failures without abandoning the execution`() = runBlocking {
+    fun `lease renewal retries transient failures without abandoning the execution`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val delegateLeaseStore = InMemoryWorkflowLeaseStore()
         val leaseStore = FlakyRenewLeaseStore(delegateLeaseStore)
@@ -686,9 +688,10 @@ class TramaiWorkerTest {
             worker.shutdown()
         }
     }
+    }
 
     @Test
-    fun `concurrent shutdown only unregisters the worker once`() = runBlocking {
+    fun `concurrent shutdown only unregisters the worker once`() { runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = CountingWorkerRegistryLeaseStore(InMemoryWorkflowLeaseStore())
         val workflow = workerWorkflow("shutdown-once") {
@@ -713,6 +716,7 @@ class TramaiWorkerTest {
 
         assertThat(leaseStore.unregisterCalls.get()).isEqualTo(1)
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
     }
 
     @Test

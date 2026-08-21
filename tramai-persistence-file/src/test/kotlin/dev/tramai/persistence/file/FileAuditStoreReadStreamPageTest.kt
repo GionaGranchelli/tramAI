@@ -95,7 +95,7 @@ class FileAuditStoreReadStreamPageTest {
         }
 
     @Test
-    fun `readStreamPage returns first page when cursor is null`() = runBlocking {
+    fun `readStreamPage returns first page when cursor is null`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-first", 10)
 
@@ -104,9 +104,10 @@ class FileAuditStoreReadStreamPageTest {
         assertEquals(5, page.size)
         assertEquals(listOf(1L, 2L, 3L, 4L, 5L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage returns events after cursor`() = runBlocking {
+    fun `readStreamPage returns events after cursor`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-after", 10)
 
@@ -115,9 +116,10 @@ class FileAuditStoreReadStreamPageTest {
         assertEquals(5, page.size)
         assertEquals(listOf(6L, 7L, 8L, 9L, 10L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage respects limit`() = runBlocking {
+    fun `readStreamPage respects limit`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-limit", 50)
 
@@ -125,9 +127,10 @@ class FileAuditStoreReadStreamPageTest {
 
         assertEquals(7, page.size)
     }
+    }
 
     @Test
-    fun `readStreamPage returns empty list after last event`() = runBlocking {
+    fun `readStreamPage returns empty list after last event`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-end", 5)
 
@@ -135,18 +138,20 @@ class FileAuditStoreReadStreamPageTest {
 
         assertTrue(page.isEmpty())
     }
+    }
 
     @Test
-    fun `readStreamPage returns empty list for unknown stream`() = runBlocking {
+    fun `readStreamPage returns empty list for unknown stream`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
 
         val page = store.readStreamPage("unknown-stream", afterSequenceNumber = null, limit = 10)
 
         assertTrue(page.isEmpty())
     }
+    }
 
     @Test
-    fun `readStreamPage results consistent with readStream`() = runBlocking {
+    fun `readStreamPage results consistent with readStream`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-consistent", 20)
 
@@ -156,9 +161,10 @@ class FileAuditStoreReadStreamPageTest {
         assertEquals(full.drop(5).take(10).map { it.sequenceNumber }, page.map { it.sequenceNumber })
         assertEquals(full.drop(5).take(10).map { it.eventId }, page.map { it.eventId })
     }
+    }
 
     @Test
-    fun `readStreamPage returns valid event hashes`() = runBlocking {
+    fun `readStreamPage returns valid event hashes`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-hash", 3)
 
@@ -169,36 +175,40 @@ class FileAuditStoreReadStreamPageTest {
             assertEquals(event.eventHash, event.copy(eventHash = "").calculateHash())
         }
     }
+    }
 
     @Test
-    fun `readStreamPage rejects zero limit`() = runBlocking {
+    fun `readStreamPage rejects zero limit`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             store.readStreamPage("test-stream", afterSequenceNumber = null, limit = 0)
         }
         assertTrue(ex.message?.contains("invalid-limit") == true)
     }
+    }
 
     @Test
-    fun `readStreamPage rejects negative limit`() = runBlocking {
+    fun `readStreamPage rejects negative limit`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             store.readStreamPage("test-stream", afterSequenceNumber = null, limit = -1)
         }
         assertTrue(ex.message?.contains("invalid-limit") == true)
     }
+    }
 
     @Test
-    fun `readStreamPage rejects negative cursor`() = runBlocking {
+    fun `readStreamPage rejects negative cursor`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             store.readStreamPage("test-stream", afterSequenceNumber = -1L, limit = 5)
         }
         assertTrue(ex.message?.contains("invalid-cursor") == true)
     }
+    }
 
     @Test
-    fun `readStreamPage stops after limit even with more events`() = runBlocking {
+    fun `readStreamPage stops after limit even with more events`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-stop", 100)
 
@@ -207,9 +217,10 @@ class FileAuditStoreReadStreamPageTest {
         assertEquals(3, page.size)
         assertEquals(listOf(1L, 2L, 3L), page.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `separate streams have independent pagination`() = runBlocking {
+    fun `separate streams have independent pagination`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-indep-a", 3)
         populateStream(store, "page-indep-b", 5)
@@ -221,9 +232,10 @@ class FileAuditStoreReadStreamPageTest {
         assertEquals(3, pageB.size)
         assertEquals(listOf(3L, 4L, 5L), pageB.map { it.sequenceNumber })
     }
+    }
 
     @Test
-    fun `readStreamPage survives reopen`() = runBlocking {
+    fun `readStreamPage survives reopen`() { runBlocking {
         val store1 = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store1, "page-reopen", 10)
 
@@ -238,5 +250,6 @@ class FileAuditStoreReadStreamPageTest {
 
         val page3 = store2.readStreamPage("page-reopen", afterSequenceNumber = 10L, limit = 10)
         assertTrue(page3.isEmpty())
+    }
     }
 }

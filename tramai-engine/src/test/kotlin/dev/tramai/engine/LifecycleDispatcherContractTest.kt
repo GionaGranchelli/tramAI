@@ -58,7 +58,7 @@ class LifecycleDispatcherContractTest {
 
     @Test
     @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-    fun `pre-start cancellation never invokes provider and cancels the caller once`() = runBlocking {
+    fun `pre-start cancellation never invokes provider and cancels the caller once`() { runBlocking {
         val dispatcher = ControlledDispatcher()
         val providerCalls = AtomicInteger()
         val engine = TramaiEngine(ImmediateProvider(providerCalls), dispatcher)
@@ -80,6 +80,7 @@ class LifecycleDispatcherContractTest {
         assertThat(outcome.await().exceptionOrNull()).isInstanceOf(CancellationException::class.java)
         assertThat(providerCalls.get()).isZero()
         assertThat(activeInvocationCount(engine)).isZero()
+    }
     }
 
     private fun awaitUntil(timeout: Long, unit: TimeUnit, condition: () -> Boolean) {

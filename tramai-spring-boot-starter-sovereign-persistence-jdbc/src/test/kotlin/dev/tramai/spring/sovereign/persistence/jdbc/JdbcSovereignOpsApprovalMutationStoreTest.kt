@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.persistence.jdbc
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.exception.IllegalApprovalTransitionException
@@ -85,7 +86,7 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
     // ── Happy path ───────────────────────────────────────────────────
 
     @Test
-    fun `deny approval commits approval denial and pending outbox record atomically`() = runBlocking {
+    fun `deny approval commits approval denial and pending outbox record atomically`() { runBlocking {
         val approvalId = "approval-a"
         val expiresAt = BASE_NOW.plusSeconds(600) // far in the future
         insertApproval(approvalId, expiresAt = expiresAt)
@@ -112,11 +113,12 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectOutboxStatus(auditIntent.outboxId)).isEqualTo("PENDING")
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isEqualTo(1)
     }
+    }
 
     // ── Rollback guards ──────────────────────────────────────────────
 
     @Test
-    fun `outbox conflict prevents approval denial`() = runBlocking {
+    fun `outbox conflict prevents approval denial`() { runBlocking {
         val approvalId = "approval-b"
         val eventKey = "test-key-b"
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -140,9 +142,10 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(eventKey)).isEqualTo(1)
     }
+    }
 
     @Test
-    fun `approval version conflict rolls back outbox insert`() = runBlocking {
+    fun `approval version conflict rolls back outbox insert`() { runBlocking {
         val approvalId = "approval-c"
         val auditIntent = auditIntent(approvalId, "test-key-c")
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -165,9 +168,10 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     @Test
-    fun `non pending approval denial is rejected`() = runBlocking {
+    fun `non pending approval denial is rejected`() { runBlocking {
         val approvalId = "approval-d"
         val auditIntent = auditIntent(approvalId, "test-key-d")
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -189,9 +193,10 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     @Test
-    fun `payload codec failure rolls back approval mutation`() = runBlocking {
+    fun `payload codec failure rolls back approval mutation`() { runBlocking {
         val approvalId = "approval-e"
         val auditIntent = auditIntent(approvalId, "test-key-e")
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -225,11 +230,12 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     // ── Expiry guard (P1) ────────────────────────────────────────────
 
     @Test
-    fun `expired pending approval denial is rejected and no outbox is inserted`() = runBlocking {
+    fun `expired pending approval denial is rejected and no outbox is inserted`() { runBlocking {
         val approvalId = "approval-f"
         val auditIntent = auditIntent(approvalId, "test-key-f")
         // expiresAt is in the past relative to clock (BASE_NOW + 30s)
@@ -253,11 +259,12 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     // ── Metadata integrity (P2) ──────────────────────────────────────
 
     @Test
-    fun `malformed approval metadata fails closed and rolls back outbox insert`() = runBlocking {
+    fun `malformed approval metadata fails closed and rolls back outbox insert`() { runBlocking {
         val approvalId = "approval-g"
         val auditIntent = auditIntent(approvalId, "test-key-g")
         // Insert with '{}'::jsonb — missing binding, requestedBy, expiresAt, requestedAt
@@ -273,17 +280,18 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
                     auditIntent = auditIntent,
                 )
             }
-        }.isInstanceOf(IllegalStateException::class.java)
+        }.isInstanceOf(MissingKotlinParameterException::class.java)
 
         assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     // ── Actor/reason validation (P2) ─────────────────────────────────
 
     @Test
-    fun `invalid actor is rejected before mutation and no outbox is inserted`() = runBlocking {
+    fun `invalid actor is rejected before mutation and no outbox is inserted`() { runBlocking {
         val approvalId = "approval-h"
         val auditIntent = auditIntent(approvalId, "test-key-h")
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -306,9 +314,10 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+    }
 
     @Test
-    fun `oversized reason is rejected before mutation and no outbox is inserted`() = runBlocking {
+    fun `oversized reason is rejected before mutation and no outbox is inserted`() { runBlocking {
         val approvalId = "approval-i"
         val auditIntent = auditIntent(approvalId, "test-key-i")
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -332,6 +341,7 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
+    }
     }
 
     // ── Test infrastructure ──────────────────────────────────────────

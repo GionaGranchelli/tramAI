@@ -25,7 +25,7 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
     private val clock: Clock = Clock.fixed(now, ZoneOffset.UTC)
 
     @Test
-    fun `approve pending approval returns Approved`() = runBlocking {
+    fun `approve pending approval returns Approved`() { runBlocking {
         val store = MutableApprovalStore(mutableMapOf("approval-1" to pendingApproval("approval-1")))
         val mutationStore = StubApprovalMutationStore(store)
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(
@@ -43,9 +43,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(approved.decidedAt).isEqualTo(now)
         assertThat(approved.version).isEqualTo(1L)
     }
+    }
 
     @Test
-    fun `deny pending approval returns Denied`() = runBlocking {
+    fun `deny pending approval returns Denied`() { runBlocking {
         val store = MutableApprovalStore(mutableMapOf("approval-1" to pendingApproval("approval-1")))
         val mutationStore = StubApprovalMutationStore(store)
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(
@@ -63,9 +64,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
         assertThat(denied.decidedAt).isEqualTo(now)
         assertThat(denied.version).isEqualTo(1L)
     }
+    }
 
     @Test
-    fun `already approved returns AlreadyApproved`() = runBlocking {
+    fun `already approved returns AlreadyApproved`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1", "existing-reviewer", now.minusSeconds(60))),
         )
@@ -85,9 +87,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `already denied returns AlreadyDenied`() = runBlocking {
+    fun `already denied returns AlreadyDenied`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to deniedApproval("approval-1", "existing-reviewer", now.minusSeconds(60))),
         )
@@ -107,9 +110,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `expired approval returns Expired`() = runBlocking {
+    fun `expired approval returns Expired`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to pendingApproval("approval-1", expiresAt = now)),
         )
@@ -128,9 +132,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `already approved expired approval returns AlreadyApproved`() = runBlocking {
+    fun `already approved expired approval returns AlreadyApproved`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval(
                 approvalId = "approval-1",
@@ -154,9 +159,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `already denied expired approval returns AlreadyDenied`() = runBlocking {
+    fun `already denied expired approval returns AlreadyDenied`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to deniedApproval(
                 approvalId = "approval-1",
@@ -180,9 +186,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `missing approval returns NotFound`() = runBlocking {
+    fun `missing approval returns NotFound`() { runBlocking {
         val store = MutableApprovalStore()
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(
             approvalStore = store,
@@ -194,9 +201,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
 
         assertThat(result).isEqualTo(ApprovalDecisionResult.NotFound(ApprovalId("approval-404")))
     }
+    }
 
     @Test
-    fun `unauthorized actor returns Conflict`() = runBlocking {
+    fun `unauthorized actor returns Conflict`() { runBlocking {
         val store = MutableApprovalStore(mutableMapOf("approval-1" to pendingApproval("approval-1")))
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(
             approvalStore = store,
@@ -214,9 +222,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `approve on denied returns AlreadyDenied`() = runBlocking {
+    fun `approve on denied returns AlreadyDenied`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to deniedApproval("approval-1", "existing-reviewer", now.minusSeconds(60))),
         )
@@ -236,9 +245,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `deny on approved returns AlreadyApproved`() = runBlocking {
+    fun `deny on approved returns AlreadyApproved`() { runBlocking {
         val store = MutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1", "existing-reviewer", now.minusSeconds(60))),
         )
@@ -258,9 +268,10 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
             ),
         )
     }
+    }
 
     @Test
-    fun `version conflict at mutation store returns Conflict`() = runBlocking {
+    fun `version conflict at mutation store returns Conflict`() { runBlocking {
         val store = MutableApprovalStore(mutableMapOf("approval-1" to pendingApproval("approval-1")))
         val mutationStore = StubApprovalMutationStore(store)
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(
@@ -279,6 +290,7 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
                 reason = "tramai-sovereign-ops-approval-version-conflict",
             ),
         )
+    }
     }
 
     private fun decisionCommand(approvalId: String): ApprovalDecisionCommand =

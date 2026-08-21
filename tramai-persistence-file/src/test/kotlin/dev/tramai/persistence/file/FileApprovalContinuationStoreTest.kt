@@ -102,7 +102,7 @@ class FileApprovalContinuationStoreTest {
     }
 
     @Test
-    fun `create pending continuation and reopen`() = runBlocking {
+    fun `create pending continuation and reopen`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-reopen-1")
 
@@ -115,9 +115,10 @@ class FileApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.PENDING, retrieved.status)
         assertEquals(0L, retrieved.version)
     }
+    }
 
     @Test
-    fun `raw arguments absent from persisted bytes`() = runBlocking {
+    fun `raw arguments absent from persisted bytes`() { runBlocking {
         val store = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-secret-1", arguments = "super-secret-arg-value")
 
@@ -132,9 +133,10 @@ class FileApprovalContinuationStoreTest {
         // The argument content must not appear in plaintext in the envelope JSON
         assertEquals(false, envelopeJson.contains("super-secret-arg-value"))
     }
+    }
 
     @Test
-    fun `claim after reopen returns arguments once`() = runBlocking {
+    fun `claim after reopen returns arguments once`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val rawArgs = "simple-command"
         val (continuation, args) = createContinuation("cont-claim-1", arguments = rawArgs)
@@ -153,9 +155,10 @@ class FileApprovalContinuationStoreTest {
         assertEquals(rawArgs, claimed.arguments.reveal())
         assertEquals(1L, claimed.continuation.version)
     }
+    }
 
     @Test
-    fun `claim atomically removes persisted arguments`() = runBlocking {
+    fun `claim atomically removes persisted arguments`() { runBlocking {
         val store = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-atom-1", arguments = "transient-secret")
 
@@ -180,9 +183,10 @@ class FileApprovalContinuationStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `reopen after claim remains CLAIMED`() = runBlocking {
+    fun `reopen after claim remains CLAIMED`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-reclaim-1", arguments = "claim-me")
 
@@ -199,9 +203,10 @@ class FileApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.CLAIMED, retrieved.status)
         assertEquals(1L, retrieved.version)
     }
+    }
 
     @Test
-    fun `concurrent claim has exactly one winner`() = runBlocking {
+    fun `concurrent claim has exactly one winner`() { runBlocking {
         val store = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-concurrent-claim-1", arguments = "contestable")
 
@@ -240,9 +245,10 @@ class FileApprovalContinuationStoreTest {
             assertEquals(1, winners, "Exactly one concurrent claim must succeed")
         }
     }
+    }
 
     @Test
-    fun `complete survive reopen`() = runBlocking {
+    fun `complete survive reopen`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-complete-1")
 
@@ -256,9 +262,10 @@ class FileApprovalContinuationStoreTest {
         assertNotNull(retrieved)
         assertEquals(ApprovalContinuationStatus.COMPLETED, retrieved.status)
     }
+    }
 
     @Test
-    fun `expire survive reopen`() = runBlocking {
+    fun `expire survive reopen`() { runBlocking {
         // Create continuation that expires at 12:05
         val creationClock = Clock.fixed(now, ZoneId.of("UTC"))
         val storeCreate = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), creationClock)
@@ -278,9 +285,10 @@ class FileApprovalContinuationStoreTest {
         assertNotNull(retrieved)
         assertEquals(ApprovalContinuationStatus.EXPIRED, retrieved.status)
     }
+    }
 
     @Test
-    fun `cancel survive reopen`() = runBlocking {
+    fun `cancel survive reopen`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-cancel-1")
 
@@ -292,9 +300,10 @@ class FileApprovalContinuationStoreTest {
         assertNotNull(retrieved)
         assertEquals(ApprovalContinuationStatus.CANCELLED, retrieved.status)
     }
+    }
 
     @Test
-    fun `stale search survive reopen`() = runBlocking {
+    fun `stale search survive reopen`() { runBlocking {
         val store = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-stale-1")
 
@@ -306,9 +315,10 @@ class FileApprovalContinuationStoreTest {
         assertEquals(1, stale.size)
         assertEquals("cont-stale-1", stale.first().approvalId)
     }
+    }
 
     @Test
-    fun `sweep survive reopen`() = runBlocking {
+    fun `sweep survive reopen`() { runBlocking {
         // Create continuations with creation clock set to now (expires at 12:05)
         val creationClock = Clock.fixed(now, ZoneId.of("UTC"))
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), creationClock)
@@ -342,9 +352,10 @@ class FileApprovalContinuationStoreTest {
         assertTrue(rootDir.resolve("continuations/$digest1.tram.enc").exists())
         assertTrue(rootDir.resolve("continuations/$digest2.tram.enc").exists())
     }
+    }
 
     @Test
-    fun `force cancel survive reopen`() = runBlocking {
+    fun `force cancel survive reopen`() { runBlocking {
         val store1 = FileApprovalContinuationStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val (continuation, args) = createContinuation("cont-force-cancel-1")
 
@@ -364,5 +375,6 @@ class FileApprovalContinuationStoreTest {
         assertEquals(ApprovalContinuationStatus.CANCELLED_UNCERTAIN, retrieved.status)
         assertEquals("admin-alice", retrieved.recoveryResolvedBy)
         assertEquals("stuck.worker", retrieved.recoveryReasonCode)
+    }
     }
 }

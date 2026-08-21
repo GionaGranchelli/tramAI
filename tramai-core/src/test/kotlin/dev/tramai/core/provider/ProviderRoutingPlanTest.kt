@@ -27,9 +27,9 @@ class ProviderRoutingPlanTest {
         )
     }
 
-    @Test fun `duplicate provider is rejected at build`() = assertThatThrownBy {
+    @Test fun `duplicate provider is rejected at build`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).provider("one", NamedProvider("two")).build()
-    }.isInstanceOf(ConfigurationException::class.java)
+    }.isInstanceOf(ConfigurationException::class.java) }
 
     @Test fun `blank provider and model ids are rejected`() {
         assertThatThrownBy { ProviderRoutingPlan.builder().provider(" ", NamedProvider("one")).build() }
@@ -38,22 +38,22 @@ class ProviderRoutingPlanTest {
             .isInstanceOf(ConfigurationException::class.java)
     }
 
-    @Test fun `unknown primary provider is rejected at build`() = assertThatThrownBy {
+    @Test fun `unknown primary provider is rejected at build`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().model("model", "missing").build()
-    }.isInstanceOf(ConfigurationException::class.java)
+    }.isInstanceOf(ConfigurationException::class.java) }
 
-    @Test fun `unknown fallback provider is rejected at build`() = assertThatThrownBy {
+    @Test fun `unknown fallback provider is rejected at build`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).model("model", "one").fallbackProvider("model", "missing").build()
-    }.isInstanceOf(ConfigurationException::class.java)
+    }.isInstanceOf(ConfigurationException::class.java) }
 
-    @Test fun `unknown default provider is rejected at build`() = assertThatThrownBy {
+    @Test fun `unknown default provider is rejected at build`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().defaultProvider("missing").build()
-    }.isInstanceOf(ConfigurationException::class.java)
+    }.isInstanceOf(ConfigurationException::class.java) }
 
-    @Test fun `duplicate identical fallback route is rejected`() = assertThatThrownBy {
+    @Test fun `duplicate identical fallback route is rejected`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).model("model", "one")
             .fallbackModel("model", "fallback", "one").fallbackModel("model", "fallback", "one").build()
-    }.isInstanceOf(ConfigurationException::class.java)
+    }.isInstanceOf(ConfigurationException::class.java) }
 
     @Test
     fun `plan snapshot is unaffected by later builder mutation`() {
@@ -100,25 +100,28 @@ class ProviderRoutingPlanTest {
     }
 
     @Test
-    fun `fallback routes without a primary are rejected at build`() = assertThatThrownBy {
+    fun `fallback routes without a primary are rejected at build`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one"))
             .fallbackModel("model", "alternate", "one").build()
     }.isInstanceOf(ConfigurationException::class.java)
         .hasMessageContaining("no primary route")
+    }
 
     @Test
-    fun `duplicate primary route is rejected`() = assertThatThrownBy {
+    fun `duplicate primary route is rejected`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one")).provider("two", NamedProvider("two"))
             .model("model", "one").model("model", "two").build()
     }.isInstanceOf(ConfigurationException::class.java)
         .hasMessageContaining("Duplicate primary route")
+    }
 
     @Test
-    fun `fallback identical to primary is rejected`() = assertThatThrownBy {
+    fun `fallback identical to primary is rejected`() { assertThatThrownBy {
         ProviderRoutingPlan.builder().provider("one", NamedProvider("one"))
             .model("model", "one").fallbackProvider("model", "one").build()
     }.isInstanceOf(ConfigurationException::class.java)
         .hasMessageContaining("duplicates its primary route")
+    }
 
     @Test
     fun `model ids with surrounding whitespace are rejected`() {

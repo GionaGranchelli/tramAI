@@ -45,7 +45,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
     )
 
     @Test
-    fun `MODEL_OUTPUT maps to DLP_MODEL_OUTPUT with redacted decision and reason`() = runTest {
+    fun `MODEL_OUTPUT maps to DLP_MODEL_OUTPUT with redacted decision and reason`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
@@ -54,18 +54,20 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(event.decision).isEqualTo("REDACTED")
         assertThat(event.reasonCode).isEqualTo("dlp_redaction_applied")
     }
+    }
 
     @Test
-    fun `TOOL_RESULT maps to DLP_TOOL_RESULT`() = runTest {
+    fun `TOOL_RESULT maps to DLP_TOOL_RESULT`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(toolResultContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().enforcementPoint)
             .isEqualTo("DLP_TOOL_RESULT")
     }
+    }
 
     @Test
-    fun `workflowRunId determines stream and is persisted`() = runTest {
+    fun `workflowRunId determines stream and is persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             modelOutputContext().copy(
@@ -79,6 +81,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(events).hasSize(1)
         assertThat(events.single().workflowRunId).isEqualTo("run-123")
         assertThat(events.single().correlationId).isEqualTo("corr-fallback")
+    }
     }
 
     @Test
@@ -115,7 +118,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
     }
 
     @Test
-    fun `padded correlationId is normalized and accepted`() = runTest {
+    fun `padded correlationId is normalized and accepted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             modelOutputContext().copy(correlationId = "  corr-1  "),
@@ -125,9 +128,10 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         val event = store.readStream("corr-1").single()
         assertThat(event.correlationId).isEqualTo("corr-1")
     }
+    }
 
     @Test
-    fun `padded workflowRunId is normalized and accepted`() = runTest {
+    fun `padded workflowRunId is normalized and accepted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             modelOutputContext().copy(
@@ -141,25 +145,28 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(event.workflowRunId).isEqualTo("run-123")
         assertThat(event.correlationId).isEqualTo("corr-fallback")
     }
+    }
 
     @Test
-    fun `rule ID is persisted safely`() = runTest {
+    fun `rule ID is persisted safely`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email.rule-1", 1)))
 
         assertThat(store.readStream("corr-1").single().metadata["ruleId"]).isEqualTo("email.rule-1")
     }
+    }
 
     @Test
-    fun `replacementCount is persisted`() = runTest {
+    fun `replacementCount is persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 3)))
 
         assertThat(store.readStream("corr-1").single().metadata["replacementCount"]).isEqualTo("3")
     }
+    }
 
     @Test
-    fun `provider and model metadata are included`() = runTest {
+    fun `provider and model metadata are included`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
@@ -168,9 +175,10 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(metadata["modelName"]).isEqualTo("mistral")
         assertThat(metadata["contentLocation"]).isEqualTo("MODEL_RESPONSE_CONTENT")
     }
+    }
 
     @Test
-    fun `tool name is included for tool results`() = runTest {
+    fun `tool name is included for tool results`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(toolResultContext(), listOf(DlpRedaction("email", 1)))
 
@@ -178,9 +186,10 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(metadata["toolName"]).isEqualTo("lookup")
         assertThat(metadata["contentLocation"]).isEqualTo("TOOL_MESSAGE_CONTENT")
     }
+    }
 
     @Test
-    fun `classification metadata is included`() = runTest {
+    fun `classification metadata is included`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(toolResultContext(DlpContentLocation.TOOL_MESSAGE_TEXT_RUN), listOf(DlpRedaction("email", 1)))
 
@@ -189,43 +198,48 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(metadata["classificationSource"]).isEqualTo("RULE_BASED")
         assertThat(metadata["contentLocation"]).isEqualTo("TOOL_MESSAGE_TEXT_RUN")
     }
+    }
 
     @Test
-    fun `raw matched text is not persisted`() = runTest {
+    fun `raw matched text is not persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().metadata.values)
             .noneMatch { it.contains("alice@example.com") }
     }
+    }
 
     @Test
-    fun `sanitized output text is not persisted`() = runTest {
+    fun `sanitized output text is not persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().metadata.values)
             .noneMatch { it.contains("[REDACTED]") }
     }
+    }
 
     @Test
-    fun `replacement string is not persisted`() = runTest {
+    fun `replacement string is not persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().metadata).doesNotContainKey("replacement")
     }
+    }
 
     @Test
-    fun `regex pattern is not persisted`() = runTest {
+    fun `regex pattern is not persisted`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().metadata).doesNotContainKey("pattern")
     }
+    }
 
     @Test
-    fun `multiple rules emit deterministic ordered events`() = runTest {
+    fun `multiple rules emit deterministic ordered events`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             modelOutputContext(),
@@ -240,9 +254,10 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         assertThat(events.map { it.metadata["ruleId"] }).containsExactly("a-first", "z-last")
         assertThat(events.map { it.sequenceNumber }).containsExactly(1L, 2L)
     }
+    }
 
     @Test
-    fun `duplicate rule IDs are grouped`() = runTest {
+    fun `duplicate rule IDs are grouped`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             modelOutputContext(),
@@ -255,6 +270,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         val events = store.readStream("corr-1")
         assertThat(events).hasSize(1)
         assertThat(events.single().metadata["replacementCount"]).isEqualTo("3")
+    }
     }
 
     @Test
@@ -318,7 +334,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
     }
 
     @Test
-    fun `resulting event chain passes AuditChainVerifier`() = runTest {
+    fun `resulting event chain passes AuditChainVerifier`() { runTest {
         val (emitter, store) = emitter()
         emitter.emit(
             toolResultContext(),
@@ -329,5 +345,6 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         )
 
         assertThat(AuditChainVerifier.verify(store.readStream("corr-1")).isValid).isTrue()
+    }
     }
 }

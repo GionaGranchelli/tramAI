@@ -21,7 +21,7 @@ class RagRetrieverTest {
     }
 
     @Test
-    fun `retrieve returns results ordered by similarity`() = runBlocking {
+    fun `retrieve returns results ordered by similarity`() { runBlocking {
         val retriever = RagRetriever(embeddingModel, vectorStore, topK = 3, minScore = 0.0)
 
         val aiDocText = "Tramai is an AI library for the JVM"
@@ -58,18 +58,20 @@ class RagRetrieverTest {
         assertNotNull(exactMatch)
         assertEquals(1.0, exactMatch.score, 0.001)
     }
+    }
 
     @Test
-    fun `retrieve returns empty for nonexistent collection`() = runBlocking {
+    fun `retrieve returns empty for nonexistent collection`() { runBlocking {
         val retriever = RagRetriever(embeddingModel, vectorStore, topK = 5, minScore = 0.0)
 
         val results = retriever.retrieve("nonexistent", "some query")
 
         assertTrue(results.isEmpty())
     }
+    }
 
     @Test
-    fun `retrieve filters by minScore`() = runBlocking {
+    fun `retrieve filters by minScore`() { runBlocking {
         val retriever = RagRetriever(embeddingModel, vectorStore, topK = 5, minScore = 0.5)
 
         val docText = "Some document text"
@@ -86,9 +88,10 @@ class RagRetrieverTest {
         assertTrue(results.isNotEmpty())
         assertTrue(results.all { it.score >= 0.5 })
     }
+    }
 
     @Test
-    fun `retrieve with metadata filter`() = runBlocking {
+    fun `retrieve with metadata filter`() { runBlocking {
         val retriever = RagRetriever(embeddingModel, vectorStore, topK = 5, minScore = 0.0)
 
         val aiText = "AI content"
@@ -115,9 +118,10 @@ class RagRetrieverTest {
         assertEquals(1, results.size)
         assertEquals("d1", results[0].id)
     }
+    }
 
     @Test
-    fun `retrieve respects topK`() = runBlocking {
+    fun `retrieve respects topK`() { runBlocking {
         val retriever = RagRetriever(embeddingModel, vectorStore, topK = 1, minScore = 0.0)
 
         val docText = "First doc"
@@ -129,6 +133,7 @@ class RagRetrieverTest {
         val results = retriever.retrieve("topk_test", docText)
 
         assertEquals(1, results.size)
+    }
     }
 
     @Test

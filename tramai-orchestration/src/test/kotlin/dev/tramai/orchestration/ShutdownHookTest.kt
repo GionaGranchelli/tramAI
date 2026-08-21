@@ -9,7 +9,7 @@ import kotlin.test.Test
 
 class ShutdownHookTest {
     @Test
-    fun `shutdown fires observer events in correct order`() = runBlocking {
+    fun `shutdown fires observer events in correct order`() { runBlocking {
         val events = mutableListOf<String>()
         val workerStarted = java.util.concurrent.CountDownLatch(1)
         val observer = object : TramaiWorkerObserver {
@@ -34,9 +34,10 @@ class ShutdownHookTest {
         worker.shutdown()
         assertThat(events).containsExactly("started", "drain", "complete")
     }
+    }
 
     @Test
-    fun `close fires shutdown events in correct order`() = runBlocking {
+    fun `close fires shutdown events in correct order`() { runBlocking {
         val events = mutableListOf<String>()
         val workerStarted = java.util.concurrent.CountDownLatch(1)
         val observer = object : TramaiWorkerObserver {
@@ -61,9 +62,10 @@ class ShutdownHookTest {
         worker.close()
         assertThat(events).containsExactly("started", "drain", "complete")
     }
+    }
 
     @Test
-    fun `recording observer captures lifecycle events during workflow execution and shutdown`() = runBlocking {
+    fun `recording observer captures lifecycle events during workflow execution and shutdown`() { runBlocking {
         val events = mutableListOf<String>()
         val observer = object : TramaiWorkerObserver {
             override fun onLeaseAcquired(workflowId: String, workerId: String) { events.add("lease_acquired:$workflowId") }
@@ -98,6 +100,7 @@ class ShutdownHookTest {
         assertThat(events).anySatisfy { assertThat(it).isEqualTo("shutdown_started") }
         assertThat(events).anySatisfy { assertThat(it).isEqualTo("shutdown_complete") }
         assertThat(events).anySatisfy { assertThat(it).isEqualTo("worker_stopped") }
+    }
     }
 
     private fun makeWorkflow(

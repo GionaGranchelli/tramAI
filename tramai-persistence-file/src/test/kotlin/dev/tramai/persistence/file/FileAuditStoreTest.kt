@@ -102,7 +102,7 @@ class FileAuditStoreTest {
     }
 
     @Test
-    fun `append and reopen`() = runBlocking {
+    fun `append and reopen`() { runBlocking {
         val store1 = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-append-1"
 
@@ -123,9 +123,10 @@ class FileAuditStoreTest {
         assertEquals(event1.eventHash, stream[0].eventHash)
         assertEquals(event2.eventHash, stream[1].eventHash)
     }
+    }
 
     @Test
-    fun `valid chain survives reopen`() = runBlocking {
+    fun `valid chain survives reopen`() { runBlocking {
         val store1 = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-chain-1"
 
@@ -143,9 +144,10 @@ class FileAuditStoreTest {
             assertEquals(stream[i - 1].sequenceNumber + 1, stream[i].sequenceNumber)
         }
     }
+    }
 
     @Test
-    fun `concurrent append preserves contiguous sequence`() = runBlocking {
+    fun `concurrent append preserves contiguous sequence`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-concurrent-1"
 
@@ -186,9 +188,10 @@ class FileAuditStoreTest {
             )
         }
     }
+    }
 
     @Test
-    fun `duplicate event ID rejected`() = runBlocking {
+    fun `duplicate event ID rejected`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-dup-1"
 
@@ -200,9 +203,10 @@ class FileAuditStoreTest {
             store.appendNext(streamId, eventFactory(streamId, eventId))
         }
     }
+    }
 
     @Test
-    fun `missing middle event rejected`() = runBlocking {
+    fun `missing middle event rejected`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-missing-1"
 
@@ -226,9 +230,10 @@ class FileAuditStoreTest {
             store.readStream(streamId)
         }
     }
+    }
 
     @Test
-    fun `cross-stream substitution rejected`() = runBlocking {
+    fun `cross-stream substitution rejected`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamA = "stream-cross-A"
         val streamB = "stream-cross-B"
@@ -273,9 +278,10 @@ class FileAuditStoreTest {
             store.appendNext(streamA, factory)
         }
     }
+    }
 
     @Test
-    fun `ciphertext tampering rejected`() = runBlocking {
+    fun `ciphertext tampering rejected`() { runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         val streamId = "stream-tamper-1"
 
@@ -297,5 +303,6 @@ class FileAuditStoreTest {
         assertThrows<RuntimeException> {
             store.readStream(streamId)
         }
+    }
     }
 }

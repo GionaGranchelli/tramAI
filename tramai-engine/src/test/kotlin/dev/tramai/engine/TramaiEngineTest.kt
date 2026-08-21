@@ -142,7 +142,7 @@ class TramaiEngineTest {
     }
 
     @Test
-    fun `in flight suspend invocation terminates on close`() = runBlocking {
+    fun `in flight suspend invocation terminates on close`() { runBlocking {
         val started = CompletableDeferred<Unit>()
         val provider = RecordingProvider {
             started.complete(Unit)
@@ -157,9 +157,10 @@ class TramaiEngineTest {
 
         assertThat(call.await().exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
     }
+    }
 
     @Test
-    fun `self close from owned coroutine does not deadlock`() = runBlocking {
+    fun `self close from owned coroutine does not deadlock`() { runBlocking {
         lateinit var engine: TramaiEngine
         val provider = RecordingProvider {
             engine.close()
@@ -172,10 +173,11 @@ class TramaiEngineTest {
 
         assertThat(result.exceptionOrNull()).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
     }
+    }
 
     @Test
     @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-    fun `close racing a fast suspend invocation never leaves work against a closed engine`() = runBlocking {
+    fun `close racing a fast suspend invocation never leaves work against a closed engine`() { runBlocking {
         repeat(100) {
             val providerEntered = CompletableDeferred<Unit>()
             val providerStartedAt = java.util.concurrent.atomic.AtomicLong(-1)
@@ -246,6 +248,7 @@ class TramaiEngineTest {
                 )
             }
         }
+    }
     }
 
     @Test
@@ -351,7 +354,7 @@ class TramaiEngineTest {
     }
 
     @Test
-    fun `mid-collection close terminates an in-flight stream`() = runBlocking {
+    fun `mid-collection close terminates an in-flight stream`() { runBlocking {
         val gate = CompletableDeferred<Unit>()
         val provider = NamedStreamingProvider("p") {
             flow {
@@ -402,9 +405,10 @@ class TramaiEngineTest {
             )
         }
     }
+    }
 
     @Test
-    fun `blocking invocation in long suspension is cancelled and joined by close`() = runBlocking {
+    fun `blocking invocation in long suspension is cancelled and joined by close`() { runBlocking {
         val providerEntered = CompletableDeferred<Unit>()
         val providerReleased = CompletableDeferred<Unit>()
         val providerCleanedUp = CompletableDeferred<Unit>()
@@ -436,9 +440,10 @@ class TramaiEngineTest {
         assertThat(caller.isAlive).isFalse()
         providerReleased.complete(Unit)
     }
+    }
 
     @Test
-    fun `streaming collection suspended indefinitely is cancelled and cleaned up by close`() = runBlocking {
+    fun `streaming collection suspended indefinitely is cancelled and cleaned up by close`() { runBlocking {
         val providerCleanedUp = CompletableDeferred<Unit>()
         val firstChunkDelivered = CompletableDeferred<Unit>()
         val provider = NamedStreamingProvider("p") {
@@ -477,6 +482,7 @@ class TramaiEngineTest {
         // cancelled and the provider's NonCancellable cleanup ran.
         providerCleanedUp.await()
     }
+    }
 
     @Test
     fun `close does not deadlock when caller supplied its own job and scope`() {
@@ -494,7 +500,7 @@ class TramaiEngineTest {
     }
 
     @Test
-    fun `self close from streaming owned coroutine does not deadlock`() = runBlocking {
+    fun `self close from streaming owned coroutine does not deadlock`() { runBlocking {
         lateinit var engine: TramaiEngine
         val provider = NamedStreamingProvider("p") {
             flow {
@@ -520,9 +526,10 @@ class TramaiEngineTest {
             }
         }
     }
+    }
 
     @Test
-    fun `stream start racing close never hangs the collector`() = runBlocking {
+    fun `stream start racing close never hangs the collector`() { runBlocking {
         // Force the admission race deterministically: the flow's open check
         // passes, then close() cancels lifecycleJob BEFORE the collection
         // coroutine body begins executing. Channel termination must come from
@@ -554,9 +561,10 @@ class TramaiEngineTest {
             collection.await()
         }
     }
+    }
 
     @Test
-    fun `streaming bridge preserves backpressure when the collector is slow`() = runBlocking {
+    fun `streaming bridge preserves backpressure when the collector is slow`() { runBlocking {
         val attempted = java.util.concurrent.atomic.AtomicInteger(0)
         val delivered = java.util.concurrent.atomic.AtomicInteger(0)
         val collectorGate = CompletableDeferred<Unit>()
@@ -602,6 +610,7 @@ class TramaiEngineTest {
         // Collection is terminated by close() (rendezvous bridge cancelled
         // through lifecycleJob) — the CE is the expected termination signal.
         runCatching { collection.await() }
+    }
     }
 
     @Test
