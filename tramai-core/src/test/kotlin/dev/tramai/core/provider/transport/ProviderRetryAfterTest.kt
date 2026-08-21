@@ -53,4 +53,10 @@ class ProviderRetryAfterTest {
     fun `negative numeric value yields null`() {
         assertThat(parseRetryAfterMillis("-5")).isNull()
     }
+
+    @Test
+    fun `huge numeric value that would overflow millis yields null`() {
+        assertThat(parseRetryAfterMillis(Long.MAX_VALUE.toString())).isNull()
+        assertThat(parseRetryAfterMillis("9223372036854776")).isNull()
+    }
 }

@@ -61,7 +61,7 @@ class ProviderHttpResponseTest {
     private val observer = ProviderFailureDiagnosticObserver(events::add)
 
     @Test
-    fun `rejected response maps to http rejected failure with retry after`() = runBlocking {
+    fun `rejected response maps to http rejected failure with retry after`() = runBlocking<Unit> {
         val response = fake(429, "{\"error\":\"rate limited\"}", retryAfter = "5")
 
         val error = rejectedProviderHttpResponse("openai", "customer-openai", response, observer)
@@ -77,7 +77,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `rejected response body closes on failure`() = runBlocking {
+    fun `rejected response body closes on failure`() = runBlocking<Unit> {
         val response = fake(500, "boom")
 
         rejectedProviderHttpResponse("openai", null, response, observer)
@@ -86,7 +86,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `permanent status stays non retryable`() = runBlocking {
+    fun `permanent status stays non retryable`() = runBlocking<Unit> {
         val error = rejectedProviderHttpResponse("openai", null, fake(401, "unauthorized"), observer)
 
         assertThat(error.retryable).isFalse()
@@ -94,7 +94,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `body preview is bounded at the diagnostic limit`() = runBlocking {
+    fun `body preview is bounded at the diagnostic limit`() = runBlocking<Unit> {
         val oversized = "x".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES + 1_000)
 
         val error = rejectedProviderHttpResponse("openai", null, fake(500, oversized), observer)
@@ -106,7 +106,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `body read failure becomes a transport failure`() = runBlocking {
+    fun `body read failure becomes a transport failure`() = runBlocking<Unit> {
         val response = FakeResponse(500, ThrowingStream())
 
         val error = rejectedProviderHttpResponse("openai", null, response, observer)
@@ -117,7 +117,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `observer failure stays fail open`() = runBlocking {
+    fun `observer failure stays fail open`() = runBlocking<Unit> {
         val throwingObserver = ProviderFailureDiagnosticObserver {
             throw IllegalStateException("observer exploded")
         }
@@ -128,7 +128,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `observer thrown cancellation is swallowed while the coroutine is active`() = runBlocking {
+    fun `observer thrown cancellation is swallowed while the coroutine is active`() = runBlocking<Unit> {
         // Fail-open diagnostic semantics: an observer-thrown CancellationException
         // must not replace the provider failure while the enclosing coroutine is
         // still active. (Cancellation rethrow of a genuinely cancelled coroutine
@@ -141,7 +141,7 @@ class ProviderHttpResponseTest {
     }
 
     @Test
-    fun `rejected handling does not classify status itself`() = runBlocking {
+    fun `rejected handling does not classify status itself`() = runBlocking<Unit> {
         // The adapter checks 2xx before invoking the rejected handler; the
         // handler must pass the status through verbatim without deciding
         // whether it is an error.

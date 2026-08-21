@@ -24,7 +24,10 @@ fun parseRetryAfterMillis(
 ): Long? {
     val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     trimmed.toLongOrNull()?.let { seconds ->
-        return if (seconds >= 0) seconds * 1_000 else null
+        // Guard against millisecond multiplication overflow so the documented
+        // non-negative contract holds for any parseable Long value.
+        if (seconds < 0 || seconds > Long.MAX_VALUE / 1_000) return null
+        return seconds * 1_000
     }
 
     val retryAt = runCatching {
