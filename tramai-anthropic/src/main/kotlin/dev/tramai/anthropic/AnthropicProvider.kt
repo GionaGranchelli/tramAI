@@ -330,11 +330,21 @@ class AnthropicProvider @JvmOverloads constructor(
                 val toolCallId = requireNotNull(message.toolCallId) {
                     "TOOL message must carry a toolCallId to map to an Anthropic tool_result block"
                 }
+                // Rich tool results carry their payload in contentParts (the engine
+                // empties content for those); a text-only result stays a plain string.
+                // Anthropic accepts tool_result.content as a string or a block array.
+                val toolParts = message.contentParts
+                val resultContent =
+                    if (!toolParts.isNullOrEmpty()) {
+                        toolParts.map(::anthropicContentPart)
+                    } else {
+                        message.content
+                    }
                 listOf(
                     mapOf(
                         "type" to "tool_result",
                         "tool_use_id" to toolCallId,
-                        "content" to message.content,
+                        "content" to resultContent,
                     ),
                 )
             }
@@ -359,41 +369,7 @@ class AnthropicProvider @JvmOverloads constructor(
             else -> {
                 val msgParts = message.contentParts
                 if (!msgParts.isNullOrEmpty()) {
-                    msgParts.map { part ->
-                        when (part) {
-                            is ContentPart.TextPart -> mapOf(
-                                "type" to "text",
-                                "text" to part.text,
-                            )
-                            is ContentPart.ImagePart -> {
-                                require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
-                                    "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                                }
-                                mapOf(
-                                    "type" to "image",
-                                    "source" to mapOf(
-                                        "type" to "base64",
-                                        "media_type" to part.mimeType,
-                                        "data" to Base64.getEncoder().encodeToString(part.data),
-                                    ),
-                                )
-                            }
-                            is ContentPart.ImageUrlContent -> {
-                                val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
-                                require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
-                                    "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
-                                }
-                                mapOf(
-                                    "type" to "image",
-                                    "source" to mapOf(
-                                        "type" to "base64",
-                                        "media_type" to resolved.mimeType,
-                                        "data" to Base64.getEncoder().encodeToString(resolved.data),
-                                    ),
-                                )
-                            }
-                        }
-                    }
+                    msgParts.map(::anthropicContentPart)
                 } else {
                     message.content
                 }
@@ -404,6 +380,41 @@ class AnthropicProvider @JvmOverloads constructor(
             "role" to role,
             "content" to content,
         )
+    }
+
+    /** Converts one TramAI content part to an Anthropic content block (text or image). */
+    private fun anthropicContentPart(part: ContentPart): Map<String, Any?> = when (part) {
+        is ContentPart.TextPart -> mapOf(
+            "type" to "text",
+            "text" to part.text,
+        )
+        is ContentPart.ImagePart -> {
+            require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
+                "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+            }
+            mapOf(
+                "type" to "image",
+                "source" to mapOf(
+                    "type" to "base64",
+                    "media_type" to part.mimeType,
+                    "data" to Base64.getEncoder().encodeToString(part.data),
+                ),
+            )
+        }
+        is ContentPart.ImageUrlContent -> {
+            val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+            require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
+                "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+            }
+            mapOf(
+                "type" to "image",
+                "source" to mapOf(
+                    "type" to "base64",
+                    "media_type" to resolved.mimeType,
+                    "data" to Base64.getEncoder().encodeToString(resolved.data),
+                ),
+            )
+        }
     }
 
     private companion object {

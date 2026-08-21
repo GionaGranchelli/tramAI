@@ -187,7 +187,10 @@ abstract class ProviderTck {
         val p = provider(stub)
         runBlocking {
             val deferred = async(Dispatchers.Default) { p.complete(request()) }
-            withTimeout(5_000) {
+            // Generous budget: under 16-module parallel test execution the
+            // collector coroutine can be starved for seconds; the assertion is
+            // about cancellation semantics, not speed.
+            withTimeout(30_000) {
                 while (stub.lastUri == null) delay(1)
             }
             deferred.cancel()
@@ -430,6 +433,24 @@ abstract class ProviderTck {
     }
 
     @Test
+    fun `stream Complete carries the usage metrics reported by the protocol`() {
+        val streaming = harness.streaming ?: return
+        if (streaming.expectedInputTokens == null && streaming.expectedOutputTokens == null) return
+        val chunks = streamChunks(StubHttpClient().apply { enqueue(200, streaming.body) })
+        val complete = chunks.filterIsInstance<StreamChunk.Complete>().single()
+        streaming.expectedInputTokens?.let { expected ->
+            assertThat(complete.usage?.inputTokens)
+                .withFailMessage("stream Complete must carry the protocol-reported input tokens")
+                .isEqualTo(expected)
+        }
+        streaming.expectedOutputTokens?.let { expected ->
+            assertThat(complete.usage?.outputTokens)
+                .withFailMessage("stream Complete must carry the protocol-reported output tokens")
+                .isEqualTo(expected)
+        }
+    }
+
+    @Test
     fun `stream transport failure emits a terminal Error chunk`() {
         val streaming = harness.streaming ?: return
         val stub = StubHttpClient().apply {
@@ -486,7 +507,10 @@ abstract class ProviderTck {
                     }
                 }
             }
-            withTimeout(5_000) { gate.receive() } // collector is inside the first token
+            // Generous budget: under 16-module parallel test execution the
+            // collector coroutine can be starved for seconds; the assertion is
+            // about cancellation semantics, not speed.
+            withTimeout(30_000) { gate.receive() } // collector is inside the first token
             deferred.cancel()
             gate.send(Unit) // release the collector
             val ex = runCatching { deferred.await() }.exceptionOrNull()

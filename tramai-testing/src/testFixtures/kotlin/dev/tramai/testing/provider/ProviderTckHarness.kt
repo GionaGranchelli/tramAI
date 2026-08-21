@@ -77,6 +77,10 @@ data class StreamingSpec(
     val malformedBody: String,
     /** Ordered text fragments the adapter must emit as [dev.tramai.core.model.StreamChunk.Token]. */
     val expectedTokens: List<String>,
+    /** Expected input-token count on the terminal Complete, when the protocol reports it. */
+    val expectedInputTokens: Int? = null,
+    /** Expected output-token count on the terminal Complete, when the protocol reports it. */
+    val expectedOutputTokens: Int? = null,
 )
 
 /**

@@ -101,9 +101,11 @@ class BedrockProviderTckTest : ProviderTck() {
             expectedContent = """{"answer":42}""",
         ),
         streaming = StreamingSpec(
-            body = ProviderHttpFixtures.Anthropic.stream(listOf("Hello", " world")),
+            body = streamWithUsageBody(),
             malformedBody = ProviderHttpFixtures.Anthropic.streamMalformed(),
             expectedTokens = listOf("Hello", " world"),
+            expectedInputTokens = 100,
+            expectedOutputTokens = 42,
         ),
     )
 
@@ -213,7 +215,7 @@ class BedrockProviderTckTest : ProviderTck() {
             val deferred = async(Dispatchers.Default) { p.stream(request()).toList() }
             // Deterministic: the provider registers whenComplete on the invoke
             // future before suspending — wait for that, then cancel.
-            withTimeout(5_000) { while (future.getNumberOfDependents() == 0) delay(1) }
+            withTimeout(30_000) { while (future.getNumberOfDependents() == 0) delay(1) }
             deferred.cancel()
             val ex = runCatching { deferred.await() }.exceptionOrNull()
             assertThat(ex)
@@ -221,6 +223,37 @@ class BedrockProviderTckTest : ProviderTck() {
                 .isInstanceOf(CancellationException::class.java)
             assertThat(future.isCancelled).isTrue()
             assertThat(createdClients.last().closed).isTrue()
+        }
+    }
+
+    @Test
+    fun `cancelling completion cancels the in-flight invoke future and closes the client`() {
+        val future = CompletableFuture<InvokeModelResponse>()
+        val stub = StubHttpClient()
+        val client = FakeBedrockRuntimeClient(ProgrammedResponse(body = h.happyPathBody, failure = null), stub)
+        client.invokeFutureOverride = future
+        createdClients += client
+        val p = BedrockProvider(
+            region = "us-east-1",
+            modelId = "tck-model",
+            bedrockRuntimeClientFactory = BedrockRuntimeClientFactory { client },
+        )
+        runBlocking {
+            val deferred = async(Dispatchers.Default) { p.complete(request()) }
+            // Deterministic: awaitCancellable registers whenComplete on the future
+            // before suspending — wait for that, then cancel.
+            withTimeout(30_000) { while (future.getNumberOfDependents() == 0) delay(1) }
+            deferred.cancel()
+            val ex = runCatching { deferred.await() }.exceptionOrNull()
+            assertThat(ex)
+                .withFailMessage("completion cancellation must remain cancellation, was: $ex")
+                .isInstanceOf(CancellationException::class.java)
+            assertThat(future.isCancelled)
+                .withFailMessage("cancelling completion must cancel the in-flight AWS invoke future")
+                .isTrue()
+            assertThat(client.closed)
+                .withFailMessage("cancelling completion must still close the factory-created client")
+                .isTrue()
         }
     }
 
@@ -281,6 +314,7 @@ class BedrockProviderTckTest : ProviderTck() {
         override fun invokeModel(request: InvokeModelRequest): CompletableFuture<InvokeModelResponse> {
             lastInvokeRequest = request
             programmed.failure?.let { return CompletableFuture.failedFuture<InvokeModelResponse>(it) }
+            invokeFutureOverride?.let { return it }
             mirrorOutboundPayload(request.body().asUtf8String())
             return CompletableFuture.completedFuture(
                 InvokeModelResponse.builder()
@@ -289,6 +323,10 @@ class BedrockProviderTckTest : ProviderTck() {
                     .build(),
             )
         }
+
+        /** When set, [invokeModel] returns this future instead of a completed one (cancellation tests). */
+        @Volatile
+        var invokeFutureOverride: CompletableFuture<InvokeModelResponse>? = null
 
         override fun invokeModelWithResponseStream(
             request: InvokeModelWithResponseStreamRequest,
@@ -409,6 +447,19 @@ class BedrockProviderTckTest : ProviderTck() {
             payloadPart("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"$text"}}""")
 
         private fun malformedPart(): PayloadPart =
-            payloadPart("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel""")
+            payloadPart("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"""")
+
+        /**
+         * Anthropic Messages streaming fixture carrying usage on message_start
+         * (input_tokens=100) and message_delta (output_tokens=42) — the shape a
+         * real Bedrock Claude stream reports. Pins the stream Complete usage.
+         */
+        private fun streamWithUsageBody(): String = buildString {
+            append("""event: message_start""" + "\n" + """data: {"type":"message_start","message":{"id":"msg_01","type":"message","role":"assistant","model":"claude-tck","usage":{"input_tokens":100,"output_tokens":0}}}""").append("\n\n")
+            append("""event: content_block_delta""" + "\n" + """data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}""").append("\n\n")
+            append("""event: content_block_delta""" + "\n" + """data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}""").append("\n\n")
+            append("""event: message_delta""" + "\n" + """data: {"type":"message_delta","usage":{"output_tokens":42}}""").append("\n\n")
+            append("""event: message_stop""" + "\n" + """data: {"type":"message_stop"}""").append("\n\n")
+        }
     }
 }

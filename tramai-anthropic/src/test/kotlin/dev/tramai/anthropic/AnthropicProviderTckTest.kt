@@ -1,5 +1,6 @@
 package dev.tramai.anthropic
 
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
@@ -13,6 +14,7 @@ import dev.tramai.testing.provider.StructuredOutputSpec
 import dev.tramai.testing.provider.StubHttpClient
 import dev.tramai.testing.provider.ToolSpec
 import dev.tramai.testing.provider.UsageSpec
+import java.util.Base64
 import dev.tramai.testing.provider.VisionSpec
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -141,5 +143,57 @@ class AnthropicProviderTckTest : ProviderTck() {
             .contains(""""tool_use_id":"call_tck_1"""")
             .contains(""""role":"user"""")
             .doesNotContain(""""role":"tool"""")
+        assertThat(body)
+            .withFailMessage("text-only tool result payload must survive into tool_result.content")
+            .contains(""""content":"18°C, partly cloudy"""")
+    }
+
+    /**
+     * A rich tool result (contentParts with text + image, content="") must stay
+     * nested inside tool_result.content as content blocks — the engine empties
+     * `content` for rich results, so dropping contentParts would silently lose
+     * the model-visible tool output.
+     */
+    @Test
+    fun `rich tool result keeps text and image parts inside tool_result`() {
+        val call = ToolCall(
+            id = "call_tck_1",
+            name = "get_weather",
+            argumentsJson = """{"location":"Amsterdam"}""",
+        )
+        val imageBytes = byteArrayOf(0x0A, 0x0B, 0x0C, 0x0D)
+        val base64 = Base64.getEncoder().encodeToString(imageBytes)
+        val stub = StubHttpClient().apply { enqueue(200, ProviderHttpFixtures.Anthropic.happy("ok")) }
+        complete(
+            stub,
+            request(
+                messages = listOf(
+                    Message(MessageRole.USER, "describe the screenshot"),
+                    Message(
+                        role = MessageRole.ASSISTANT,
+                        content = "",
+                        toolCalls = listOf(call),
+                    ),
+                    Message(
+                        role = MessageRole.TOOL,
+                        content = "", // rich results carry their payload in contentParts
+                        contentParts = listOf(
+                            ContentPart.TextPart("screenshot result"),
+                            ContentPart.ImagePart("image/png", imageBytes),
+                        ),
+                        toolCallId = "call_tck_1",
+                    ),
+                ),
+            ),
+        )
+        val body = stub.lastRequestBody ?: ""
+        assertThat(body)
+            .withFailMessage("rich tool result must keep its text part inside tool_result.content")
+            .contains(""""content":[{"type":"text","text":"screenshot result"}""")
+        assertThat(body)
+            .withFailMessage("rich tool result must keep its image part (base64 + mime) inside tool_result.content")
+            .contains(""""type":"image","source":{"type":"base64","media_type":"image/png","data":"""")
+            .contains(base64)
+            .contains(""""tool_use_id":"call_tck_1"""")
     }
 }

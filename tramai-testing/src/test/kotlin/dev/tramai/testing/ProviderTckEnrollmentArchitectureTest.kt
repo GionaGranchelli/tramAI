@@ -95,19 +95,32 @@ class ProviderTckEnrollmentArchitectureTest {
      *
      * A class/object implements ModelProvider when its header (text between the
      * name and the first `{`) lists ModelProvider among its supertypes. The
-     * supertype section is everything after the last `)` of the primary
-     * constructor (or the whole header when there is no constructor) — this
-     * distinguishes `class X(...) : ModelProvider` from a constructor
-     * parameter like `class X(val provider: ModelProvider, ...)`.
+     * supertype section is everything after the FIRST top-level `:` (outside
+     * parentheses) — depth-aware so a constructor parameter like
+     * `class X(val provider: ModelProvider, ...)` never counts as a supertype,
+     * while `class X(...) : ModelProvider, SomeBase(...)` (multi-line or not)
+     * is caught even though the base constructor's `)` comes after ModelProvider.
      */
     private fun providerImplementations(file: File): List<String> {
         val text = file.readText()
         return CLASS_HEADER.findAll(text).mapNotNull { match ->
             val name = match.groupValues[1]
             val header = match.groupValues[2]
-            val supertypeSection = header.substringAfterLast(')').substringAfterLast(':')
-            if ("ModelProvider" in supertypeSection) name else null
+            if (supertypeSection(header).contains("ModelProvider")) name else null
         }.toList()
+    }
+
+    /** Everything after the first top-level `:` in a class header (the supertype list). */
+    private fun supertypeSection(header: String): String {
+        var depth = 0
+        for ((index, ch) in header.withIndex()) {
+            when (ch) {
+                '(' -> depth++
+                ')' -> depth--
+                ':' -> if (depth == 0) return header.substring(index + 1)
+            }
+        }
+        return ""
     }
 
     private fun hasRunner(module: String, providerName: String): Boolean {

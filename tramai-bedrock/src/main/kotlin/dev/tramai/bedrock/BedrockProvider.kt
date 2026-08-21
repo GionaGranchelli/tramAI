@@ -199,6 +199,18 @@ class BedrockProvider @JvmOverloads constructor(
                             try {
                                 val node = objectMapper.readTree(item.bytes().asUtf8String())
                                 when (node.path("type").asText("")) {
+                                    "message_start" -> {
+                                        // Anthropic streaming carries input_tokens on message_start.
+                                        val initial = node.path("message").path("usage")
+                                        if (!initial.isMissingNode) {
+                                            usage = UsageMetrics(
+                                                inputTokens = initial.path("input_tokens")
+                                                    .takeIf { !it.isMissingNode }?.asInt(),
+                                                outputTokens = initial.path("output_tokens")
+                                                    .takeIf { !it.isMissingNode }?.asInt(),
+                                            )
+                                        }
+                                    }
                                     "content_block_delta" -> {
                                         val delta = node.path("delta")
                                         if (delta.path("type").asText("") == "text_delta") {
@@ -210,12 +222,13 @@ class BedrockProvider @JvmOverloads constructor(
                                         }
                                     }
                                     "message_delta" -> {
-                                        val usageNode = node.path("usage")
-                                        if (!usageNode.isMissingNode) {
+                                        // message_delta reports the final output_tokens; keep the
+                                        // input_tokens captured on message_start.
+                                        val deltaUsage = node.path("usage")
+                                        if (!deltaUsage.isMissingNode) {
                                             usage = UsageMetrics(
-                                                inputTokens = usageNode.path("input_tokens")
-                                                    .takeIf { !it.isMissingNode }?.asInt(),
-                                                outputTokens = usageNode.path("output_tokens")
+                                                inputTokens = usage?.inputTokens,
+                                                outputTokens = deltaUsage.path("output_tokens")
                                                     .takeIf { !it.isMissingNode }?.asInt(),
                                             )
                                         }

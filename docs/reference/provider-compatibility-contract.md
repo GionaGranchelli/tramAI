@@ -63,14 +63,13 @@ no network, no credentials.
 
 ## Intentional deviations (explicit, reviewed)
 
-- **Bedrock — transport:** the AWS SDK transport is not the HTTP adapter
-  boundary, so the wire-level HTTP tests (timeout/status mapping/Retry-After/
-  rejected-body) are exercised through the client-factory seam instead, and
-  the matrix marks them N/A. The transport-agnostic contract (identity,
-  capabilities, cancellation, safe errors, usage, tools, vision, structured,
-  streaming lifecycle, resource closure) is fully enforced via
-  `BedrockRuntimeClientFactory` with a recording fake client. The factory is
-  internal — no AWS SDK type enters Tramai's stable public API — and
+- **Bedrock — transport:** HTTP wire-level assertions (timeout/status mapping/
+  Retry-After/rejected-body) are not applicable to the SDK transport and are
+  skipped by contract; transport-independent semantics (identity, capabilities,
+  cancellation, safe errors, usage, tools, vision, structured, streaming
+  lifecycle, resource closure) are exercised through the
+  `BedrockRuntimeClientFactory` seam with a recording fake client. The factory
+  is internal — no AWS SDK type enters Tramai's stable public API — and
   production owns and closes factory-created clients.
 - **Ollama — capability set:** pins VISION + STREAMING. Ollama's stream()
   exists and is pinned by the TCK; tool calling and structured output are not
