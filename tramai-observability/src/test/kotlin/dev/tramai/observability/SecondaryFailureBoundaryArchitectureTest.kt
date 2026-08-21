@@ -116,7 +116,7 @@ class SecondaryFailureBoundaryArchitectureTest {
         val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
             .first { it.resolve("settings.gradle.kts").isFile }
         val offenders = mutableListOf<String>()
-        listOf("tramai-engine", "tramai-orchestration", "tramai-scheduler").forEach { module ->
+        listOf("tramai-core", "tramai-engine", "tramai-orchestration", "tramai-scheduler").forEach { module ->
             val mainDir = File(repoRoot, "$module/src/main")
             if (!mainDir.isDirectory) return@forEach
             mainDir.walkTopDown()
