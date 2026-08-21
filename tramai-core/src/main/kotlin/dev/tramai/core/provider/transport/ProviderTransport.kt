@@ -41,6 +41,7 @@ import java.net.http.HttpResponse
  *     .build()
  * ```
  */
+@ExperimentalProviderTransportApi
 fun providerJsonRequest(
     uri: URI,
     request: ModelRequest,
@@ -66,6 +67,7 @@ fun providerJsonRequest(
  * thrown (non-streaming) or emitted as a `StreamChunk.Error` (streaming);
  * this utility does not decide provider protocol behaviour.
  */
+@ExperimentalProviderTransportApi
 suspend fun rejectedProviderHttpResponse(
     providerId: String,
     providerAlias: String?,
@@ -101,6 +103,7 @@ suspend fun rejectedProviderHttpResponse(
  * Anthropic event semantics — is the caller's responsibility. The reader is
  * intentionally left open; the caller owns closure (typically `use`).
  */
+@ExperimentalProviderTransportApi
 fun readSseDataPayload(reader: BufferedReader): String? {
     while (true) {
         val line = reader.readLine() ?: return null
@@ -113,6 +116,7 @@ fun readSseDataPayload(reader: BufferedReader): String? {
  * Callers that need event context (e.g. Anthropic) pair this with
  * [sseEventName] in their own loop.
  */
+@ExperimentalProviderTransportApi
 fun sseDataPayload(line: String): String? =
     if (line.startsWith("data: ")) line.substring(6).trim() else null
 
@@ -121,5 +125,6 @@ fun sseDataPayload(line: String): String? =
  * line. Callers that need event context (e.g. Anthropic) pair this with
  * [sseDataPayload] in their own loop.
  */
+@ExperimentalProviderTransportApi
 fun sseEventName(line: String): String? =
     if (line.startsWith("event: ")) line.substring(7).trim() else null

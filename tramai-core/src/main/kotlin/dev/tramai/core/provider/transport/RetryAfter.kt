@@ -18,6 +18,7 @@ import java.time.format.DateTimeFormatter
  * - `null` for a malformed value, a blank value, or a negative number of
  *   seconds (no retry-after information).
  */
+@ExperimentalProviderTransportApi
 fun parseRetryAfterMillis(
     value: String?,
     clock: Clock = Clock.systemUTC(),

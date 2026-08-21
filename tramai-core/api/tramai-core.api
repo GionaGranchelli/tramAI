@@ -2596,6 +2596,9 @@ public abstract interface class dev/tramai/core/provider/StreamCapable {
 	public abstract fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
 }
 
+public abstract interface annotation class dev/tramai/core/provider/transport/ExperimentalProviderTransportApi : java/lang/annotation/Annotation {
+}
+
 public final class dev/tramai/core/provider/transport/ProviderTransportKt {
 	public static final fun providerJsonRequest (Ljava/net/URI;Ldev/tramai/core/model/ModelRequest;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
 	public static final fun readSseDataPayload (Ljava/io/BufferedReader;)Ljava/lang/String;

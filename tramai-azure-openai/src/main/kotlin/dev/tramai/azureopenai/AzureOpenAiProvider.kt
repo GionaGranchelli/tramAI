@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.provider.transport.ExperimentalProviderTransportApi::class)
+
 package dev.tramai.azureopenai
 
 import com.fasterxml.jackson.databind.JsonNode

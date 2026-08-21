@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.core.provider.transport.ExperimentalProviderTransportApi::class)
+
 package dev.tramai.anthropic
 
 import com.fasterxml.jackson.databind.ObjectMapper
