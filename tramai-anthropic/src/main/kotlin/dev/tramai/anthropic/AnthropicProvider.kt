@@ -7,6 +7,7 @@ import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
@@ -63,6 +64,16 @@ class AnthropicProvider @JvmOverloads constructor(
                 payload["system"] = systemMessage
             }
 
+            request.tools?.let { tools ->
+                payload["tools"] = tools.map { tool ->
+                    mapOf(
+                        "name" to tool.name,
+                        "description" to tool.description,
+                        "input_schema" to objectMapper.readTree(tool.inputSchemaJson),
+                    )
+                }
+            }
+
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
                 .header("Content-Type", "application/json")
@@ -92,15 +103,27 @@ class AnthropicProvider @JvmOverloads constructor(
             }
 
             val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
-            val firstTextBlock = body.path("content")
-                .firstOrNull { node -> node.path("type").asText("") == "text" }
-                ?: throw safeProviderFailure(
-                    "Anthropic response did not contain a text content block",
+            val contentBlocks = body.path("content")
+            val textBlocks = contentBlocks.filter { node -> node.path("type").asText("") == "text" }
+            val toolCalls = contentBlocks
+                .filter { node -> node.path("type").asText("") == "tool_use" }
+                .map { node ->
+                    ToolCall(
+                        id = node.path("id").asText(),
+                        name = node.path("name").asText(),
+                        argumentsJson = node.path("input").toString(),
+                    )
+                }
+            if (textBlocks.isEmpty() && toolCalls.isEmpty()) {
+                throw safeProviderFailure(
+                    "Anthropic response did not contain a text or tool_use content block",
                     ProviderFailureCode.UNEXPECTED_FAILURE,
                 )
+            }
 
             ModelResponse(
-                content = firstTextBlock.path("text").asText(""),
+                content = textBlocks.joinToString("") { it.path("text").asText("") },
+                toolCalls = toolCalls.ifEmpty { null },
                 inputTokens = body.path("usage").path("input_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("usage").path("output_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 thinkingTokens = null,
@@ -142,6 +165,16 @@ class AnthropicProvider @JvmOverloads constructor(
                 )
                 val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
                 if (!systemMessage.isNullOrBlank()) payload["system"] = systemMessage
+
+                request.tools?.let { tools ->
+                    payload["tools"] = tools.map { tool ->
+                        mapOf(
+                            "name" to tool.name,
+                            "description" to tool.description,
+                            "input_schema" to objectMapper.readTree(tool.inputSchemaJson),
+                        )
+                    }
+                }
 
                 val httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
