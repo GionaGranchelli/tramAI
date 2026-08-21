@@ -185,6 +185,68 @@ class JUnitTestSignatureVerifierTest {
     }
 
     @Test
+    fun `rejects multiline parameter signature`() {
+        val violations = violationsFor(
+            """
+            import kotlinx.coroutines.runBlocking
+            import org.assertj.core.api.Assertions.assertThat
+
+            class SampleTest {
+                @Test
+                fun `reject me`(
+                    someParameter: String,
+                ) = runBlocking {
+                    assertThat(someParameter).isEqualTo("x")
+                }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(violations.size == 1, "expected 1 violation, got ${violations.size}")
+        assertEquals("`reject me`", violations.single().functionName)
+    }
+
+    @Test
+    fun `rejects multiline annotation between Test and fun`() {
+        val violations = violationsFor(
+            """
+            import org.assertj.core.api.Assertions.assertThat
+
+            class SampleTest {
+                @Test
+                @SomeAnnotation(
+                    value = "x",
+                )
+                fun `reject me`() = assertThat(true).isTrue()
+            }
+            """.trimIndent(),
+        )
+        assertTrue(violations.size == 1, "expected 1 violation, got ${violations.size}")
+        assertEquals("`reject me`", violations.single().functionName)
+    }
+
+    @Test
+    fun `accepts multiline parameter signature with block body`() {
+        val violations = violationsFor(
+            """
+            import kotlinx.coroutines.runBlocking
+            import org.assertj.core.api.Assertions.assertThat
+
+            class SampleTest {
+                @Test
+                fun `accept me`(
+                    someParameter: String,
+                ) {
+                    runBlocking {
+                        assertThat(someParameter).isEqualTo("x")
+                    }
+                }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(violations.isEmpty(), "expected no violations, got ${violations.map { it.functionName }}")
+    }
+
+    @Test
     fun `ignores non-test expression-bodied functions`() {
         val violations = violationsFor(
             """

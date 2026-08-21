@@ -30,17 +30,13 @@ import java.nio.file.Path
  * invariant we want to preserve.
  *
  * Accepted scope (known fail-open false negatives, none present in tree
- * today, deliberately not handled): multi-line function signatures
- * (`fun foo(\n...) = expr`), annotation parameters on the same line as
- * `@Test` (`@Test(timeout = ...)`), and other JUnit discovery annotations
- * (`@ParameterizedTest`, `@RepeatedTest`, `@TestFactory`).
+ * today, deliberately not handled): other JUnit discovery annotations
+ * (`@ParameterizedTest`, `@RepeatedTest`, `@TestFactory`) and exotic
+ * constructs such as an anonymous `fun` inside an annotation argument
+ * between `@Test` and the declaration.
  */
 object JUnitTestSignatureVerifier {
 
-    private val FUN_SIGNATURE =
-        Regex("""^\s*(?:public|private|internal)?\s*(?:suspend\s+)?fun\s+(`[^`]+`|[A-Za-z0-9_]+)\s*\([^)]*\)\s*=\s*(\S.*)$""")
-    private val EXPLICIT_UNIT_SIGNATURE =
-        Regex("""^\s*(?:public|private|internal)?\s*(?:suspend\s+)?fun\s+(`[^`]+`|[A-Za-z0-9_]+)\s*\([^)]*\)\s*:\s*Unit\s*=.*$""")
     // Explicit `<Unit>` type argument on the expression head, e.g. `runBlocking<Unit> {`
     private val EXPLICIT_UNIT_HEAD =
         Regex("""^[\w.`]+\s*<Unit>\s*(?=[({.\s]).*$""")
@@ -49,8 +45,16 @@ object JUnitTestSignatureVerifier {
     // the discovery sense, so whitelisted without a type argument.
     private val KNOWN_UNIT_HEAD = Regex("""^runTest\s*[({].*$""")
     private val BARE_UNIT = Regex("""^Unit\s*$""")
+    private val NAME = Regex("""\s*(?:public|private|internal)?\s*(?:suspend\s+)?fun\s+(`[^`]+`|[A-Za-z0-9_]+)""")
 
     data class Violation(val file: Path, val line: Int, val functionName: String, val expressionHead: String)
+
+    /** Result of evaluating an accumulated `@Test` declaration. */
+    private sealed interface Decision {
+        data object Continue : Decision
+        data object Safe : Decision
+        data class Reject(val functionName: String, val expressionHead: String) : Decision
+    }
 
     /**
      * Scans every `src/test` and `src/testFixtures` Kotlin source under [root]
@@ -62,7 +66,8 @@ object JUnitTestSignatureVerifier {
         Files.walk(root).use { paths ->
             paths.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".kt") }
                 .filter { p ->
-                    val path = p.toString()
+                    // Normalize separators so matching works on any platform.
+                    val path = p.toString().replace(File.separatorChar, '/')
                     // Source trees only. Gradle output lives under <module>/build/,
                     // never under src/test or src/testFixtures, so no extra /build/
                     // exclusion is needed — and one would wrongly skip the
@@ -74,6 +79,62 @@ object JUnitTestSignatureVerifier {
         return violations
     }
 
+    /**
+     * Accumulates lines from `@Test` through the function declaration and
+     * decides only once the body form (`{` vs `=`) is established, so
+     * multi-line signatures and multi-line annotations cannot bypass the
+     * check. Returns [Decision.Continue] until the declaration resolves.
+     */
+    private fun decide(decl: String): Decision {
+        val funIdx = decl.indexOf("fun ")
+        if (funIdx < 0) return Decision.Continue
+        val openParen = decl.indexOf('(', funIdx)
+        if (openParen < 0) return Decision.Continue
+        var depth = 0
+        var i = openParen
+        while (i < decl.length) {
+            when (decl[i]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0) {
+                        var j = i + 1
+                        while (j < decl.length && decl[j].isWhitespace()) j++
+                        if (j >= decl.length) return Decision.Continue
+                        val name = NAME.find(decl, funIdx)?.groupValues?.get(1) ?: decl.substring(funIdx)
+                        return when {
+                            decl[j] == '{' -> Decision.Safe
+                            decl[j] == '=' -> headDecision(decl.substring(j + 1), name)
+                            decl[j] == ':' -> {
+                                // Explicit return type: `: Unit` is safe, anything
+                                // else with `=` needs the head to be Unit-safe.
+                                val eqOrBrace = decl.indexOfAny(charArrayOf('=', '{'), j + 1)
+                                when {
+                                    eqOrBrace < 0 -> Decision.Continue
+                                    decl[eqOrBrace] == '{' -> Decision.Safe
+                                    decl.substring(j + 1, eqOrBrace).trim() == "Unit" -> Decision.Safe
+                                    else -> headDecision(decl.substring(eqOrBrace + 1), name)
+                                }
+                            }
+                            else -> Decision.Continue
+                        }
+                    }
+                }
+            }
+            i++
+        }
+        return Decision.Continue
+    }
+
+    private fun headDecision(headRaw: String, name: String): Decision {
+        val head = headRaw.trim()
+        return if (EXPLICIT_UNIT_HEAD.matches(head) || KNOWN_UNIT_HEAD.matches(head) || BARE_UNIT.matches(head)) {
+            Decision.Safe
+        } else {
+            Decision.Reject(name, head)
+        }
+    }
+
     private fun scanFile(file: Path): List<Violation> {
         val lines = try {
             Files.readAllLines(file)
@@ -81,7 +142,7 @@ object JUnitTestSignatureVerifier {
             return emptyList()
         }
         val violations = mutableListOf<Violation>()
-        var pendingTest = false
+        var pending: StringBuilder? = null
         var inRawString = false
         for ((index, raw) in lines.withIndex()) {
             val line = raw.trim()
@@ -97,49 +158,44 @@ object JUnitTestSignatureVerifier {
                 inRawString = true
                 continue
             }
+            // Comments and blank lines do not clear a pending declaration
+            // (annotations may legally be separated from their function).
             if (line.isEmpty() || line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) {
                 continue
             }
             if (line.startsWith("@")) {
                 if (line.matches(Regex("""^@Test\b.*$"""))) {
-                    // Same-line form: `@Test fun `name`() = <expr>` — the fun
-                    // signature shares the @Test line. Evaluate it directly.
-                    val inline = line.substringAfter("@Test").trim()
-                    if (inline.startsWith("fun ")) {
-                        if (!EXPLICIT_UNIT_SIGNATURE.matches(inline)) {
-                            val match = FUN_SIGNATURE.matchEntire(inline)
-                            if (match != null) {
-                                val head = match.groupValues[2]
-                                if (!EXPLICIT_UNIT_HEAD.matches(head) && !KNOWN_UNIT_HEAD.matches(head) && !BARE_UNIT.matches(head)) {
-                                    violations += Violation(file, index + 1, match.groupValues[1], head)
-                                }
-                            }
-                        }
-                    } else {
-                        pendingTest = true
-                    }
+                    pending = StringBuilder(line.substringAfter("@Test"))
+                    pending = resolve(pending, file, index, violations)
+                } else if (pending != null) {
+                    pending.append(' ').append(line)
+                    pending = resolve(pending, file, index, violations)
                 }
                 continue
             }
-            if (line.startsWith("fun ") && pendingTest) {
-                pendingTest = false
-                if (EXPLICIT_UNIT_SIGNATURE.matches(line)) {
-                    continue
-                }
-                val match = FUN_SIGNATURE.matchEntire(line)
-                if (match != null) {
-                    val head = match.groupValues[2]
-                    if (!EXPLICIT_UNIT_HEAD.matches(head) && !KNOWN_UNIT_HEAD.matches(head) && !BARE_UNIT.matches(head)) {
-                        violations += Violation(file, index + 1, match.groupValues[1], head)
-                    }
-                }
+            if (pending != null) {
+                pending.append('\n').append(line)
+                pending = resolve(pending, file, index, violations)
                 continue
             }
-            pendingTest = false
         }
         return violations
     }
 
+    /**
+     * Evaluates an accumulated declaration; returns the continuation state
+     * (null once the declaration resolved to Safe or Reject).
+     */
+    private fun resolve(pending: StringBuilder, file: Path, line: Int, violations: MutableList<Violation>): StringBuilder? {
+        return when (val decision = decide(pending.toString())) {
+            is Decision.Reject -> {
+                violations += Violation(file, line + 1, decision.functionName, decision.expressionHead)
+                null
+            }
+            Decision.Safe -> null
+            Decision.Continue -> pending
+        }
+    }
     private fun String.countOccurrencesOf(sub: String): Int {
         var count = 0
         var idx = indexOf(sub)
