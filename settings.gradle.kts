@@ -23,6 +23,7 @@ include(
     "tramai-ollama",
     "tramai-platform",
     "tramai-spring",
+    "tramai-spring-consumer-boundary",
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-persistence-jdbc",
