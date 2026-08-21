@@ -16,11 +16,10 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
-import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailureObserved
 import dev.tramai.core.provider.providerTransportFailureObserved
-import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.transport.providerJsonRequest
+import dev.tramai.core.provider.transport.readSseDataPayload
+import dev.tramai.core.provider.transport.rejectedProviderHttpResponse
 import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
@@ -123,38 +122,27 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             request.temperature?.let { payload["temperature"] = it }
 
             val authToken = resolveAuthToken()
-            val httpRequestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(buildUrl()))
-                .header("Content-Type", "application/json")
-                .applyTramaiTimeout(request)
-
-            // API key auth uses the api-key header; Entra ID uses Bearer auth
-            if (apiKey != null) {
-                httpRequestBuilder.header("api-key", authToken!!)
-            } else {
-                httpRequestBuilder.header("Authorization", "Bearer $authToken")
-            }
-
-            val httpRequest = httpRequestBuilder
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest = providerJsonRequest(
+                URI.create(buildUrl()),
+                request,
+                objectMapper.writeValueAsString(payload),
+            ).apply {
+                // API key auth uses the api-key header; Entra ID uses Bearer auth
+                if (apiKey != null) {
+                    header("api-key", authToken!!)
+                } else {
+                    header("Authorization", "Bearer $authToken")
+                }
+            }.build()
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
-                val errorBody = readErrorBodyPreview(response.body())
-                logProviderHttpFailureDebug(
-                    logger = providerLogger,
-                    providerName = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                )
-                throw providerHttpFailureObserved(
+                throw rejectedProviderHttpResponse(
                     providerId = PROVIDER_ID,
-                    statusCode = response.statusCode(),
-                    body = errorBody.text,
-                    bodyTruncated = errorBody.truncated,
-                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    providerAlias = null,
+                    response = response,
                     observer = providerFailureDiagnosticObserver,
+                    logger = providerLogger,
                 )
             }
 
@@ -177,20 +165,17 @@ class AzureOpenAiProvider @JvmOverloads constructor(
                 request.temperature?.let { payload["temperature"] = it }
 
                 val authToken = resolveAuthToken()
-                val httpRequestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(buildUrl()))
-                    .header("Content-Type", "application/json")
-                    .applyTramaiTimeout(request)
-
-                if (apiKey != null) {
-                    httpRequestBuilder.header("api-key", authToken!!)
-                } else {
-                    httpRequestBuilder.header("Authorization", "Bearer $authToken")
-                }
-
-                val httpRequest = httpRequestBuilder
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build()
+                val httpRequest = providerJsonRequest(
+                    URI.create(buildUrl()),
+                    request,
+                    objectMapper.writeValueAsString(payload),
+                ).apply {
+                    if (apiKey != null) {
+                        header("api-key", authToken!!)
+                    } else {
+                        header("Authorization", "Bearer $authToken")
+                    }
+                }.build()
                 httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             }
         } catch (error: Throwable) {
@@ -216,28 +201,13 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         response: HttpResponse<InputStream>,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = try {
-            readErrorBodyPreview(response.body())
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            return StreamChunk.Error(
-                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
-            )
-        }
-        logProviderHttpFailureDebug(
-            logger = providerLogger,
-            providerName = PROVIDER_ID,
-            statusCode = response.statusCode(),
-            body = errorBody.text,
-        )
         return StreamChunk.Error(
-            providerHttpFailureObserved(
+            rejectedProviderHttpResponse(
                 providerId = PROVIDER_ID,
-                statusCode = response.statusCode(),
-                body = errorBody.text,
-                bodyTruncated = errorBody.truncated,
-                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                providerAlias = null,
+                response = response,
                 observer = providerFailureDiagnosticObserver,
+                logger = providerLogger,
             ),
         )
     }
@@ -255,12 +225,9 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         try {
             response.body().bufferedReader(UTF_8).use { reader ->
                 while (true) {
-                    val line = reader.readLine() ?: break
-                    if (line.startsWith("data: ")) {
-                        val data = line.substring(6).trim()
-                        if (data == "[DONE]") break
-                        lastUsage = handleAzureDataLine(data, fullText, lastUsage)
-                    }
+                    val data = readSseDataPayload(reader) ?: break
+                    if (data == "[DONE]") break
+                    lastUsage = handleAzureDataLine(data, fullText, lastUsage)
                 }
             }
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
