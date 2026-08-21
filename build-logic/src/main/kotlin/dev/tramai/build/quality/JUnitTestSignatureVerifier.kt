@@ -28,6 +28,12 @@ import java.nio.file.Path
  * It is intentionally conservative: a compliant form that a future Kotlin
  * version infers as non-void must be made explicit, which is exactly the
  * invariant we want to preserve.
+ *
+ * Accepted scope (known fail-open false negatives, none present in tree
+ * today, deliberately not handled): multi-line function signatures
+ * (`fun foo(\n...) = expr`), annotation parameters on the same line as
+ * `@Test` (`@Test(timeout = ...)`), and other JUnit discovery annotations
+ * (`@ParameterizedTest`, `@RepeatedTest`, `@TestFactory`).
  */
 object JUnitTestSignatureVerifier {
 
@@ -38,8 +44,9 @@ object JUnitTestSignatureVerifier {
     // Explicit `<Unit>` type argument on the expression head, e.g. `runBlocking<Unit> {`
     private val EXPLICIT_UNIT_HEAD =
         Regex("""^[\w.`]+\s*<Unit>\s*(?=[({.\s]).*$""")
-    // `runTest { ... }` always returns Unit (block parameter is `suspend TestScope.() -> Unit`),
-    // so the expression head is provably Unit-safe without a type argument.
+    // `runTest { ... }` returns TestResult, which JUnit Jupiter special-cases as
+    // a valid test-method return type (discovered, not skipped) — Unit-safe in
+    // the discovery sense, so whitelisted without a type argument.
     private val KNOWN_UNIT_HEAD = Regex("""^runTest\s*[({].*$""")
     private val BARE_UNIT = Regex("""^Unit\s*$""")
 
@@ -56,8 +63,11 @@ object JUnitTestSignatureVerifier {
             paths.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".kt") }
                 .filter { p ->
                     val path = p.toString()
-                    (path.contains("/src/test/") || path.contains("/src/testFixtures/")) &&
-                        !path.contains("/build/")
+                    // Source trees only. Gradle output lives under <module>/build/,
+                    // never under src/test or src/testFixtures, so no extra /build/
+                    // exclusion is needed — and one would wrongly skip the
+                    // `dev/tramai/build/*` source package (the guard's own home).
+                    (path.contains("/src/test/") || path.contains("/src/testFixtures/"))
                 }
                 .forEach { file -> violations += scanFile(file) }
         }
@@ -72,8 +82,21 @@ object JUnitTestSignatureVerifier {
         }
         val violations = mutableListOf<Violation>()
         var pendingTest = false
+        var inRawString = false
         for ((index, raw) in lines.withIndex()) {
             val line = raw.trim()
+            if (inRawString) {
+                if (line.countOccurrencesOf("\"\"\"") % 2 == 1) {
+                    inRawString = false
+                }
+                continue
+            }
+            // Lines inside `"""..."""` raw strings (test fixtures contain
+            // verbatim `@Test fun ... = ...` samples) are not real code.
+            if (line.countOccurrencesOf("\"\"\"") % 2 == 1) {
+                inRawString = true
+                continue
+            }
             if (line.isEmpty() || line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) {
                 continue
             }
@@ -115,6 +138,16 @@ object JUnitTestSignatureVerifier {
             pendingTest = false
         }
         return violations
+    }
+
+    private fun String.countOccurrencesOf(sub: String): Int {
+        var count = 0
+        var idx = indexOf(sub)
+        while (idx >= 0) {
+            count++
+            idx = indexOf(sub, idx + sub.length)
+        }
+        return count
     }
 
     /** Renders a human-readable failure report. */

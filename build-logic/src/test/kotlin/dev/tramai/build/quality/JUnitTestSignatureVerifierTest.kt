@@ -163,6 +163,28 @@ class JUnitTestSignatureVerifierTest {
     }
 
     @Test
+    fun `ignores expression bodies inside raw string fixtures`() {
+        val content = """
+            import org.assertj.core.api.Assertions.assertThat
+
+            class SampleTest {
+                val fixture = ${"\"\"\""}
+                    @Test fun `not real code`() = assertThatThrownBy {
+                        throw IllegalStateException("boom")
+                    }
+                ${"\"\"\""}
+
+                @Test
+                fun `real test`() {
+                    assertThat(true).isTrue()
+                }
+            }
+            """.trimIndent()
+        val violations = violationsFor(content)
+        assertTrue(violations.isEmpty(), "expected no violations, got ${violations.map { it.functionName }}")
+    }
+
+    @Test
     fun `ignores non-test expression-bodied functions`() {
         val violations = violationsFor(
             """
