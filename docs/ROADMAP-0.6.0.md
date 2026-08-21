@@ -1009,21 +1009,49 @@ abstraction was introduced — Epic 6.2 owns transport consolidation.
 
 ---
 
-## Epic 6.2: Shared provider transport utilities
+## Epic 6.2: Shared provider transport utilities ✅
 
 **Goal:** Remove repeated low-level HTTP and streaming concerns without hiding provider protocol differences.
 
+**Status: complete (PR #258).** `dev.tramai.core.provider.transport` in
+`tramai-core` centralises the transport invariants that are genuinely
+identical between adapters:
+
+- `parseRetryAfterMillis(value, clock)` — deterministic `Retry-After`
+  parsing with an injected `Clock` (default `systemUTC`), removing the hidden
+  `System.currentTimeMillis()` wall-clock dependency.
+- `rejectedProviderHttpResponse(...)` — one primitive for the rejected-
+  response lifecycle: bounded 8 KiB body read, deterministic closure,
+  debug-metadata logging, fail-open diagnostic observer delivery, and
+  `Retry-After` propagation. The caller decides throw vs `StreamChunk.Error`.
+- `providerJsonRequest(uri, request, body)` — URI + JSON `Content-Type` +
+  normalized timeout + POST framing; authentication and provider-protocol
+  headers remain adapter-owned so the wire contract stays visible in each
+  provider's source.
+- `readSseDataPayload(reader)` / `sseDataPayload(line)` / `sseEventName(line)`
+  — SSE framing only (prefix stripping, field skipping, EOF); payload
+  interpretation (`[DONE]`, deltas, Anthropic event semantics, Gemini
+  candidates) stays in the adapters.
+
+Migrated in order: OpenAI-compatible (DeepSeek benefits via delegation),
+Azure OpenAI, Anthropic, Gemini, Ollama. Bedrock intentionally keeps its
+AWS SDK transport. The #257 TCK is the regression oracle and was not
+weakened; all eight provider runners stay green. Deliberately NOT extracted
+(in line with the guardrail): a Jackson-typed successful-body helper
+(`tramai-core` has no Jackson dependency; stream closure is stdlib `use{}`),
+usage-metrics adapters, and any universal provider transport abstraction.
+
 ### Candidate utilities
 
-- Safe request builder
-- Timeout application
-- Retry-after parser using an injected clock
-- Bounded response reader
-- Safe provider error decoder
-- SSE line parser primitives
-- JSON response guards
-- Resource-closing helpers
-- Common usage-metrics model adapters
+- Safe request builder ✅ (as `providerJsonRequest`)
+- Timeout application ✅ (pre-existing, reused)
+- Retry-after parser using an injected clock ✅
+- Bounded response reader ✅ (pre-existing, reused)
+- Safe provider error decoder ✅ (pre-existing, reused)
+- SSE line parser primitives ✅
+- JSON response guards — skipped (see above)
+- Resource-closing helpers ✅ (stdlib `use` at call sites)
+- Common usage-metrics model adapters — skipped (not mechanically equivalent)
 
 ### Guardrail
 
