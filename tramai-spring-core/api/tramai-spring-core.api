@@ -25,6 +25,9 @@ public final class dev/tramai/spring/SecurityClassificationAutoConfiguration {
 	public final fun documentClassifier (Ldev/tramai/spring/TramaiProperties;)Ldev/tramai/security/classification/DocumentClassifier;
 }
 
+public abstract interface class dev/tramai/spring/SpringBootstrapSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+}
+
 public abstract interface class dev/tramai/spring/SpringBuiltInSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
 }
 
@@ -559,7 +562,7 @@ public final class dev/tramai/spring/TramaiProperties$Vault {
 
 public final class dev/tramai/spring/TramaiSecretResolutionAutoConfiguration {
 	public fun <init> ()V
-	public final fun tramaiBootstrapSecretValueResolver (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;)Ldev/tramai/core/secret/SecretValueResolver;
+	public final fun tramaiBootstrapSecretValueResolver (Lorg/springframework/context/ApplicationContext;)Ldev/tramai/core/secret/SecretValueResolver;
 	public final fun tramaiSecretValueResolver (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/core/secret/SecretValueResolver;
 }
 

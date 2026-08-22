@@ -2,7 +2,6 @@ package dev.tramai.spring
 
 import dev.tramai.core.secret.CompositeSecretValueResolver
 import dev.tramai.core.secret.EnvironmentSecretValueResolver
-import dev.tramai.core.secret.FileSecretValueResolver
 import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.spring.secret.AwsSecretsManagerSecretValueResolver
 import dev.tramai.spring.secret.VaultSecretValueResolver
@@ -11,7 +10,6 @@ import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
-import java.nio.file.Path
 
 /**
  * Secret resolution chain assembly for Spring Tramai.
@@ -21,8 +19,8 @@ import java.nio.file.Path
  * lower-level resolver set (user + environment + file) without recursively
  * resolving through themselves:
  *
- *   bootstrap = user + [Environment, File]
- *   full      = user + [Vault, AWS, ...built-in modules] + [Environment, File]
+ *   bootstrap = user + [Environment] + bootstrap markers (file module)
+ *   full      = user + [Vault, AWS, ...built-in modules] + [Environment] + bootstrap markers
  *
  * Built-in secret resolvers contributed by optional modules implement
  * [SpringBuiltInSecretValueResolver]; they are excluded from the bootstrap
@@ -40,13 +38,12 @@ class TramaiSecretResolutionAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(Tramai::class)
     fun tramaiBootstrapSecretValueResolver(
-        properties: TramaiProperties,
         applicationContext: org.springframework.context.ApplicationContext,
     ): SecretValueResolver {
         val userResolvers = userSecretResolvers(applicationContext)
-        val fileResolver = fileSecretResolver(properties)
+        val bootstrapResolvers = bootstrapSecretResolvers(applicationContext)
         return CompositeSecretValueResolver(
-            userResolvers + listOf(EnvironmentSecretValueResolver, fileResolver),
+            userResolvers + listOf(EnvironmentSecretValueResolver) + bootstrapResolvers,
         )
     }
 
@@ -59,15 +56,18 @@ class TramaiSecretResolutionAutoConfiguration {
         bootstrapSecretValueResolver: SecretValueResolver,
     ): SecretValueResolver {
         val userResolvers = userSecretResolvers(applicationContext)
-        val fileResolver = fileSecretResolver(properties)
+        val bootstrapResolvers = bootstrapSecretResolvers(applicationContext)
         val builtInResolvers = listOfNotNull(
             createVaultSecretValueResolver(properties.secrets.vault, bootstrapSecretValueResolver),
             createAwsSecretsManagerSecretValueResolver(properties.secrets.awsSecretsManager, bootstrapSecretValueResolver),
         ) + applicationContext.getBeanProvider(SpringBuiltInSecretValueResolver::class.java).orderedStream().toList()
         return CompositeSecretValueResolver(
-            userResolvers + builtInResolvers + listOf(EnvironmentSecretValueResolver, fileResolver),
+            userResolvers + builtInResolvers + listOf(EnvironmentSecretValueResolver) + bootstrapResolvers,
         )
     }
+
+    private fun bootstrapSecretResolvers(applicationContext: org.springframework.context.ApplicationContext): List<SecretValueResolver> =
+        applicationContext.getBeanProvider(SpringBootstrapSecretValueResolver::class.java).orderedStream().toList()
 
     private fun userSecretResolvers(applicationContext: org.springframework.context.ApplicationContext): List<SecretValueResolver> {
         // Resolve by bean NAME, not by type stream: the two chain beans are
@@ -75,18 +75,11 @@ class TramaiSecretResolutionAutoConfiguration {
         // try to instantiate the very bean currently in creation.
         val chainBeanNames = setOf("tramaiBootstrapSecretValueResolver", "tramaiSecretValueResolver")
         val builtInNames = applicationContext.getBeanNamesForType(SpringBuiltInSecretValueResolver::class.java).toSet()
+        val bootstrapNames = applicationContext.getBeanNamesForType(SpringBootstrapSecretValueResolver::class.java).toSet()
         return applicationContext.getBeanNamesForType(SecretValueResolver::class.java)
-            .filterNot { it in chainBeanNames || it in builtInNames }
+            .filterNot { it in chainBeanNames || it in builtInNames || it in bootstrapNames }
             .map { applicationContext.getBean(it, SecretValueResolver::class.java) }
     }
-
-    private fun fileSecretResolver(properties: TramaiProperties): FileSecretValueResolver =
-        FileSecretValueResolver(
-            allowedDirectory = properties.secrets.file.allowedDirectory
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?.let(Path::of),
-        )
 
     private fun createVaultSecretValueResolver(
         properties: TramaiProperties.Vault,

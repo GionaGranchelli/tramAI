@@ -37,6 +37,7 @@ dependencies {
         api(project(":tramai-spring-provider-anthropic"))
         api(project(":tramai-spring-provider-ollama"))
         api(project(":tramai-spring-provider-openai"))
+        api(project(":tramai-spring-secrets-file"))
         api(project(":tramai-security"))
         api(project(":tramai-testing"))
         api(project(":tramai-vectorstore-spi"))

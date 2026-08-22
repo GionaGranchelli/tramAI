@@ -72,6 +72,7 @@ val publishableProjectNames = listOf(
     "tramai-spring-provider-anthropic",
     "tramai-spring-provider-ollama",
     "tramai-spring-provider-openai",
+    "tramai-spring-secrets-file",
     "tramai-standalone",
     "tramai-sovereign",
     "tramai-persistence-file",

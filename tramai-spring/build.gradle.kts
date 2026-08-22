@@ -31,6 +31,7 @@ dependencies {
     testImplementation(project(":tramai-spring-provider-anthropic"))
     testImplementation(project(":tramai-spring-provider-ollama"))
     testImplementation(project(":tramai-spring-provider-openai"))
+    testImplementation(project(":tramai-spring-secrets-file"))
     testImplementation(libs.coroutines.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
