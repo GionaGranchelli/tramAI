@@ -42,6 +42,13 @@ class TramaiWorkerTest {
 
         val worker0 = worker("worker-0", leaseStore, checkpointStore, workflow, workerCount = 2, partitionEnabled = true)
         val worker1 = worker("worker-1", leaseStore, checkpointStore, workflow, workerCount = 2, partitionEnabled = true)
+        // Pre-register both workers so the first poll already sees the full
+        // pool. Without this, whichever worker polls before the other has
+        // registered legitimately owns both partitions (ModHashPartitionStrategy
+        // partitions over the live active set) and the strict per-worker
+        // ownership assertions below become racy.
+        leaseStore.registerWorker("worker-0", "tests", "v1", setOf(), "host-0")
+        leaseStore.registerWorker("worker-1", "tests", "v1", setOf(), "host-1")
         worker0.start()
         worker1.start()
         try {
