@@ -9,7 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
-import org.springframework.core.annotation.OrderUtils
+import org.springframework.core.annotation.AnnotationAwareOrderComparator
 
 /**
  * Secret resolution chain assembly for Spring Tramai.
@@ -83,35 +83,44 @@ class TramaiSecretResolutionAutoConfiguration {
         // bootstrap-marker names need excluding.
         val builtInNames = applicationContext.getBeanNamesForType(SpringBuiltInSecretValueResolver::class.java).toSet()
         val bootstrapNames = applicationContext.getBeanNamesForType(SpringBootstrapSecretValueResolver::class.java).toSet()
-        return applicationContext.getBeanNamesForType(SecretValueResolver::class.java)
+        val userResolvers = applicationContext.getBeanNamesForType(SecretValueResolver::class.java)
             .filterNot { it in builtInNames || it in bootstrapNames }
             .map { name -> name to applicationContext.getBean(name, SecretValueResolver::class.java) }
-            // Restore the pre-#263 ordering contract: the original inline
-            // assembly used ObjectProvider.orderedStream(), which sorts by
-            // Spring's factory-aware order source — bean-definition order
-            // attribute, then the @Bean factory method, then the target
-            // type — exactly what FactoryAwareOrderSourceProvider does.
-            .sortedWith { (name1, _), (name2, _) ->
-                orderOf(applicationContext, name1).compareTo(orderOf(applicationContext, name2))
-            }
-            .map { (_, resolver) -> resolver }
+        // Restore the exact pre-#263 orderedStream() semantics. Spring does
+        // not reduce ordering to an integer lookup: it sorts the bean
+        // INSTANCES with AnnotationAwareOrderComparator + a factory-aware
+        // OrderSourceProvider. That combination retains PriorityOrdered
+        // grouping, bean-definition/factory-method metadata, annotation
+        // ordering, and the runtime Ordered#getOrder() fallback on the
+        // instance itself.
+        val instancesToBeanNames = userResolvers.associateBy({ it.second }, { it.first })
+        val orderSourceProvider = org.springframework.core.OrderComparator.OrderSourceProvider { instance ->
+            factoryOrderSources(applicationContext, instancesToBeanNames.getValue(instance as SecretValueResolver))
+        }
+        val comparator = AnnotationAwareOrderComparator.INSTANCE.withSourceProvider(orderSourceProvider)
+        return userResolvers.map { it.second }.sortedWith(comparator)
     }
 
-    private fun orderOf(applicationContext: ApplicationContext, beanName: String): Int {
+    /**
+     * Same source array as Spring's FactoryAwareOrderSourceProvider:
+     * bean-definition order attribute, then the resolved @Bean factory
+     * method, then the target type. OrderComparator.getOrder(obj, provider)
+     * iterates the array with findOrder(element) and, if every element is
+     * unordered, falls back to findOrder(obj) on the instance itself.
+     */
+    private fun factoryOrderSources(applicationContext: ApplicationContext, beanName: String): Array<Any> {
         val beanFactory = applicationContext.autowireCapableBeanFactory as org.springframework.beans.factory.config.ConfigurableListableBeanFactory
         val definition = try {
             beanFactory.getMergedBeanDefinition(beanName) as? org.springframework.beans.factory.support.RootBeanDefinition
         } catch (_: Exception) {
             null
         }
-        val attribute = definition?.getAttribute(org.springframework.beans.factory.support.AbstractBeanDefinition.ORDER_ATTRIBUTE) as? Int
-        if (attribute != null) return attribute
-        // Same fall-through as Spring's FactoryAwareOrderSourceProvider:
-        // bean-definition attribute, then the @Bean factory method's
-        // @Order, then the target type's @Order/Ordered.
-        val factoryMethodOrder = definition?.resolvedFactoryMethod?.let { OrderUtils.getOrder(it) }
-        if (factoryMethodOrder != null) return factoryMethodOrder
-        val targetTypeOrder = definition?.targetType?.let { OrderUtils.getOrder(it) }
-        return targetTypeOrder ?: org.springframework.core.Ordered.LOWEST_PRECEDENCE
+        val sources = buildList {
+            (definition?.getAttribute(org.springframework.beans.factory.support.AbstractBeanDefinition.ORDER_ATTRIBUTE) as? Int)
+                ?.let { attribute -> add(org.springframework.core.Ordered { attribute }) }
+            definition?.resolvedFactoryMethod?.let { add(it) }
+            definition?.targetType?.let { add(it) }
+        }
+        return sources.toTypedArray()
     }
 }

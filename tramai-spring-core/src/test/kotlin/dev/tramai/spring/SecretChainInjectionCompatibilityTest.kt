@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.Ordered
+import org.springframework.core.PriorityOrdered
 import org.springframework.core.annotation.Order
 
 /**
@@ -50,6 +51,32 @@ class SecretChainInjectionCompatibilityTest {
             }
     }
 
+    @Test
+    fun `Ordered instance fallback without annotations`() {
+        runner
+            .withUserConfiguration(OrderedInstanceResolvers::class.java)
+            .run { context ->
+                val chain = context.getBean(SpringSecretChain::class.java)
+                // No @Order anywhere; Ordered#getOrder() on the instances must
+                // decide (order 1 beats order 5) — the pre-#263
+                // orderedStream() fallback on the bean object itself.
+                assertThat(chain.resolver.resolve("shared:ref")).isEqualTo("low-value")
+            }
+    }
+
+    @Test
+    fun `PriorityOrdered group wins over Ordered regardless of numeric order`() {
+        runner
+            .withUserConfiguration(PriorityOrderedResolvers::class.java)
+            .run { context ->
+                val chain = context.getBean(SpringSecretChain::class.java)
+                // PriorityOrdered(order=100) must win over Ordered(order=1):
+                // Spring sorts PriorityOrdered beans ahead of plain Ordered
+                // beans before any numeric comparison.
+                assertThat(chain.resolver.resolve("shared:ref")).isEqualTo("priority-value")
+            }
+    }
+
     @Configuration
     open class UserResolverAndConsumer {
         @Bean
@@ -83,6 +110,43 @@ class SecretChainInjectionCompatibilityTest {
         open fun firstUserResolver(): SecretValueResolver =
             object : SecretValueResolver {
                 override fun resolve(secretRef: String): String? = "low-order-value"
+            }
+    }
+
+    @Configuration
+    open class OrderedInstanceResolvers {
+        // No annotations: precedence comes from the instance's Ordered#getOrder().
+        @Bean
+        open fun slowerResolver(): SecretValueResolver =
+            object : SecretValueResolver, Ordered {
+                override fun getOrder(): Int = 5
+                override fun resolve(secretRef: String): String? = "high-value"
+            }
+
+        @Bean
+        open fun fasterResolver(): SecretValueResolver =
+            object : SecretValueResolver, Ordered {
+                override fun getOrder(): Int = 1
+                override fun resolve(secretRef: String): String? = "low-value"
+            }
+    }
+
+    @Configuration
+    open class PriorityOrderedResolvers {
+        // PriorityOrdered forms a higher group than plain Ordered; the numeric
+        // orders (100 vs 1) must not decide.
+        @Bean
+        open fun plainOrderedResolver(): SecretValueResolver =
+            object : SecretValueResolver, Ordered {
+                override fun getOrder(): Int = 1
+                override fun resolve(secretRef: String): String? = "plain-value"
+            }
+
+        @Bean
+        open fun priorityResolver(): SecretValueResolver =
+            object : SecretValueResolver, PriorityOrdered {
+                override fun getOrder(): Int = 100
+                override fun resolve(secretRef: String): String? = "priority-value"
             }
     }
 }
