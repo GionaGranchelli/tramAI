@@ -4,7 +4,7 @@
 > **Module type:** `framework-adapter`
 > **Source files:** 9 — `EnableTramai.kt`, `TramaiAutoConfiguration.kt`, `TramaiProperties.kt`, `AiServiceBeanDefinitionRegistrar.kt`, `AiServiceFactoryBean.kt`, `AiToolScanner.kt`, `TramaiSecretResolutionAutoConfiguration.kt`, `SpringSecretResolution.kt`, `SpringBuiltInSecretValueResolver.kt`
 > **Test files:** 3 — `TramaiAutoConfigurationTest.kt`, `TramaiAutoConfigurationConditionsTest.kt`, `SecurityAutoConfigurationTest.kt`
-> **Build:** `dev.tramai:tramai-spring:0.6.0`
+> **Build:** `dev.tramai:tramai-spring:0.5.0`
 > **Depends on:** `tramai-spring-core` (thin facade; provider and secret adapters are separate modules)
 
 ---
@@ -47,7 +47,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.6.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-spring")
     // 0.6.0: select adapters explicitly
     implementation("dev.tramai:tramai-spring-provider-openai") // or -anthropic, -ollama
@@ -63,7 +63,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.6.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
