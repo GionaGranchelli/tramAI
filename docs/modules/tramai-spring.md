@@ -2,10 +2,10 @@
 
 > **One-liner:** Spring Boot auto-configuration that wires Tramai's `Tramai` runtime, scans `@AiService` interfaces, discovers `@AiTool` beans, and binds `tramai.*` application properties — all with zero manual bean declarations.
 > **Module type:** `framework-adapter`
-> **Source files:** 9 — `EnableTramai.kt`, `TramaiAutoConfiguration.kt`, `TramaiProperties.kt`, `AiServiceBeanDefinitionRegistrar.kt`, `AiServiceFactoryBean.kt`, `AiToolScanner.kt`, `secret/VaultSecretValueResolver.kt`, `secret/AwsSecretsManagerSecretValueResolver.kt`, `secret/AwsSecretsManagerLookupClient.kt`
-> **Test files:** 2 — `VaultSecretValueResolverTest.kt`, `AwsSecretsManagerSecretValueResolverTest.kt`
-> **Build:** `dev.tramai:tramai-spring:0.5.0`
-> **Depends on:** `tramai-core`, `tramai-engine`, `tramai-structured`, `tramai-standalone`, plus one or more provider modules (`tramai-openai`, `tramai-anthropic`, `tramai-ollama`)
+> **Source files:** 9 — `EnableTramai.kt`, `TramaiAutoConfiguration.kt`, `TramaiProperties.kt`, `AiServiceBeanDefinitionRegistrar.kt`, `AiServiceFactoryBean.kt`, `AiToolScanner.kt`, `TramaiSecretResolutionAutoConfiguration.kt`, `SpringSecretResolution.kt`, `SpringBuiltInSecretValueResolver.kt`
+> **Test files:** 3 — `TramaiAutoConfigurationTest.kt`, `TramaiAutoConfigurationConditionsTest.kt`, `SecurityAutoConfigurationTest.kt`
+> **Build:** `dev.tramai:tramai-spring:0.6.0`
+> **Depends on:** `tramai-spring-core` (thin facade; provider and secret adapters are separate modules)
 
 ---
 
@@ -21,7 +21,7 @@ Spring Boot developers expect framework-managed configuration, auto-discovery, a
 
 - **Configuration-driven** — all provider API keys, model mappings, fallback routes, resilience settings, and caching live in `application.yml` under a single `tramai:` namespace, bound via `@ConfigurationProperties`
 - **Zero boilerplate** — `@AiService` interfaces are discovered by classpath scanning and registered as singleton `FactoryBean` proxies; `@AiTool` methods on any Spring bean are auto-discovered and registered as callable tools
-- **Secrets management** — bundled `SecretValueResolver` implementations for HashiCorp Vault and AWS Secrets Manager plug directly into the property-binding pipeline
+- **Secrets management** — `SecretValueResolver` implementations for HashiCorp Vault and AWS Secrets Manager (in `tramai-spring-secrets-vault`/`tramai-spring-secrets-aws`) plug directly into the property-binding pipeline
 - **Same engine underneath** — the auto-configured `Tramai` bean is the same `dev.tramai.standalone.Tramai` that standalone users build manually; behavior, retry policy, structured output, and provider routing are identical
 
 ### When to use
@@ -42,12 +42,17 @@ Don't use this module when:
 
 ### How to add
 
+> **0.6.0 migration:** `tramai-spring` remains the compatibility entry point for generic Spring integration, but **no longer bundles provider adapters or optional secret backends**. Add them explicitly. Property namespaces (`tramai.providers.*`, `tramai.secrets.*`) are unchanged.
+
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.6.0"))
     implementation("dev.tramai:tramai-spring")
-    implementation("dev.tramai:tramai-openai") // or tramai-anthropic, tramai-ollama
+    // 0.6.0: select adapters explicitly
+    implementation("dev.tramai:tramai-spring-provider-openai") // or -anthropic, -ollama
+    implementation("dev.tramai:tramai-spring-secrets-vault")   // optional
+    implementation("dev.tramai:tramai-spring-secrets-aws")     // optional
 }
 ```
 
@@ -58,7 +63,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>0.6.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -72,7 +77,7 @@ dependencies {
   </dependency>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
@@ -336,11 +341,13 @@ The auto-configuration composes a `CompositeSecretValueResolver` with this prior
 
 ```
 1. User-provided SecretValueResolver beans (highest priority)
-2. VaultSecretValueResolver (if tramai.secrets.vault.enabled=true)
-3. AwsSecretsManagerSecretValueResolver (if tramai.secrets.aws-secrets-manager.enabled=true)
+2. VaultSecretValueResolver (if tramai-spring-secrets-vault is on the classpath and tramai.secrets.vault.enabled=true)
+3. AwsSecretsManagerSecretValueResolver (if tramai-spring-secrets-aws is on the classpath and tramai.secrets.aws-secrets-manager.enabled=true)
 4. EnvironmentSecretValueResolver (env:* references)
 5. FileSecretValueResolver (file:* references)
 ```
+
+Vault and AWS resolvers only participate when their module is an explicit dependency — `tramai-spring` alone provides environment and file resolution.
 
 This chain is used to resolve any `*-secret-ref` property in the provider configuration. The Vault and AWS resolvers themselves have a bootstrapping step: their own tokens/credentials can reference `env:*` or `file:*` secrets (resolved by a bootstrap `CompositeSecretValueResolver` that excludes the yet-uninitialized Vault/AWS resolvers).
 
