@@ -167,7 +167,47 @@ modules:
     publishability: published
     apiStability: preview
 
+  - path: ":tramai-spring-core"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-provider-anthropic"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-provider-ollama"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-provider-openai"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-secrets-aws"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-secrets-file"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-secrets-vault"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
   - path: ":tramai-spring-consumer-boundary"
+    layer: testing-support
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-spring-consumer-selective"
     layer: testing-support
     publishability: internal
     apiStability: internal

@@ -1,6 +1,5 @@
 package dev.tramai.spring.boundary
 
-import org.assertj.core.api.Assertions.assertThatCode
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -13,34 +12,35 @@ import kotlin.test.assertTrue
  * it can load at runtime is therefore a transitive leak from tramai-spring — the exact
  * thing Epic 6.3 ("consumers only receive dependencies for selected adapters") removes.
  *
- * These assertions characterize the CURRENT leak and are expected to pass today.
- * PR #261 flips them after the adapter split: the provider adapter classes and the
- * AWS SDK class will no longer be loadable, and the assertions below invert to
- * [assertThatThrownBy] expecting [ClassNotFoundException].
+ * Post-#261 state (flipped): tramai-spring is a thin facade over tramai-spring-core.
+ * Provider adapters and the AWS SDK are NO LONGER on the consumer classpath; consumers
+ * select them explicitly via tramai-spring-provider-* / tramai-spring-secrets-*.
  */
 class ConsumerClasspathBoundaryTest {
 
     @Test
-    fun `runtime classpath currently carries provider adapters and the AWS SDK (characterization -- flipped by #261)`() {
-        // TramAI provider adapter classes (not SDKs) reachable on a consumer classpath.
-        assertThatCode { Class.forName("dev.tramai.openai.OpenAiProvider") }
-            .describedAs("tramai-openai adapter is on the consumer runtime classpath (leak; flipped by #261)")
-            .doesNotThrowAnyException()
-        assertThatCode { Class.forName("dev.tramai.anthropic.AnthropicProvider") }
-            .describedAs("tramai-anthropic adapter is on the consumer runtime classpath (leak; flipped by #261)")
-            .doesNotThrowAnyException()
-        assertThatCode { Class.forName("dev.tramai.ollama.OllamaProvider") }
-            .describedAs("tramai-ollama adapter is on the consumer runtime classpath (leak; flipped by #261)")
-            .doesNotThrowAnyException()
+    fun `runtime classpath no longer carries provider adapters or the AWS SDK (flipped by #261)`() {
+        // TramAI provider adapter classes (not SDKs) must NOT be reachable on a
+        // consumer classpath that declares only tramai-spring.
+        assertThatThrownBy { Class.forName("dev.tramai.openai.OpenAiProvider") }
+            .describedAs("tramai-openai adapter must not leak onto the consumer runtime classpath")
+            .isInstanceOf(ClassNotFoundException::class.java)
+        assertThatThrownBy { Class.forName("dev.tramai.anthropic.AnthropicProvider") }
+            .describedAs("tramai-anthropic adapter must not leak onto the consumer runtime classpath")
+            .isInstanceOf(ClassNotFoundException::class.java)
+        assertThatThrownBy { Class.forName("dev.tramai.ollama.OllamaProvider") }
+            .describedAs("tramai-ollama adapter must not leak onto the consumer runtime classpath")
+            .isInstanceOf(ClassNotFoundException::class.java)
         // External SDK class pulled in transitively by tramai-spring's AWS secrets resolver.
-        assertThatCode { Class.forName("software.amazon.awssdk.services.secretsmanager.SecretsManagerClient") }
-            .describedAs("AWS SDK SecretsManager is on the consumer runtime classpath (leak; flipped by #261)")
-            .doesNotThrowAnyException()
+        assertThatThrownBy { Class.forName("software.amazon.awssdk.services.secretsmanager.SecretsManagerClient") }
+            .describedAs("AWS SDK SecretsManager must not leak onto the consumer runtime classpath")
+            .isInstanceOf(ClassNotFoundException::class.java)
     }
 
     @Test
     fun `generic spring integration classes are present`() {
         Class.forName("dev.tramai.spring.TramaiAutoConfiguration")
+        Class.forName("dev.tramai.spring.TramaiSecretResolutionAutoConfiguration")
         Class.forName("dev.tramai.standalone.Tramai")
     }
 

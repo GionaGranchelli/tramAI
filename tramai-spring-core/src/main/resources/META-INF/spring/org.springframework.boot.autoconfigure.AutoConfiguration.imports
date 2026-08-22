@@ -1,0 +1,3 @@
+dev.tramai.spring.TramaiSecretResolutionAutoConfiguration
+dev.tramai.spring.TramaiAutoConfiguration
+dev.tramai.spring.SecurityClassificationAutoConfiguration

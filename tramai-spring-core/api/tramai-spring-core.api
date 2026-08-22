@@ -1,0 +1,321 @@
+public final class dev/tramai/spring/AiServiceBeanDefinitionRegistrar : org/springframework/beans/factory/support/BeanDefinitionRegistryPostProcessor {
+	public fun <init> (Lorg/springframework/beans/factory/config/ConfigurableListableBeanFactory;)V
+	public fun postProcessBeanDefinitionRegistry (Lorg/springframework/beans/factory/support/BeanDefinitionRegistry;)V
+	public fun postProcessBeanFactory (Lorg/springframework/beans/factory/config/ConfigurableListableBeanFactory;)V
+}
+
+public final class dev/tramai/spring/AiServiceFactoryBean : org/springframework/beans/factory/BeanFactoryAware, org/springframework/beans/factory/FactoryBean {
+	public fun <init> (Ljava/lang/Class;)V
+	public fun getObject ()Ljava/lang/Object;
+	public fun getObjectType ()Ljava/lang/Class;
+	public fun isSingleton ()Z
+	public fun setBeanFactory (Lorg/springframework/beans/factory/BeanFactory;)V
+}
+
+public final class dev/tramai/spring/AiToolScanner {
+	public static final field INSTANCE Ldev/tramai/spring/AiToolScanner;
+	public final fun fromApplicationContext (Lorg/springframework/context/ApplicationContext;)Ljava/util/List;
+}
+
+public abstract interface annotation class dev/tramai/spring/EnableTramai : java/lang/annotation/Annotation {
+}
+
+public final class dev/tramai/spring/SecurityClassificationAutoConfiguration {
+	public fun <init> ()V
+	public final fun documentClassifier (Ldev/tramai/spring/TramaiProperties;)Ldev/tramai/security/classification/DocumentClassifier;
+}
+
+public final class dev/tramai/spring/SpringBootstrapSecretChain {
+	public fun <init> (Ldev/tramai/core/secret/SecretValueResolver;)V
+	public final fun getResolver ()Ldev/tramai/core/secret/SecretValueResolver;
+}
+
+public abstract interface class dev/tramai/spring/SpringBootstrapSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+}
+
+public abstract interface class dev/tramai/spring/SpringBuiltInSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+}
+
+public final class dev/tramai/spring/SpringConfiguredModelProvider {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+	public static synthetic fun copy$default (Ldev/tramai/spring/SpringConfiguredModelProvider;Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;ILjava/lang/Object;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProvider ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun getProviderId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/SpringSecretChain {
+	public fun <init> (Ldev/tramai/core/secret/SecretValueResolver;)V
+	public final fun getResolver ()Ldev/tramai/core/secret/SecretValueResolver;
+}
+
+public final class dev/tramai/spring/SpringSecretResolution {
+	public static final field INSTANCE Ldev/tramai/spring/SpringSecretResolution;
+	public final fun resolve (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/secret/SecretValueResolver;)Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiAutoConfiguration {
+	public fun <init> ()V
+	public final fun aiServiceBeanDefinitionRegistrar (Lorg/springframework/beans/factory/config/ConfigurableListableBeanFactory;)Ldev/tramai/spring/AiServiceBeanDefinitionRegistrar;
+	public final fun tramai (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;)Ldev/tramai/standalone/Tramai;
+}
+
+public final class dev/tramai/spring/TramaiProperties {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ldev/tramai/spring/TramaiProperties$Resilience;Ldev/tramai/spring/TramaiProperties$Cost;Ldev/tramai/spring/TramaiProperties$Cache;Ldev/tramai/spring/TramaiProperties$Security;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ldev/tramai/spring/TramaiProperties$Resilience;Ldev/tramai/spring/TramaiProperties$Cost;Ldev/tramai/spring/TramaiProperties$Cache;Ldev/tramai/spring/TramaiProperties$Security;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Ldev/tramai/spring/TramaiProperties$Resilience;
+	public final fun component5 ()Ldev/tramai/spring/TramaiProperties$Cost;
+	public final fun component6 ()Ldev/tramai/spring/TramaiProperties$Cache;
+	public final fun component7 ()Ldev/tramai/spring/TramaiProperties$Security;
+	public final fun copy (Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ldev/tramai/spring/TramaiProperties$Resilience;Ldev/tramai/spring/TramaiProperties$Cost;Ldev/tramai/spring/TramaiProperties$Cache;Ldev/tramai/spring/TramaiProperties$Security;)Ldev/tramai/spring/TramaiProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ldev/tramai/spring/TramaiProperties$Resilience;Ldev/tramai/spring/TramaiProperties$Cost;Ldev/tramai/spring/TramaiProperties$Cache;Ldev/tramai/spring/TramaiProperties$Security;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCache ()Ldev/tramai/spring/TramaiProperties$Cache;
+	public final fun getCost ()Ldev/tramai/spring/TramaiProperties$Cost;
+	public final fun getDefaultProvider ()Ljava/lang/String;
+	public final fun getFallbacks ()Ljava/util/Map;
+	public final fun getModels ()Ljava/util/Map;
+	public final fun getResilience ()Ldev/tramai/spring/TramaiProperties$Resilience;
+	public final fun getSecurity ()Ldev/tramai/spring/TramaiProperties$Security;
+	public fun hashCode ()I
+	public final fun setCache (Ldev/tramai/spring/TramaiProperties$Cache;)V
+	public final fun setCost (Ldev/tramai/spring/TramaiProperties$Cost;)V
+	public final fun setDefaultProvider (Ljava/lang/String;)V
+	public final fun setFallbacks (Ljava/util/Map;)V
+	public final fun setModels (Ljava/util/Map;)V
+	public final fun setResilience (Ldev/tramai/spring/TramaiProperties$Resilience;)V
+	public final fun setSecurity (Ldev/tramai/spring/TramaiProperties$Security;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Cache {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/spring/TramaiProperties$InMemoryCache;)V
+	public synthetic fun <init> (Ldev/tramai/spring/TramaiProperties$InMemoryCache;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/spring/TramaiProperties$InMemoryCache;
+	public final fun copy (Ldev/tramai/spring/TramaiProperties$InMemoryCache;)Ldev/tramai/spring/TramaiProperties$Cache;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Cache;Ldev/tramai/spring/TramaiProperties$InMemoryCache;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Cache;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInMemory ()Ldev/tramai/spring/TramaiProperties$InMemoryCache;
+	public fun hashCode ()I
+	public final fun setInMemory (Ldev/tramai/spring/TramaiProperties$InMemoryCache;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$CircuitBreaker {
+	public fun <init> ()V
+	public fun <init> (ZIJ)V
+	public synthetic fun <init> (ZIJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun component3 ()J
+	public final fun copy (ZIJ)Ldev/tramai/spring/TramaiProperties$CircuitBreaker;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$CircuitBreaker;ZIJILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$CircuitBreaker;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getFailureThreshold ()I
+	public final fun getOpenDurationMillis ()J
+	public fun hashCode ()I
+	public final fun setEnabled (Z)V
+	public final fun setFailureThreshold (I)V
+	public final fun setOpenDurationMillis (J)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Classification {
+	public fun <init> ()V
+	public fun <init> (ZLjava/lang/String;ILjava/util/List;)V
+	public synthetic fun <init> (ZLjava/lang/String;ILjava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/util/List;
+	public final fun copy (ZLjava/lang/String;ILjava/util/List;)Ldev/tramai/spring/TramaiProperties$Classification;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Classification;ZLjava/lang/String;ILjava/util/List;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Classification;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefaultClassification ()Ljava/lang/String;
+	public final fun getEnabled ()Z
+	public final fun getMaxTextLength ()I
+	public final fun getRules ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun setDefaultClassification (Ljava/lang/String;)V
+	public final fun setEnabled (Z)V
+	public final fun setMaxTextLength (I)V
+	public final fun setRules (Ljava/util/List;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$ClassificationRuleProperties {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/util/Map;)Ldev/tramai/spring/TramaiProperties$ClassificationRuleProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$ClassificationRuleProperties;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$ClassificationRuleProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassification ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getMetadataEquals ()Ljava/util/Map;
+	public final fun getPattern ()Ljava/lang/String;
+	public final fun getPriority ()I
+	public fun hashCode ()I
+	public final fun setClassification (Ljava/lang/String;)V
+	public final fun setId (Ljava/lang/String;)V
+	public final fun setMetadataEquals (Ljava/util/Map;)V
+	public final fun setPattern (Ljava/lang/String;)V
+	public final fun setPriority (I)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Cost {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/spring/TramaiProperties$TokenBudget;)V
+	public synthetic fun <init> (Ldev/tramai/spring/TramaiProperties$TokenBudget;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/spring/TramaiProperties$TokenBudget;
+	public final fun copy (Ldev/tramai/spring/TramaiProperties$TokenBudget;)Ldev/tramai/spring/TramaiProperties$Cost;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Cost;Ldev/tramai/spring/TramaiProperties$TokenBudget;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Cost;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTokenBudget ()Ldev/tramai/spring/TramaiProperties$TokenBudget;
+	public fun hashCode ()I
+	public final fun setTokenBudget (Ldev/tramai/spring/TramaiProperties$TokenBudget;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$FallbackRoute {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/spring/TramaiProperties$FallbackRoute;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$FallbackRoute;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$FallbackRoute;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getProvider ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun setModel (Ljava/lang/String;)V
+	public final fun setProvider (Ljava/lang/String;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$InMemoryCache {
+	public fun <init> ()V
+	public fun <init> (ZI)V
+	public synthetic fun <init> (ZIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun copy (ZI)Ldev/tramai/spring/TramaiProperties$InMemoryCache;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$InMemoryCache;ZIILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$InMemoryCache;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getMaxEntries ()I
+	public fun hashCode ()I
+	public final fun setEnabled (Z)V
+	public final fun setMaxEntries (I)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$ModelRegistryProperties {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun copy (Z)Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;ZILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public fun hashCode ()I
+	public final fun setEnabled (Z)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Resilience {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/spring/TramaiProperties$CircuitBreaker;Ldev/tramai/spring/TramaiProperties$Retry;)V
+	public synthetic fun <init> (Ldev/tramai/spring/TramaiProperties$CircuitBreaker;Ldev/tramai/spring/TramaiProperties$Retry;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/spring/TramaiProperties$CircuitBreaker;
+	public final fun component2 ()Ldev/tramai/spring/TramaiProperties$Retry;
+	public final fun copy (Ldev/tramai/spring/TramaiProperties$CircuitBreaker;Ldev/tramai/spring/TramaiProperties$Retry;)Ldev/tramai/spring/TramaiProperties$Resilience;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Resilience;Ldev/tramai/spring/TramaiProperties$CircuitBreaker;Ldev/tramai/spring/TramaiProperties$Retry;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Resilience;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCircuitBreaker ()Ldev/tramai/spring/TramaiProperties$CircuitBreaker;
+	public final fun getRetry ()Ldev/tramai/spring/TramaiProperties$Retry;
+	public fun hashCode ()I
+	public final fun setCircuitBreaker (Ldev/tramai/spring/TramaiProperties$CircuitBreaker;)V
+	public final fun setRetry (Ldev/tramai/spring/TramaiProperties$Retry;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Retry {
+	public fun <init> ()V
+	public fun <init> (JD)V
+	public synthetic fun <init> (JDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()D
+	public final fun copy (JD)Ldev/tramai/spring/TramaiProperties$Retry;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Retry;JDILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Retry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getJitterRatio ()D
+	public final fun getMaxRetryAfterMillis ()J
+	public fun hashCode ()I
+	public final fun setJitterRatio (D)V
+	public final fun setMaxRetryAfterMillis (J)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$Security {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/spring/TramaiProperties$Classification;Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;)V
+	public synthetic fun <init> (Ldev/tramai/spring/TramaiProperties$Classification;Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/spring/TramaiProperties$Classification;
+	public final fun component2 ()Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;
+	public final fun copy (Ldev/tramai/spring/TramaiProperties$Classification;Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;)Ldev/tramai/spring/TramaiProperties$Security;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$Security;Ldev/tramai/spring/TramaiProperties$Classification;Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$Security;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassification ()Ldev/tramai/spring/TramaiProperties$Classification;
+	public final fun getModelRegistry ()Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;
+	public fun hashCode ()I
+	public final fun setClassification (Ldev/tramai/spring/TramaiProperties$Classification;)V
+	public final fun setModelRegistry (Ldev/tramai/spring/TramaiProperties$ModelRegistryProperties;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiProperties$TokenBudget {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Ldev/tramai/spring/TramaiProperties$TokenBudget;
+	public static synthetic fun copy$default (Ldev/tramai/spring/TramaiProperties$TokenBudget;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/spring/TramaiProperties$TokenBudget;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHardMaxTokensPerAttempt ()Ljava/lang/Long;
+	public final fun getHardMaxTokensPerOperation ()Ljava/lang/Long;
+	public final fun getSoftMaxTokensPerOperation ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public final fun setHardMaxTokensPerAttempt (Ljava/lang/Long;)V
+	public final fun setHardMaxTokensPerOperation (Ljava/lang/Long;)V
+	public final fun setSoftMaxTokensPerOperation (Ljava/lang/Long;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiSecretResolutionAutoConfiguration {
+	public fun <init> ()V
+	public final fun tramaiBootstrapSecretChain (Lorg/springframework/context/ApplicationContext;)Ldev/tramai/spring/SpringBootstrapSecretChain;
+	public final fun tramaiSecretChain (Lorg/springframework/context/ApplicationContext;)Ldev/tramai/spring/SpringSecretChain;
+}
+
