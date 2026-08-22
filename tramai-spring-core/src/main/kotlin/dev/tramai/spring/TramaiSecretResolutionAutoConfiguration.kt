@@ -3,8 +3,6 @@ package dev.tramai.spring
 import dev.tramai.core.secret.CompositeSecretValueResolver
 import dev.tramai.core.secret.EnvironmentSecretValueResolver
 import dev.tramai.core.secret.SecretValueResolver
-import dev.tramai.spring.secret.AwsSecretsManagerSecretValueResolver
-import dev.tramai.spring.secret.VaultSecretValueResolver
 import dev.tramai.standalone.Tramai
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -50,17 +48,11 @@ class TramaiSecretResolutionAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(Tramai::class)
     fun tramaiSecretValueResolver(
-        properties: TramaiProperties,
         applicationContext: org.springframework.context.ApplicationContext,
-        @org.springframework.beans.factory.annotation.Qualifier("tramaiBootstrapSecretValueResolver")
-        bootstrapSecretValueResolver: SecretValueResolver,
     ): SecretValueResolver {
         val userResolvers = userSecretResolvers(applicationContext)
         val bootstrapResolvers = bootstrapSecretResolvers(applicationContext)
-        val builtInResolvers = listOfNotNull(
-            createVaultSecretValueResolver(properties.secrets.vault, bootstrapSecretValueResolver),
-            createAwsSecretsManagerSecretValueResolver(properties.secrets.awsSecretsManager, bootstrapSecretValueResolver),
-        ) + applicationContext.getBeanProvider(SpringBuiltInSecretValueResolver::class.java).orderedStream().toList()
+        val builtInResolvers = applicationContext.getBeanProvider(SpringBuiltInSecretValueResolver::class.java).orderedStream().toList()
         return CompositeSecretValueResolver(
             userResolvers + builtInResolvers + listOf(EnvironmentSecretValueResolver) + bootstrapResolvers,
         )
@@ -79,73 +71,5 @@ class TramaiSecretResolutionAutoConfiguration {
         return applicationContext.getBeanNamesForType(SecretValueResolver::class.java)
             .filterNot { it in chainBeanNames || it in builtInNames || it in bootstrapNames }
             .map { applicationContext.getBean(it, SecretValueResolver::class.java) }
-    }
-
-    private fun createVaultSecretValueResolver(
-        properties: TramaiProperties.Vault,
-        bootstrapSecretResolver: SecretValueResolver,
-    ): SecretValueResolver? {
-        if (!properties.enabled) {
-            return null
-        }
-
-        val baseUrl = properties.baseUrl?.trim()?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("tramai.secrets.vault.baseUrl must be configured when Vault secret resolution is enabled")
-        val token = SpringSecretResolution.resolve(
-            directValue = properties.token,
-            secretRef = properties.tokenSecretRef,
-            fieldName = "tramai.secrets.vault.token",
-            secretResolver = bootstrapSecretResolver,
-        ) ?: throw IllegalStateException("tramai.secrets.vault.token must be configured when Vault secret resolution is enabled")
-
-        return VaultSecretValueResolver(
-            baseUrl = baseUrl,
-            token = token,
-            mountPath = properties.mountPath,
-            kvVersion = properties.kvVersion,
-            namespace = properties.namespace,
-            defaultField = properties.defaultField,
-        )
-    }
-
-    private fun createAwsSecretsManagerSecretValueResolver(
-        properties: TramaiProperties.AwsSecretsManager,
-        bootstrapSecretResolver: SecretValueResolver,
-    ): SecretValueResolver? {
-        if (!properties.enabled) {
-            return null
-        }
-
-        val region = properties.region?.trim()?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException(
-                "tramai.secrets.aws-secrets-manager.region must be configured when AWS Secrets Manager resolution is enabled",
-            )
-        val accessKeyId = SpringSecretResolution.resolve(
-            directValue = properties.accessKeyId,
-            secretRef = properties.accessKeyIdSecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.accessKeyId",
-            secretResolver = bootstrapSecretResolver,
-        )
-        val secretAccessKey = SpringSecretResolution.resolve(
-            directValue = properties.secretAccessKey,
-            secretRef = properties.secretAccessKeySecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.secretAccessKey",
-            secretResolver = bootstrapSecretResolver,
-        )
-        val sessionToken = SpringSecretResolution.resolve(
-            directValue = properties.sessionToken,
-            secretRef = properties.sessionTokenSecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.sessionToken",
-            secretResolver = bootstrapSecretResolver,
-        )
-
-        return AwsSecretsManagerSecretValueResolver.fromSdk(
-            region = region,
-            endpoint = properties.endpoint,
-            accessKeyId = accessKeyId,
-            secretAccessKey = secretAccessKey,
-            sessionToken = sessionToken,
-            defaultField = properties.defaultField,
-        )
     }
 }
