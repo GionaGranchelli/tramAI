@@ -47,7 +47,7 @@ class TramaiAutoConfigurationTest {
     fun `spring context destruction closes the runtime`() {
         var tramai: Tramai? = null
         ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
             .run { context -> tramai = context.getBean(Tramai::class.java) }
@@ -62,7 +62,7 @@ class TramaiAutoConfigurationTest {
         lateinit var analyzer: TestInvoiceAnalyzer
         lateinit var cached: CachedInvoiceAnalyzer
         ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
             .run { context ->
@@ -84,7 +84,7 @@ class TramaiAutoConfigurationTest {
     fun `registers ai service beans and injects a custom provider bean`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues(
@@ -131,7 +131,7 @@ class TramaiAutoConfigurationTest {
         try {
             val contextRunner = ApplicationContextRunner()
                 .withConfiguration(
-                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                    AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
                 )
                 .withUserConfiguration(TestApplication::class.java)
                 .withPropertyValues(
@@ -181,7 +181,7 @@ class TramaiAutoConfigurationTest {
         try {
             val contextRunner = ApplicationContextRunner()
                 .withConfiguration(
-                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                    AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
                 )
                 .withUserConfiguration(TestApplication::class.java)
                 .withPropertyValues(
@@ -209,7 +209,7 @@ class TramaiAutoConfigurationTest {
     @Test
     fun `custom provider bean overrides property backed provider with the same id`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withUserConfiguration(TestApplication::class.java)
             .withBean("openAiOverrideProvider", ModelProvider::class.java, Supplier { OpenAiOverrideProvider() })
             .withPropertyValues(
@@ -228,7 +228,7 @@ class TramaiAutoConfigurationTest {
     @Test
     fun `duplicate custom provider bean ids fail during context construction`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withUserConfiguration(TestApplication::class.java)
             .withBean("firstDuplicateProvider", ModelProvider::class.java, Supplier { FixedProvider("duplicate") })
             .withBean("secondDuplicateProvider", ModelProvider::class.java, Supplier { FixedProvider("duplicate") })
@@ -244,7 +244,7 @@ class TramaiAutoConfigurationTest {
     @Test
     fun `invalid fallback route fails during context construction`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues(
                 "tramai.models.gpt-5.1-chat-latest=stub",
@@ -290,7 +290,7 @@ class TramaiAutoConfigurationTest {
         try {
             val contextRunner = ApplicationContextRunner()
                 .withConfiguration(
-                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                    AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
                 )
                 .withUserConfiguration(TestApplication::class.java, SecretResolverConfiguration::class.java)
                 .withPropertyValues(
@@ -363,7 +363,7 @@ class TramaiAutoConfigurationTest {
         try {
             val contextRunner = ApplicationContextRunner()
                 .withConfiguration(
-                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                    AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
                 )
                 .withUserConfiguration(TestApplication::class.java)
                 .withPropertyValues(
@@ -440,7 +440,7 @@ class TramaiAutoConfigurationTest {
         try {
             val contextRunner = ApplicationContextRunner()
                 .withConfiguration(
-                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                    AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
                 )
                 .withUserConfiguration(TestApplication::class.java)
                 .withPropertyValues(
@@ -475,7 +475,7 @@ class TramaiAutoConfigurationTest {
     fun `applies configured fallback routes and circuit breaker settings`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, FallbackProviderConfiguration::class.java)
             .withPropertyValues(
@@ -507,7 +507,7 @@ class TramaiAutoConfigurationTest {
     fun `applies configured token budget settings`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ExpensiveProviderConfiguration::class.java)
             .withPropertyValues(
@@ -528,7 +528,7 @@ class TramaiAutoConfigurationTest {
     fun `applies configured in memory response caching`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, CacheProviderConfiguration::class.java)
             .withPropertyValues(
@@ -560,7 +560,7 @@ class TramaiAutoConfigurationTest {
     fun `auto composes operation interceptor beans`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, InterceptorConfiguration::class.java)
             .withPropertyValues(
@@ -586,7 +586,7 @@ class TramaiAutoConfigurationTest {
     fun `zero PolicyDecisionAuditEmitter beans uses NoOp behavior`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -604,7 +604,7 @@ class TramaiAutoConfigurationTest {
     fun `single PolicyDecisionAuditEmitter bean is wired`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -631,7 +631,7 @@ class TramaiAutoConfigurationTest {
     fun `multiple PolicyDecisionAuditEmitter beans fail fast`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -668,7 +668,7 @@ class TramaiAutoConfigurationTest {
     fun `zero DlpRedactionAuditEmitter beans uses NoOp behavior`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -685,7 +685,7 @@ class TramaiAutoConfigurationTest {
     fun `single DlpRedactionAuditEmitter bean is wired`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(DlpTestApplication::class.java)
             .withBean(DlpProvider::class.java)
@@ -722,7 +722,7 @@ class TramaiAutoConfigurationTest {
     fun `multiple DlpRedactionAuditEmitter beans fail fast`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -751,7 +751,7 @@ class TramaiAutoConfigurationTest {
     fun `zero PolicyEngine beans preserves legacy permissive fallback`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -768,7 +768,7 @@ class TramaiAutoConfigurationTest {
     fun `single PolicyEngine bean is wired`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -789,7 +789,7 @@ class TramaiAutoConfigurationTest {
     fun `zero ModelRegistrySettings beans uses property backed default`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -806,7 +806,7 @@ class TramaiAutoConfigurationTest {
     fun `single ModelRegistrySettings bean is wired`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -827,7 +827,7 @@ class TramaiAutoConfigurationTest {
     fun `multiple ModelRegistrySettings beans fail fast`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -852,7 +852,7 @@ class TramaiAutoConfigurationTest {
     fun `multiple PolicyEngine beans fail fast with clear error`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
@@ -878,7 +878,7 @@ class TramaiAutoConfigurationTest {
     fun `wires a single custom DLP bean into the engine`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java)
             .withBean(DlpProvider::class.java)
@@ -909,7 +909,7 @@ class TramaiAutoConfigurationTest {
     fun `rejects multiple DLP beans with a clear startup error`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java)
             .withBean(DlpProvider::class.java)
@@ -947,7 +947,7 @@ class TramaiAutoConfigurationTest {
     fun `single EngineEventObserver bean is wired`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                AutoConfigurations.of(TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java),
             )
             .withUserConfiguration(TestApplication::class.java, EngineEventObserverConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")

@@ -1,12 +1,9 @@
 package dev.tramai.spring
 
-import dev.tramai.core.secret.CompositeSecretValueResolver
-import dev.tramai.core.secret.EnvironmentSecretValueResolver
-import dev.tramai.core.secret.FileSecretValueResolver
-import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.core.observation.CompositeOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.OperationInterceptor
+import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
@@ -16,8 +13,6 @@ import dev.tramai.openai.ExperimentalCodexAuth
 import dev.tramai.openai.OpenAiCompatibleProvider
 import dev.tramai.openai.OpenAiProvider
 import dev.tramai.ollama.OllamaProvider
-import dev.tramai.spring.secret.AwsSecretsManagerSecretValueResolver
-import dev.tramai.spring.secret.VaultSecretValueResolver
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
 import dev.tramai.engine.NoOpOperationResponseCache
@@ -83,6 +78,8 @@ class TramaiAutoConfiguration {
     fun tramai(
         properties: TramaiProperties,
         applicationContext: org.springframework.context.ApplicationContext,
+        @org.springframework.beans.factory.annotation.Qualifier("tramaiSecretValueResolver")
+        secretResolver: SecretValueResolver,
     ): Tramai {
         val dependencies = TramaiBeanDependencies.from(applicationContext)
         val builder = Tramai.builder()
@@ -91,33 +88,6 @@ class TramaiAutoConfiguration {
                 add(interceptor)
             }
         }
-        val userSecretResolvers: List<SecretValueResolver> = buildList {
-            dependencies.secretResolvers.orderedStream().forEach { resolver ->
-                add(resolver)
-            }
-        }
-        val fileSecretResolver = FileSecretValueResolver(
-            allowedDirectory = properties.secrets.file.allowedDirectory
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?.let(Path::of),
-        )
-        val bootstrapSecretResolver = CompositeSecretValueResolver(
-            userSecretResolvers + listOf(
-                EnvironmentSecretValueResolver,
-                fileSecretResolver,
-            ),
-        )
-        val builtInSecretResolvers = listOfNotNull(
-            createVaultSecretValueResolver(properties.secrets.vault, bootstrapSecretResolver),
-            createAwsSecretsManagerSecretValueResolver(properties.secrets.awsSecretsManager, bootstrapSecretResolver),
-        )
-        val secretResolver = CompositeSecretValueResolver(
-            userSecretResolvers + builtInSecretResolvers + listOf(
-                EnvironmentSecretValueResolver,
-                fileSecretResolver,
-            ),
-        )
 
         // Scan for @AiTool beans
         builder.tools(AiToolScanner.fromApplicationContext(applicationContext))
@@ -152,7 +122,7 @@ class TramaiAutoConfiguration {
         builder.modelRegistrySettings(settings)
 
         val propertyProviders = listOfNotNull(
-            resolveSecret(
+            SpringSecretResolution.resolve(
                 directValue = properties.providers.anthropic.apiKey,
                 secretRef = properties.providers.anthropic.apiKeySecretRef,
                 fieldName = "tramai.providers.anthropic.apiKey",
@@ -253,13 +223,13 @@ class TramaiAutoConfiguration {
     ): ModelProvider? {
         val baseUrl = properties.baseUrl ?: OpenAiProvider.DEFAULT_BASE_URL
         val authFile = properties.codexAuth.authFile?.let(Path::of) ?: CodexAuthFileTokenSource.defaultAuthFile()
-        val apiKey = resolveSecret(
+        val apiKey = SpringSecretResolution.resolve(
             directValue = properties.apiKey,
             secretRef = properties.apiKeySecretRef,
             fieldName = "tramai.providers.openai.apiKey",
             secretResolver = secretResolver,
         )
-        val bearerToken = resolveSecret(
+        val bearerToken = SpringSecretResolution.resolve(
             directValue = properties.bearerToken,
             secretRef = properties.bearerTokenSecretRef,
             fieldName = "tramai.providers.openai.bearerToken",
@@ -297,13 +267,13 @@ class TramaiAutoConfiguration {
         val baseUrl = properties.baseUrl?.takeIf { it.isNotBlank() } ?: return null
         val providerName = properties.providerName.ifBlank { "openai-compatible" }
         val authFile = properties.codexAuth.authFile?.let(Path::of) ?: CodexAuthFileTokenSource.defaultAuthFile()
-        val apiKey = resolveSecret(
+        val apiKey = SpringSecretResolution.resolve(
             directValue = properties.apiKey,
             secretRef = properties.apiKeySecretRef,
             fieldName = "tramai.providers.openai-compatible.apiKey",
             secretResolver = secretResolver,
         )
-        val bearerToken = resolveSecret(
+        val bearerToken = SpringSecretResolution.resolve(
             directValue = properties.bearerToken,
             secretRef = properties.bearerTokenSecretRef,
             fieldName = "tramai.providers.openai-compatible.bearerToken",
@@ -328,25 +298,6 @@ class TramaiAutoConfiguration {
             )
             else -> null
         }
-    }
-
-    private fun resolveSecret(
-        directValue: String?,
-        secretRef: String?,
-        fieldName: String,
-        secretResolver: SecretValueResolver,
-    ): String? {
-        val trimmedDirect = directValue?.trim()?.takeIf { it.isNotBlank() }
-        val trimmedRef = secretRef?.trim()?.takeIf { it.isNotBlank() }
-        check(trimmedDirect == null || trimmedRef == null) {
-            "$fieldName cannot be configured together with its secret reference"
-        }
-        if (trimmedRef == null) {
-            return trimmedDirect
-        }
-
-        return secretResolver.resolve(trimmedRef)
-            ?: throw IllegalStateException("No SecretValueResolver could resolve '$trimmedRef' for $fieldName")
     }
 
     private fun resolveDlpInterceptor(
@@ -448,74 +399,6 @@ class TramaiAutoConfiguration {
         if (list.size == 1) return list.single()
         throw IllegalArgumentException(
             "Multiple ModelRegistry beans found (${list.size}). Define at most one.",
-        )
-    }
-
-    private fun createVaultSecretValueResolver(
-        properties: TramaiProperties.Vault,
-        bootstrapSecretResolver: SecretValueResolver,
-    ): SecretValueResolver? {
-        if (!properties.enabled) {
-            return null
-        }
-
-        val baseUrl = properties.baseUrl?.trim()?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("tramai.secrets.vault.baseUrl must be configured when Vault secret resolution is enabled")
-        val token = resolveSecret(
-            directValue = properties.token,
-            secretRef = properties.tokenSecretRef,
-            fieldName = "tramai.secrets.vault.token",
-            secretResolver = bootstrapSecretResolver,
-        ) ?: throw IllegalStateException("tramai.secrets.vault.token must be configured when Vault secret resolution is enabled")
-
-        return VaultSecretValueResolver(
-            baseUrl = baseUrl,
-            token = token,
-            mountPath = properties.mountPath,
-            kvVersion = properties.kvVersion,
-            namespace = properties.namespace,
-            defaultField = properties.defaultField,
-        )
-    }
-
-    private fun createAwsSecretsManagerSecretValueResolver(
-        properties: TramaiProperties.AwsSecretsManager,
-        bootstrapSecretResolver: SecretValueResolver,
-    ): SecretValueResolver? {
-        if (!properties.enabled) {
-            return null
-        }
-
-        val region = properties.region?.trim()?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException(
-                "tramai.secrets.aws-secrets-manager.region must be configured when AWS Secrets Manager resolution is enabled",
-            )
-        val accessKeyId = resolveSecret(
-            directValue = properties.accessKeyId,
-            secretRef = properties.accessKeyIdSecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.accessKeyId",
-            secretResolver = bootstrapSecretResolver,
-        )
-        val secretAccessKey = resolveSecret(
-            directValue = properties.secretAccessKey,
-            secretRef = properties.secretAccessKeySecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.secretAccessKey",
-            secretResolver = bootstrapSecretResolver,
-        )
-        val sessionToken = resolveSecret(
-            directValue = properties.sessionToken,
-            secretRef = properties.sessionTokenSecretRef,
-            fieldName = "tramai.secrets.aws-secrets-manager.sessionToken",
-            secretResolver = bootstrapSecretResolver,
-        )
-
-        return AwsSecretsManagerSecretValueResolver.fromSdk(
-            region = region,
-            endpoint = properties.endpoint,
-            accessKeyId = accessKeyId,
-            secretAccessKey = secretAccessKey,
-            sessionToken = sessionToken,
-            defaultField = properties.defaultField,
         )
     }
 

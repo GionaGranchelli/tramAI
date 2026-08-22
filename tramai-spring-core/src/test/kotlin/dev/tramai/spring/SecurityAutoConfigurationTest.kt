@@ -17,6 +17,7 @@ class SecurityAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
         .withConfiguration(
             AutoConfigurations.of(
+                TramaiSecretResolutionAutoConfiguration::class.java,
                 TramaiAutoConfiguration::class.java,
                 SecurityClassificationAutoConfiguration::class.java,
             ),
@@ -100,6 +101,7 @@ class SecurityAutoConfigurationTest {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(
+                    TramaiSecretResolutionAutoConfiguration::class.java,
                     TramaiAutoConfiguration::class.java,
                     SecurityClassificationAutoConfiguration::class.java,
                 ),

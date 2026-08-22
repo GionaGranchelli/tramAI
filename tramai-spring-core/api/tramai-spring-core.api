@@ -25,10 +25,31 @@ public final class dev/tramai/spring/SecurityClassificationAutoConfiguration {
 	public final fun documentClassifier (Ldev/tramai/spring/TramaiProperties;)Ldev/tramai/security/classification/DocumentClassifier;
 }
 
+public abstract interface class dev/tramai/spring/SpringBuiltInSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+}
+
+public final class dev/tramai/spring/SpringConfiguredModelProvider {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+	public static synthetic fun copy$default (Ldev/tramai/spring/SpringConfiguredModelProvider;Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;ILjava/lang/Object;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProvider ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun getProviderId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/SpringSecretResolution {
+	public static final field INSTANCE Ldev/tramai/spring/SpringSecretResolution;
+	public final fun resolve (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/secret/SecretValueResolver;)Ljava/lang/String;
+}
+
 public final class dev/tramai/spring/TramaiAutoConfiguration {
 	public fun <init> ()V
 	public final fun aiServiceBeanDefinitionRegistrar (Lorg/springframework/beans/factory/config/ConfigurableListableBeanFactory;)Ldev/tramai/spring/AiServiceBeanDefinitionRegistrar;
-	public final fun tramai (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;)Ldev/tramai/standalone/Tramai;
+	public final fun tramai (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/standalone/Tramai;
 }
 
 public final class dev/tramai/spring/TramaiProperties {
@@ -534,6 +555,12 @@ public final class dev/tramai/spring/TramaiProperties$Vault {
 	public final fun setToken (Ljava/lang/String;)V
 	public final fun setTokenSecretRef (Ljava/lang/String;)V
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/TramaiSecretResolutionAutoConfiguration {
+	public fun <init> ()V
+	public final fun tramaiBootstrapSecretValueResolver (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;)Ldev/tramai/core/secret/SecretValueResolver;
+	public final fun tramaiSecretValueResolver (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/core/secret/SecretValueResolver;
 }
 
 public abstract interface class dev/tramai/spring/secret/AwsSecretsManagerLookupClient {
