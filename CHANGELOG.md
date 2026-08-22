@@ -4,6 +4,34 @@
 
 ### Added
 
+- **Structured-output contract TCK (PR #266, Epic 7.2).** One reusable test
+  kit drives the entire structured-output lifecycle per fixture — descriptor
+  compilation → generated schema → raw JSON shape validation →
+  deserialization → runtime value validation → deterministic repair
+  feedback — from a single source of truth (`StructuredOutputContractCase`),
+  so no layer maintains independent fixture lists. The matrix
+  (`JacksonStructuredOutputContractTckTest`, 24 cases) covers Kotlin data
+  classes, JavaBeans, nullability, missing primitives (rejected at SHAPE
+  before Jackson primitive defaults hide them), nested objects, generic and
+  nested collections, root arrays, `@AiRange`/`@AiMinItems`/`@AiDescription`,
+  unknown properties (delegated to Jackson), recursion, unsupported maps,
+  malformed JSON, prose/fenced JSON extraction, and repair determinism —
+  plus the #262 enum regression class: root/nested/nullable enums, every
+  declared value succeeds, unknown values fail through deserialization, and
+  the legacy `{name, ordinal}` object form stays rejected (enum membership
+  remains deliberately delegated to Jackson, verified by the TCK).
+  `StructuredContractFingerprintEvolutionTest` (18 tests) mutates exactly one
+  semantic element at a time and proves each changes the SHA-256 hash, with
+  inverse tests proving `ValueAccessor`, compiler instances, and
+  `Object.typeName` never leak into it. The fingerprint fix: `typeName` is
+  compiler/diagnostic metadata, not part of the JSON contract — equivalent
+  Kotlin and JavaBean DTOs now fingerprint identically (previously the
+  class name participated in the hash, so fixture-class-name changes could
+  mask ignored mutations). Fingerprint stays internal; zero public API
+  change. Mutation evidence: ignoring `@AiRange`, disabling required-property
+  shape enforcement, and dropping fingerprint components each turn the TCK
+  RED. Reference: `docs/reference/structured-output-contract-tck.md`.
+
 - **Authoritative structured type descriptor (PR #265, Epic 7.1).** The
   structured-output implementation is no longer one ~900-line handler with
   four independent dispatch trees (schema Kotlin/JavaBean, raw-JSON shape
