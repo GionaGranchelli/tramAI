@@ -1191,19 +1191,21 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
+**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267); remaining families pending.
+
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
 ### Store families
 
-- Approval store
-- Approval continuation store
-- Suspended invocation store
-- Audit store
-- Audit outbox store
-- Workflow checkpoint store
-- Workflow lease store
-- Step-attempt store — done for in-memory, file, and JDBC through the shared PR #218 TCK and restart recovery tests
-- Memory store
+- Approval store — ✅ PR #267 (shared `ApprovalStoreTck`, 33 cases × 3 implementations + enrollment guard)
+- Approval continuation store — ⏳ (Epic 8.1b)
+- Suspended invocation store — ⏳
+- Audit store — ⏳
+- Audit outbox store — ⏳
+- Workflow checkpoint store — ⏳
+- Workflow lease store — ⏳
+- Step-attempt store — ✅ PR #218 (shared TCK + restart recovery tests for in-memory, file, and JDBC)
+- Memory store — ⏳
 
 ### Contract areas
 
@@ -1223,9 +1225,17 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Acceptance criteria
 
-- Every published store implementation passes the relevant TCK.
-- Implementation-specific tests cover only storage technology and performance differences.
-- Contract failures use common typed exceptions or reason codes.
+- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 implementations enrolled; step-attempt: 3/3 via PR #218).
+- ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
+- ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`).
+
+### Deliverables (PR #267 — test infrastructure only)
+
+- `tramai-testing/src/testFixtures/.../persistence/approval/` — `ApprovalStoreTck` (33 cases), `ApprovalStoreTckHarness`, `ApprovalStoreFixtures`, `MutableClock`
+- Runners: `InMemoryApprovalStoreTckTest`, `FileApprovalStoreTckTest`, `JdbcApprovalStoreTckTest`
+- `ApprovalStoreTckEnrollmentArchitectureTest` — every future `ApprovalStore` implementation must ship a `<Store>TckTest` runner
+- Zero public API change; no persisted format or schema changes; no existing tests deleted
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`
 
 ---
 

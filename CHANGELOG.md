@@ -4,6 +4,46 @@
 
 ### Added
 
+- **ApprovalStore compatibility TCK (PR #267, Epic 8.1a).** One shared
+  behavioral contract for every `ApprovalStore` implementation, in
+  tramai-testing testFixtures: `ApprovalStoreTck` runs **33 cases** —
+  creation/read (10: PENDING round-trip, missing-ID null, duplicate
+  conflict, non-zero version / non-PENDING / pre-populated decision /
+  consumption fields / blank ID / future requestedAt / invalid expiry all
+  rejected), transitions (10: APPROVED/DENIED with decided fields + version
+  1, expired→TIMED_OUT, timeout-before-expiry and approve/deny-after-expiry
+  rejected, terminal re-transition rejected, stale-version conflict,
+  missing-approval not-found, version increments exactly once),
+  consumption/replay (10: fresh consumption with replayed=false + consumed
+  fields + version 2, wrong token / wrong consumedBy / stale version /
+  PENDING / DENIED / TIMED_OUT / expired-unconsumed rejected, exact replay
+  returns the same durable record with no write and stays valid after
+  expiry, rejected consumption is non-mutating), and concurrency (3:
+  concurrent transition race — exactly one wins and one conflicts with
+  version 1; concurrent identical consumption — one fresh + one replay
+  receipt referencing the same durable record). Deterministic `MutableClock`
+  owned by the TCK (no sleeps, no `Instant.now()`); typed failure taxonomy
+  pinned (Conflict / NotFound / TokenRejected / NotConsumable /
+  IllegalTransition / IllegalArgumentException). Three runners execute the
+  same contract: `InMemoryApprovalStoreTckTest` (tramai-security),
+  `FileApprovalStoreTckTest` (tramai-persistence-file, encrypted temp-dir
+  harness), `JdbcApprovalStoreTckTest` (tramai-persistence-jdbc, PostgreSQL
+  testcontainers) — 33/33 each. `ApprovalStoreTckEnrollmentArchitectureTest`
+  scans every module's main source set for concrete `ApprovalStore`
+  implementations and requires a `<Store>TckTest` runner in the same module,
+  so a future `RedisApprovalStore` cannot merge unenrolled. Mutation
+  evidence (5, each restored): removing the expectedVersion check, allowing
+  terminal-state re-transitions, incrementing version during exact replay,
+  replacing consumedAt during exact replay, and allowing expired fresh
+  consumption each turn TCK cases RED. Zero production code changes (the
+  three stores already agree on the contract), zero public API change, no
+  persisted format or schema changes, no existing tests deleted — existing
+  suites remain the implementation-specific regression oracle (encryption,
+  permissions, corruption, record format for file; SQL schema, JSON mapping,
+  connection cleanup for JDBC). Epic 8.1 stays IN PROGRESS; continuation
+  store is the next slice (#268, Epic 8.1b). Reference:
+  `docs/reference/persistence-store-compatibility-contract.md`.
+
 - **Structured-output contract TCK (PR #266, Epic 7.2).** One reusable test
   kit drives the entire structured-output lifecycle per fixture — descriptor
   compilation → generated schema → raw JSON shape validation →
