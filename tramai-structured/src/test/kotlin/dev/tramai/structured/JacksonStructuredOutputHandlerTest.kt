@@ -93,7 +93,120 @@ class JacksonStructuredOutputHandlerTest {
         }.isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("Unsupported structured output type")
     }
+
+    // -----------------------------------------------------------------------
+    // Enum contract: schema generation, shape validation, and deserialization
+    // must all agree that a Kotlin enum is a flat string (regression: the
+    // schema used to describe enums as name/ordinal objects, which no model
+    // output could satisfy and still deserialize).
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `enum root type generates a string enum schema`() {
+        val schema = handler.generateSchema(typeOf<Risk>())
+            .let { jackson.readTree(it) }
+
+        assertThat(schema.get("type").asText()).isEqualTo("string")
+        assertThat(schema.get("enum").map { it.asText() })
+            .containsExactly("LOW", "HIGH")
+    }
+
+    @Test
+    fun `nested enum property generates a string enum schema`() {
+        val schema = handler.generateSchema(typeOf<Assessment>())
+            .let { jackson.readTree(it) }
+        val riskSchema = schema.get("properties").get("risk")
+
+        assertThat(riskSchema.get("type").asText()).isEqualTo("string")
+        assertThat(riskSchema.get("enum").map { it.asText() })
+            .containsExactly("LOW", "HIGH")
+    }
+
+    @Test
+    fun `flat string enum value passes shape validation and deserializes`() {
+        val result = handler.analyze(
+            rawResponse = """{"risk":"LOW"}""",
+            targetType = typeOf<Assessment>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+        val success = result as StructuredOutputResult.Success
+        assertThat((success.value as Assessment).risk).isEqualTo(Risk.LOW)
+    }
+
+    @Test
+    fun `invalid enum value is rejected cleanly`() {
+        val result = handler.analyze(
+            rawResponse = """{"risk":"YOLO"}""",
+            targetType = typeOf<Assessment>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).isEqualTo("Could not deserialize the JSON payload")
+    }
+
+    @Test
+    fun `nullable enum keeps nullability semantics in schema and parsing`() {
+        val schema = handler.generateSchema(typeOf<NullableAssessment>())
+            .let { jackson.readTree(it) }
+        val riskSchema = schema.get("properties").get("risk")
+        assertThat(riskSchema.get("type").asText()).isEqualTo("string")
+        assertThat(riskSchema.has("nullable")).isTrue()
+        assertThat(riskSchema.get("nullable").asBoolean()).isTrue()
+
+        val result = handler.analyze(
+            rawResponse = """{"risk":null}""",
+            targetType = typeOf<NullableAssessment>(),
+        )
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+        assertThat((result as StructuredOutputResult.Success).value as NullableAssessment)
+            .isEqualTo(NullableAssessment(risk = null))
+    }
+
+    @Test
+    fun `schema and parser agree for every declared enum value`() {
+        val schema = handler.generateSchema(typeOf<Assessment>())
+            .let { jackson.readTree(it) }
+        val declaredNames = schema.get("properties").get("risk").get("enum")
+            .map { it.asText() }
+
+        assertThat(declaredNames).containsExactly("LOW", "HIGH")
+        declaredNames.forEach { name ->
+            val result = handler.analyze(
+                rawResponse = """{"risk":"$name"}""",
+                targetType = typeOf<Assessment>(),
+            )
+            assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+            assertThat(((result as StructuredOutputResult.Success).value as Assessment).risk.name)
+                .isEqualTo(name)
+        }
+    }
+
+    @Test
+    fun `pre-fix object form of an enum is rejected`() {
+        // The historical bug: models followed the object schema and emitted
+        // {"name":"LOW","ordinal":0}, which can never deserialize. This test
+        // pins that the object form stays rejected while the flat string wins.
+        val result = handler.analyze(
+            rawResponse = """{"risk":{"name":"LOW","ordinal":0}}""",
+            targetType = typeOf<Assessment>(),
+        )
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+    }
 }
+
+private val jackson = com.fasterxml.jackson.databind.ObjectMapper()
+
+private enum class Risk { LOW, HIGH }
+
+private data class Assessment(
+    val risk: Risk,
+)
+
+private data class NullableAssessment(
+    val risk: Risk?,
+)
 
 private data class SpendAnalysis(
     @property:AiDescription("Total spend in USD, always positive")
