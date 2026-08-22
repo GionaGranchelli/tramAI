@@ -112,6 +112,15 @@ class StructuredTypeDescriptorCompilationTest {
     }
 
     @Test
+    fun `minItems on non-collection property fails at compile time`() {
+        assertThatThrownBy {
+            compiler.compile(typeOf<MisAnnotatedObject>())
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("@AiMinItems")
+            .hasMessageContaining("not a collection")
+    }
+
+    @Test
     fun `unsupported map type fails with controlled error`() {
         assertThatThrownBy {
             compiler.compile(typeOf<Map<String, String>>())
@@ -163,6 +172,11 @@ class StructuredTypeDescriptorCompilationTest {
         val score: Double,
         @property:AiMinItems(1)
         val tags: List<String>,
+    )
+
+    private data class MisAnnotatedObject(
+        @property:AiMinItems(1)
+        val label: String,
     )
 
     private data class RecursiveNode(val next: RecursiveNode?)

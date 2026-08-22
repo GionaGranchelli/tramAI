@@ -101,6 +101,24 @@ class StructuredDescriptorSchemaValidationAgreementTest {
             .isEqualTo(NullableHolder(null))
     }
 
+    @Test
+    fun `null item allowed in nullable item collection`() {
+        val result = handler.analyze("""{"items":["a",null,"b"]}""", typeOf<NullableItemCollection>())
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+        assertThat(((result as StructuredOutputResult.Success).value as NullableItemCollection).items)
+            .containsExactly("a", null, "b")
+    }
+
+    @Test
+    fun `null item rejected in non-nullable item collection`() {
+        val result = handler.analyze("""{"items":["a",null]}""", typeOf<NonNullableItemCollection>())
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        assertThat((result as StructuredOutputResult.Failure).errorSummary)
+            .isEqualTo("Structured output failed validation")
+    }
+
     // -- Fixtures --
 
     private data class ScalarHolder(val value: String)
@@ -125,4 +143,8 @@ class StructuredDescriptorSchemaValidationAgreementTest {
     )
 
     private data class NullableHolder(val nickname: String?)
+
+    private data class NullableItemCollection(val items: List<String?>)
+
+    private data class NonNullableItemCollection(val items: List<String>)
 }

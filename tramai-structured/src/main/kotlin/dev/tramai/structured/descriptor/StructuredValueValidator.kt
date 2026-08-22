@@ -47,9 +47,9 @@ internal class StructuredValueValidator {
             else -> return null
         }
         items.forEachIndexed { index, item ->
-            if (item == null) {
-                return "Item $index of $path must not be null"
-            }
+            // Delegate item validation so descriptor nullability applies: a null
+            // item in a nullable item collection (List<String?>) is legal, while
+            // a null item in a non-nullable collection still fails.
             validate(item, descriptor.item, "$path[$index]")?.let { return it }
         }
         return null

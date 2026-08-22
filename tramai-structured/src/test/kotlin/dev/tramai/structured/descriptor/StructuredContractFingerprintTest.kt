@@ -94,6 +94,30 @@ class StructuredContractFingerprintTest {
         assertThat(first).isEqualTo(second)
     }
 
+    @Test
+    fun `property reordering changes fingerprint`() {
+        // Compilers always sort properties, so the reordering sensitivity of the
+        // fingerprint WALK is tested by constructing descriptors directly.
+        val propertyA = StructuredPropertyDescriptor(
+            name = "a",
+            type = StructuredTypeDescriptor.Scalar(ScalarKind.STRING, nullable = false),
+            required = true,
+            description = null,
+            range = null,
+            accessor = ValueAccessor { null },
+        )
+        val propertyB = propertyA.copy(name = "b")
+
+        val ab = StructuredTypeDescriptor.Object(
+            typeName = "Reordered",
+            properties = listOf(propertyA, propertyB),
+            nullable = false,
+        )
+        val ba = ab.copy(properties = listOf(propertyB, propertyA))
+
+        assertThat(fingerprint.fingerprint(ab)).isNotEqualTo(fingerprint.fingerprint(ba))
+    }
+
     // -- Fixtures --
 
     private data class FpObject(

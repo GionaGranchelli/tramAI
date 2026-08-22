@@ -83,12 +83,10 @@ class StructuredDescriptorArchitectureTest {
 
     @Test
     fun `only the Kotlin compiler uses Kotlin reflection`() {
-        val allowed = setOf(compilerPackage + "KotlinStructuredTypeCompiler")
-
-        // Scan the whole module for Kotlin reflection references.
         val offenders = moduleClasses()
             .filter { it.startsWith("dev/tramai/structured/") }
             .filterNot { it.startsWith("dev/tramai/structured/descriptor/KotlinStructuredTypeCompiler") }
+            .filterNot { it.endsWith("PositiveControlFixture") }
             .filter { clazz ->
                 val refs = classMethodRefsOf(clazz)
                 refs.owners.any { it in kotlinReflectionRefs }
@@ -104,6 +102,7 @@ class StructuredDescriptorArchitectureTest {
         val offenders = moduleClasses()
             .filter { it.startsWith("dev/tramai/structured/") }
             .filterNot { it.startsWith("dev/tramai/structured/descriptor/JacksonJavaBeanStructuredTypeCompiler") }
+            .filterNot { it.endsWith("PositiveControlFixture") }
             .filter { clazz ->
                 val refs = classMethodRefsOf(clazz)
                 refs.owners.any { it in jacksonIntrospectionRefs }
@@ -112,6 +111,21 @@ class StructuredDescriptorArchitectureTest {
         assertThat(offenders)
             .withFailMessage("Jackson introspection escaped descriptor compilation: $offenders")
             .isEmpty()
+    }
+
+    @Test
+    fun `positive control - the ASM scan flags a planted reflection leak`() {
+        // Proves the bytecode visitor + ref-set actually detect a leak; without
+        // this, a broken scan (wrong classpath layout, renamed owners) would be
+        // a silent no-op that always passes.
+        val refs = classMethodRefsOf(compilerPackage + "PositiveControlFixture")
+
+        assertThat(refs.owners)
+            .withFailMessage("positive control fixture must reference Kotlin reflection")
+            .containsAnyElementsOf(kotlinReflectionRefs)
+        assertThat(refs.owners)
+            .withFailMessage("positive control fixture must reference Jackson introspection")
+            .containsAnyElementsOf(jacksonIntrospectionRefs)
     }
 
     // ------------------------------------------------------------------
