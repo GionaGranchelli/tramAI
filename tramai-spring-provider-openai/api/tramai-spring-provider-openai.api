@@ -1,0 +1,6 @@
+public final class dev/tramai/spring/OpenAiProviderAutoConfiguration {
+	public fun <init> ()V
+	public final fun openAiCompatibleProvider (Ldev/tramai/spring/TramaiProperties;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+	public final fun openAiProvider (Ldev/tramai/spring/TramaiProperties;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/spring/SpringConfiguredModelProvider;
+}
+

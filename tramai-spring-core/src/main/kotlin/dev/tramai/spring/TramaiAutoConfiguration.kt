@@ -8,10 +8,6 @@ import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
-import dev.tramai.openai.CodexAuthFileTokenSource
-import dev.tramai.openai.ExperimentalCodexAuth
-import dev.tramai.openai.OpenAiCompatibleProvider
-import dev.tramai.openai.OpenAiProvider
 import dev.tramai.ollama.OllamaProvider
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
@@ -33,10 +29,10 @@ import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
-import java.nio.file.Path
 
 private data class TramaiBeanDependencies(
     val modelProviders: ObjectProvider<ModelProvider>,
+    val springConfiguredProviders: ObjectProvider<SpringConfiguredModelProvider>,
     val operationResponseCache: ObjectProvider<OperationResponseCache>,
     val operationInterceptors: ObjectProvider<OperationInterceptor>,
     val dlpInterceptors: ObjectProvider<DlpInterceptor>,
@@ -52,6 +48,7 @@ private data class TramaiBeanDependencies(
         fun from(applicationContext: org.springframework.context.ApplicationContext): TramaiBeanDependencies =
             TramaiBeanDependencies(
                 modelProviders = applicationContext.getBeanProvider(ModelProvider::class.java),
+                springConfiguredProviders = applicationContext.getBeanProvider(SpringConfiguredModelProvider::class.java),
                 operationResponseCache = applicationContext.getBeanProvider(OperationResponseCache::class.java),
                 operationInterceptors = applicationContext.getBeanProvider(OperationInterceptor::class.java),
                 dlpInterceptors = applicationContext.getBeanProvider(DlpInterceptor::class.java),
@@ -133,16 +130,12 @@ class TramaiAutoConfiguration {
                     baseUrl = properties.providers.anthropic.baseUrl ?: "https://api.anthropic.com",
                 )
             },
-            resolveOpenAiProvider(properties.providers.openai, secretResolver)?.let { provider ->
-                provider.providerId() to provider
-            },
-            resolveOpenAiCompatibleProvider(properties.providers.openaiCompatible, secretResolver)?.let { provider ->
-                provider.providerId() to provider
-            },
             properties.providers.ollama.baseUrl?.takeIf { it.isNotBlank() }?.let { baseUrl ->
                 "ollama" to OllamaProvider(baseUrl = baseUrl)
             },
-        )
+        ) + dependencies.springConfiguredProviders.orderedStream()
+            .map { it.providerId to it.provider }
+            .toList()
 
         val beanProviders = dependencies.modelProviders.orderedStream().toList()
         val beanProviderCounts = beanProviders.groupingBy { it.providerId() }.eachCount()
@@ -215,90 +208,6 @@ class TramaiAutoConfiguration {
     fun aiServiceBeanDefinitionRegistrar(
         beanFactory: ConfigurableListableBeanFactory,
     ): AiServiceBeanDefinitionRegistrar = AiServiceBeanDefinitionRegistrar(beanFactory)
-
-    @OptIn(ExperimentalCodexAuth::class)
-    private fun resolveOpenAiProvider(
-        properties: TramaiProperties.OpenAi,
-        secretResolver: SecretValueResolver,
-    ): ModelProvider? {
-        val baseUrl = properties.baseUrl ?: OpenAiProvider.DEFAULT_BASE_URL
-        val authFile = properties.codexAuth.authFile?.let(Path::of) ?: CodexAuthFileTokenSource.defaultAuthFile()
-        val apiKey = SpringSecretResolution.resolve(
-            directValue = properties.apiKey,
-            secretRef = properties.apiKeySecretRef,
-            fieldName = "tramai.providers.openai.apiKey",
-            secretResolver = secretResolver,
-        )
-        val bearerToken = SpringSecretResolution.resolve(
-            directValue = properties.bearerToken,
-            secretRef = properties.bearerTokenSecretRef,
-            fieldName = "tramai.providers.openai.bearerToken",
-            secretResolver = secretResolver,
-        )
-
-        return when {
-            !apiKey.isNullOrBlank() -> OpenAiProvider(
-                apiKey = apiKey,
-                baseUrl = baseUrl,
-                organization = properties.organization,
-                project = properties.project,
-            )
-            !bearerToken.isNullOrBlank() -> OpenAiProvider.bearerToken(
-                bearerToken = bearerToken,
-                baseUrl = baseUrl,
-                organization = properties.organization,
-                project = properties.project,
-            )
-            properties.codexAuth.enabled -> OpenAiProvider.codexAuth(
-                authFile = authFile,
-                baseUrl = baseUrl,
-                organization = properties.organization,
-                project = properties.project,
-            )
-            else -> null
-        }
-    }
-
-    @OptIn(ExperimentalCodexAuth::class)
-    private fun resolveOpenAiCompatibleProvider(
-        properties: TramaiProperties.OpenAiCompatible,
-        secretResolver: SecretValueResolver,
-    ): ModelProvider? {
-        val baseUrl = properties.baseUrl?.takeIf { it.isNotBlank() } ?: return null
-        val providerName = properties.providerName.ifBlank { "openai-compatible" }
-        val authFile = properties.codexAuth.authFile?.let(Path::of) ?: CodexAuthFileTokenSource.defaultAuthFile()
-        val apiKey = SpringSecretResolution.resolve(
-            directValue = properties.apiKey,
-            secretRef = properties.apiKeySecretRef,
-            fieldName = "tramai.providers.openai-compatible.apiKey",
-            secretResolver = secretResolver,
-        )
-        val bearerToken = SpringSecretResolution.resolve(
-            directValue = properties.bearerToken,
-            secretRef = properties.bearerTokenSecretRef,
-            fieldName = "tramai.providers.openai-compatible.bearerToken",
-            secretResolver = secretResolver,
-        )
-
-        return when {
-            !apiKey.isNullOrBlank() -> OpenAiCompatibleProvider.bearerToken(
-                bearerToken = apiKey,
-                baseUrl = baseUrl,
-                providerName = providerName,
-            )
-            !bearerToken.isNullOrBlank() -> OpenAiCompatibleProvider.bearerToken(
-                bearerToken = bearerToken,
-                baseUrl = baseUrl,
-                providerName = providerName,
-            )
-            properties.codexAuth.enabled -> OpenAiCompatibleProvider.codexAuth(
-                baseUrl = baseUrl,
-                providerName = providerName,
-                authFile = authFile,
-            )
-            else -> null
-        }
-    }
 
     private fun resolveDlpInterceptor(
         applicationContext: org.springframework.context.ApplicationContext,

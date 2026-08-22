@@ -172,6 +172,11 @@ modules:
     publishability: published
     apiStability: preview
 
+  - path: ":tramai-spring-provider-openai"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
   - path: ":tramai-spring-consumer-boundary"
     layer: testing-support
     publishability: internal
