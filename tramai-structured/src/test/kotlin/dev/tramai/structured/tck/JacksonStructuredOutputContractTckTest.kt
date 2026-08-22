@@ -1,8 +1,11 @@
 package dev.tramai.structured.tck
 
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.module.kotlin.kotlinModule
 import dev.tramai.core.annotations.AiDescription
 import dev.tramai.core.annotations.AiMinItems
 import dev.tramai.core.annotations.AiRange
+import dev.tramai.structured.JacksonStructuredOutputHandler
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures
 import dev.tramai.structured.JavaParityFixtures
 import kotlin.test.Test
@@ -211,11 +214,37 @@ class JacksonStructuredOutputContractTckTest {
                 expectedSchema = mapOf(
                     "additionalProperties" to SchemaExpectation("false") { it == false },
                 ),
-                // The schema declares additionalProperties:false, but the shape
-                // validator does not own that rule — it is delegated downstream
-                // to Jackson deserialization, which rejects the unknown key.
+                // The schema declares additionalProperties:false, and the shape
+                // validator OWNS that rule: unknown keys are rejected at SHAPE
+                // independent of the consumer's Jackson configuration.
                 invalidCases = listOf(
-                    InvalidCase("""{"value":"x","unknownKey":42}""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                    InvalidCase("""{"value":"x","unknownKey":42}""", FailureStage.SHAPE, "Property 'unknownKey' is not allowed"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `unknown property rejected even with lenient ObjectMapper`() {
+        // A consumer may legally supply an ObjectMapper with
+        // FAIL_ON_UNKNOWN_PROPERTIES disabled. The contract must not depend on
+        // that Jackson flag, so the shape validator (not deserialization) owns
+        // unknown-property rejection.
+        val lenientMapper = JsonMapper.builder()
+            .addModule(kotlinModule())
+            .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build()
+        val lenientTck = StructuredOutputContractTck(
+            handler = JacksonStructuredOutputHandler(lenientMapper),
+            mapper = lenientMapper,
+        )
+        lenientTck.verify(
+            StructuredOutputContractCase(
+                id = "unknown-property-lenient-mapper",
+                targetType = typeOf<RequiredString>(),
+                validJson = """{"value":"hello"}""",
+                invalidCases = listOf(
+                    InvalidCase("""{"value":"x","unknownKey":42}""", FailureStage.SHAPE, "Property 'unknownKey' is not allowed"),
                 ),
             ),
         )
@@ -293,7 +322,7 @@ class JacksonStructuredOutputContractTckTest {
                 validJson = """{"value":"hello"}""",
                 invalidCases = listOf(
                     InvalidCase("""{"value":null}""", FailureStage.SHAPE, "Property 'value' is required"),
-                    InvalidCase("""{"value":"x","unknownKey":42}""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                    InvalidCase("""{"value":"x","unknownKey":42}""", FailureStage.SHAPE, "Property 'unknownKey' is not allowed"),
                 ),
             ),
         )
@@ -309,16 +338,63 @@ class JacksonStructuredOutputContractTckTest {
             StructuredOutputContractCase(
                 id = "root-enum",
                 targetType = typeOf<Level>(),
-                validJson = null, // bare scalars are not extractable (objects/arrays only)
+                validJson = """"LOW"""",
                 expectedRootType = "string",
                 expectedSchema = mapOf(
                     "enum" to SchemaExpectation("declared values") { it == listOf("LOW", "HIGH") },
                 ),
+                expectedValue = { it == Level.LOW },
                 invalidCases = listOf(
-                    // Bare string: extractor cannot find a JSON object/array.
-                    InvalidCase(""" "YOLO" """, FailureStage.EXTRACTION),
+                    // Bare string now extracts (complete-JSON fast path); the
+                    // unknown value fails at Jackson deserialization.
+                    InvalidCase(""" "YOLO" """, FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
                     // Object form: extractable, but Jackson cannot deserialize into an enum.
                     InvalidCase("""{"name":"LOW","ordinal":0}""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `root integer case`() {
+        tck.verify(
+            StructuredOutputContractCase(
+                id = "root-integer",
+                targetType = typeOf<Int>(),
+                validJson = "42",
+                expectedRootType = "integer",
+                expectedValue = { it == 42 },
+                invalidCases = listOf(
+                    InvalidCase(""""not-a-number"""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `root double case`() {
+        tck.verify(
+            StructuredOutputContractCase(
+                id = "root-double",
+                targetType = typeOf<Double>(),
+                validJson = "0.85",
+                expectedRootType = "number",
+                expectedValue = { it == 0.85 },
+            ),
+        )
+    }
+
+    @Test
+    fun `root boolean case`() {
+        tck.verify(
+            StructuredOutputContractCase(
+                id = "root-boolean",
+                targetType = typeOf<Boolean>(),
+                validJson = "true",
+                expectedRootType = "boolean",
+                expectedValue = { it == true },
+                invalidCases = listOf(
+                    InvalidCase(""""yes"""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
                 ),
             ),
         )
@@ -409,7 +485,7 @@ class JacksonStructuredOutputContractTckTest {
                     // Missing primitive must fail at SHAPE, before Jackson's
                     // primitive default (0/false) can hide the problem.
                     InvalidCase("""{"active":true,"timestamp":100,"score":0.5}""", FailureStage.SHAPE, "Property 'count' is required"),
-                    InvalidCase("""{"count":1,"active":true,"timestamp":100,"score":0.5,"extra":1}""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                    InvalidCase("""{"count":1,"active":true,"timestamp":100,"score":0.5,"extra":1}""", FailureStage.SHAPE, "Property 'extra' is not allowed"),
                 ),
             ),
         )

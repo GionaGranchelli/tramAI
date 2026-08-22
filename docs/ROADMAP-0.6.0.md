@@ -1169,7 +1169,21 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 - ✅ The same fixtures validate schema, shape, deserialization, value constraints, and repair messages. (`StructuredOutputContractCase` → `StructuredOutputContractTck`)
 - ✅ Contract drift tests explain exactly which descriptor element changed. (one-mutation-at-a-time fingerprint evolution; fingerprint excludes `Object.typeName` — semantic parity across Kotlin/JavaBean DTOs)
-- ✅ Mutation evidence: temporarily ignoring `@AiRange`, disabling required-property shape enforcement, and dropping fingerprint components each turn the TCK RED.
+- ✅ Mutation evidence: temporarily ignoring `@AiRange`, disabling required-property shape enforcement, dropping fingerprint components, reverting the complete-JSON extractor path, and removing unknown-property shape rejection each turn the TCK RED.
+
+### Production fixes surfaced by the TCK (PR #266)
+
+- **Root scalar extraction.** The extractor now accepts a complete trimmed
+  JSON value before the object/array bracket search, so structured scalar
+  roots (enum `"LOW"`, integer `42`, double `0.85`, boolean `true`) round-trip
+  instead of failing with "Could not extract JSON content". Prose-wrapped
+  scalars remain un-extractable (only complete JSON values or object/array
+  inside prose are accepted).
+- **Unknown properties owned by the shape validator.** `additionalProperties:
+  false` is enforced by `StructuredJsonShapeValidator` (`Property 'x' is not
+  allowed`), independent of the consumer's Jackson configuration — previously
+  it was delegated to Jackson deserialization and silently weakened by a
+  custom `ObjectMapper` with `FAIL_ON_UNKNOWN_PROPERTIES=false`.
 
 ---
 

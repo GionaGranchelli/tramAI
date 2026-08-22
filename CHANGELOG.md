@@ -10,27 +10,43 @@
   deserialization → runtime value validation → deterministic repair
   feedback — from a single source of truth (`StructuredOutputContractCase`),
   so no layer maintains independent fixture lists. The matrix
-  (`JacksonStructuredOutputContractTckTest`, 24 cases) covers Kotlin data
+  (`JacksonStructuredOutputContractTckTest`, 28 cases) covers Kotlin data
   classes, JavaBeans, nullability, missing primitives (rejected at SHAPE
   before Jackson primitive defaults hide them), nested objects, generic and
-  nested collections, root arrays, `@AiRange`/`@AiMinItems`/`@AiDescription`,
-  unknown properties (delegated to Jackson), recursion, unsupported maps,
-  malformed JSON, prose/fenced JSON extraction, and repair determinism —
-  plus the #262 enum regression class: root/nested/nullable enums, every
-  declared value succeeds, unknown values fail through deserialization, and
-  the legacy `{name, ordinal}` object form stays rejected (enum membership
-  remains deliberately delegated to Jackson, verified by the TCK).
-  `StructuredContractFingerprintEvolutionTest` (18 tests) mutates exactly one
-  semantic element at a time and proves each changes the SHA-256 hash, with
-  inverse tests proving `ValueAccessor`, compiler instances, and
-  `Object.typeName` never leak into it. The fingerprint fix: `typeName` is
-  compiler/diagnostic metadata, not part of the JSON contract — equivalent
-  Kotlin and JavaBean DTOs now fingerprint identically (previously the
-  class name participated in the hash, so fixture-class-name changes could
-  mask ignored mutations). Fingerprint stays internal; zero public API
-  change. Mutation evidence: ignoring `@AiRange`, disabling required-property
-  shape enforcement, and dropping fingerprint components each turn the TCK
-  RED. Reference: `docs/reference/structured-output-contract-tck.md`.
+  nested collections, root arrays, **root scalars (enum/integer/double/
+  boolean)**, `@AiRange`/`@AiMinItems`/`@AiDescription`, unknown properties
+  (rejected at SHAPE even under a lenient ObjectMapper), recursion,
+  unsupported maps, malformed JSON, prose/fenced JSON extraction, and repair
+  determinism — plus the #262 enum regression class: root/nested/nullable
+  enums, every declared value succeeds, unknown values fail through
+  deserialization, and the legacy `{name, ordinal}` object form stays
+  rejected (enum membership remains deliberately delegated to Jackson,
+  verified by the TCK). SHAPE vs VALUE_VALIDATION stages (shared summary by
+  design) are proven by exercising the layers directly — shape validator
+  rejects / shape accepts + Jackson succeeds + value validator rejects — so
+  message-phrasing refactors cannot keep a case green. Compile-failure
+  fixtures assert `IllegalArgumentException`/`IllegalStateException`
+  specifically. `StructuredContractFingerprintEvolutionTest` (18 tests)
+  mutates exactly one semantic element at a time and proves each changes the
+  SHA-256 hash, with inverse tests proving `ValueAccessor`, compiler
+  instances, and `Object.typeName` never leak into it. The fingerprint fix:
+  `typeName` is compiler/diagnostic metadata, not part of the JSON contract —
+  equivalent Kotlin and JavaBean DTOs now fingerprint identically (previously
+  the class name participated in the hash, so fixture-class-name changes
+  could mask ignored mutations). Fingerprint stays internal; zero public API
+  change. Mutation evidence (5): ignoring `@AiRange`, disabling required-
+  property shape enforcement, dropping fingerprint components, reverting the
+  complete-JSON extractor path, and removing unknown-property shape rejection
+  each turn the TCK RED. Two production inconsistencies surfaced and fixed:
+  (1) the extractor now accepts a complete trimmed JSON value before
+  object/array bracket search, so structured scalar roots round-trip instead
+  of failing "Could not extract JSON content" (prose-wrapped scalars remain
+  un-extractable); (2) `additionalProperties:false` is now enforced by the
+  shape validator (`Property 'x' is not allowed`), independent of the
+  consumer's Jackson configuration — previously delegated to Jackson
+  deserialization, it was silently weakened by a custom ObjectMapper with
+  `FAIL_ON_UNKNOWN_PROPERTIES=false`. Reference:
+  `docs/reference/structured-output-contract-tck.md`.
 
 - **Authoritative structured type descriptor (PR #265, Epic 7.1).** The
   structured-output implementation is no longer one ~900-line handler with

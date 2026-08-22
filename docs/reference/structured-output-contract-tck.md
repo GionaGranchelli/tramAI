@@ -38,13 +38,25 @@ Invalid fixtures declare where they must fail:
 |---|---|
 | `EXTRACTION` | unique summary "Could not extract JSON content…" |
 | `JSON_PARSE` | unique summary "Could not parse the JSON payload" |
-| `SHAPE` | shared summary "Structured output failed validation" + feedback phrasing ("is required", "Expected an array") |
+| `SHAPE` | shared summary "Structured output failed validation" + **direct-layer proof**: the shape validator itself must reject the parsed tree |
 | `DESERIALIZATION` | unique summary "Could not deserialize the JSON payload" |
-| `VALUE_VALIDATION` | shared summary + feedback phrasing ("must be between", "must not be null", "must contain at least") |
+| `VALUE_VALIDATION` | shared summary + **direct-layer proof**: shape validator accepts, Jackson deserialization succeeds, and only the value validator rejects |
 
 `SHAPE` and `VALUE_VALIDATION` share the summary by design (existing handler
-behaviour), so the TCK pins those two stages via the stage-specific feedback
-text.
+behaviour). Instead of relying on message phrasing, the TCK exercises each
+layer directly (`StructuredJsonShapeValidator`, Jackson `readValue`,
+`StructuredValueValidator`) so a future refactor that moves enforcement
+between layers — while keeping message text — cannot keep a case green.
+
+## Extraction
+
+`extractJsonCandidate` accepts a complete trimmed JSON value before falling
+back to object/array bracket extraction. This makes bare structured scalars
+round-trip: a root enum (`"LOW"`), integer (`42`), double (`0.85`), or
+boolean (`true`) is valid JSON with no object/array delimiters and is now
+extracted verbatim. Prose-wrapped scalars (e.g. `Sure, it's "LOW"`) remain
+un-extractable — only a complete JSON value or an object/array inside prose
+is accepted.
 
 ## Schema rule → enforcement owner
 
@@ -54,9 +66,9 @@ documented reason why validation is delegated to deserialization.
 | Schema rule | Enforcement owner |
 |---|---|
 | `type` (scalar/object/array/enum) | Jackson deserialization |
-| `properties` shape (missing/extra keys) | shape validator (required presence) + Jackson (unknown keys) |
+| `properties` shape (missing/extra keys) | shape validator |
 | `required` (non-nullable fields) | shape validator (`Property 'x' is required`) |
-| `additionalProperties: false` | **delegated to Jackson deserialization** (shape validator does not reject unknown keys) |
+| `additionalProperties: false` | **shape validator** (`Property 'x' is not allowed`) — owned here, not delegated to Jackson, so a consumer-supplied ObjectMapper with `FAIL_ON_UNKNOWN_PROPERTIES=false` cannot weaken the contract |
 | `minimum` / `maximum` (`@AiRange`) | value validator |
 | `minItems` (`@AiMinItems`) | value validator |
 | `description` (`@AiDescription`) | schema only — no runtime semantic effect |
@@ -64,7 +76,9 @@ documented reason why validation is delegated to deserialization.
 | `nullable` | shape validator (null required field rejected) + value validator (null non-nullable property rejected) |
 
 The invariant is not "one validator validates everything"; it is one declared
-contract with a documented enforcement owner.
+contract with a documented enforcement owner. Unknown-property rejection is
+descriptor-owned because delegating it to Jackson would make the contract
+depend on an incidental Jackson flag consumers can change.
 
 ## Fingerprint evolution
 
@@ -93,6 +107,11 @@ RED:
   `java bean annotated scalar`, `deterministic repair`)
 - dropping range/description from the fingerprint canonical walk →
   `numeric range change` and `description change` evolution tests fail
+- reverting the extractor's complete-JSON fast path → `root enum`,
+  `root integer`, `root double`, `root boolean` cases fail (bare scalars
+  become un-extractable again)
+- removing unknown-property rejection from the shape validator →
+  `unknown property` and `unknown property lenient mapper` cases fail
 
 ## Files
 
