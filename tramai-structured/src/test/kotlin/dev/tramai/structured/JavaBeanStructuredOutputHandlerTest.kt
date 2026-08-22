@@ -151,7 +151,7 @@ class JavaBeanStructuredOutputHandlerTest {
         assertThatThrownBy {
             handler.createContract(typeOf<JavaRecursiveNode>())
         }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("Recursive JavaBean structured output type is unsupported")
+            .hasMessageContaining("Recursive structured output type is unsupported")
     }
 
     @Test
