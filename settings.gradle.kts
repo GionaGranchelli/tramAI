@@ -31,6 +31,7 @@ include(
     "tramai-spring-secrets-file",
     "tramai-spring-secrets-vault",
     "tramai-spring-consumer-boundary",
+    "tramai-spring-consumer-selective",
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-persistence-jdbc",
