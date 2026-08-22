@@ -6,7 +6,6 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
-import dev.tramai.ollama.OllamaProvider
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
 import dev.tramai.engine.NoOpOperationResponseCache
