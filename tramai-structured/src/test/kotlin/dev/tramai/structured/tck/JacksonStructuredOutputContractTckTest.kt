@@ -350,6 +350,9 @@ class JacksonStructuredOutputContractTckTest {
                     InvalidCase(""" "YOLO" """, FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
                     // Object form: extractable, but Jackson cannot deserialize into an enum.
                     InvalidCase("""{"name":"LOW","ordinal":0}""", FailureStage.DESERIALIZATION, "could not be parsed into the requested output type"),
+                    // Prose-wrapped scalar: not a complete JSON value and has no
+                    // object/array delimiters, so extraction fails.
+                    InvalidCase("""Sure, the level is "LOW"""", FailureStage.EXTRACTION),
                 ),
             ),
         )

@@ -119,7 +119,7 @@ RED:
   validJson, schema expectations, invalid cases, value predicate,
   compile-failure expectation)
 - `StructuredOutputContractTck.kt` — lifecycle runner
-- `JacksonStructuredOutputContractTckTest.kt` — the matrix (24 cases)
+- `JacksonStructuredOutputContractTckTest.kt` — the matrix (28 cases)
 - `StructuredContractFingerprintEvolutionTest.kt` — one-mutation-at-a-time
   fingerprint evolution + inverse tests (18 tests)
 
