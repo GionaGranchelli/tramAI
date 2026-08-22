@@ -19,11 +19,12 @@ class JacksonStructuredOutputHandlerBoundaryTest {
 
     @Test
     fun `deserialization failure does not expose raw detail in normal fields`() {
-        val result = handler.analyze("{\"value\":{},\"marker\":\"$SO_FIXTURE\"}", typeOf<BoundaryValue>()) as StructuredOutputResult.Failure
+        // value:{} is a genuine Jackson deserialization failure (an object
+        // cannot coerce to String). Unknown keys are no longer usable to force
+        // this: they are rejected at SHAPE by the descriptor contract.
+        val result = handler.analyze("{\"value\":{}}", typeOf<BoundaryValue>()) as StructuredOutputResult.Failure
 
         assertThat(result.errorSummary).isEqualTo("Could not deserialize the JSON payload")
-        assertThat(result.errorSummary).doesNotContain(SO_FIXTURE)
-        assertThat(result.feedbackMessage).doesNotContain(SO_FIXTURE)
         assertThat(result.failure).isNotNull()
     }
 

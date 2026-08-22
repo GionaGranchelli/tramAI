@@ -141,6 +141,17 @@ class JacksonStructuredOutputHandler(
             }
         }
 
+        // A complete JSON value (bare scalar: enum string, number, boolean)
+        // is a valid response for structured scalar roots but contains no
+        // object/array delimiters, so the bracket search below could never
+        // find it. Accept the whole trimmed response when it parses as JSON.
+        try {
+            objectMapper.readTree(trimmed)
+            return trimmed
+        } catch (_: com.fasterxml.jackson.core.JacksonException) {
+            // Not complete JSON — fall through to prose/object/array extraction.
+        }
+
         val firstChar = trimmed.firstOrNull() ?: throw IllegalArgumentException("Empty response")
         val objectStart = trimmed.indexOf('{').takeIf { it >= 0 }
         val arrayStart = trimmed.indexOf('[').takeIf { it >= 0 }

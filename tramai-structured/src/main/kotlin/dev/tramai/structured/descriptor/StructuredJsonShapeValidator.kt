@@ -47,6 +47,18 @@ internal class StructuredJsonShapeValidator {
     ): String? {
         if (!node.isObject) return null
 
+        // The generated schema always declares additionalProperties:false, so
+        // unknown keys are a shape violation regardless of the consumer's
+        // Jackson configuration. Owned here, not delegated to deserialization:
+        // a custom ObjectMapper with FAIL_ON_UNKNOWN_PROPERTIES=false would
+        // otherwise silently accept keys the schema forbids.
+        val known = descriptor.properties.map { it.name }.toSet()
+        node.fieldNames().forEach { key ->
+            if (key !in known) {
+                return "Property '$key' is not allowed"
+            }
+        }
+
         descriptor.properties.forEach { property ->
             val propPath = if (path.isEmpty()) "'${property.name}'" else "$path.'${property.name}'"
             val fieldNode = node.get(property.name)

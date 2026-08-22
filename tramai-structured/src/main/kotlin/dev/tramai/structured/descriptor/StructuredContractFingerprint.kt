@@ -47,7 +47,11 @@ internal class StructuredContractFingerprint {
                 sb.append(')')
             }
             is StructuredTypeDescriptor.Object -> {
-                sb.append("object(").append(escape(descriptor.typeName)).append("){")
+                // typeName deliberately excluded: it is compiler/diagnostic
+                // metadata, not part of the JSON contract. Equivalent Kotlin
+                // and JavaBean DTOs have different class names but the same
+                // semantic contract, so they must fingerprint identically.
+                sb.append("object{")
                 descriptor.properties.forEachIndexed { index, property ->
                     if (index > 0) sb.append(';')
                     appendProperty(sb, property)

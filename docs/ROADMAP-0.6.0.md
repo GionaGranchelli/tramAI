@@ -1136,28 +1136,54 @@ reintroduce — an enum is not merely a scalar detail.*
 
 ## Epic 7.2: Structured-output contract TCK
 
+**Status: ✅ Implemented in PR #266 (Epic 7.2)**
+
+One reusable test kit drives the entire structured-output lifecycle per
+fixture: descriptor compilation → generated schema → raw JSON shape
+validation → deserialization → runtime value validation → deterministic
+repair feedback. No layer maintains its own independent fixture lists.
+
 ### Required cases
 
-- Kotlin data classes
-- JavaBeans
-- Nullable and non-null fields
-- Primitive missing fields
-- Nested objects
-- Generic collections
-- Root arrays
-- Annotation constraints
-- Unknown properties
-- Recursive types
-- Unsupported maps
-- Malformed JSON
-- Extra prose around JSON
-- Repair feedback determinism
-- Contract fingerprint evolution
+- ✅ Kotlin data classes
+- ✅ JavaBeans
+- ✅ Nullable and non-null fields
+- ✅ Primitive missing fields
+- ✅ Nested objects
+- ✅ Generic collections
+- ✅ Root arrays
+- ✅ Annotation constraints
+- ✅ Unknown properties
+- ✅ Recursive types
+- ✅ Unsupported maps
+- ✅ Malformed JSON
+- ✅ Extra prose around JSON
+- ✅ Repair feedback determinism
+- ✅ Contract fingerprint evolution
+- ✅ Enum regression cases (root/nested/nullable enum, every declared value
+  succeeds, unknown value fails via deserialization, legacy
+  `{name, ordinal}` object form rejected) — #262 was the incident that made
+  Phase 7 necessary
 
 ### Acceptance criteria
 
-- The same fixtures validate schema, shape, deserialization, value constraints, and repair messages.
-- Contract drift tests explain exactly which descriptor element changed.
+- ✅ The same fixtures validate schema, shape, deserialization, value constraints, and repair messages. (`StructuredOutputContractCase` → `StructuredOutputContractTck`)
+- ✅ Contract drift tests explain exactly which descriptor element changed. (one-mutation-at-a-time fingerprint evolution; fingerprint excludes `Object.typeName` — semantic parity across Kotlin/JavaBean DTOs)
+- ✅ Mutation evidence: temporarily ignoring `@AiRange`, disabling required-property shape enforcement, dropping fingerprint components, reverting the complete-JSON extractor path, and removing unknown-property shape rejection each turn the TCK RED.
+
+### Production fixes surfaced by the TCK (PR #266)
+
+- **Root scalar extraction.** The extractor now accepts a complete trimmed
+  JSON value before the object/array bracket search, so structured scalar
+  roots (enum `"LOW"`, integer `42`, double `0.85`, boolean `true`) round-trip
+  instead of failing with "Could not extract JSON content". Prose-wrapped
+  scalars remain un-extractable (only complete JSON values or object/array
+  inside prose are accepted).
+- **Unknown properties owned by the shape validator.** `additionalProperties:
+  false` is enforced by `StructuredJsonShapeValidator` (`Property 'x' is not
+  allowed`), independent of the consumer's Jackson configuration — previously
+  it was delegated to Jackson deserialization and silently weakened by a
+  custom `ObjectMapper` with `FAIL_ON_UNKNOWN_PROPERTIES=false`.
 
 ---
 
