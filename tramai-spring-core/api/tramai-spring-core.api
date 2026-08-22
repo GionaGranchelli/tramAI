@@ -49,7 +49,7 @@ public final class dev/tramai/spring/SpringSecretResolution {
 public final class dev/tramai/spring/TramaiAutoConfiguration {
 	public fun <init> ()V
 	public final fun aiServiceBeanDefinitionRegistrar (Lorg/springframework/beans/factory/config/ConfigurableListableBeanFactory;)Ldev/tramai/spring/AiServiceBeanDefinitionRegistrar;
-	public final fun tramai (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;Ldev/tramai/core/secret/SecretValueResolver;)Ldev/tramai/standalone/Tramai;
+	public final fun tramai (Ldev/tramai/spring/TramaiProperties;Lorg/springframework/context/ApplicationContext;)Ldev/tramai/standalone/Tramai;
 }
 
 public final class dev/tramai/spring/TramaiProperties {

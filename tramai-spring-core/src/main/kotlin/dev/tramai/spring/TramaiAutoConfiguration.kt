@@ -114,13 +114,13 @@ class TramaiAutoConfiguration {
             ?: ModelRegistrySettings(enabled = properties.security.modelRegistry.enabled)
         builder.modelRegistrySettings(settings)
 
-        val propertyProviders: List<Pair<String, ModelProvider>> = buildList {
-            properties.providers.ollama.baseUrl?.takeIf { it.isNotBlank() }?.let { baseUrl ->
-                add("ollama" to OllamaProvider(baseUrl = baseUrl))
-            }
-        } + dependencies.springConfiguredProviders.orderedStream()
-            .map { it.providerId to it.provider }
-            .toList()
+        // Property-generated providers are contributed by adapter modules as
+        // SpringConfiguredModelProvider beans; core no longer knows any
+        // concrete provider type.
+        val propertyProviders: List<Pair<String, ModelProvider>> =
+            dependencies.springConfiguredProviders.orderedStream()
+                .map { it.providerId to it.provider }
+                .toList()
 
         val beanProviders = dependencies.modelProviders.orderedStream().toList()
         val beanProviderCounts = beanProviders.groupingBy { it.providerId() }.eachCount()

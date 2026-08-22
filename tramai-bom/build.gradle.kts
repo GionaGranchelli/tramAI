@@ -35,6 +35,7 @@ dependencies {
         api(project(":tramai-spring"))
         api(project(":tramai-spring-core"))
         api(project(":tramai-spring-provider-anthropic"))
+        api(project(":tramai-spring-provider-ollama"))
         api(project(":tramai-spring-provider-openai"))
         api(project(":tramai-security"))
         api(project(":tramai-testing"))

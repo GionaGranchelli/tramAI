@@ -40,7 +40,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `no providers and no default-provider -- context loads but invoking an AiService fails because no provider is registered for the model`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
 
         contextRunner.run { context ->
             assertThat(context).hasNotFailed()
@@ -61,7 +61,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `no providers with default-provider=openai -- context fails at startup because the default provider is not registered`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues("tramai.default-provider=openai")
 
         contextRunner.run { context ->
@@ -75,7 +75,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `openai apiKey and apiKeySecretRef together fail context startup with IllegalStateException`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues(
                 "tramai.providers.openai.apiKey=test-openai-key",
                 "tramai.providers.openai.apiKeySecretRef=vault:openai/api-key",
@@ -94,7 +94,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `unresolvable apiKeySecretRef fails context startup with No SecretValueResolver could resolve`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues(
                 "tramai.providers.openai.apiKeySecretRef=vault:missing-key",
             )
@@ -112,7 +112,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `vault enabled without baseUrl fails context startup`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues("tramai.secrets.vault.enabled=true")
 
         contextRunner.run { context ->
@@ -128,7 +128,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `vault enabled with baseUrl but no token fails context startup`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues(
                 "tramai.secrets.vault.enabled=true",
                 "tramai.secrets.vault.base-url=http://localhost:8200",
@@ -147,7 +147,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `aws-secrets-manager enabled without region fails context startup`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withPropertyValues("tramai.secrets.aws-secrets-manager.enabled=true")
 
         contextRunner.run { context ->
@@ -163,7 +163,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `vault and aws-secrets-manager disabled with no secret config loads the context cleanly`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             // Explicit provider: the scenario's premise is "no secret config",
             // not "no providers at all".
             .withBean("stubProvider", ModelProvider::class.java, Supplier { FixedProvider("stub") })
@@ -187,7 +187,7 @@ class TramaiAutoConfigurationConditionsTest {
             .build()
 
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withBean("userTramai", Tramai::class.java, Supplier { userTramai })
 
         contextRunner.run { context ->
@@ -245,7 +245,7 @@ class TramaiAutoConfigurationConditionsTest {
 
         try {
             val contextRunner = ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+                .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
                 .withPropertyValues(
                     "tramai.models.gpt-5.1-chat-latest=openai",
                     "tramai.models.llama3.2=ollama",
@@ -273,7 +273,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `cache disabled by default -- two identical invocations both reach the provider proving the NoOp cache`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             // Explicit provider bean; cache stays at its default (disabled).
             .withBean("cachedProvider", CachedProvider::class.java, Supplier { CachedProvider() })
             .withPropertyValues(
@@ -300,7 +300,7 @@ class TramaiAutoConfigurationConditionsTest {
     @Test
     fun `user registered ModelProvider beans are all visible to the tramai bean at assembly`() {
         val contextRunner = ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OpenAiProviderAutoConfiguration::class.java, OllamaProviderAutoConfiguration::class.java, TramaiSecretResolutionAutoConfiguration::class.java, TramaiAutoConfiguration::class.java))
             .withBean("alphaProvider", ModelProvider::class.java, Supplier { FixedProvider("alpha") })
             .withBean("betaProvider", ModelProvider::class.java, Supplier { FixedProvider("beta") })
             .withPropertyValues(

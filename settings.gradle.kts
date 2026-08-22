@@ -25,6 +25,7 @@ include(
     "tramai-spring",
     "tramai-spring-core",
     "tramai-spring-provider-anthropic",
+    "tramai-spring-provider-ollama",
     "tramai-spring-provider-openai",
     "tramai-spring-consumer-boundary",
     "tramai-spring-boot-starter-sovereign",
