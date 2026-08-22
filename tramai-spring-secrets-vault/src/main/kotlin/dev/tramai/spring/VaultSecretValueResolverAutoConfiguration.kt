@@ -1,8 +1,6 @@
 package dev.tramai.spring
 
-import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.spring.secret.VaultSecretValueResolver
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -17,17 +15,16 @@ import org.springframework.context.annotation.Bean
  * through itself.
  */
 @AutoConfiguration(before = [TramaiSecretResolutionAutoConfiguration::class])
-@EnableConfigurationProperties(TramaiProperties::class)
+@EnableConfigurationProperties(VaultSecretProperties::class)
 @ConditionalOnMissingBean(dev.tramai.standalone.Tramai::class)
 class VaultSecretValueResolverAutoConfiguration {
 
     @Bean
     fun vaultSecretValueResolver(
-        properties: TramaiProperties,
-        @Qualifier("tramaiBootstrapSecretValueResolver")
-        bootstrapSecretValueResolver: SecretValueResolver,
+        properties: VaultSecretProperties,
+        bootstrapSecretChain: SpringBootstrapSecretChain,
     ): SpringBuiltInSecretValueResolver? {
-        val vault = properties.secrets.vault
+        val vault = properties
         if (!vault.enabled) {
             return null
         }
@@ -38,7 +35,7 @@ class VaultSecretValueResolverAutoConfiguration {
             directValue = vault.token,
             secretRef = vault.tokenSecretRef,
             fieldName = "tramai.secrets.vault.token",
-            secretResolver = bootstrapSecretValueResolver,
+            secretResolver = bootstrapSecretChain.resolver,
         ) ?: throw IllegalStateException("tramai.secrets.vault.token must be configured when Vault secret resolution is enabled")
 
         return VaultSecretValueResolver(

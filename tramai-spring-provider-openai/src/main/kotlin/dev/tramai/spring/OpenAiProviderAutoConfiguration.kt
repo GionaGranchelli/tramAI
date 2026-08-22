@@ -8,6 +8,7 @@ import dev.tramai.openai.OpenAiCompatibleProvider
 import dev.tramai.openai.OpenAiProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import java.nio.file.Path
 
@@ -25,32 +26,31 @@ import java.nio.file.Path
  * bean (and therefore provider construction) was skipped entirely.
  */
 @AutoConfiguration(before = [TramaiAutoConfiguration::class])
+@EnableConfigurationProperties(OpenAiProperties::class, OpenAiCompatibleProperties::class)
 @ConditionalOnMissingBean(dev.tramai.standalone.Tramai::class)
 class OpenAiProviderAutoConfiguration {
 
     @Bean
     fun openAiProvider(
-        properties: TramaiProperties,
-        @org.springframework.beans.factory.annotation.Qualifier("tramaiSecretValueResolver")
-        secretResolver: SecretValueResolver,
+        properties: OpenAiProperties,
+        secretChain: SpringSecretChain,
     ): SpringConfiguredModelProvider? =
-        resolveOpenAiProvider(properties.providers.openai, secretResolver)?.let { provider ->
+        resolveOpenAiProvider(properties, secretChain.resolver)?.let { provider ->
             SpringConfiguredModelProvider(providerId = provider.providerId(), provider = provider)
         }
 
     @Bean
     fun openAiCompatibleProvider(
-        properties: TramaiProperties,
-        @org.springframework.beans.factory.annotation.Qualifier("tramaiSecretValueResolver")
-        secretResolver: SecretValueResolver,
+        properties: OpenAiCompatibleProperties,
+        secretChain: SpringSecretChain,
     ): SpringConfiguredModelProvider? =
-        resolveOpenAiCompatibleProvider(properties.providers.openaiCompatible, secretResolver)?.let { provider ->
+        resolveOpenAiCompatibleProvider(properties, secretChain.resolver)?.let { provider ->
             SpringConfiguredModelProvider(providerId = provider.providerId(), provider = provider)
         }
 
     @OptIn(ExperimentalCodexAuth::class)
     private fun resolveOpenAiProvider(
-        properties: TramaiProperties.OpenAi,
+        properties: OpenAiProperties,
         secretResolver: SecretValueResolver,
     ): ModelProvider? {
         val baseUrl = properties.baseUrl ?: OpenAiProvider.DEFAULT_BASE_URL
@@ -93,7 +93,7 @@ class OpenAiProviderAutoConfiguration {
 
     @OptIn(ExperimentalCodexAuth::class)
     private fun resolveOpenAiCompatibleProvider(
-        properties: TramaiProperties.OpenAiCompatible,
+        properties: OpenAiCompatibleProperties,
         secretResolver: SecretValueResolver,
     ): ModelProvider? {
         val baseUrl = properties.baseUrl?.takeIf { it.isNotBlank() } ?: return null

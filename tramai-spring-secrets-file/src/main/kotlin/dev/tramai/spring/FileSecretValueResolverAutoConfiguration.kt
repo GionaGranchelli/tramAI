@@ -16,14 +16,14 @@ import java.nio.file.Path
  * credentials) but stays out of the user-resolver set.
  */
 @AutoConfiguration(before = [TramaiSecretResolutionAutoConfiguration::class])
-@EnableConfigurationProperties(TramaiProperties::class)
+@EnableConfigurationProperties(FileSecretProperties::class)
 @ConditionalOnMissingBean(dev.tramai.standalone.Tramai::class)
 class FileSecretValueResolverAutoConfiguration {
 
     @Bean
-    fun springFileSecretValueResolver(properties: TramaiProperties): SpringBootstrapSecretValueResolver =
+    fun springFileSecretValueResolver(properties: FileSecretProperties): SpringBootstrapSecretValueResolver =
         SpringFileSecretValueResolver(
-            allowedDirectory = properties.secrets.file.allowedDirectory
+            allowedDirectory = properties.allowedDirectory
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?.let(Path::of),

@@ -1,8 +1,6 @@
 package dev.tramai.spring
 
-import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.spring.secret.AwsSecretsManagerSecretValueResolver
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -17,17 +15,16 @@ import org.springframework.context.annotation.Bean
  * credentials through itself.
  */
 @AutoConfiguration(before = [TramaiSecretResolutionAutoConfiguration::class])
-@EnableConfigurationProperties(TramaiProperties::class)
+@EnableConfigurationProperties(AwsSecretsManagerProperties::class)
 @ConditionalOnMissingBean(dev.tramai.standalone.Tramai::class)
 class AwsSecretsManagerSecretValueResolverAutoConfiguration {
 
     @Bean
     fun awsSecretsManagerSecretValueResolver(
-        properties: TramaiProperties,
-        @Qualifier("tramaiBootstrapSecretValueResolver")
-        bootstrapSecretValueResolver: SecretValueResolver,
+        properties: AwsSecretsManagerProperties,
+        bootstrapSecretChain: SpringBootstrapSecretChain,
     ): SpringBuiltInSecretValueResolver? {
-        val aws = properties.secrets.awsSecretsManager
+        val aws = properties
         if (!aws.enabled) {
             return null
         }
@@ -40,19 +37,19 @@ class AwsSecretsManagerSecretValueResolverAutoConfiguration {
             directValue = aws.accessKeyId,
             secretRef = aws.accessKeyIdSecretRef,
             fieldName = "tramai.secrets.aws-secrets-manager.accessKeyId",
-            secretResolver = bootstrapSecretValueResolver,
+            secretResolver = bootstrapSecretChain.resolver,
         )
         val secretAccessKey = SpringSecretResolution.resolve(
             directValue = aws.secretAccessKey,
             secretRef = aws.secretAccessKeySecretRef,
             fieldName = "tramai.secrets.aws-secrets-manager.secretAccessKey",
-            secretResolver = bootstrapSecretValueResolver,
+            secretResolver = bootstrapSecretChain.resolver,
         )
         val sessionToken = SpringSecretResolution.resolve(
             directValue = aws.sessionToken,
             secretRef = aws.sessionTokenSecretRef,
             fieldName = "tramai.secrets.aws-secrets-manager.sessionToken",
-            secretResolver = bootstrapSecretValueResolver,
+            secretResolver = bootstrapSecretChain.resolver,
         )
 
         return AwsSecretsManagerSecretValueResolver.fromSdk(

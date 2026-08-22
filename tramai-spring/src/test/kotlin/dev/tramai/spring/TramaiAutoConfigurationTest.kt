@@ -193,7 +193,7 @@ class TramaiAutoConfigurationTest {
 
             contextRunner.run { context ->
                 assertThat(context).hasSingleBean(TestInvoiceAnalyzer::class.java)
-                assertThat(context.getBean(TramaiProperties::class.java).providers.openai.apiKey).isEqualTo("test-openai-key")
+                assertThat(context.getBean(OpenAiProperties::class.java).apiKey).isEqualTo("test-openai-key")
                 val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
 
                 val result = runBlocking { analyzer.analyze("invoice-123") }
