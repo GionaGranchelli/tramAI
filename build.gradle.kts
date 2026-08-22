@@ -68,6 +68,7 @@ val publishableProjectNames = listOf(
     "tramai-orchestration",
     "tramai-platform",
     "tramai-spring",
+    "tramai-spring-core",
     "tramai-standalone",
     "tramai-sovereign",
     "tramai-persistence-file",

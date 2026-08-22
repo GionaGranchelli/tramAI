@@ -33,6 +33,7 @@ dependencies {
         api(project(":tramai-spring-boot-starter-sovereign-ops-micrometer"))
         api(project(":tramai-spring-boot-starter-sovereign-ops-observability"))
         api(project(":tramai-spring"))
+        api(project(":tramai-spring-core"))
         api(project(":tramai-security"))
         api(project(":tramai-testing"))
         api(project(":tramai-vectorstore-spi"))
