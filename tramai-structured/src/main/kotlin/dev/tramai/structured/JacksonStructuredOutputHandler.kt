@@ -139,7 +139,14 @@ class JacksonStructuredOutputHandler(
             Boolean::class -> scalarSchema("boolean", targetType)
             List::class, MutableList::class -> listSchema(targetType)
             Map::class, MutableMap::class -> error("Unsupported structured output type: $targetType")
-            is KClass<*> -> objectSchema(classifier, targetType)
+            is KClass<*> -> {
+                val klass = classifier as KClass<*>
+                if (klass.java.isEnum) {
+                    enumSchema(klass, targetType)
+                } else {
+                    objectSchema(klass, targetType)
+                }
+            }
             else -> error("Unsupported structured output type: $targetType")
         }
     }
@@ -165,6 +172,24 @@ class JacksonStructuredOutputHandler(
             if (targetType.isMarkedNullable) {
                 schema["nullable"] = true
             }
+        }
+    }
+
+    /**
+     * Kotlin enums are serialized by their [Enum.name] — the same value the
+     * Jackson deserializer accepts. The schema must therefore be a flat string
+     * enum, not an object: any model following an object schema (name/ordinal
+     * properties) can never deserialize.
+     */
+    private fun enumSchema(
+        type: KClass<*>,
+        targetType: KType,
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "type" to "string",
+        "enum" to type.java.enumConstants.map { (it as Enum<*>).name },
+    ).also { schema ->
+        if (targetType.isMarkedNullable) {
+            schema["nullable"] = true
         }
     }
 
