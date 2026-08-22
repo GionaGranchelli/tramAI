@@ -19,7 +19,7 @@ SDKs even though it never declared them**. Epic 6.3's acceptance criterion
 
 | Test | Today | After #261 |
 |---|---|---|
-| provider SDK classes loadable (`OpenAiProvider`, `AnthropicProvider`, `OllamaProvider`, `SecretsManagerClient`) | PASS (asserts the leak) | must be flipped to assert `ClassNotFoundException` |
+| provider adapter + AWS SDK classes loadable (`OpenAiProvider`, `AnthropicProvider`, `OllamaProvider`, `SecretsManagerClient`) | PASS (asserts the leak) | must be flipped to assert `ClassNotFoundException` |
 | generic spring integration classes present (`TramaiAutoConfiguration`, `standalone.Tramai`) | PASS | stays PASS |
 | module's own `build.gradle.kts` declares no provider/AWS deps | PASS (leak is transitive, not declared) | stays PASS |
 
