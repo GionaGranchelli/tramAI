@@ -4,6 +4,38 @@
 
 ### Added
 
+- **Authoritative structured type descriptor (PR #265, Epic 7.1).** The
+  structured-output implementation is no longer one ~900-line handler with
+  four independent dispatch trees (schema Kotlin/JavaBean, raw-JSON shape
+  Kotlin/JavaBean, value validation Kotlin/JavaBean). Each target type is now
+  compiled exactly once into an immutable, language-neutral
+  `StructuredTypeDescriptor` (Scalar / Enum / Collection / Object with
+  explicit nullability, requiredness, descriptions, ranges, min-items, and a
+  `ValueAccessor`), then schema generation, JSON shape validation, value
+  validation, fingerprinting, and caching consume that descriptor.
+  `KotlinStructuredTypeCompiler` owns all Kotlin reflection;
+  `JacksonJavaBeanStructuredTypeCompiler` owns all Jackson introspection; an
+  immutable active-path `CompileContext` gives one shared recursion contract
+  (siblings of the same type compile fully; genuine cycles fail with the
+  language-neutral error "Recursive structured output type is unsupported").
+  `Enum` is a first-class descriptor kind because PR #262 showed schema/parser
+  drift re-enters when enums are collapsed into another category; JavaBean
+  enums are now compiled to enum descriptors instead of falling to
+  "Unsupported". The renderer, shape validator, and value validator are pure
+  descriptor consumers (no KType/KClass/JavaType), enforced by a mutation-
+  resistant ASM architecture guard. `StructuredContractFingerprint` computes a
+  stable SHA-256 fingerprint from a canonical walk (runtime accessors
+  excluded) and stays internal — Epic 7.2 will pressure-test it before any
+  stable API decision. `StructuredDescriptorCache` is instance-scoped
+  (automatically bound to the handler's `ObjectMapper`), concurrency-safe via
+  `computeIfAbsent`, and never caches failed compilations. Behaviour
+  preserved: all pre-existing structured-output tests (63) stay green, error
+  messages unchanged, except the recursion message unified to language-neutral
+  wording; missing Kotlin required properties now fail shape validation (they
+  previously fell through to deserialization), matching the schema `required`
+  list. Descriptor-focused suites added: compilation, JavaBean parity,
+  schema/validation agreement, fingerprint stability, cache concurrency.
+
 - **Shared provider transport utilities (PR #258, Epic 6.2).** New
   `dev.tramai.core.provider.transport` package in `tramai-core` centralises
   the low-level HTTP/stream mechanics that were duplicated across adapters:

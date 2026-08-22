@@ -196,6 +196,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0019
+    metric: globalMutableState
+    scope: ":tramai-structured"
+    baseline: 2
+    allowed: 3
+    reason: "PR #265 (Epic 7.1) adds the instance-scoped StructuredDescriptorCache (ConcurrentHashMap) to JacksonStructuredOutputHandler, raising the module's globalMutableState measurement from the canonical 2 to 3. The cache is deliberately NOT process-global: it is a field on the handler instance, so entries are automatically bound to that handler's ObjectMapper configuration (two handlers with differently configured mappers never share descriptor state), and it is bounded by the handler's type universe. ConcurrentHashMap.computeIfAbsent provides the required atomic compile-once semantics. Scanner counts any ConcurrentHashMap declaration as global mutable state; same accepted pattern as MQ-0014 (orchestration per-path JVM-local Mutex registry)."
+    acceptedAt: "2026-08-22"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

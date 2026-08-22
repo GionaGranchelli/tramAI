@@ -1095,6 +1095,8 @@ The final module names may differ, but central Spring integration must not requi
 
 ## Epic 7.1: Compile a language-neutral structured type descriptor
 
+**Status: ✅ Implemented in PR #265 (Epic 7.1)**
+
 **Goal:** Make schema generation and validation consume one authoritative type model.
 
 ### Proposed model
@@ -1102,28 +1104,33 @@ The final module names may differ, but central Spring integration must not requi
 ```kotlin
 sealed interface StructuredTypeDescriptor {
     data class Scalar(/* type, nullable, constraints */) : StructuredTypeDescriptor
+    data class Enum(/* values, nullable */) : StructuredTypeDescriptor
     data class Collection(/* item, nullable, constraints */) : StructuredTypeDescriptor
     data class Object(/* name, properties, nullable */) : StructuredTypeDescriptor
 }
 ```
 
+*Deviation from the original sketch: `Enum` is first-class. PR #262 showed
+that collapsing enums into another category makes schema/parser drift easy to
+reintroduce — an enum is not merely a scalar detail.*
+
 ### Tasks
 
-1. Build descriptors from Kotlin reflection.
-2. Build descriptors from Jackson JavaBean introspection.
-3. Represent requiredness, nullability, descriptions, ranges, item constraints, and recursion explicitly.
-4. Generate schema from the descriptor.
-5. Validate raw JSON shape from the descriptor.
-6. Validate deserialized values from the descriptor.
-7. Generate a stable contract fingerprint from the descriptor.
-8. Cache descriptors safely by type and configuration identity.
-9. Define recursion and unsupported-type behaviour consistently.
+1. ✅ Build descriptors from Kotlin reflection. (`KotlinStructuredTypeCompiler`)
+2. ✅ Build descriptors from Jackson JavaBean introspection. (`JacksonJavaBeanStructuredTypeCompiler`)
+3. ✅ Represent requiredness, nullability, descriptions, ranges, item constraints, and recursion explicitly. (immutable `CompileContext` active-path recursion)
+4. ✅ Generate schema from the descriptor. (`StructuredSchemaRenderer`)
+5. ✅ Validate raw JSON shape from the descriptor. (`StructuredJsonShapeValidator`)
+6. ✅ Validate deserialized values from the descriptor. (`StructuredValueValidator`)
+7. ✅ Generate a stable contract fingerprint from the descriptor. (`StructuredContractFingerprint`, internal — not yet exposed on `StructuredOutputContract`; Epic 7.2 will pressure-test before any stable API decision)
+8. ✅ Cache descriptors safely by type and configuration identity. (instance-scoped `StructuredDescriptorCache` bound to the handler's `ObjectMapper`)
+9. ✅ Define recursion and unsupported-type behaviour consistently. (language-neutral errors, shared active-path semantics)
 
 ### Acceptance criteria
 
-- Schema generation and validation no longer implement separate type-dispatch trees.
-- Kotlin and Java differences are explicit in descriptor compilation, not duplicated throughout validation.
-- Every emitted schema rule has a matching validation rule or a documented reason why validation is delegated to deserialization.
+- ✅ Schema generation and validation no longer implement separate type-dispatch trees.
+- ✅ Kotlin and Java differences are explicit in descriptor compilation, not duplicated throughout validation. (ASM architecture guard enforces this)
+- ✅ Every emitted schema rule has a matching validation rule or a documented reason why validation is delegated to deserialization. (enum value membership is delegated to Jackson deserialization, preserving pre-descriptor error behaviour)
 
 ---
 
