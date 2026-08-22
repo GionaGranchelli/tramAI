@@ -12,21 +12,21 @@ and asserting what classes it can load.
 `tramai-openai`, `tramai-ollama`, and the AWS SDK (`auth`, `regions`,
 `secretsmanager`). Because `implementation` deps of a project dependency are
 transitive at runtime, a consumer's **runtime classpath carries all provider
-SDKs even though it never declared them**. Epic 6.3's acceptance criterion
+adapters plus the AWS SDK** even though it never declared them. Epic 6.3's acceptance criterion
 ("consumers only receive dependencies for selected adapters") is **not** met today.
 
 ## The tests
 
 | Test | Today | After #261 |
 |---|---|---|
-| provider adapter + AWS SDK classes loadable (`OpenAiProvider`, `AnthropicProvider`, `OllamaProvider`, `SecretsManagerClient`) | PASS (asserts the leak) | must be flipped to assert `ClassNotFoundException` |
+| runtime classpath currently carries provider adapters and the AWS SDK (`OpenAiProvider`, `AnthropicProvider`, `OllamaProvider`, `SecretsManagerClient`) | PASS (asserts the leak) | must be flipped to assert `ClassNotFoundException` |
 | generic spring integration classes present (`TramaiAutoConfiguration`, `standalone.Tramai`) | PASS | stays PASS |
 | module's own `build.gradle.kts` declares no provider/AWS deps | PASS (leak is transitive, not declared) | stays PASS |
 
 ## How #261 flips the oracle
 
 After the adapter split, the four loadability assertions in
-`runtime classpath currently carries provider SDKs` must be inverted to expect
+`runtime classpath currently carries provider adapters and the AWS SDK` must be inverted to expect
 `ClassNotFoundException` (or an equivalent classpath check). The other two tests
 are unchanged. The test names and assertion messages reference #261 so the flip
 is mechanical.
