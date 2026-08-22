@@ -3,8 +3,6 @@ package dev.tramai.spring
 import dev.tramai.core.observation.CompositeOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.OperationInterceptor
-import dev.tramai.core.secret.SecretValueResolver
-import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
@@ -75,8 +73,6 @@ class TramaiAutoConfiguration {
     fun tramai(
         properties: TramaiProperties,
         applicationContext: org.springframework.context.ApplicationContext,
-        @org.springframework.beans.factory.annotation.Qualifier("tramaiSecretValueResolver")
-        secretResolver: SecretValueResolver,
     ): Tramai {
         val dependencies = TramaiBeanDependencies.from(applicationContext)
         val builder = Tramai.builder()
@@ -118,22 +114,11 @@ class TramaiAutoConfiguration {
             ?: ModelRegistrySettings(enabled = properties.security.modelRegistry.enabled)
         builder.modelRegistrySettings(settings)
 
-        val propertyProviders = listOfNotNull(
-            SpringSecretResolution.resolve(
-                directValue = properties.providers.anthropic.apiKey,
-                secretRef = properties.providers.anthropic.apiKeySecretRef,
-                fieldName = "tramai.providers.anthropic.apiKey",
-                secretResolver = secretResolver,
-            )?.let { apiKey ->
-                "anthropic" to AnthropicProvider(
-                    apiKey = apiKey,
-                    baseUrl = properties.providers.anthropic.baseUrl ?: "https://api.anthropic.com",
-                )
-            },
+        val propertyProviders: List<Pair<String, ModelProvider>> = buildList {
             properties.providers.ollama.baseUrl?.takeIf { it.isNotBlank() }?.let { baseUrl ->
-                "ollama" to OllamaProvider(baseUrl = baseUrl)
-            },
-        ) + dependencies.springConfiguredProviders.orderedStream()
+                add("ollama" to OllamaProvider(baseUrl = baseUrl))
+            }
+        } + dependencies.springConfiguredProviders.orderedStream()
             .map { it.providerId to it.provider }
             .toList()
 

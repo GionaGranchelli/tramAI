@@ -34,6 +34,7 @@ dependencies {
         api(project(":tramai-spring-boot-starter-sovereign-ops-observability"))
         api(project(":tramai-spring"))
         api(project(":tramai-spring-core"))
+        api(project(":tramai-spring-provider-anthropic"))
         api(project(":tramai-spring-provider-openai"))
         api(project(":tramai-security"))
         api(project(":tramai-testing"))
