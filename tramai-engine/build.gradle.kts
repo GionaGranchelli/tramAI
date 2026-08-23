@@ -32,6 +32,7 @@ dependencies {
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(project(":tramai-structured"))
+    testImplementation(testFixtures(project(":tramai-testing")))
     testImplementation(libs.coroutines.test)
     testImplementation(libs.jackson.databind)
 }

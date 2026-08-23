@@ -141,7 +141,10 @@ class TestApprovalGatewayPersistenceRequestBuilder(
                     ToolCall(
                         id = toolCallId,
                         name = toolName,
-                        argumentsJson = argsJson,
+                        // Selected arguments are redacted in the replay
+                        // envelope — raw arguments live behind the
+                        // ApprovalContinuationStore boundary.
+                        argumentsJson = "__redacted_approval_continuation_args__",
                     ),
                 ),
             ),

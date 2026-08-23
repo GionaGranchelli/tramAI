@@ -138,7 +138,8 @@ data class ResumeContext(
  * Implementations must:
  * - NOT expose raw tool arguments, approval tokens, or sensitive tool payloads via [get]
  * - Be thread-safe (concurrent create/get/remove)
- * - Not persist beyond the JVM lifecycle (resume after restart is out of scope for v1)
+ * - Durability is implementation-specific: the in-memory store is
+ *   process-local, while the file and JDBC stores may survive a restart.
  *
  * ⚠️ Expiry / sweep is a legitimate lifecycle concern but is deferred.
  *    Entries created here have no automatic TTL — they must be explicitly

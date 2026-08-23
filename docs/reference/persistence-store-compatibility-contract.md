@@ -219,3 +219,121 @@ encryption codecs, BYTEA representation, SQL schema/migrations, database
 integrity, connection cleanup (JDBC) and encryption envelopes, permissions,
 corruption, record format (file). No existing tests were deleted. Zero
 public API change; no persisted format or schema changes.
+
+---
+
+## SuspendedInvocationStore TCK (PR #270)
+
+`SuspendedInvocationStoreTck` (tramai-testing testFixtures) runs **39 shared
+behavioral cases** against every `SuspendedInvocationStore` implementation:
+the engine's default in-memory store (`InMemorySuspendedInvocationStore`,
+`tramai-engine`), the encrypted file store (`tramai-persistence-file`), and
+the JDBC store (`tramai-persistence-jdbc`).
+
+The contract covers safe metadata CRUD, the sensitive replay-envelope release
+path, the digest + envelope-binding invariants, ID validation, and real
+parallel races. It deliberately does NOT pin implementation-specific
+concerns: restart durability, encryption format, file permissions, corruption
+handling, schema-version decoding, SQL locking/resource behavior, or the
+JDBC-only unique replay-envelope-digest constraint (see below).
+
+- **Creation/read (13):** full-metadata round-trip (incl. token budget and
+  tool security), missing → null, duplicate approvalId → IAE, blank /
+  control-character / whitespace-padded / oversized approvalId → IAE, blank
+  toolCallId / toolName / correlationId / conversationId → IAE, blank
+  approvalId on get/reveal/remove → IAE.
+- **Sensitive release (6):** reveal returns an envelope whose messages equal
+  the originals, missing → null, get() never exposes the messages (safe
+  metadata shape only), envelope `toString` is `[REDACTED]`, reveal does not
+  consume (record survives until remove), repeated reveals return equal
+  content.
+- **Digest + binding (6):** create rejects a canonical-digest mismatch
+  (wrong digest and tampered envelope both), an envelope without an assistant
+  tool-call message, a toolCallId absent from the envelope, a toolCallIndex
+  out of bounds, and a toolName that does not match the envelope.
+- **Redaction invariants (6):** the replay envelope must already be redacted
+  — a correctly-digested envelope whose selected tool call carries RAW
+  arguments is rejected (the digest is recomputed over the invalid envelope,
+  so only the redaction check can fire); a duplicate selected toolCallId
+  across the envelope is rejected; an extra or misplaced redaction sentinel
+  is rejected; a selected call outside the latest assistant tool-call batch
+  is rejected; negative historySize and an envelope smaller than its
+  historySize are rejected.
+- **Remove (5):** remove returns the created metadata, remove then get →
+  null, remove then reveal → null, missing → null, create after remove
+  succeeds with the same approvalId.
+- **Concurrency (3, real parallel races with a start barrier, 20 iterations
+  each):** concurrent create — exactly one winner, seven `IllegalArgumentException`
+  losers; concurrent remove — exactly one winner returns metadata; concurrent
+  reveal while remove — no crashes and exactly one remove winner (reveals may
+  observe the entry or the empty state, both valid).
+
+### Deliberate cross-store decision: replay-digest uniqueness
+
+`JdbcSuspendedInvocationStore` keeps a unique index on
+`replay_envelope_digest` and maps a collision to
+`suspended-invocation-replay-envelope-digest-already-exists`, so the same
+replay payload can never be suspended under two different approval IDs.
+The in-memory and file stores do NOT enforce this, and the TCK deliberately
+does not pin it:
+
+- The engine's suspension flow (`ApprovalSuspensionCoordinator`) creates the
+  `ApprovalContinuationStore` entry first, and that store already rejects a
+  duplicate approvalId — the engine never suspends the same invocation twice.
+- Digest uniqueness across different approval IDs is therefore defensive
+  hardening specific to the JDBC store, not a shared contract invariant.
+- It is documented here so a future implementation knows the divergence is
+  deliberate; if double-suspension protection ever becomes a shared
+  requirement, it belongs in the TCK and all three stores must conform.
+
+### Production changes the enrollment required
+
+- **`InMemorySuspendedInvocationStore` gained the shared validations** it
+  lacked, delegated to a shared `ReplayEnvelopeValidator` (tramai-engine,
+  internal): ID-field validation on every operation, envelope binding, the
+  canonical replay-envelope digest check, and the **redaction invariants** —
+  history-size consistency, globally unique selected toolCallId, selected
+  slot in the latest assistant batch, and exactly one redaction sentinel at
+  the selected slot. It previously accepted records the file store rejected.
+- **`JdbcSuspendedInvocationStore` now enforces the same redaction
+  invariants** (mirrored inline — cross-module copy of the engine validator,
+  pinned by the TCK so the copies cannot drift). It previously accepted and
+  encrypted a correctly-digested unredacted envelope, which violated the
+  architecture invariant that raw tool arguments live only behind the
+  ApprovalContinuationStore boundary (SPEC-016).
+- **SPI KDoc fixed**: the interface claimed stores "do not persist beyond
+  the JVM lifecycle"; durability is implementation-specific (in-memory is
+  process-local, file/JDBC may survive restart).
+- Engine test doubles that built invalid envelopes now build valid ones
+  (redacted sentinel + canonical digest): the testFixtures
+  `TestApprovalGatewayPersistenceRequestBuilder`, `DefaultApprovalGatewayTest`,
+  and the JDBC implementation-specific fixtures. The JDBC
+  `raw replay envelope is not visible in the database` test was rewritten:
+  raw-args envelopes are now rejected at the API boundary, and the valid
+  (redacted) envelope's sensitive message content is still encrypted at rest.
+
+### Mutation evidence (all restored after each run; InMemory store + validator)
+
+| Mutation | TCK outcome |
+|---|---|
+| Duplicate create overwrites existing | RED — duplicate-create case fails |
+| Remove becomes get-without-delete | RED — remove-then-get / remove-then-reveal / create-after-remove / concurrent-remove cases fail |
+| Reveal returns null despite existing entry | RED — reveal round-trip + non-consuming reveal cases fail |
+| Remove leaves replay envelope reachable | RED — remove-then-reveal case fails |
+| Digest mismatch accepted | RED — digest-mismatch + tampered-envelope cases fail |
+| toolCallId mismatch accepted | RED — toolCallId-binding case fails (the duplicate-id case passes via `single()`'s incidental IAE — documented) |
+| toolName mismatch accepted | RED — toolName-binding case fails |
+| toolCallIndex checks dropped | RED — toolCallIndex-binding case fails |
+| Concurrent remove check-then-act (two winners) | RED — concurrent-remove race fails |
+| Redaction sentinel not required | RED — not-redacted + extra-sentinel cases fail |
+| historySize consistency not validated | RED — negative-historySize + too-small-envelope cases fail |
+
+### Scope
+
+The TCK owns SPI semantics; implementation-specific suites continue owning
+restart durability (`FileSuspendedInvocationStoreRestartTest`), encryption
+envelopes, permissions, corruption handling, record format (file), SQL
+schema/JSON mapping/connection cleanup (JDBC). No existing tests were
+deleted. The `tramai-testing` testFixtures gained a dependency on
+`tramai-engine` (the SPI's home module) so the shared suite can be written
+once and run against all three implementations.

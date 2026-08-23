@@ -1882,7 +1882,7 @@ class PolicyEnforcementTest {
     // -- Cold streaming Flow enforcement (ITEM 3) ------------------------------
 
     @Test
-    fun `cold Flow — policy changed after Flow creation blocks collection`() { runBlocking {
+    fun `cold Flow - policy changed after Flow creation blocks collection`() { runBlocking {
         var currentPolicy: PolicyDecision = PolicyDecision.Allow
         val sProvider = streamingProvider()
 
@@ -1913,7 +1913,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `cold Flow — each collection evaluates policy independently`() { runBlocking {
+    fun `cold Flow - each collection evaluates policy independently`() { runBlocking {
         val enforceCount = AtomicInteger(0)
         val sProvider = streamingProvider()
 
@@ -1944,7 +1944,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `streaming fallback — BEFORE_RESPONSE_RETURN denies fallback route with providerId and modelName`() { runBlocking {
+    fun `streaming fallback - BEFORE_RESPONSE_RETURN denies fallback route with providerId and modelName`() { runBlocking {
         val primaryStreamProvider = object : ModelProvider, StreamCapable {
             val callCount = AtomicInteger(0)
             override fun providerId() = "primary-stream"
@@ -2032,7 +2032,7 @@ class PolicyEnforcementTest {
     // -- Fallback transition enforcement (ITEM 4) ------------------------------
 
     @Test
-    fun `circuit breaker open — BEFORE_FALLBACK fires and deny blocks fallback`() { runBlocking {
+    fun `circuit breaker open - BEFORE_FALLBACK fires and deny blocks fallback`() { runBlocking {
         val fallbackCallCount = AtomicInteger(0)
         val primaryCallCount = AtomicInteger(0)
         val failOnceProvider = object : ModelProvider {
@@ -2096,7 +2096,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `provider failure — BEFORE_FALLBACK fires and allow proceeds to secondary`() { runBlocking {
+    fun `provider failure - BEFORE_FALLBACK fires and allow proceeds to secondary`() { runBlocking {
         val fallbackCalled = AtomicInteger(0)
         var fallbackEnforced = false
         val failOnceProvider = object : ModelProvider {

@@ -6,7 +6,16 @@ import java.util.concurrent.ConcurrentHashMap
  * Thread-safe in-memory implementation of [SuspendedInvocationStore].
  *
  * Stores both safe metadata and replay envelope in a single [ConcurrentHashMap] keyed by [approvalId].
- * Does NOT persist beyond the JVM lifecycle.
+ * Does NOT persist beyond the JVM lifecycle (process-local, per the SPI contract:
+ * durability is implementation-specific).
+ *
+ * Enforces the shared contract validations (matching the file and JDBC stores):
+ * - ID fields must be non-blank, free of control characters, ≤ 256 chars, and
+ *   without surrounding whitespace on every operation.
+ * - [create] rejects a replay envelope that does not bind to the metadata
+ *   (no assistant tool-call batch, toolCallIndex out of bounds, toolCallId /
+ *   toolName mismatch) and a [SuspendedInvocationMetadata.replayEnvelopeDigest]
+ *   that does not match the canonical digest of the envelope messages.
  */
 internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
 
@@ -21,6 +30,7 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
     ) {
+        validateCreateInput(metadata, replayEnvelope)
         val existing = invocations.putIfAbsent(
             metadata.approvalId,
             StoredSuspendedInvocation(metadata = metadata, replayEnvelope = replayEnvelope),
@@ -30,14 +40,45 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
         }
     }
 
-    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? =
-        invocations[approvalId]?.metadata
+    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? {
+        validateIdField(approvalId, "approvalId")
+        return invocations[approvalId]?.metadata
+    }
 
-    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? =
-        invocations[approvalId]?.replayEnvelope
+    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? {
+        validateIdField(approvalId, "approvalId")
+        return invocations[approvalId]?.replayEnvelope
+    }
 
-    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? =
-        invocations.remove(approvalId)?.metadata
+    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? {
+        validateIdField(approvalId, "approvalId")
+        return invocations.remove(approvalId)?.metadata
+    }
+
+    private fun validateCreateInput(
+        metadata: SuspendedInvocationMetadata,
+        replayEnvelope: SensitiveReplayEnvelope,
+    ) {
+        validateIdField(metadata.approvalId, "approvalId")
+        validateIdField(metadata.toolCallId, "toolCallId")
+        validateIdField(metadata.toolName, "toolName")
+        validateIdField(metadata.correlationId, "correlationId")
+        metadata.conversationId?.let { validateIdField(it, "conversationId") }
+
+        val messages = replayEnvelope.revealForResume().messages
+        ReplayEnvelopeValidator.validate(metadata, messages)
+        val canonical = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, messages)
+        require(canonical == metadata.replayEnvelopeDigest) {
+            "replay-envelope-digest-mismatch: canonical=$canonical, provided=${metadata.replayEnvelopeDigest}"
+        }
+    }
+
+    private fun validateIdField(value: String, fieldName: String) {
+        require(value.isNotBlank()) { "$fieldName must not be blank" }
+        require(value.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
+        require(value.length <= 256) { "$fieldName exceeds maximum length of 256" }
+        require(value == value.trim()) { "$fieldName must not contain surrounding whitespace" }
+    }
 }
 
 fun inMemorySuspendedInvocationStore(): SuspendedInvocationStore =

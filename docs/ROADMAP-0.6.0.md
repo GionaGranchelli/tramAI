@@ -1191,7 +1191,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
-**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267) and Approval continuation slice done (PR #269); remaining families pending.
+**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270); remaining families pending.
 
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
@@ -1199,7 +1199,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 - Approval store — ✅ PR #267 (shared `ApprovalStoreTck`, 37 cases × 3 implementations + enrollment guard)
 - Approval continuation store — ✅ PR #269 (shared `ApprovalContinuationStoreTck`, 50 cases × 3 implementations + enrollment guard)
-- Suspended invocation store — ⏳
+- Suspended invocation store — ✅ PR #270 (shared `SuspendedInvocationStoreTck`, 39 cases × 3 implementations + enrollment guard)
 - Audit store — ⏳
 - Audit outbox store — ⏳
 - Workflow checkpoint store — ⏳
@@ -1225,7 +1225,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Acceptance criteria
 
-- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; step-attempt: 3/3 via PR #218).
+- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; step-attempt: 3/3 via PR #218).
 - ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
 - ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`; `ApprovalContinuationConflictException`, `ApprovalContinuationNotFoundException`, `ApprovalContinuationNotClaimableException`, `ApprovalContinuationNotCompletableException`).
 
@@ -1245,6 +1245,17 @@ repair feedback. No layer maintains its own independent fixture lists.
 - `StoreEnrollmentScanner` (shared with the #267 guard) + `ApprovalContinuationStoreTckEnrollmentArchitectureTest`
 - `JdbcApprovalContinuationStore` — three contract fixes the TCK exposed: late-cancel lazy-expiry normalization, `argumentsDigest` validation on create, version-before-status precedence in claim
 - Exactly-once raw-argument release proven shared: a second claim can never retrieve arguments, concurrent claims release to exactly one winner
+- Zero public API change; no persisted format or schema changes; no existing tests deleted
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`
+
+### Deliverables (PR #270)
+
+- `tramai-testing/src/testFixtures/.../persistence/engine/` — `SuspendedInvocationStoreTck` (39 cases), `SuspendedInvocationFixtures`; `tramai-testing` testFixtures gained a dependency on `tramai-engine` (the SPI's home module)
+- Runners: `InMemorySuspendedInvocationStoreTckTest` (tramai-engine — the engine's default store, enrolled like any other), `FileSuspendedInvocationStoreTckTest`, `JdbcSuspendedInvocationStoreTckTest`
+- `SuspendedInvocationStoreTckEnrollmentArchitectureTest` — reuses the shared `StoreEnrollmentScanner`
+- `InMemorySuspendedInvocationStore` gained the shared validations it lacked (ID fields, envelope binding, canonical digest, redaction invariants via shared `ReplayEnvelopeValidator`); `JdbcSuspendedInvocationStore` now enforces the same redaction invariants (rejects correctly-digested unredacted envelopes); SPI KDoc durability claim corrected to implementation-specific
+- Deliberate decisions: JDBC's unique `replay_envelope_digest` index stays JDBC-specific (documented, not copied); historySize consistency and the redaction sentinel ARE shared contract (File already enforced them)
+- Mutation evidence (11 mutations, each restored): duplicate overwrite, remove-without-delete, reveal-null, envelope-leak-after-remove, digest/toolCallId/toolName/toolCallIndex checks dropped, non-atomic remove, redaction-sentinel not required, historySize not validated
 - Zero public API change; no persisted format or schema changes; no existing tests deleted
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`
 
