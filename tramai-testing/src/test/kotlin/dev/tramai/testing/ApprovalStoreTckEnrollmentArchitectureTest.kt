@@ -96,6 +96,20 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
     }
 
     @Test
+    fun `multiline body-less ApprovalStore implementation is detected`() {
+        val file = tempSourceFile(
+            """
+            package probe
+            import dev.tramai.core.approval.ApprovalStore
+            class RedisApprovalStore(
+                private val delegate: ApprovalStore,
+            ) : ApprovalStore by delegate
+            """.trimIndent(),
+        )
+        assertThat(storeImplementations(file)).containsExactly("RedisApprovalStore")
+    }
+
+    @Test
     fun `runner file must actually subclass ApprovalStoreTck`() {
         val fake = tempSourceFile("class RedisApprovalStoreTckTest")
         val real = tempSourceFile("class RedisApprovalStoreTckTest : ApprovalStoreTck() { }")
@@ -140,24 +154,56 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
             // containing declaration keywords or a doc comment is such a false
             // positive (e.g. exception classes with implicit bodies).
             val overSpanned = DECLARATION_KEYWORD.containsMatchIn(supertype)
-            if (!overSpanned && supertype.contains("ApprovalStore")) name else null
-        }.toList()
+            // Word-boundary match on the interface name so a supertype like
+            // `ApprovalStoreException` (whose name merely contains the word)
+            // never counts as an implementation.
+            if (!overSpanned && APPROVAL_STORE_TYPE.containsMatchIn(supertype)) name else null
+        }.distinct().toList()
     }
 
     /**
      * Class/object name + header, as a union of two shapes:
      * - with a body: header runs to the first `{` (may span lines);
-     * - body-less (e.g. `class X : ApprovalStore by delegate`): single-line
-     *   declaration, header runs to end of line.
+     * - body-less (e.g. `class X : ApprovalStore by delegate`): the header
+     *   runs to the first `{` or to the end of the declaration. A body-less
+     *   declaration may span lines when parameters are parenthesized, so the
+     *   line walk continues while paren depth is positive or the line ends
+     *   with `(` / `,`.
      */
     private fun classHeaders(text: String): List<Pair<String, String>> {
         val withBody = Regex("""(?s)(?:class|object)\s+(\w+)(.*?)\{""")
             .findAll(text)
             .map { it.groupValues[1] to it.groupValues[2] }
-        val bodyless = Regex("""(?m)^\s*(?:class|object)\s+(\w+)([^\n{]*)$""")
-            .findAll(text)
-            .map { it.groupValues[1] to it.groupValues[2] }
+        val bodyless = bodylessHeaders(text)
         return (withBody + bodyless).toList()
+    }
+
+    private fun bodylessHeaders(text: String): List<Pair<String, String>> {
+        val lines = text.lines()
+        val declaration = Regex("""^\s*(?:class|object)\s+(\w+)(.*)$""")
+        val result = mutableListOf<Pair<String, String>>()
+        var i = 0
+        while (i < lines.size) {
+            val decl = declaration.find(lines[i])
+            if (decl == null) {
+                i++
+                continue
+            }
+            val name = decl.groupValues[1]
+            val header = StringBuilder(decl.groupValues[2])
+            var depth = decl.groupValues[2].count { it == '(' } - decl.groupValues[2].count { it == ')' }
+            var j = i
+            while (depth > 0 || header.trimEnd().endsWith("(") || header.trimEnd().endsWith(",")) {
+                j++
+                if (j >= lines.size) break
+                val next = lines[j]
+                header.append("\n").append(next)
+                depth += next.count { it == '(' } - next.count { it == ')' }
+            }
+            result.add(name to header.toString())
+            i = j + 1
+        }
+        return result
     }
 
     /** Everything after the first top-level `:` in a class header (the supertype list). */
@@ -212,6 +258,9 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
     }
 
     private companion object {
+        /** The interface every enrolled store must extend. */
+        val APPROVAL_STORE_TYPE = Regex("""\bApprovalStore\b""")
+
         /** Declaration keywords that must never appear inside a real supertype list. */
         val DECLARATION_KEYWORD = Regex("""(fun |class |interface |object |/\*\*)""")
     }
