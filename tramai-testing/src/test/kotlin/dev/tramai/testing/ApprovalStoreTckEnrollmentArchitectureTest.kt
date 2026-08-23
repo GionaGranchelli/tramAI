@@ -21,7 +21,9 @@ import org.junit.jupiter.api.Test
  *    Adding a store without a runner fails the gate — the phrase
  *    "future stores must pass the TCK" is otherwise documentation, not
  *    architecture. A file named `<Store>TckTest.kt` that does not subclass
- *    the TCK does not count.
+ *    the TCK does not count. The scanner is source-shape based (class/object
+ *    declarations with or without bodies, single-line or multiline, with or
+ *    without visibility/`open` modifiers) — not a type resolver.
  *
  * The runner file IS the reviewed contract matrix: it wires the store to the
  * shared [dev.tramai.testing.persistence.approval.ApprovalStoreTck].
@@ -110,6 +112,21 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
     }
 
     @Test
+    fun `modifier-prefixed and colon-continued body-less implementations are detected`() {
+        val file = tempSourceFile(
+            """
+            package probe
+            import dev.tramai.core.approval.ApprovalStore
+            internal class RedisApprovalStore(
+                private val delegate: ApprovalStore,
+            )
+                : ApprovalStore by delegate
+            """.trimIndent(),
+        )
+        assertThat(storeImplementations(file)).containsExactly("RedisApprovalStore")
+    }
+
+    @Test
     fun `runner file must actually subclass ApprovalStoreTck`() {
         val fake = tempSourceFile("class RedisApprovalStoreTckTest")
         val real = tempSourceFile("class RedisApprovalStoreTckTest : ApprovalStoreTck() { }")
@@ -180,7 +197,9 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
 
     private fun bodylessHeaders(text: String): List<Pair<String, String>> {
         val lines = text.lines()
-        val declaration = Regex("""^\s*(?:class|object)\s+(\w+)(.*)$""")
+        // Unanchored so visibility / open modifiers (`internal class X ...`)
+        // still match.
+        val declaration = Regex("""(?:class|object)\s+(\w+)(.*)$""")
         val result = mutableListOf<Pair<String, String>>()
         var i = 0
         while (i < lines.size) {
@@ -193,7 +212,15 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
             val header = StringBuilder(decl.groupValues[2])
             var depth = decl.groupValues[2].count { it == '(' } - decl.groupValues[2].count { it == ')' }
             var j = i
-            while (depth > 0 || header.trimEnd().endsWith("(") || header.trimEnd().endsWith(",")) {
+            while (true) {
+                val nextLine = lines.getOrNull(j + 1)
+                val continues = depth > 0 ||
+                    header.trimEnd().endsWith("(") ||
+                    header.trimEnd().endsWith(",") ||
+                    // `)\n    : ApprovalStore by delegate` — supertype on its
+                    // own line.
+                    (nextLine != null && nextLine.trimStart().startsWith(":"))
+                if (!continues) break
                 j++
                 if (j >= lines.size) break
                 val next = lines[j]

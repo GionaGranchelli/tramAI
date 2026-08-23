@@ -23,6 +23,7 @@ import org.testcontainers.containers.PostgreSQLContainer
 import java.lang.reflect.Proxy
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.SQLException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -98,23 +99,32 @@ class JdbcApprovalStoreTest {
         JdbcApprovalStore(dataSource, clock)
 
     /**
-     * A DataSource whose connections delegate to the real database but throw
-     * [failure] from `commit()`, so the consume transaction's cleanup path
-     * can be exercised deterministically.
+     * A DataSource whose connections delegate to the real database but fail
+     * deterministically: [commitFailure] is thrown from `commit()`, and, when
+     * [restoreFailure] is non-null, from the second `setAutoCommit` call (the
+     * finally-block restoration). Each `getConnection` captures ONE delegate,
+     * so the production code sees a single JDBC transaction rather than a
+     * fresh connection per method call.
      */
-    private fun dataSourceWithCommitFailure(failure: Exception): DataSource {
+    private fun dataSourceWithFailures(commitFailure: Exception, restoreFailure: Exception? = null): DataSource {
         val real = dataSource
         return Proxy.newProxyInstance(
             DataSource::class.java.classLoader,
             arrayOf(DataSource::class.java),
         ) { _, method, args ->
             if (method.name == "getConnection" && args.isNullOrEmpty()) {
+                val delegate = real.connection
+                var autoCommitCalls = 0
                 Proxy.newProxyInstance(
                     Connection::class.java.classLoader,
                     arrayOf(Connection::class.java),
                 ) { _, connMethod, connArgs ->
-                    if (connMethod.name == "commit") throw failure
-                    connMethod.invoke(real.connection, *(connArgs ?: emptyArray()))
+                    if (connMethod.name == "commit") throw commitFailure
+                    if (connMethod.name == "setAutoCommit") {
+                        autoCommitCalls++
+                        if (restoreFailure != null && autoCommitCalls > 1) throw restoreFailure
+                    }
+                    connMethod.invoke(delegate, *(connArgs ?: emptyArray()))
                 }
             } else {
                 method.invoke(real, *(args ?: emptyArray()))
@@ -337,7 +347,7 @@ class JdbcApprovalStoreTest {
         normal.transition(id, 0, ApprovalTransition.Approve("user:bob"))
 
         val cancellation = CancellationException("cancelled by test")
-        val failing = JdbcApprovalStore(dataSourceWithCommitFailure(cancellation), fixedClock)
+        val failing = JdbcApprovalStore(dataSourceWithFailures(cancellation), fixedClock)
 
         val thrown = runCatching {
             failing.consumeApprovedOrReplay(
@@ -348,6 +358,30 @@ class JdbcApprovalStoreTest {
         }.exceptionOrNull()
 
         assertSame(cancellation, thrown)
+    }
+    }
+
+    @Test
+    fun `consumeApprovedOrReplay preserves primary exception when autoCommit restore fails`() { runBlocking {
+        val id = "cancel-restore"
+        val normal = store()
+        normal.create(approvalRequest(id = id))
+        normal.transition(id, 0, ApprovalTransition.Approve("user:bob"))
+
+        val cancellation = CancellationException("cancelled by test")
+        val restoreFailure = SQLException("restore failed")
+        val failing = JdbcApprovalStore(dataSourceWithFailures(cancellation, restoreFailure), fixedClock)
+
+        val thrown = runCatching {
+            failing.consumeApprovedOrReplay(
+                id, 1,
+                Sha256Digest.of("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+                "worker:executor",
+            )
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf(restoreFailure), thrown?.suppressed?.toList())
     }
     }
 

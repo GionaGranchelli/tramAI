@@ -76,11 +76,14 @@ child directory per case, the JDBC runner resets the table per case.
 ### Enrollment guard
 
 `ApprovalStoreTckEnrollmentArchitectureTest` scans every module's main
-source set for concrete `ApprovalStore` implementations (including body-less
-declarations such as `class X : ApprovalStore by delegate`) and requires a
+source set for concrete `ApprovalStore` implementations and requires a
 `<Store>TckTest` runner in the same module that actually extends
 `ApprovalStoreTck` — a same-named file with an unrelated class does not
-count. A future `RedisApprovalStore` cannot merge without
+count. The scanner recognizes class/object declarations with or without
+bodies, single-line or multiline, and with or without visibility/`open`
+modifiers (including delegated body-less declarations such as
+`class X : ApprovalStore by delegate`); it is a source-shape scanner, not a
+type resolver. A future `RedisApprovalStore` cannot merge without
 `RedisApprovalStoreTckTest` extending the TCK — the phrase "future stores
 must pass the TCK" is architecture, not documentation.
 

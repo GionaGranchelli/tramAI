@@ -1229,11 +1229,12 @@ repair feedback. No layer maintains its own independent fixture lists.
 - ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
 - ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`).
 
-### Deliverables (PR #267 — test infrastructure only)
+### Deliverables (PR #267)
 
-- `tramai-testing/src/testFixtures/.../persistence/approval/` — `ApprovalStoreTck` (33 cases), `ApprovalStoreTckHarness`, `ApprovalStoreFixtures`, `MutableClock`
+- `tramai-testing/src/testFixtures/.../persistence/approval/` — `ApprovalStoreTck` (37 cases), `ApprovalStoreTckHarness`, `ApprovalStoreFixtures`, `MutableClock`
 - Runners: `InMemoryApprovalStoreTckTest`, `FileApprovalStoreTckTest`, `JdbcApprovalStoreTckTest`
-- `ApprovalStoreTckEnrollmentArchitectureTest` — every future `ApprovalStore` implementation must ship a `<Store>TckTest` runner
+- `ApprovalStoreTckEnrollmentArchitectureTest` — every future `ApprovalStore` implementation must ship a `<Store>TckTest` runner extending the TCK
+- `JdbcApprovalStore` — consume uses `SELECT ... FOR UPDATE` inside an explicit transaction (concurrent identical deliveries serialize into one fresh + one replay)
 - Zero public API change; no persisted format or schema changes; no existing tests deleted
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`
 

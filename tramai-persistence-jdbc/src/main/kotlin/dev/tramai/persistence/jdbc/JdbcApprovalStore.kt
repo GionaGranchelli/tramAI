@@ -242,9 +242,10 @@ class JdbcApprovalStore(
      * read-modify-write must be one transaction.
      *
      * Deliberately non-suspend: there are no coroutine suspension points in
-     * the read-modify-write, and the original exception (including a
-     * CancellationException) is always rethrown as the same instance; a
-     * rollback failure is attached as suppressed rather than replacing it.
+     * the read-modify-write. Failure precedence is primary operation /
+     * cancellation exception, then rollback failure, then connection-state
+     * restoration failure — later cleanup failures are attached as
+     * suppressed to the primary, never replacing it.
      */
     private fun consumeApprovedInTransaction(
         conn: Connection,
@@ -255,11 +256,13 @@ class JdbcApprovalStore(
     ): ApprovalConsumptionReceipt {
         val previousAutoCommit = conn.autoCommit
         conn.autoCommit = false
+        var primaryFailure: Exception? = null
         try {
             val receipt = consumeApprovedLocked(conn, approvalId, expectedVersion, presentedTokenDigest, consumedBy)
             conn.commit()
             return receipt
         } catch (e: Exception) {
+            primaryFailure = e
             try {
                 conn.rollback()
             } catch (rollbackFailure: Exception) {
@@ -267,7 +270,16 @@ class JdbcApprovalStore(
             }
             throw e
         } finally {
-            conn.autoCommit = previousAutoCommit
+            try {
+                conn.autoCommit = previousAutoCommit
+            } catch (restoreFailure: Exception) {
+                val primary = primaryFailure
+                if (primary != null) {
+                    primary.addSuppressed(restoreFailure)
+                } else {
+                    throw restoreFailure
+                }
+            }
         }
     }
 
