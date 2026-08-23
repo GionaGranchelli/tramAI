@@ -10,7 +10,7 @@ import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.CURRENT_AUDIT_SCHEMA_VERSION
 import dev.tramai.security.audit.calculateHash
-import dev.tramai.core.coroutines.rethrowIfCancellation
+import java.util.concurrent.CancellationException
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -102,6 +102,7 @@ class JdbcAuditStore(
         dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
+            var primaryFailure: Exception? = null
             try {
                 // Ensure stream head row exists (idempotent)
                 ensureStreamHead(conn, auditStreamId)
@@ -155,11 +156,52 @@ class JdbcAuditStore(
                 conn.commit()
                 return event
             } catch (e: Exception) {
-                conn.rollback()
-                e.rethrowIfCancellation()
+                if (e is CancellationException) {
+                    primaryFailure = e
+                    rollbackSuppressing(conn, e)
+                    throw e
+                }
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
                 throw e
             } finally {
-                conn.autoCommit = previousAutoCommit
+                restoreAutoCommitSuppressing(conn, previousAutoCommit, primaryFailure)
+            }
+        }
+    }
+
+    /**
+     * Deliberately non-suspend helper (the #267 cleanup model): rolls back,
+     * attaching a rollback failure as suppressed to [primary] so cleanup can
+     * never mask the primary exception or cancellation. Runs for
+     * cancellations too — a cancelled append leaves no partial stream head.
+     */
+    private fun rollbackSuppressing(conn: Connection, primary: Exception) {
+        try {
+            conn.rollback()
+        } catch (rollbackFailure: Exception) {
+            primary.addSuppressed(rollbackFailure)
+        }
+    }
+
+    /**
+     * Deliberately non-suspend helper (the #267 cleanup model): restores the
+     * connection's autoCommit state, attaching the restore failure as
+     * suppressed to the primary when one exists (otherwise the restore
+     * failure is the only failure and propagates).
+     */
+    private fun restoreAutoCommitSuppressing(
+        conn: Connection,
+        previousAutoCommit: Boolean,
+        primary: Exception?,
+    ) {
+        try {
+            conn.autoCommit = previousAutoCommit
+        } catch (restoreFailure: Exception) {
+            if (primary != null) {
+                primary.addSuppressed(restoreFailure)
+            } else {
+                throw restoreFailure
             }
         }
     }
@@ -370,6 +412,7 @@ class JdbcAuditStore(
         previousEvent: AuditEvent?,
         head: StreamHead,
     ) {
+        require(event.eventId.isNotBlank()) { "audit-store-invalid-event-id" }
         require(event.auditStreamId == expectedAuditStreamId) { "audit-stream-id-mismatch" }
         require(event.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
             "audit-schema-version-unsupported"

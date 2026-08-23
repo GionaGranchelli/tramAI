@@ -184,6 +184,7 @@ class FileAuditStore internal constructor(
         previousEvent: AuditEvent?,
         existingEventDigests: Set<String>,
     ) {
+        require(event.eventId.isNotBlank()) { "audit-store-invalid-event-id" }
         require(event.auditStreamId == expectedAuditStreamId) { "audit-stream-id-mismatch" }
         require(event.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) { "audit-schema-version-unsupported" }
 
@@ -212,6 +213,7 @@ class FileAuditStore internal constructor(
         auditStreamId: String,
         eventFactory: (latest: AuditEvent?) -> AuditEvent,
     ): AuditEvent = lease.withOpenOperation {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val sDigest = streamDigest(auditStreamId)
         val lock = streamLocks.computeIfAbsent(sDigest) { FileStoreUtil.perKeyLock() }
         lock.lock()
@@ -260,6 +262,7 @@ class FileAuditStore internal constructor(
     }
 
     override suspend fun readStream(auditStreamId: String): List<AuditEvent> = lease.withOpenOperation {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val entries = scanStreamEntries(auditStreamId)
         if (entries.isEmpty()) return@withOpenOperation emptyList()
 
@@ -276,6 +279,7 @@ class FileAuditStore internal constructor(
         afterSequenceNumber: Long?,
         limit: Int,
     ): List<AuditEvent> = lease.withOpenOperation {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         require(limit > 0) { "audit-store-invalid-limit" }
         require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
             "audit-store-invalid-cursor"
@@ -308,6 +312,7 @@ class FileAuditStore internal constructor(
     }
 
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? = lease.withOpenOperation {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val entries = scanStreamEntries(auditStreamId)
         if (entries.isEmpty()) return@withOpenOperation null
 

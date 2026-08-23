@@ -104,7 +104,7 @@
   oversized ID fields rejected on every operation), sensitive release (6:
   reveal returns equal messages, missing null, get() never exposes the
   messages, envelope `toString` is `[REDACTED]`, reveal does not consume,
-  repeated reveals equal), digest + envelope binding (8: digest mismatch,
+  repeated reveals equal), digest + envelope binding (6: digest mismatch,
   tampered envelope, no assistant tool-call batch, toolCallId absent,
   toolCallIndex out of bounds, toolName mismatch — all rejected),
   redaction invariants (6: correctly-digested RAW selected arguments
@@ -155,6 +155,62 @@
   toolCallId mutation — documented in the contract reference). Zero
   public API change, no persisted format or schema changes, no existing
   tests deleted. Epic 8.1 stays IN PROGRESS. Reference:
+  `docs/reference/persistence-store-compatibility-contract.md`.
+
+- **AuditStore compatibility TCK (PR #271, Epic 8.1d).** One shared
+  behavioral contract for every `AuditStore` implementation — the security
+  module's in-memory store, the encrypted file store, and JDBC.
+  `AuditStoreTck` (tramai-testing testFixtures; the module gained a
+  testFixtures dependency on `tramai-security`, the SPI's home module) runs
+  **43 cases** — append/chain semantics (19: first append factory receives
+  `latest == null`, sequence 1, `previousEventHash == null`, second factory
+  receives the exact latest, every field round-trips, wrong stream/sequence/
+  previous-hash/self-hash/schema/duplicate-event-ID all rejected with the
+  fixed safe reason codes, blank stream/event IDs rejected, rejected append
+  leaves the stream unchanged, factory invoked exactly once, factory
+  exception and `CancellationException` propagate unchanged and append
+  nothing), read/latest (8: missing stream → empty/null, ascending order,
+  exact equality, latest equals final, independent streams never bleed,
+  metadata defensively isolated from source and returned mutation), pagination
+  (12: exclusive cursor, limit respected as a maximum, partial page, cursor
+  at final → empty, zero/negative limit and negative cursor rejected, page
+  equals the readStream slice), hash-chain integrity (1: sequence/previous-
+  hash/self-hash invariants + `AuditChainVerifier` valid), and concurrency
+  (3 real parallel races with a start barrier, 20 iterations each: 8
+  same-stream appends all succeed with sequences exactly 1..8 and an
+  uninterrupted chain; concurrent duplicate event ID — exactly one winner;
+  concurrent independent streams both start at sequence 1). Three runners
+  execute the same contract (43/43 each): `InMemoryAuditStoreTckTest`
+  (tramai-security — the default store is enrolled like any other, not
+  exempt), `FileAuditStoreTckTest` (per-case dir with 0700 `audit/`), and
+  `JdbcAuditStoreTckTest` (PostgreSQL testcontainers, V1+V3 migrations,
+  per-case table reset). The enrollment guard reuses the shared
+  `StoreEnrollmentScanner`. **Production changes the enrollment required:**
+  `InMemoryAuditStore` gained blank stream/event-ID validation and replaced
+  its interpolated validation messages with the fixed safe reason codes
+  already used by File/JDBC; `FileAuditStore` gained the same blank
+  stream/event-ID validation before filesystem work; `JdbcAuditStore`
+  gained the blank event-ID check and `appendNext()`'s transaction cleanup
+  now follows the #267 primary-exception-precedence pattern (operation /
+  cancellation > rollback failure > autoCommit-restore failure, later
+  cleanup failures suppressed) with deterministic regressions proving a
+  primary `CancellationException` escapes unchanged when rollback or
+  autoCommit-restore fails. **Deliberate decision — event-ID uniqueness is
+  per-stream shared contract; JDBC's global `uq_audit_events_event_id`
+  index is kept as implementation-specific hardening** — a direct SPI caller
+  can reuse an event ID across streams (InMemory/File accept it); JDBC
+  rejects it, retained because normal AuditEngine generation uses UUID IDs
+  and there is no architecture requirement to reuse an ID across streams —
+  documented in the contract reference. Implementation-specific concerns (restart
+  durability, encryption format, permissions, corruption, SQL schema/
+  indexes, `maxPageSize`) stay out of the shared TCK. Mutation evidence
+  (14 mutations, each restored): stream/sequence/previous-hash/self-hash/
+  schema/duplicate-event-ID/blank-ID checks dropped, inclusive cursor,
+  ignored limit, latest-returns-first, removed append lock, shared metadata
+  reference, store-before-validate — each turns shared TCK cases RED. Zero
+  public API change, no persisted format or schema changes, no existing
+  tests deleted (6 `AuditEngineTest` message assertions updated to the fixed
+  reason codes). Epic 8.1 stays IN PROGRESS. Reference:
   `docs/reference/persistence-store-compatibility-contract.md`.
 
 - **Structured-output contract TCK (PR #266, Epic 7.2).** One reusable test

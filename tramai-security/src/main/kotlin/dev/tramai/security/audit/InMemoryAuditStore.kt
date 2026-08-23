@@ -22,6 +22,7 @@ class InMemoryAuditStore : AuditStore {
         auditStreamId: String,
         eventFactory: (latest: AuditEvent?) -> AuditEvent,
     ): AuditEvent {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val state = streams.computeIfAbsent(auditStreamId) { StreamState() }
         return state.lock.withLock {
             val latest = state.events.lastOrNull()
@@ -30,35 +31,37 @@ class InMemoryAuditStore : AuditStore {
             val rawEvent = eventFactory(latest?.snapshot())
             val snapshot = rawEvent.snapshot()
 
+            require(snapshot.eventId.isNotBlank()) { "audit-store-invalid-event-id" }
+
             // auditStreamId must match
             require(snapshot.auditStreamId == auditStreamId) {
-                "event auditStreamId '${snapshot.auditStreamId}' does not match expected '$auditStreamId'"
+                "audit-stream-id-mismatch"
             }
 
             // sequence must be exactly 1 more than latest
             val expectedSequence = (latest?.sequenceNumber ?: 0L) + 1L
             require(snapshot.sequenceNumber == expectedSequence) {
-                "Expected sequenceNumber $expectedSequence for stream '$auditStreamId' but got ${snapshot.sequenceNumber}"
+                "audit-sequence-gap"
             }
 
             // previousEventHash must match latest eventHash
             require(snapshot.previousEventHash == latest?.eventHash) {
-                "previousEventHash does not match latest eventHash"
+                "audit-hash-chain-broken"
             }
 
             // eventHash must equal calculated hash
             require(snapshot.eventHash == snapshot.copy(eventHash = "").calculateHash()) {
-                "eventHash does not match calculated hash"
+                "audit-event-hash-mismatch"
             }
 
             // schemaVersion must be current
             require(snapshot.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
-                "Unsupported audit schema version ${snapshot.schemaVersion}"
+                "audit-schema-version-unsupported"
             }
 
             // no duplicate eventId in stream
             require(state.events.none { it.eventId == snapshot.eventId }) {
-                "Duplicate eventId '${snapshot.eventId}' in stream '$auditStreamId'"
+                "audit-duplicate-event-id"
             }
 
             state.events.add(snapshot)
@@ -67,6 +70,7 @@ class InMemoryAuditStore : AuditStore {
     }
 
     override suspend fun readStream(auditStreamId: String): List<AuditEvent> {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val state = streams[auditStreamId] ?: return emptyList()
         return state.lock.withLock {
             state.events.map { it.snapshot() }
@@ -78,6 +82,7 @@ class InMemoryAuditStore : AuditStore {
         afterSequenceNumber: Long?,
         limit: Int,
     ): List<AuditEvent> {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         require(limit > 0) { "audit-store-invalid-limit" }
         require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
             "audit-store-invalid-cursor"
@@ -95,6 +100,7 @@ class InMemoryAuditStore : AuditStore {
     }
 
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
+        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         val state = streams[auditStreamId] ?: return null
         return state.lock.withLock {
             state.events.lastOrNull()?.snapshot()
