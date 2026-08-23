@@ -87,16 +87,16 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
 
         return dataSource.connection.use { conn ->
-            inOutboxTransaction(conn) { c ->
-                val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
-                val encrypted = payloadCodec.encode(payloadJson)
+            try {
+                inOutboxTransaction(conn) { c ->
+                    val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
+                    val encrypted = payloadCodec.encode(payloadJson)
 
-                try {
                     insertAppend(c, record, encrypted)
-                } catch (e: SQLException) {
-                    throw mapAppendException(e)
+                    record
                 }
-                record
+            } catch (e: SQLException) {
+                throw mapAppendException(e)
             }
         }
     }

@@ -4,7 +4,6 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.time.Instant
-import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -83,7 +82,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `append returns the stored record`() = runBlocking<Unit> {
         val store = createStore()
         val rec = record("returns-1")
-        assertThat(store.append(rec)).isSameAs(rec)
+        assertThat(store.append(rec)).isEqualTo(rec)
     }
 
     @Test

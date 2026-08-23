@@ -1090,7 +1090,28 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     // ── #267/#271 transaction-cleanup precedence regressions ────────
 
     @Test
-    fun `appendNext rethrows CancellationException unchanged when rollback also fails`() {
+    fun `append maps commit SQLException to the fixed database-failure code`() {
+        runBlocking {
+            val commitFailure = java.sql.SQLException("secret database diagnostic")
+            val failing = JdbcSovereignOpsAuditOutboxStore(
+                dataSource = dataSourceWithFailures(
+                    commitFailure = commitFailure,
+                ),
+                payloadCodec = testCodec,
+            )
+
+            val thrown = runCatching {
+                failing.append(record("cancel-commit-sql"))
+            }.exceptionOrNull()
+
+            assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+            assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-database-failure")
+            assertSame(commitFailure, thrown?.cause)
+        }
+    }
+
+    @Test
+    fun `append rethrows CancellationException unchanged when rollback also fails`() {
         runBlocking {
             val cancellation = CancellationException("cancelled by test")
             val rollbackFailure = java.sql.SQLException("rollback failed")
@@ -1112,7 +1133,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
-    fun `appendNext preserves primary CancellationException when autoCommit restore fails`() {
+    fun `append preserves primary CancellationException when autoCommit restore fails`() {
         runBlocking {
             val cancellation = CancellationException("cancelled by test")
             val restoreFailure = java.sql.SQLException("restore failed")
