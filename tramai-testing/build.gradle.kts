@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.assertj.core)
 
     testFixturesApi(project(":tramai-core"))
+    testFixturesApi(project(":tramai-engine"))
     testFixturesApi(libs.assertj.core)
     testFixturesApi(libs.coroutines.core)
     testFixturesApi(libs.coroutines.test)

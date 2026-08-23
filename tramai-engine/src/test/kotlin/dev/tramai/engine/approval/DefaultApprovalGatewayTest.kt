@@ -23,6 +23,10 @@ import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
+import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
@@ -606,6 +610,24 @@ internal class FakeApprovalGatewayRequestFactory(
             version = 0L,
         )
 
+        val operationReference = ResumeOperationReference(
+            serviceInterface = "dev.tramai.test.TestService",
+            methodName = "testMethod",
+            jvmMethodDescriptor = "(Ltest/Input;)Ltest/Output;",
+            resumeDefinitionDigest = zeroDigest,
+        )
+        // The envelope must bind to the metadata (assistant tool-call message
+        // with matching id/name/index) and carry the canonical digest, per the
+        // shared SuspendedInvocationStore contract.
+        val envelopeMessages = listOf(
+            Message(
+                role = MessageRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(ToolCall(id = "tc-1", name = "test-tool", argumentsJson = "{}")),
+            ),
+        )
+        val envelopeDigest = ReplayEnvelopeDigestHelper.compute(operationReference, envelopeMessages)
+
         val suspendedInvocationMetadata = SuspendedInvocationMetadata(
             approvalId = defaultApprovalId,
             toolCallId = "tc-1",
@@ -620,20 +642,15 @@ internal class FakeApprovalGatewayRequestFactory(
                 actorId = defaultRequestedBy,
             ),
             securityContext = ExecutionSecurityContext(),
-            operationReference = ResumeOperationReference(
-                serviceInterface = "dev.tramai.test.TestService",
-                methodName = "testMethod",
-                jvmMethodDescriptor = "(Ltest/Input;)Ltest/Output;",
-                resumeDefinitionDigest = zeroDigest,
-            ),
-            replayEnvelopeDigest = zeroDigest,
+            operationReference = operationReference,
+            replayEnvelopeDigest = envelopeDigest,
             toolReference = ResumeToolReference(
                 toolName = "test-tool",
                 declarationDigest = zeroDigest,
             ),
         )
 
-        val replayEnvelope = SensitiveReplayEnvelope.of(emptyList())
+        val replayEnvelope = SensitiveReplayEnvelope.of(envelopeMessages)
 
         return ApprovalGatewayPersistenceRequest(
             approvalRequest = approvalRequest,
