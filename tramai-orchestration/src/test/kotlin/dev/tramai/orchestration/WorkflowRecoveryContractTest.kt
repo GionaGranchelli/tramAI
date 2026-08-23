@@ -390,7 +390,7 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
-    fun `concurrent retry approvals — the approval whose checkpoint clear succeeds is the effective authorization`() {
+    fun `concurrent retry approvals - the approval whose checkpoint clear succeeds is the effective authorization`() {
         runBlocking {
             val delegate = InMemoryWorkflowCheckpointStore()
             val saved = delegate.save(sampleCheckpoint())
@@ -888,7 +888,7 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
-    fun `Two concurrent requireRecovery calls — first wins`() {
+    fun `Two concurrent requireRecovery calls - first wins`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
             val saved = store.save(sampleCheckpoint())

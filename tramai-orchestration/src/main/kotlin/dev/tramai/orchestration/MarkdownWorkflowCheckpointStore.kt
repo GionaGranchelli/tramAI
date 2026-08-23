@@ -8,7 +8,7 @@ import kotlin.math.max
  */
 class MarkdownWorkflowCheckpointStore(
     private val rootDirectory: Path,
-    private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.md"),
+    private val pathStrategy: WorkflowCheckpointPathStrategy = CollisionFreeWorkflowCheckpointPathStrategy("checkpoint.md"),
 ) : WorkflowCheckpointStore {
     var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
         NoOpPersistenceFailureDiagnosticObserver
@@ -28,7 +28,7 @@ class MarkdownWorkflowCheckpointStore(
         PersistenceResourceKind.CHECKPOINT, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
         classify = ::classifyCheckpointFailure,
     ) {
-        val checkpointPath = checkpointPath(workflowName, workflowId)
+        val checkpointPath = effectiveCheckpointPath(workflowName, workflowId)
         if (!Files.exists(checkpointPath)) {
             null
         } else {
@@ -36,7 +36,15 @@ class MarkdownWorkflowCheckpointStore(
                 if (!Files.exists(checkpointPath)) {
                     null
                 } else {
-                    decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+                    val decoded = decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+                    // A legacy sanitized path may hold another key's record
+                    // after the collision-free strategy was introduced; only
+                    // accept it when it identifies the requested key.
+                    if (decoded.workflowName == workflowName && decoded.workflowId == workflowId) {
+                        decoded
+                    } else {
+                        null
+                    }
                 }
             }
         }
@@ -48,21 +56,40 @@ class MarkdownWorkflowCheckpointStore(
         PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
         classify = ::classifyCheckpointFailure,
     ) {
-        val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        withFileLockCancellable(checkpointPath) {
-            val existing = if (Files.exists(checkpointPath)) {
-                decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+        val workflowName = checkpoint.workflowName
+        val workflowId = checkpoint.workflowId
+        val canonical = checkpointPath(workflowName, workflowId)
+        val target = effectiveCheckpointPath(workflowName, workflowId)
+        withFileLockCancellable(target) {
+            val existing = if (Files.exists(target)) {
+                decodeMarkdownCheckpoint(Files.readString(target))
             } else {
                 null
             }
+            val identityMatch = existing == null ||
+                (existing.workflowName == workflowName && existing.workflowId == workflowId)
+            if (existing != null && !identityMatch) {
+                // The file at the target path belongs to a different logical
+                // key (legacy collision); never overwrite it.
+                throw safePersistenceFailure(
+                    PersistenceResourceKind.CHECKPOINT,
+                    PersistenceOperation.SAVE,
+                    PersistenceFailureCode.CONFLICT,
+                )
+            }
+            val effectiveExisting = if (identityMatch) existing else null
             validateExpectedRevision(
-                workflowName = checkpoint.workflowName,
-                workflowId = checkpoint.workflowId,
-                existing = existing,
+                workflowName = workflowName,
+                workflowId = workflowId,
+                existing = effectiveExisting,
                 expectedRevision = expectedRevision,
             )
-            val persisted = checkpoint.copy(revision = (existing?.revision ?: 0) + 1)
-            writeStringAtomically(checkpointPath, encodeMarkdownCheckpoint(persisted))
+            val persisted = checkpoint.copy(revision = (effectiveExisting?.revision ?: 0) + 1)
+            writeStringAtomically(canonical, encodeMarkdownCheckpoint(persisted))
+            if (target != canonical && existing != null) {
+                // Migrate the legacy-path record to the canonical path.
+                Files.deleteIfExists(target)
+            }
             persisted
         }
     }
@@ -74,20 +101,30 @@ class MarkdownWorkflowCheckpointStore(
         PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver,
         classify = ::classifyCheckpointFailure,
     ) {
-        val checkpointPath = checkpointPath(workflowName, workflowId)
-        withFileLockCancellable(checkpointPath) {
-            val existing = if (Files.exists(checkpointPath)) {
-                decodeMarkdownCheckpoint(Files.readString(checkpointPath))
+        val canonical = checkpointPath(workflowName, workflowId)
+        val target = effectiveCheckpointPath(workflowName, workflowId)
+        withFileLockCancellable(target) {
+            val existing = if (Files.exists(target)) {
+                decodeMarkdownCheckpoint(Files.readString(target))
             } else {
                 null
             }
+            val identityMatch = existing == null ||
+                (existing.workflowName == workflowName && existing.workflowId == workflowId)
+            val effectiveExisting = if (identityMatch) existing else null
             validateDeleteExpectedRevision(
                 workflowName = workflowName,
                 workflowId = workflowId,
-                existing = existing,
+                existing = effectiveExisting,
                 expectedRevision = expectedRevision,
             )
-            Files.deleteIfExists(checkpointPath)
+            if (identityMatch && existing != null) {
+                Files.deleteIfExists(target)
+                if (target != canonical) {
+                    // No stale canonical file should exist; clean up defensively.
+                    Files.deleteIfExists(canonical)
+                }
+            }
             Unit
         }
     }
@@ -95,6 +132,25 @@ class MarkdownWorkflowCheckpointStore(
         workflowName: String,
         workflowId: String,
     ): Path = pathStrategy.resolve(rootDirectory, workflowName, workflowId)
+
+    /**
+     * The path currently holding this checkpoint: the canonical collision-free
+     * path when present, otherwise the legacy sanitized path (when the
+     * strategy supports it and the legacy file exists), otherwise the
+     * canonical path. Callers must still verify the decoded record's identity
+     * — a legacy path may hold a colliding key's record.
+     */
+    private fun effectiveCheckpointPath(
+        workflowName: String,
+        workflowId: String,
+    ): Path {
+        val canonical = checkpointPath(workflowName, workflowId)
+        if (Files.exists(canonical)) return canonical
+        val legacy = (pathStrategy as? CollisionFreeWorkflowCheckpointPathStrategy)
+            ?.legacyCheckpointPath(rootDirectory, workflowName, workflowId)
+            ?: return canonical
+        return if (Files.exists(legacy)) legacy else canonical
+    }
 }
 internal fun encodeMarkdownCheckpoint(checkpoint: WorkflowCheckpoint): String {
     val metadataLines = checkpoint.metadata.entries

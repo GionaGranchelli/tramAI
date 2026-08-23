@@ -236,7 +236,7 @@ class FileWorkflowPersistenceCancellationContractTest {
     // ═══ Test 2: JVM mutex released on cancellation ═══
 
     @Test
-    fun `jvm mutex released on cancellation — second coroutine cancelled while waiting`() {
+    fun `jvm mutex released on cancellation - second coroutine cancelled while waiting`() {
         runBlocking {
             val checkpoint = testCheckpoint()
             val registryBefore = pathLockRegistrySize()
