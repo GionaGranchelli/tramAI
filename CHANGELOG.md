@@ -73,7 +73,14 @@
   fixed: late `cancel()` now persists EXPIRED then fails Conflict (was
   CANCELLED), `create()` validates `argumentsDigest` against the payload
   (was accepted unchecked), and `claimForExecution()` checks version before
-  status (was NotClaimable on stale-version claims of CLAIMED rows). The
+  status (was NotClaimable on stale-version claims of CLAIMED rows). A
+  follow-up review found a fourth in the same family — the claim CAS-loss
+  re-read mapped a lost claim/cancel race to NotClaimable instead of
+  Conflict; fixed with the same version-before-status precedence and pinned
+  by a deterministic interleaving regression (gated codec: claim blocks at
+  decrypt, cancel wins, released claim must throw Conflict). The shared
+  race assertions were tightened from "a typed failure" to exactly
+  `Conflict` on the loser. The
   enrollment guard from #267 was extracted into a shared
   `StoreEnrollmentScanner` and extended to continuation stores. Mutation
   evidence (8 mutations, each restored): claim leaves arguments stored,

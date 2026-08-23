@@ -141,24 +141,35 @@ abstract class ApprovalContinuationStoreTck {
     }
 
     @Test
-    fun `pre-populated claimed fields rejected`() = runBlocking<Unit> {
-        val (continuation, arguments) = pending("bad-claimed")
-            .let { (c, a) -> c.copy(claimedBy = "worker-1", claimedAt = t0) to a }
-        assertThat(runCatching { store.create(continuation, arguments) }.exceptionOrNull())
-            .isInstanceOf(IllegalArgumentException::class.java)
+    fun `pre-populated claimed fields rejected independently`() = runBlocking<Unit> {
+        // One forbidden field at a time — a store that stops validating a
+        // single field must go RED, not hide behind another populated field.
+        val cases = listOf(
+            "bad-claimed-by" to { c: ApprovalContinuation -> c.copy(claimedBy = "worker-1") },
+            "bad-claimed-at" to { c: ApprovalContinuation -> c.copy(claimedAt = t0) },
+        )
+        cases.forEach { (id, tamper) ->
+            val (continuation, arguments) = pending(id)
+            assertThat(runCatching { store.create(tamper(continuation), arguments) }.exceptionOrNull())
+                .withFailMessage("create must reject pre-populated $id")
+                .isInstanceOf(IllegalArgumentException::class.java)
+        }
     }
 
     @Test
-    fun `pre-populated completion and recovery fields rejected`() = runBlocking<Unit> {
-        val withCompletion = pending("bad-completed").let { (c, a) -> c.copy(completedAt = t0) to a }
-        assertThat(runCatching { store.create(withCompletion.first, withCompletion.second) }.exceptionOrNull())
-            .isInstanceOf(IllegalArgumentException::class.java)
-
-        val withRecovery = pending("bad-recovery").let { (c, a) ->
-            c.copy(recoveryResolvedBy = "recovery-1", recoveryResolvedAt = t0, recoveryReasonCode = "stale-claim") to a
+    fun `pre-populated completion and recovery fields rejected independently`() = runBlocking<Unit> {
+        val cases = listOf(
+            "bad-completed-at" to { c: ApprovalContinuation -> c.copy(completedAt = t0) },
+            "bad-recovery-by" to { c: ApprovalContinuation -> c.copy(recoveryResolvedBy = "recovery-1") },
+            "bad-recovery-at" to { c: ApprovalContinuation -> c.copy(recoveryResolvedAt = t0) },
+            "bad-recovery-reason" to { c: ApprovalContinuation -> c.copy(recoveryReasonCode = "stale-claim") },
+        )
+        cases.forEach { (id, tamper) ->
+            val (continuation, arguments) = pending(id)
+            assertThat(runCatching { store.create(tamper(continuation), arguments) }.exceptionOrNull())
+                .withFailMessage("create must reject pre-populated $id")
+                .isInstanceOf(IllegalArgumentException::class.java)
         }
-        assertThat(runCatching { store.create(withRecovery.first, withRecovery.second) }.exceptionOrNull())
-            .isInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -290,16 +301,17 @@ abstract class ApprovalContinuationStoreTck {
     }
 
     @Test
-    fun `arguments are cleared from storage on claim`() = runBlocking<Unit> {
-        // The store contract: after a claim, the only remaining record is
-        // metadata; a second claim must fail before any arguments are
-        // exposed. Proving it via the claim path (the only exposing API).
+    fun `second claim cannot expose released arguments`() = runBlocking<Unit> {
+        // Externally observable exactly-once release: after a claim, the
+        // arguments can never be exposed through the only API that reveals
+        // them — not even to the claimant again. Physical scrubbing of the
+        // encrypted payload is the implementation-specific suites' concern
+        // (JDBC asserts encrypted_arguments becomes NULL directly).
         createPending("cleared-1")
         store.claimForExecution("cleared-1", 0L, "worker-1")
 
         val second = runCatching { store.claimForExecution("cleared-1", 1L, "worker-2") }.exceptionOrNull()
         assertThat(second).isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
-        assertThat(second).isNotInstanceOf(ClaimedApprovalContinuation::class.java)
     }
 
     // ── Expiry ──────────────────────────────────────────────────────
@@ -422,13 +434,23 @@ abstract class ApprovalContinuationStoreTck {
     fun `cancel on non-cancellable statuses rejected`() = runBlocking<Unit> {
         setupClaimed("cancel-claimed")
         setupCompleted("cancel-completed")
+        setupCancelled("cancel-cancelled")
         setupCancelledUncertain("cancel-uncertain")
+        createPending("cancel-expired")
+        clock.advance(Duration.ofSeconds(301))
+        store.expire("cancel-expired", 0L)
 
-        listOf("cancel-claimed" to 1L, "cancel-completed" to 2L, "cancel-uncertain" to 2L)
-            .forEach { (id, version) ->
-                assertThat(runCatching { store.cancel(id, version) }.exceptionOrNull())
-                    .isInstanceOf(ApprovalContinuationConflictException::class.java)
-            }
+        listOf(
+            "cancel-claimed" to 1L,
+            "cancel-completed" to 2L,
+            "cancel-cancelled" to 1L,
+            "cancel-uncertain" to 2L,
+            "cancel-expired" to 1L,
+        ).forEach { (id, version) ->
+            assertThat(runCatching { store.cancel(id, version) }.exceptionOrNull())
+                .withFailMessage("cancel must reject $id")
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
+        }
     }
 
     @Test
@@ -479,6 +501,8 @@ abstract class ApprovalContinuationStoreTck {
     fun `complete on non-completable statuses rejected`() = runBlocking<Unit> {
         createPending("complete-pending")
         setupCancelled("complete-cancelled")
+        setupCompleted("complete-completed")
+        setupCancelledUncertain("complete-uncertain")
         createPending("complete-expired")
         clock.advance(Duration.ofSeconds(301))
         store.expire("complete-expired", 0L)
@@ -486,9 +510,12 @@ abstract class ApprovalContinuationStoreTck {
         listOf(
             "complete-pending" to 0L,
             "complete-cancelled" to 1L,
+            "complete-completed" to 2L,
+            "complete-uncertain" to 2L,
             "complete-expired" to 1L,
         ).forEach { (id, version) ->
             assertThat(runCatching { store.complete(id, version, "worker-1") }.exceptionOrNull())
+                .withFailMessage("complete must reject $id")
                 .isInstanceOf(ApprovalContinuationNotCompletableException::class.java)
         }
     }
@@ -568,15 +595,22 @@ abstract class ApprovalContinuationStoreTck {
         createPending("recover-pending")
         setupCompleted("recover-completed")
         setupCancelled("recover-cancelled")
+        setupCancelledUncertain("recover-uncertain")
+        createPending("recover-expired")
+        clock.advance(Duration.ofSeconds(301))
+        store.expire("recover-expired", 0L)
 
         listOf(
             "recover-pending" to 0L,
             "recover-completed" to 2L,
             "recover-cancelled" to 1L,
+            "recover-uncertain" to 2L,
+            "recover-expired" to 1L,
         ).forEach { (id, version) ->
             assertThat(
                 runCatching { store.forceCancelClaimed(id, version, "recovery-1", "stale-claim") }.exceptionOrNull(),
-            ).isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            ).withFailMessage("forceCancelClaimed must reject $id")
+                .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
         }
     }
 
@@ -680,8 +714,10 @@ abstract class ApprovalContinuationStoreTck {
 
             assertThat(successes).hasSize(1)
             assertThat(losers).hasSize(1)
+            // A claim that loses observes a stale version (1 vs expected 0)
+            // and must report Conflict — not a broad store exception.
             assertThat(losers.single().exceptionOrNull())
-                .isInstanceOf(ApprovalContinuationStoreException::class.java)
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
 
             val winner = successes.single().getOrThrow()
             assertThat(winner.arguments.reveal()).isEqualTo(ApprovalContinuationFixtures.DEFAULT_ARGUMENTS)
@@ -710,8 +746,11 @@ abstract class ApprovalContinuationStoreTck {
             val losers = outcomes.count { it.isFailure }
             assertThat(successes).isEqualTo(1)
             assertThat(losers).isEqualTo(1)
+            // Whichever operation loses sees the winner's version (1) against
+            // its own expected 0, so it must report Conflict — the same typed
+            // outcome in every implementation.
             assertThat(outcomes.filter { it.isFailure }.single().exceptionOrNull())
-                .isInstanceOf(ApprovalContinuationStoreException::class.java)
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
 
             val persisted = store.get(id)!!
             assertThat(persisted.version).isEqualTo(1L)

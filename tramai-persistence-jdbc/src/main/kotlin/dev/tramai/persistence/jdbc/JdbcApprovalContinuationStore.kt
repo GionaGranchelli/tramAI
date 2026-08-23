@@ -239,16 +239,21 @@ class JdbcApprovalContinuationStore(
 
                 val updated = stmt.executeUpdate()
                 if (updated == 0) {
-                    // Re-read to provide the right exception
+                    // CAS lost. Re-read and apply the same precedence as the
+                    // initial path: version first, then status. In-memory and
+                    // file stores serialize per ID, so a claim that loses to
+                    // a cancel observes version 1 vs expected 0 and reports
+                    // Conflict — the CAS-loss branch must not diverge into
+                    // NotClaimable for the same interleaving.
                     val current = readCurrent(conn, approvalId)
-                    if (current == null) {
-                        throw ApprovalContinuationNotFoundException(approvalId)
-                    }
-                    val status = ApprovalContinuationStatus.valueOf(current.status)
-                    if (status == ApprovalContinuationStatus.CLAIMED) {
+                        ?: throw ApprovalContinuationNotFoundException(approvalId)
+                    if (current.version != expectedVersion) {
                         throw ApprovalContinuationConflictException(approvalId)
                     }
-                    throw ApprovalContinuationNotClaimableException(approvalId)
+                    if (ApprovalContinuationStatus.valueOf(current.status) != ApprovalContinuationStatus.PENDING) {
+                        throw ApprovalContinuationNotClaimableException(approvalId)
+                    }
+                    throw ApprovalContinuationConflictException(approvalId)
                 }
             }
 

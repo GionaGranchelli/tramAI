@@ -119,40 +119,51 @@ and the exactly-once release of raw sensitive arguments — the only API path
 that exposes them.
 
 - **Creation/read (13):** PENDING round-trip, missing-ID null, duplicate
-  conflict, non-zero version / non-PENDING / pre-populated claimed /
-  completion / recovery fields rejected, blank ID rejected, future createdAt
-  rejected, non-future expiry rejected, TTL bound enforced, arguments digest
-  mismatch rejected.
+  conflict, non-zero version / non-PENDING rejected, **each pre-populated
+  claimed / completion / recovery field rejected independently** (one
+  forbidden field at a time, so a store that drops a single validation goes
+  RED), blank ID rejected, future createdAt rejected, non-future expiry
+  rejected, TTL bound enforced, arguments digest mismatch rejected.
 - **Claim (5):** PENDING → CLAIMED with version +1, claimedBy/claimedAt from
   the injected clock, exact raw arguments released, missing → NotFound,
   stale version → Conflict, non-claimable terminal statuses → NotClaimable.
 - **Exactly-once release (2):** a second claim can never retrieve arguments
-  (typed rejection on both stale and current versions); arguments are
-  cleared from storage on claim.
+  (typed rejection on both stale and current versions); a second claim can
+  never expose released arguments — physical scrubbing of the encrypted
+  payload is owned by the implementation-specific suites (JDBC asserts
+  `encrypted_arguments` becomes NULL directly).
 - **Expiry (8):** explicit expire only after the deadline, early expire →
   Conflict, late claim persists EXPIRED and fails NotClaimable, **late
   cancel persists EXPIRED and fails Conflict**, lazy get() expires exactly
   once, CLAIMED never lazy-expires, expire on non-PENDING and on
   already-EXPIRED → Conflict.
 - **Cancellation (4):** PENDING → CANCELLED with version +1 and arguments
-  gone, cancel on CLAIMED / COMPLETED / CANCELLED_UNCERTAIN → Conflict,
-  stale version → Conflict, missing → NotFound.
+  gone, cancel on CLAIMED / COMPLETED / CANCELLED / CANCELLED_UNCERTAIN /
+  EXPIRED → Conflict, stale version → Conflict, missing → NotFound.
 - **Completion (5):** CLAIMED → COMPLETED by the claimant with completedAt
   from the injected clock, wrong actor → NotCompletable, stale version →
-  Conflict, non-completable statuses → NotCompletable, missing → NotFound.
+  Conflict, non-completable statuses (PENDING / CANCELLED / COMPLETED /
+  CANCELLED_UNCERTAIN / EXPIRED) → NotCompletable, missing → NotFound.
 - **Recovery (8):** findStaleClaimed includes the claimedAt boundary and
   excludes fresh/terminal rows, deterministic ordering by claimedAt then
   approvalId (same-instant claims exercise the secondary key), limit
   enforced, invalid limit → IAE, forceCancelClaimed → CANCELLED_UNCERTAIN
-  with recovery actor/time/reason pinned, non-CLAIMED → NotClaimable,
+  with recovery actor/time/reason pinned, non-CLAIMED statuses (PENDING /
+  COMPLETED / CANCELLED / CANCELLED_UNCERTAIN / EXPIRED) → NotClaimable,
   invalid reason codes → IAE, stale version → Conflict.
 - **Sweep (3):** sweeps only elapsed PENDING rows with exact count, second
   sweep returns 0, CLAIMED and terminal rows never touched.
 - **Concurrency (3, real parallel races with a start barrier, 5 iterations
   each):** concurrent claims — exactly one winner releases the raw
-  arguments and the loser gets a typed failure; claim vs cancel — exactly
-  one legal transition, version stays 1; competing same-version cancels —
-  exactly one wins, one Conflict, version 1.
+  arguments and the loser gets **Conflict**; claim vs cancel — exactly one
+  legal transition, the loser gets **Conflict** regardless of which
+  operation wins; competing same-version cancels — exactly one wins, one
+  Conflict, version 1. The loser type is pinned to Conflict (stale
+  snapshot), not a broad store exception — version-before-status precedence
+  on every path, including the JDBC CAS-loss branch (a deterministic
+  interleaving regression with a gated arguments codec pins that branch:
+  claim blocks at decrypt, cancel wins, released claim must throw
+  Conflict).
 
 ### Typed failure taxonomy (pinned, not just "some RuntimeException")
 
@@ -178,6 +189,15 @@ The TCK found three real JDBC divergences from the in-memory/file contract:
 3. **`claimForExecution()` checked status before version** — a stale-version
    claim on a CLAIMED row returned `NotClaimable` instead of `Conflict`,
    diverging from the version-first precedence of the other two stores.
+
+The follow-up review found a fourth in the same family: the **claim CAS-loss
+re-read** still mapped a lost claim/cancel race to `NotClaimable` (status
+seen after the re-read) while memory and file reported `Conflict` (stale
+version). Fixed with the same version-before-status precedence on the
+CAS-loss branch, pinned by a deterministic interleaving regression (gated
+codec: claim blocks at decrypt, cancel wins, released claim must throw
+Conflict) and by tightening the shared race assertions from "a typed
+failure" to exactly `Conflict`.
 
 ### Mutation evidence (all restored after each run; InMemory store)
 
