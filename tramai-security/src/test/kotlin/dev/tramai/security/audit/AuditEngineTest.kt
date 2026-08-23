@@ -411,7 +411,7 @@ class AuditEngineTest {
                 ).copy(eventHash = "placeholder")
             }
         }
-        assertTrue(exception.message?.contains("auditStreamId") == true)
+        assertTrue(exception.message?.contains("audit-stream-id-mismatch") == true)
     }
     }
 
@@ -443,7 +443,7 @@ class AuditEngineTest {
                 ).copy(eventHash = "placeholder")
             }
         }
-        assertTrue(exception.message?.contains("sequenceNumber") == true)
+        assertTrue(exception.message?.contains("audit-sequence-gap") == true)
     }
     }
 
@@ -475,7 +475,10 @@ class AuditEngineTest {
                 ).copy(eventHash = "placeholder")
             }
         }
-        assertTrue(exception.message?.contains("previousEventHash") == true || exception.message?.contains("eventHash") == true)
+        assertTrue(
+            exception.message?.contains("audit-hash-chain-broken") == true ||
+                exception.message?.contains("audit-event-hash-mismatch") == true,
+        )
     }
     }
 
@@ -505,7 +508,7 @@ class AuditEngineTest {
                 )
             }
         }
-        assertTrue(exception.message?.contains("eventHash") == true)
+        assertTrue(exception.message?.contains("audit-event-hash-mismatch") == true)
     }
     }
 
@@ -556,7 +559,7 @@ class AuditEngineTest {
                 )
             }
         }
-        assertTrue(exception.message?.contains("Duplicate") == true || exception.message?.contains("eventId") == true)
+        assertTrue(exception.message?.contains("audit-duplicate-event-id") == true)
     }
     }
 
@@ -946,7 +949,7 @@ class AuditEngineTest {
                 ).let { it.copy(eventHash = it.copy(eventHash = "").calculateHash()) }
             }
         }
-        assertTrue(exception.message?.contains("Unsupported") == true)
+        assertTrue(exception.message?.contains("audit-schema-version-unsupported") == true)
     }
     }
 

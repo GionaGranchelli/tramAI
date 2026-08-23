@@ -21,6 +21,8 @@ import java.sql.DriverManager
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import java.lang.reflect.Proxy
+import java.util.concurrent.CancellationException
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -29,6 +31,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -975,5 +978,73 @@ class JdbcAuditStoreTest {
             s.appendNext("stream-1", eventFactory("stream-1"))
         }
     }
+    }
+
+    @Test
+    fun `appendNext rethrows CancellationException unchanged when rollback also fails`() { runBlocking {
+        val cancellation = CancellationException("cancelled by test")
+        val rollbackFailure = java.sql.SQLException("rollback failed")
+        val failing = JdbcAuditStore(dataSourceWithFailures(rollbackFailure = rollbackFailure), testCodec, fixedClock)
+
+        val thrown = runCatching {
+            failing.appendNext("stream-1") { throw cancellation }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf(rollbackFailure), thrown?.suppressed?.toList())
+    }
+    }
+
+    @Test
+    fun `appendNext preserves primary CancellationException when autoCommit restore fails`() { runBlocking {
+        val cancellation = CancellationException("cancelled by test")
+        val restoreFailure = java.sql.SQLException("restore failed")
+        val failing = JdbcAuditStore(dataSourceWithFailures(restoreFailure = restoreFailure), testCodec, fixedClock)
+
+        val thrown = runCatching {
+            failing.appendNext("stream-1") { throw cancellation }
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf(restoreFailure), thrown?.suppressed?.toList())
+    }
+    }
+
+    /**
+     * A DataSource whose connections delegate to the real database but fail
+     * deterministically: [rollbackFailure] is thrown from `rollback()`, and,
+     * when [restoreFailure] is non-null, from the second `setAutoCommit` call
+     * (the finally-block restoration). Each `getConnection` captures ONE
+     * delegate, so the production code sees a single JDBC transaction rather
+     * than a fresh connection per method call. Same shape as the #267
+     * ApprovalStore failure-injection helper.
+     */
+    private fun dataSourceWithFailures(
+        rollbackFailure: Exception? = null,
+        restoreFailure: Exception? = null,
+    ): DataSource {
+        val real = createDataSource()
+        return Proxy.newProxyInstance(
+            DataSource::class.java.classLoader,
+            arrayOf(DataSource::class.java),
+        ) { _, method, args ->
+            if (method.name == "getConnection" && args.isNullOrEmpty()) {
+                val delegate = real.connection
+                var autoCommitCalls = 0
+                Proxy.newProxyInstance(
+                    Connection::class.java.classLoader,
+                    arrayOf(Connection::class.java),
+                ) { _, connMethod, connArgs ->
+                    if (connMethod.name == "rollback" && rollbackFailure != null) throw rollbackFailure
+                    if (connMethod.name == "setAutoCommit") {
+                        autoCommitCalls++
+                        if (restoreFailure != null && autoCommitCalls > 1) throw restoreFailure
+                    }
+                    connMethod.invoke(delegate, *(connArgs ?: emptyArray()))
+                }
+            } else {
+                method.invoke(real, *(args ?: emptyArray()))
+            }
+        } as DataSource
     }
 }
