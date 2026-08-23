@@ -156,8 +156,13 @@ class SovereignTramaiToolCollectionTest {
             .run { context ->
                 val runtime = context.getBean(SovereignTramaiRuntime::class.java)
                 val service = runtime.create(SingleToolInvoiceAi::class)
-                assertThatThrownBy { runBlocking { service.analyze("inv-003") } }
-                    .hasMessageContaining("permission")
+                val thrown = org.assertj.core.api.Assertions.catchThrowable {
+                    runBlocking { service.analyze("inv-003") }
+                }
+                assertThat(thrown)
+                    .isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
+                val violation = thrown as dev.tramai.core.exception.PolicyViolationException
+                assertThat(violation.decision.reasonCode).isEqualTo("tool-exposure-permission-denied")
             }
     }
 

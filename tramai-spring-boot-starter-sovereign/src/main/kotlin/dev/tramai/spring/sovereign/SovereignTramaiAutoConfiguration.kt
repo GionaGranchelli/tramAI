@@ -210,7 +210,7 @@ class SovereignTramaiAutoConfiguration {
         }
 
         // Register TramaiTool beans from the application context.
-        // Users provide TramaiTool (or @AiTool) beans and the starter wires
+        // Users provide TramaiTool Spring beans and the starter wires
         // them into the governed runtime. Duplicate tool names are rejected
         // by the engine at build time — collection keeps that fail-loud
         // behavior instead of silently deduplicating.
