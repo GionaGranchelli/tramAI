@@ -1,7 +1,8 @@
 # Persistence Store Compatibility Contract
 
 Epic 8.1 (PR #267 ApprovalStore slice, PR #269 ApprovalContinuationStore
-slice). Shared behavioral TCKs prove every implementation of a store family
+slice, PR #270 SuspendedInvocationStore slice, PR #271 AuditStore slice).
+Shared behavioral TCKs prove every implementation of a store family
 satisfies exactly the same externally observable contract, regardless of
 storage technology (memory, encrypted files, JDBC).
 
@@ -11,8 +12,8 @@ storage technology (memory, encrypted files, JDBC).
 |---|---|---|---|---|
 | Approval | ✅ | ✅ | ✅ | ✅ #267 |
 | Approval continuation | ✅ | ✅ | ✅ | ✅ #269 |
-| Suspended invocation | … | … | … | ⏳ |
-| Audit | … | … | … | ⏳ |
+| Suspended invocation | ✅ | ✅ | ✅ | ✅ #270 |
+| Audit | ✅ | ✅ | ✅ | ✅ #271 |
 | Audit outbox | … | … | … | ⏳ |
 | Workflow checkpoint | … | … | … | ⏳ |
 | Workflow lease | … | … | … | ⏳ |
@@ -337,3 +338,128 @@ schema/JSON mapping/connection cleanup (JDBC). No existing tests were
 deleted. The `tramai-testing` testFixtures gained a dependency on
 `tramai-engine` (the SPI's home module) so the shared suite can be written
 once and run against all three implementations.
+
+## AuditStore TCK (PR #271)
+
+`AuditStoreTck` (tramai-testing testFixtures) runs **43 shared behavioral
+cases** against every `AuditStore` implementation. Audit is not ordinary
+CRUD: the store is the chain authority — it serializes access to the
+authoritative latest event, hands it to the factory, validates the returned
+event's chain position, and appends atomically. The TCK therefore tests the
+factory-callback semantics themselves, not just resulting rows.
+
+- **Append / chain semantics (19):** first append's factory receives
+  `latest == null`; first event has sequence 1 and `previousEventHash ==
+  null`; the second append's factory receives the exact latest event;
+  second event has sequence 2 and `previousEventHash == first.eventHash`;
+  every metadata field round-trips; wrong auditStreamId rejected
+  (`audit-stream-id-mismatch`); wrong sequence rejected (`audit-sequence-gap`);
+  wrong previous hash rejected (`audit-hash-chain-broken`); invalid
+  self-hash rejected (`audit-event-hash-mismatch`); unsupported schema
+  version rejected (`audit-schema-version-unsupported`); duplicate event ID
+  in the same stream rejected (`audit-duplicate-event-id`); blank audit
+  stream ID rejected (`audit-store-invalid-stream-id`); blank event ID
+  rejected (`audit-store-invalid-event-id`); a rejected append leaves the
+  stream unchanged; the event factory is invoked exactly once per append;
+  a factory exception propagates unchanged and appends nothing;
+  `CancellationException` propagates as the same instance and appends
+  nothing. Malformed fixtures compute their digest over the malformed event,
+  so exactly one invariant is violated per case.
+- **Read / latest semantics (8):** missing stream → `emptyList()`/`null`;
+  ascending sequence order; exact field equality; `latestEvent()` equals the
+  final event; independent streams never bleed; metadata is defensively
+  isolated — mutating the source map after append cannot mutate stored
+  evidence, and mutating returned metadata cannot modify the persisted
+  event (storage isolation is the observable rule, not whether every
+  returned map throws `UnsupportedOperationException`).
+- **Pagination (12):** the SPI cursor is exclusive and the limit is a
+  maximum — `null`/`0` cursor starts at sequence 1; cursor N returns events
+  starting at N+1; limit respected; partial page at the end; cursor at the
+  final event → empty; missing stream → empty; zero/negative limit rejected;
+  negative cursor rejected; ascending order preserved; page contents equal
+  the corresponding slice of `readStream`. The contract never demands
+  "exactly limit" because JDBC deliberately supports a configured
+  `maxPageSize`.
+- **Hash-chain integrity (1):** for a valid multi-event stream —
+  `events[i].sequenceNumber == events[i-1].sequenceNumber + 1`,
+  `events[i].previousEventHash == events[i-1].eventHash`,
+  `events[i].eventHash == calculateHash()` — and `AuditChainVerifier.verify`
+  reports valid.
+- **Concurrency (3 real parallel races, start barrier, 20 iterations
+  each):** 8 concurrent same-stream appends — all succeed, sequences
+  exactly 1..8, unique event IDs, valid uninterrupted chain; concurrent
+  duplicate event ID — exactly one winner, losers rejected with
+  `audit-duplicate-event-id`, stored once, chain valid; concurrent
+  independent streams — both start at sequence 1 independently, both chains
+  valid.
+
+### Decisions (deliberate, per review)
+
+- **Event-ID uniqueness is per-stream shared contract; cross-stream reuse is
+  NOT.** JDBC's global unique index `uq_audit_events_event_id` is kept and
+  documented as implementation-specific defensive hardening (same rationale
+  as the replay-digest uniqueness in #270): the store never sees a
+  cross-stream duplicate through the SPI, so making it a shared requirement
+  would force a schema/design change without an architecture reason.
+- **`appendNext` is a chain-authority API, not a plain append:** the TCK
+  pins the factory-callback contract (invoked exactly once, receives the
+  authoritative latest, exception/cancellation propagate unchanged with
+  nothing appended).
+- **Validation errors are stable safe reason codes**, not interpolated
+  messages: File and JDBC already used the fixed codes; `InMemoryAuditStore`
+  was normalized to them so storage technology never changes the error
+  surface.
+
+### Production changes the enrollment required
+
+- **`InMemoryAuditStore`** gained the shared input validation it lacked
+  (blank audit stream ID on every operation, blank event ID on append) and
+  replaced its interpolated human-readable validation messages with the
+  fixed safe reason codes used by File/JDBC. Its Mutex-per-stream atomic
+  append, snapshot-based defensive metadata copies, and chain validation
+  were already conformant.
+- **`FileAuditStore`** gained the same shared blank stream/event ID
+  validation before any filesystem work (it previously hashed whatever
+  string it received). No append-chain change: File is the strictest
+  implementation (full-chain validation on every read).
+- **`JdbcAuditStore`** gained the shared blank event-ID validation, and
+  `appendNext()`'s transaction cleanup now follows the #267
+  primary-exception-precedence pattern: operation / cancellation **>**
+  rollback failure **>** autoCommit-restore failure, with later cleanup
+  failures attached as `suppressed` to the primary — a rollback or restore
+  failure can no longer mask the primary exception or cancellation. No
+  database schema change.
+- Deterministic JDBC regressions added: primary `CancellationException` +
+  rollback failure → same cancellation escapes, rollback failure suppressed;
+  primary `CancellationException` + autoCommit-restore failure → same
+  cancellation escapes, restore failure suppressed.
+- Existing `AuditEngineTest` assertions on the old interpolated InMemory
+  messages were updated to the fixed reason codes (6 tests).
+
+### Mutation evidence (all restored after each run; InMemory store)
+
+| Mutation | TCK outcome |
+|---|---|
+| append skips stream-ID check | RED — wrong-stream case fails |
+| append accepts wrong sequence | RED — wrong-sequence case fails |
+| append ignores previous hash | RED — chain-link case fails |
+| append ignores event hash self-hash | RED — self-hash case fails |
+| append accepts unsupported schema | RED — schema-version case fails |
+| duplicate eventId accepted | RED — duplicate + concurrent-duplicate cases fail |
+| blank stream-ID check removed | RED — blank-stream case fails |
+| blank event-ID check removed | RED — blank-event case fails |
+| page cursor becomes inclusive (`>=`) | RED — exclusive-cursor + final-cursor cases fail |
+| page ignores limit | RED — limit case fails |
+| latestEvent returns first instead of last | RED — latest-equals-final case fails |
+| same-stream append lock removed (non-atomic) | RED — both same-stream races fail |
+| shared metadata reference retained | RED — source-mutation isolation case fails |
+| rejected factory result still stored (add before validation) | RED — rejected-append-leaves-stream-unchanged (and every other append case) fails |
+
+### Scope
+
+The TCK owns SPI semantics; implementation-specific suites continue owning
+restart durability, encryption format, file permissions, corruption
+injection, SQL schema internals, indexes/query strategy, and `maxPageSize`.
+No existing tests were deleted. The `tramai-testing` testFixtures gained a
+dependency on `tramai-security` (the SPI's home module) so the shared suite
+can be written in one place.
