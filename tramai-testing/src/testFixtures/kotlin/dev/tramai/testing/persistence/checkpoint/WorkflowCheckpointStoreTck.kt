@@ -1,0 +1,558 @@
+package dev.tramai.testing.persistence.checkpoint
+
+import dev.tramai.orchestration.WorkflowCheckpoint
+import dev.tramai.orchestration.WorkflowCheckpointConflictException
+import dev.tramai.orchestration.WorkflowCheckpointStore
+import dev.tramai.orchestration.WorkflowRecoveryRecord
+import dev.tramai.orchestration.WorkflowRecoveryState
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+
+/**
+ * Epic 8.1f: the shared, cross-implementation
+ * [dev.tramai.orchestration.WorkflowCheckpointStore] compatibility contract.
+ * Every concrete store — in-memory, properties-file, Markdown, and JDBC —
+ * must treat a checkpoint as a versioned logical record identified by
+ * (workflowName, workflowId), with store-owned revision progression,
+ * optimistic concurrency, delete/idempotency semantics, and recovery-state
+ * persistence.
+ *
+ * A checkpoint is NOT "a file containing state": filesystem-safe naming,
+ * Markdown formatting and JDBC primary keys are implementation mechanics and
+ * must not change what constitutes a unique checkpoint. [WorkflowCheckpointCatalog]
+ * is a distinct optional SPI (Markdown intentionally does not implement it)
+ * and is outside this contract.
+ */
+abstract class WorkflowCheckpointStoreTck {
+
+    /** Fresh isolated storage per case; the runner owns setup/teardown. */
+    protected abstract fun createStore(): WorkflowCheckpointStore
+
+    private val savedAt = WorkflowCheckpointFixtures.SAVED_AT_EPOCH_MILLIS
+
+    private fun checkpoint(
+        workflowName: String,
+        workflowId: String,
+        nextStepIndex: Int = 3,
+        stepExecutions: Int = 5,
+        lastCompletedStepName: String? = "validate",
+        statePayload: String = """{"state":"review"}""",
+        revision: Long = 0,
+        metadata: Map<String, String> = mapOf("region" to "eu-west", "tenant" to "acme"),
+        recoveryState: WorkflowRecoveryState = WorkflowRecoveryState.Normal,
+    ): WorkflowCheckpoint = WorkflowCheckpointFixtures.checkpoint(
+        workflowName = workflowName,
+        workflowId = workflowId,
+        nextStepIndex = nextStepIndex,
+        stepExecutions = stepExecutions,
+        lastCompletedStepName = lastCompletedStepName,
+        statePayload = statePayload,
+        revision = revision,
+        metadata = metadata,
+        savedAtEpochMillis = savedAt,
+        recoveryState = recoveryState,
+    )
+
+    private fun recoveryRecord(
+        reason: dev.tramai.orchestration.WorkflowRecoveryReason = dev.tramai.orchestration.WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+        stepName: String = "sendInvoice",
+        attemptId: String = "attempt-42",
+        priorWorkerId: String = "worker-7",
+        idempotencyKey: String? = "idem-xyz",
+        instructions: String? = "manual confirmation required",
+    ): WorkflowRecoveryRecord = WorkflowCheckpointFixtures.recoveryRecord(
+        reason = reason,
+        stepName = stepName,
+        attemptId = attemptId,
+        priorWorkerId = priorWorkerId,
+        idempotencyKey = idempotencyKey,
+        instructions = instructions,
+    )
+
+    // ── A. Creation / read / identity ───────────────────────────────
+
+    @Test
+    fun `full checkpoint round-trips exactly`() = runBlocking<Unit> {
+        val store = createStore()
+        val rec = checkpoint("invoice-review", "run-001")
+        store.save(rec)
+        assertThat(store.load("invoice-review", "run-001")).isEqualTo(rec.copy(revision = 1))
+    }
+
+    @Test
+    fun `save returns the persisted value`() = runBlocking<Unit> {
+        val store = createStore()
+        val persisted = store.save(checkpoint("invoice-review", "run-002"))
+        assertThat(persisted).isEqualTo(checkpoint("invoice-review", "run-002").copy(revision = 1))
+        assertThat(store.load("invoice-review", "run-002")).isEqualTo(persisted)
+    }
+
+    @Test
+    fun `missing checkpoint loads null`() = runBlocking<Unit> {
+        val store = createStore()
+        assertThat(store.load("no-such", "never")).isNull()
+    }
+
+    @Test
+    fun `first revision is always 1`() = runBlocking<Unit> {
+        val store = createStore()
+        val persisted = store.save(checkpoint("rev", "first"))
+        assertThat(persisted.revision).isEqualTo(1)
+        assertThat(store.load("rev", "first")?.revision).isEqualTo(1)
+    }
+
+    @Test
+    fun `caller-supplied revision is not authoritative`() = runBlocking<Unit> {
+        val store = createStore()
+        val persisted = store.save(checkpoint("rev", "ignored-input", revision = 999))
+        assertThat(persisted.revision).isEqualTo(1)
+    }
+
+    @Test
+    fun `nullable lastCompletedStepName is preserved`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("nullable", "null-step", lastCompletedStepName = null))
+        assertThat(store.load("nullable", "null-step")?.lastCompletedStepName).isNull()
+    }
+
+    @Test
+    fun `state payload with multiline unicode and punctuation is preserved`() = runBlocking<Unit> {
+        val store = createStore()
+        val payload = "line-1\nline-2 🚀 \"quoted\" `code` {json:true} café — done"
+        store.save(checkpoint("payload", "rich", statePayload = payload))
+        assertThat(store.load("payload", "rich")?.statePayload).isEqualTo(payload)
+    }
+
+    @Test
+    fun `metadata exact keys and values preserved`() = runBlocking<Unit> {
+        val store = createStore()
+        val metadata = mapOf("region" to "eu-west", "tenant" to "acme", "empty" to "")
+        store.save(checkpoint("meta", "exact", metadata = metadata))
+        assertThat(store.load("meta", "exact")?.metadata).isEqualTo(metadata)
+    }
+
+    @Test
+    fun `Required recovery state round-trips exactly`() = runBlocking<Unit> {
+        val store = createStore()
+        val required = WorkflowCheckpointFixtures.required(recoveryRecord())
+        store.save(checkpoint("rec", "required", recoveryState = required))
+        assertThat(store.load("rec", "required")?.recoveryState).isEqualTo(required)
+    }
+
+    @Test
+    fun `same workflowName different IDs are independent`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("shared", "id-a", nextStepIndex = 1))
+        store.save(checkpoint("shared", "id-b", nextStepIndex = 9))
+        assertThat(store.load("shared", "id-a")?.nextStepIndex).isEqualTo(1)
+        assertThat(store.load("shared", "id-b")?.nextStepIndex).isEqualTo(9)
+    }
+
+    @Test
+    fun `same workflowId different names are independent`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("name-a", "shared-id", stepExecutions = 1))
+        store.save(checkpoint("name-b", "shared-id", stepExecutions = 7))
+        assertThat(store.load("name-a", "shared-id")?.stepExecutions).isEqualTo(1)
+        assertThat(store.load("name-b", "shared-id")?.stepExecutions).isEqualTo(7)
+    }
+
+    @Test
+    fun `duplicate create raises typed conflict with fixed message`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("dup", "create"))
+        val thrown = runCatching { store.save(checkpoint("dup", "create")) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+        assertThat(thrown?.message).isEqualTo("Workflow checkpoint conflict")
+        assertThat(thrown?.cause).isNull()
+    }
+
+    @Test
+    fun `rejected duplicate leaves the original unchanged`() = runBlocking<Unit> {
+        val store = createStore()
+        val original = store.save(checkpoint("dup", "unchanged", nextStepIndex = 3))
+        runCatching { store.save(checkpoint("dup", "unchanged", nextStepIndex = 99)) }
+        assertThat(store.load("dup", "unchanged")).isEqualTo(original)
+    }
+
+    @Test
+    fun `distinct keys whose legacy sanitized paths collide remain distinct`() = runBlocking<Unit> {
+        val store = createStore()
+        // DefaultWorkflowCheckpointPathStrategy maps both to "order_a".
+        store.save(checkpoint("order", "a/b", nextStepIndex = 1))
+        store.save(checkpoint("order", "a?b", nextStepIndex = 2))
+        assertThat(store.load("order", "a/b")?.nextStepIndex).isEqualTo(1)
+        assertThat(store.load("order", "a?b")?.nextStepIndex).isEqualTo(2)
+        assertThat(store.load("order", "a/b")).isNotEqualTo(store.load("order", "a?b"))
+    }
+
+    // ── B. Revision / optimistic concurrency ────────────────────────
+
+    @Test
+    fun `exact expected revision update succeeds and increments`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "exact"))
+        val updated = store.save(checkpoint("rev", "exact", nextStepIndex = 4), expectedRevision = 1)
+        assertThat(updated.revision).isEqualTo(2)
+        assertThat(updated.nextStepIndex).isEqualTo(4)
+    }
+
+    @Test
+    fun `update changes fields and persists new values`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "fields", statePayload = "before"))
+        store.save(checkpoint("rev", "fields", statePayload = "after"), expectedRevision = 1)
+        assertThat(store.load("rev", "fields")?.statePayload).isEqualTo("after")
+    }
+
+    @Test
+    fun `stale lower revision conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "stale"))
+        store.save(checkpoint("rev", "stale", nextStepIndex = 4), expectedRevision = 1)
+        val thrown = runCatching {
+            store.save(checkpoint("rev", "stale", nextStepIndex = 5), expectedRevision = 1)
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+        assertThat(thrown?.message).isEqualTo("Workflow checkpoint conflict")
+    }
+
+    @Test
+    fun `impossible higher revision conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "higher"))
+        val thrown = runCatching {
+            store.save(checkpoint("rev", "higher", nextStepIndex = 5), expectedRevision = 99)
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `expected revision on missing record conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        val thrown = runCatching {
+            store.save(checkpoint("rev", "missing"), expectedRevision = 1)
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `expected null on existing record conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "exists"))
+        val thrown = runCatching { store.save(checkpoint("rev", "exists", nextStepIndex = 9)) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `failed update leaves the record unchanged`() = runBlocking<Unit> {
+        val store = createStore()
+        val original = store.save(checkpoint("rev", "noop", nextStepIndex = 3))
+        runCatching { store.save(checkpoint("rev", "noop", nextStepIndex = 8), expectedRevision = 42) }
+        assertThat(store.load("rev", "noop")).isEqualTo(original)
+    }
+
+    @Test
+    fun `supplied revision 999 does not become 999 or 1000`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "chain", revision = 999))
+        val updated = store.save(checkpoint("rev", "chain", revision = 999), expectedRevision = 1)
+        assertThat(updated.revision).isEqualTo(2)
+    }
+
+    @Test
+    fun `repeated updates advance revision 1 2 3`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rev", "chain3"))
+        val second = store.save(checkpoint("rev", "chain3", nextStepIndex = 4), expectedRevision = 1)
+        val third = store.save(checkpoint("rev", "chain3", nextStepIndex = 5), expectedRevision = 2)
+        assertThat(second.revision).isEqualTo(2)
+        assertThat(third.revision).isEqualTo(3)
+        assertThat(store.load("rev", "chain3")?.revision).isEqualTo(3)
+    }
+
+    // ── C. Delete / idempotency ─────────────────────────────────────
+
+    @Test
+    fun `exact revision deletes`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("del", "exact"))
+        store.delete("del", "exact", expectedRevision = 1)
+        assertThat(store.load("del", "exact")).isNull()
+    }
+
+    @Test
+    fun `stale revision delete conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("del", "stale"))
+        store.save(checkpoint("del", "stale", nextStepIndex = 4), expectedRevision = 1)
+        val thrown = runCatching { store.delete("del", "stale", expectedRevision = 1) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `stale delete leaves the record unchanged`() = runBlocking<Unit> {
+        val store = createStore()
+        val original = store.save(checkpoint("del", "kept", nextStepIndex = 3))
+        runCatching { store.delete("del", "kept", expectedRevision = 42) }
+        assertThat(store.load("del", "kept")).isEqualTo(original)
+    }
+
+    @Test
+    fun `missing record with expected revision delete conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        val thrown = runCatching { store.delete("del", "missing", expectedRevision = 1) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `missing record with no expected revision delete is a no-op`() = runBlocking<Unit> {
+        val store = createStore()
+        store.delete("del", "noop")
+        assertThat(store.load("del", "noop")).isNull()
+    }
+
+    @Test
+    fun `existing record with no expected revision deletes`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("del", "unconditional"))
+        store.delete("del", "unconditional")
+        assertThat(store.load("del", "unconditional")).isNull()
+    }
+
+    @Test
+    fun `recreate after delete starts at revision 1`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("del", "recreate"))
+        store.save(checkpoint("del", "recreate", nextStepIndex = 4), expectedRevision = 1)
+        store.delete("del", "recreate", expectedRevision = 2)
+        val recreated = store.save(checkpoint("del", "recreate", nextStepIndex = 1))
+        assertThat(recreated.revision).isEqualTo(1)
+        assertThat(store.load("del", "recreate")?.nextStepIndex).isEqualTo(1)
+    }
+
+    // ── D. Recovery state ───────────────────────────────────────────
+
+    @Test
+    fun `requireRecovery transitions Normal to Required with exact record`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rec", "require"))
+        val record = recoveryRecord()
+        val updated = store.requireRecovery("rec", "require", expectedRevision = 1, record = record)
+        assertThat(updated.revision).isEqualTo(2)
+        assertThat(updated.recoveryState).isEqualTo(WorkflowRecoveryState.Required(record))
+        assertThat(store.load("rec", "require")?.recoveryState).isEqualTo(WorkflowRecoveryState.Required(record))
+    }
+
+    @Test
+    fun `requireRecovery preserves unrelated checkpoint fields`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(
+            checkpoint(
+                "rec", "preserve", nextStepIndex = 3, stepExecutions = 5,
+                lastCompletedStepName = "validate", statePayload = """{"state":"review"}""",
+                metadata = mapOf("region" to "eu-west"),
+            ),
+        )
+        val record = recoveryRecord()
+        store.requireRecovery("rec", "preserve", expectedRevision = 1, record = record)
+        val loaded = store.load("rec", "preserve")!!
+        assertThat(loaded.nextStepIndex).isEqualTo(3)
+        assertThat(loaded.stepExecutions).isEqualTo(5)
+        assertThat(loaded.lastCompletedStepName).isEqualTo("validate")
+        assertThat(loaded.statePayload).isEqualTo("""{"state":"review"}""")
+        assertThat(loaded.metadata).isEqualTo(mapOf("region" to "eu-west"))
+        assertThat(loaded.savedAtEpochMillis).isEqualTo(savedAt)
+    }
+
+    @Test
+    fun `requireRecovery with stale revision conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rec", "stale"))
+        store.save(checkpoint("rec", "stale", nextStepIndex = 4), expectedRevision = 1)
+        val thrown = runCatching {
+            store.requireRecovery("rec", "stale", expectedRevision = 1, record = recoveryRecord())
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `requireRecovery on missing checkpoint conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        val thrown = runCatching {
+            store.requireRecovery("rec", "missing", expectedRevision = 1, record = recoveryRecord())
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `failed requireRecovery leaves state unchanged`() = runBlocking<Unit> {
+        val store = createStore()
+        val original = store.save(checkpoint("rec", "noop"))
+        runCatching {
+            store.requireRecovery("rec", "noop", expectedRevision = 99, record = recoveryRecord())
+        }
+        assertThat(store.load("rec", "noop")).isEqualTo(original)
+    }
+
+    @Test
+    fun `clearRecovery transitions Required to Normal at revision plus one`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rec", "clear"))
+        val record = recoveryRecord()
+        store.requireRecovery("rec", "clear", expectedRevision = 1, record = record)
+        val cleared = store.clearRecovery("rec", "clear", expectedRevision = 2)
+        assertThat(cleared.revision).isEqualTo(3)
+        assertThat(cleared.recoveryState).isEqualTo(WorkflowRecoveryState.Normal)
+        assertThat(store.load("rec", "clear")?.recoveryState).isEqualTo(WorkflowRecoveryState.Normal)
+    }
+
+    @Test
+    fun `clearRecovery with stale revision conflicts`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rec", "clear-stale"))
+        store.requireRecovery("rec", "clear-stale", expectedRevision = 1, record = recoveryRecord())
+        val thrown = runCatching {
+            store.clearRecovery("rec", "clear-stale", expectedRevision = 1)
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(WorkflowCheckpointConflictException::class.java)
+    }
+
+    @Test
+    fun `failed clearRecovery is non-mutating`() = runBlocking<Unit> {
+        val store = createStore()
+        store.save(checkpoint("rec", "clear-noop"))
+        val record = recoveryRecord()
+        val required = store.requireRecovery("rec", "clear-noop", expectedRevision = 1, record = record)
+        runCatching { store.clearRecovery("rec", "clear-noop", expectedRevision = 99) }
+        assertThat(store.load("rec", "clear-noop")).isEqualTo(required)
+    }
+
+    // ── E. Concurrency ──────────────────────────────────────────────
+
+    @Test
+    fun `concurrent create - exactly one winner at revision 1`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val outcomes = runInParallel(0 until 8) {
+                runCatching { store.save(checkpoint("race-create-$round", "wf")) }
+            }
+            assertThat(outcomes.count { it.isSuccess }).withFailMessage {
+                "round $round: expected exactly one create winner, got ${outcomes.count { it.isSuccess }}"
+            }.isEqualTo(1)
+            assertThat(outcomes.filter { it.isFailure }.map { it.exceptionOrNull()?.javaClass?.name }.toSet())
+                .containsExactly(WorkflowCheckpointConflictException::class.java.name)
+            assertThat(store.load("race-create-$round", "wf")?.revision).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `competing same-revision updates - exactly one winner`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val name = "race-update-$round"
+            store.save(checkpoint(name, "wf"))
+            val payloads = (0 until 8).map { "payload-$round-$it" }
+            val outcomes = runInParallel(payloads) { payload ->
+                runCatching {
+                    store.save(checkpoint(name, "wf", statePayload = payload), expectedRevision = 1)
+                }
+            }
+            assertThat(outcomes.count { it.isSuccess }).withFailMessage {
+                "round $round: expected exactly one update winner, got ${outcomes.count { it.isSuccess }}"
+            }.isEqualTo(1)
+            assertThat(outcomes.filter { it.isFailure }.map { it.exceptionOrNull()?.javaClass?.name }.toSet())
+                .containsExactly(WorkflowCheckpointConflictException::class.java.name)
+            val winnerPayload = payloads[outcomes.indexOfFirst { it.isSuccess }]
+            assertThat(store.load(name, "wf")?.revision).isEqualTo(2)
+            assertThat(store.load(name, "wf")?.statePayload).isEqualTo(winnerPayload)
+        }
+    }
+
+    @Test
+    fun `concurrent update versus delete - exactly one legal winner`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val name = "race-del-$round"
+            store.save(checkpoint(name, "wf"))
+            val outcomes = runInParallel(0 until 2) { index ->
+                if (index == 0) {
+                    runCatching { store.save(checkpoint(name, "wf", nextStepIndex = 9), expectedRevision = 1) }
+                } else {
+                    runCatching { store.delete(name, "wf", expectedRevision = 1) }
+                }
+            }
+            val successes = outcomes.count { it.isSuccess }
+            assertThat(successes).withFailMessage {
+                "round $round: expected exactly one legal winner, got $successes (outcomes: $outcomes)"
+            }.isEqualTo(1)
+            val final = store.load(name, "wf")
+            if (outcomes[0].isSuccess) {
+                assertThat(final?.revision).isEqualTo(2)
+                assertThat(final?.nextStepIndex).isEqualTo(9)
+            } else {
+                assertThat(final).isNull()
+            }
+        }
+    }
+
+    @Test
+    fun `competing requireRecovery - exactly one winner with exact record`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val name = "race-rec-$round"
+            store.save(checkpoint(name, "wf"))
+            val records = (0 until 8).map { index ->
+                recoveryRecord(attemptId = "attempt-$round-$index", priorWorkerId = "worker-$index")
+            }
+            val outcomes = runInParallel(records) { record ->
+                runCatching { store.requireRecovery(name, "wf", expectedRevision = 1, record = record) }
+            }
+            assertThat(outcomes.count { it.isSuccess }).withFailMessage {
+                "round $round: expected exactly one recovery winner, got ${outcomes.count { it.isSuccess }}"
+            }.isEqualTo(1)
+            assertThat(outcomes.filter { it.isFailure }.map { it.exceptionOrNull()?.javaClass?.name }.toSet())
+                .containsExactly(WorkflowCheckpointConflictException::class.java.name)
+            val winnerRecord = records[outcomes.indexOfFirst { it.isSuccess }]
+            val final = store.load(name, "wf")!!
+            assertThat(final.revision).isEqualTo(2)
+            assertThat(final.recoveryState).isEqualTo(WorkflowRecoveryState.Required(winnerRecord))
+        }
+    }
+
+    // ── Parallel-race helper (shared pattern from #269-#272) ────────
+
+    /**
+     * Runs [block] for every element of [items] on real parallel workers with
+     * a start barrier, returning the outcomes in input order.
+     */
+    private suspend fun <T, R> runInParallel(
+        items: List<T>,
+        block: suspend (T) -> R,
+    ): List<R> = coroutineScope {
+        val ready = Channel<Unit>(items.size)
+        val release = CompletableDeferred<Unit>()
+        val workers = items.map { item ->
+            async(Dispatchers.Default) {
+                ready.send(Unit)
+                release.await()
+                block(item)
+            }
+        }
+        repeat(items.size) { ready.receive() }
+        release.complete(Unit)
+        workers.map { it.await() }
+    }
+
+    /** Range convenience overload for the race loops. */
+    private suspend fun <R> runInParallel(
+        range: IntRange,
+        block: suspend (Int) -> R,
+    ): List<R> = runInParallel(range.toList(), block)
+}

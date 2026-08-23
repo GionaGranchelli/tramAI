@@ -29,6 +29,7 @@ dependencies {
     testFixturesApi(project(":tramai-engine"))
     testFixturesApi(project(":tramai-security"))
     testFixturesApi(project(":tramai-spring-boot-starter-sovereign-ops"))
+    testFixturesApi(project(":tramai-orchestration"))
     testFixturesApi(libs.assertj.core)
     testFixturesApi(libs.coroutines.core)
     testFixturesApi(libs.coroutines.test)

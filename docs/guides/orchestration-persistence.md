@@ -108,6 +108,30 @@ The important contract detail is revision handling:
 
 That gives database, object-store, and filesystem implementations the same optimistic-concurrency model.
 
+## Checkpoint File Layout
+
+`FileWorkflowCheckpointStore` and `MarkdownWorkflowCheckpointStore` persist
+one file per checkpoint under the store root. Since version 0.6.0 the path
+is derived with the collision-free
+`CollisionFreeWorkflowCheckpointPathStrategy`: each identity segment
+(`workflowName`, `workflowId`) is URL-safe Base64 (no padding), so every
+distinct logical key maps to a distinct file:
+
+```
+<root>/<base64url(workflowName)>/<base64url(workflowId)>/checkpoint.properties
+<root>/<base64url(workflowName)>/<base64url(workflowId)>/checkpoint.md
+```
+
+Records persisted before this strategy (which sanitized segments to
+`[A-Za-z0-9_-]`, lossily collapsing keys like `"order/a"` and `"order?a"`)
+remain readable: a load first tries the canonical path, then the legacy
+sanitized path, and only accepts a legacy-path record whose contents
+identify the requested `workflowName`/`workflowId`. The first legitimate
+update migrates the record to the canonical path and deletes the legacy
+file — there are never two authoritative copies of one checkpoint.
+`DefaultWorkflowCheckpointPathStrategy` (the lossy layout) is still
+available for explicit injection and is unchanged for the lease store.
+
 ## Safe Failure Boundaries
 
 Built-in persistence stores expose fixed-text public failures. They do not copy filesystem paths, SQL, persisted payloads, or arbitrary storage exception messages into public exceptions, ordinary worker callbacks, or default logs. The original failure is available only through `PersistenceFailureDiagnosticObserver`.
