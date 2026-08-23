@@ -206,6 +206,8 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         record: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsAuditOutboxRecord = lease.withOpenOperation {
         validateManagedDirectory(outboxDir, STORAGE_NAME)
+        require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
+        require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
             "tramai-sovereign-ops-outbox-invalid-status"
         }
@@ -265,6 +267,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                     claimedBy = claimedBy,
                     claimedAt = now,
                     claimExpiresAt = now.plus(claimLeaseDuration),
+                    lastErrorCode = null,
                 )
                 writeCurrent(record.outboxId, updated.toPersistedV1(nextVersion(dto)))
                 claimed += updated
@@ -280,6 +283,9 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         expectedStatus: SovereignOpsAuditOutboxStatus,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
+        require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+            ERROR_OUTBOX_STATUS_MISMATCH
+        }
         require(dto.status == expectedStatus.name) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -295,6 +301,18 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
+        if (retryable) {
+            require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                ERROR_OUTBOX_STATUS_MISMATCH
+            }
+        } else {
+            require(
+                expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
+                    expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
+            ) {
+                ERROR_OUTBOX_STATUS_MISMATCH
+            }
+        }
         require(dto.status == expectedStatus.name) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -641,8 +659,14 @@ private fun boundedReadText(path: Path): String {
     return Files.readString(path)
 }
 
-private fun tempSibling(target: Path): Path =
-    target.resolveSibling(".${target.fileName}.tmp.${RANDOM.nextInt(Int.MAX_VALUE)}")
+private fun tempSibling(target: Path): Path {
+    // Stage the temp file OUTSIDE the scanned outbox directory (in the root
+    // directory above it), so a concurrent committedEntries() directory scan
+    // never observes an in-flight write as an unexpected entry. The atomic
+    // move back into the outbox directory stays on the same filesystem.
+    val stagingDir = target.parent?.parent ?: target.parent
+    return stagingDir.resolve(".${target.fileName}.tmp.${RANDOM.nextInt(Int.MAX_VALUE)}")
+}
 
 private fun writeFileWith0600(path: Path, bytes: ByteArray, createNew: Boolean) {
     val options = if (createNew) {

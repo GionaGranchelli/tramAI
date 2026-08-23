@@ -20,14 +20,14 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-invalid-status: only PREPARED records can be appended"
+            "tramai-sovereign-ops-outbox-invalid-status"
         }
         val existing = store.putIfAbsent(record.outboxId, record)
-        require(existing == null) { "tramai-sovereign-ops-outbox-duplicate-id: ${record.outboxId}" }
+        require(existing == null) { "tramai-sovereign-ops-outbox-duplicate-id" }
         val previousKey = eventKeyIndex.putIfAbsent(record.eventKey, record.outboxId)
         if (previousKey != null) {
             store.remove(record.outboxId)
-            require(false) { "tramai-sovereign-ops-outbox-duplicate-event-key: ${record.eventKey}" }
+            require(false) { "tramai-sovereign-ops-outbox-duplicate-event-key" }
         }
         return record
     }
@@ -38,6 +38,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
             ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
+            ERROR_OUTBOX_STATUS_MISMATCH
+        }
         require(record.status == expectedStatus) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -88,6 +91,7 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
             claimedBy = claimedBy,
             claimedAt = now,
             claimExpiresAt = now.plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY),
+            lastErrorCode = null,
         )
 
     override suspend fun markEmitted(
@@ -97,6 +101,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
             ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+            ERROR_OUTBOX_STATUS_MISMATCH
+        }
         require(record.status == expectedStatus) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -118,6 +125,18 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
             ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
+        if (retryable) {
+            require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                ERROR_OUTBOX_STATUS_MISMATCH
+            }
+        } else {
+            require(
+                expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
+                    expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
+            ) {
+                ERROR_OUTBOX_STATUS_MISMATCH
+            }
+        }
         require(record.status == expectedStatus) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
@@ -141,27 +160,33 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         return store[id]
     }
 
-    override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> =
-        store.values
+    override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> {
+        if (limit <= 0) return emptyList()
+        return store.values
             .filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }
             .take(limit)
+    }
 
     override suspend fun listByStatus(
         status: SovereignOpsAuditOutboxStatus,
         limit: Int,
-    ): List<SovereignOpsAuditOutboxRecord> =
-        store.values
+    ): List<SovereignOpsAuditOutboxRecord> {
+        if (limit <= 0) return emptyList()
+        return store.values
             .filter { it.status == status }
             .take(limit)
+    }
 
     override suspend fun listExpiredEmitting(
         now: Instant,
         limit: Int,
-    ): List<SovereignOpsAuditOutboxRecord> =
-        store.values
+    ): List<SovereignOpsAuditOutboxRecord> {
+        if (limit <= 0) return emptyList()
+        return store.values
             .filter { it.status == SovereignOpsAuditOutboxStatus.EMITTING }
             .filter { it.claimExpiresAt != null && it.claimExpiresAt.isBefore(now) }
             .take(limit)
+    }
 }
 
 /** @see InMemorySovereignOpsAuditOutboxStore */

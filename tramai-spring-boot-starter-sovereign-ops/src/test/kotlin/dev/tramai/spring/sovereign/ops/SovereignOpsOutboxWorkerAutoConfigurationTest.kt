@@ -321,7 +321,7 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
     // ── Worker lease support ──────────────────────────────────────────
 
     @Test
-    fun `lease disabled — normal worker`() {
+    fun `lease disabled - normal worker`() {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,
@@ -339,7 +339,7 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
     }
 
     @Test
-    fun `lease enabled + store exists — leased worker`() {
+    fun `lease enabled + store exists - leased worker`() {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,
@@ -357,7 +357,7 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
     }
 
     @Test
-    fun `lease enabled + no store — fail loudly`() {
+    fun `lease enabled + no store - fail loudly`() {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,

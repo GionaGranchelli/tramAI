@@ -21,10 +21,13 @@ import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.concurrent.CancellationException
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
+import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcSovereignOpsAuditOutboxStoreTest {
@@ -1082,5 +1085,91 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
                 runCatching { stmt.execute(v4) }
             }
         }
+    }
+
+    // ── #267/#271 transaction-cleanup precedence regressions ────────
+
+    @Test
+    fun `appendNext rethrows CancellationException unchanged when rollback also fails`() {
+        runBlocking {
+            val cancellation = CancellationException("cancelled by test")
+            val rollbackFailure = java.sql.SQLException("rollback failed")
+            val failing = JdbcSovereignOpsAuditOutboxStore(
+                dataSource = dataSourceWithFailures(
+                    commitFailure = cancellation,
+                    rollbackFailure = rollbackFailure,
+                ),
+                payloadCodec = testCodec,
+            )
+
+            val thrown = runCatching {
+                failing.append(record("cancel-rollback"))
+            }.exceptionOrNull()
+
+            assertSame(cancellation, thrown)
+            assertEquals(listOf(rollbackFailure), thrown?.suppressed?.toList())
+        }
+    }
+
+    @Test
+    fun `appendNext preserves primary CancellationException when autoCommit restore fails`() {
+        runBlocking {
+            val cancellation = CancellationException("cancelled by test")
+            val restoreFailure = java.sql.SQLException("restore failed")
+            val failing = JdbcSovereignOpsAuditOutboxStore(
+                dataSource = dataSourceWithFailures(
+                    commitFailure = cancellation,
+                    restoreFailure = restoreFailure,
+                ),
+                payloadCodec = testCodec,
+            )
+
+            val thrown = runCatching {
+                failing.append(record("cancel-restore"))
+            }.exceptionOrNull()
+
+            assertSame(cancellation, thrown)
+            assertEquals(listOf(restoreFailure), thrown?.suppressed?.toList())
+        }
+    }
+
+    /**
+     * A DataSource whose connections delegate to the real database but fail
+     * deterministically: [commitFailure] is thrown from `commit()`, and, when
+     * [restoreFailure] is non-null, from the second `setAutoCommit` call (the
+     * finally-block restoration). Each `getConnection` captures ONE delegate,
+     * so the production code sees a single JDBC transaction rather than a
+     * fresh connection per method call. Same shape as the #267/#271
+     * failure-injection helpers.
+     */
+    private fun dataSourceWithFailures(
+        commitFailure: Exception = CancellationException("cancelled by test"),
+        rollbackFailure: Exception? = null,
+        restoreFailure: Exception? = null,
+    ): DataSource {
+        val real = dataSource
+        return java.lang.reflect.Proxy.newProxyInstance(
+            DataSource::class.java.classLoader,
+            arrayOf(DataSource::class.java),
+        ) { _, method, args ->
+            if (method.name == "getConnection" && args.isNullOrEmpty()) {
+                val delegate = real.connection
+                var autoCommitCalls = 0
+                java.lang.reflect.Proxy.newProxyInstance(
+                    java.sql.Connection::class.java.classLoader,
+                    arrayOf(java.sql.Connection::class.java),
+                ) { _, connMethod, connArgs ->
+                    if (connMethod.name == "commit") throw commitFailure
+                    if (connMethod.name == "rollback" && rollbackFailure != null) throw rollbackFailure
+                    if (connMethod.name == "setAutoCommit") {
+                        autoCommitCalls++
+                        if (restoreFailure != null && autoCommitCalls > 1) throw restoreFailure
+                    }
+                    connMethod.invoke(delegate, *(connArgs ?: emptyArray()))
+                }
+            } else {
+                method.invoke(real, *(args ?: emptyArray()))
+            }
+        } as DataSource
     }
 }
