@@ -37,14 +37,16 @@ abstract class AuditStoreTck {
     /** Fresh isolated storage per case; the runner owns setup/teardown. */
     protected abstract fun createStore(): AuditStore
 
-    private fun appendValid(
+    private suspend fun appendValid(
         store: AuditStore,
         streamId: String,
         eventId: String,
         metadata: Map<String, String> = emptyMap(),
-    ): AuditEvent = runBlocking {
-        store.appendNext(streamId, AuditStoreFixtures.factory(streamId, eventId, metadata = metadata))
-    }
+    ): AuditEvent =
+        store.appendNext(
+            streamId,
+            AuditStoreFixtures.factory(streamId, eventId, metadata = metadata),
+        )
 
     // ── Append / chain semantics ────────────────────────────────────
 

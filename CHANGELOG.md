@@ -197,9 +197,11 @@
   primary `CancellationException` escapes unchanged when rollback or
   autoCommit-restore fails. **Deliberate decision — event-ID uniqueness is
   per-stream shared contract; JDBC's global `uq_audit_events_event_id`
-  index is kept as implementation-specific hardening** (the store never
-  sees a cross-stream duplicate through the SPI), documented in the
-  contract reference. Implementation-specific concerns (restart
+  index is kept as implementation-specific hardening** — a direct SPI caller
+  can reuse an event ID across streams (InMemory/File accept it); JDBC
+  rejects it, retained because normal AuditEngine generation uses UUID IDs
+  and there is no architecture requirement to reuse an ID across streams —
+  documented in the contract reference. Implementation-specific concerns (restart
   durability, encryption format, permissions, corruption, SQL schema/
   indexes, `maxPageSize`) stay out of the shared TCK. Mutation evidence
   (14 mutations, each restored): stream/sequence/previous-hash/self-hash/

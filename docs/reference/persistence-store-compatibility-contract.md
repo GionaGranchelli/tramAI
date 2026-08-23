@@ -377,9 +377,11 @@ factory-callback semantics themselves, not just resulting rows.
   starting at N+1; limit respected; partial page at the end; cursor at the
   final event → empty; missing stream → empty; zero/negative limit rejected;
   negative cursor rejected; ascending order preserved; page contents equal
-  the corresponding slice of `readStream`. The contract never demands
-  "exactly limit" because JDBC deliberately supports a configured
-  `maxPageSize`.
+  the corresponding slice of `readStream`. The contract expects the
+  requested limit when enough events are available within the
+  implementation's supported page cap, but does not require a request
+  larger than an implementation-specific maximum such as JDBC's
+  `maxPageSize` to return the entire requested count.
 - **Hash-chain integrity (1):** for a valid multi-event stream —
   `events[i].sequenceNumber == events[i-1].sequenceNumber + 1`,
   `events[i].previousEventHash == events[i-1].eventHash`,
@@ -396,11 +398,14 @@ factory-callback semantics themselves, not just resulting rows.
 ### Decisions (deliberate, per review)
 
 - **Event-ID uniqueness is per-stream shared contract; cross-stream reuse is
-  NOT.** JDBC's global unique index `uq_audit_events_event_id` is kept and
-  documented as implementation-specific defensive hardening (same rationale
-  as the replay-digest uniqueness in #270): the store never sees a
-  cross-stream duplicate through the SPI, so making it a shared requirement
-  would force a schema/design change without an architecture reason.
+  NOT.** Cross-stream event-ID reuse is intentionally outside the shared
+  AuditStore contract — a direct SPI caller can reuse an ID across streams
+  and InMemory/File accept it. JDBC additionally enforces global event-ID
+  uniqueness as implementation-specific hardening, retained because normal
+  AuditEngine generation uses UUID event IDs and there is no architecture
+  requirement to reuse an ID across streams (same rationale as the
+  replay-digest uniqueness in #270). Documented so future implementations
+  know the divergence is deliberate.
 - **`appendNext` is a chain-authority API, not a plain append:** the TCK
   pins the factory-callback contract (invoked exactly once, receives the
   authoritative latest, exception/cancellation propagate unchanged with
