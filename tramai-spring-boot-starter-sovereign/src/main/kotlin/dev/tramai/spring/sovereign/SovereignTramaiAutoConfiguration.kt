@@ -7,6 +7,7 @@ import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.RegisteredModel
+import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
@@ -187,6 +188,7 @@ class SovereignTramaiAutoConfiguration {
         modelRegistry: ModelRegistry,
         auditStore: AuditStore,
         modelProviders: ObjectProvider<ModelProvider>,
+        toolProviders: ObjectProvider<TramaiTool<*, *>>,
         properties: SovereignTramaiProperties,
         infrastructure: SovereignTramaiInfrastructure,
     ): SovereignTramai {
@@ -206,6 +208,13 @@ class SovereignTramaiAutoConfiguration {
         modelProviders.orderedStream().forEach { provider ->
             builder.provider(provider, name = provider.providerId())
         }
+
+        // Register TramaiTool beans from the application context.
+        // Users provide TramaiTool (or @AiTool) beans and the starter wires
+        // them into the governed runtime. Duplicate tool names are rejected
+        // by the engine at build time — collection keeps that fail-loud
+        // behavior instead of silently deduplicating.
+        builder.tools(toolProviders.orderedStream().toList())
 
         // Register model routes from properties.
         for ((modelName, providerName) in properties.models) {
