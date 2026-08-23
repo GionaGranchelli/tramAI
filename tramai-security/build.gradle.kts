@@ -24,6 +24,7 @@ dependencies {
 
     implementation(libs.coroutines.core)
 
+    testImplementation(testFixtures(project(":tramai-testing")))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.coroutines.test)

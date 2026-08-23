@@ -20,17 +20,21 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.containers.PostgreSQLContainer
+import java.lang.reflect.Proxy
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.SQLException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.CancellationException
 import javax.sql.DataSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -93,6 +97,40 @@ class JdbcApprovalStoreTest {
 
     private fun store(clock: Clock = fixedClock): JdbcApprovalStore =
         JdbcApprovalStore(dataSource, clock)
+
+    /**
+     * A DataSource whose connections delegate to the real database but fail
+     * deterministically: [commitFailure] is thrown from `commit()`, and, when
+     * [restoreFailure] is non-null, from the second `setAutoCommit` call (the
+     * finally-block restoration). Each `getConnection` captures ONE delegate,
+     * so the production code sees a single JDBC transaction rather than a
+     * fresh connection per method call.
+     */
+    private fun dataSourceWithFailures(commitFailure: Exception, restoreFailure: Exception? = null): DataSource {
+        val real = dataSource
+        return Proxy.newProxyInstance(
+            DataSource::class.java.classLoader,
+            arrayOf(DataSource::class.java),
+        ) { _, method, args ->
+            if (method.name == "getConnection" && args.isNullOrEmpty()) {
+                val delegate = real.connection
+                var autoCommitCalls = 0
+                Proxy.newProxyInstance(
+                    Connection::class.java.classLoader,
+                    arrayOf(Connection::class.java),
+                ) { _, connMethod, connArgs ->
+                    if (connMethod.name == "commit") throw commitFailure
+                    if (connMethod.name == "setAutoCommit") {
+                        autoCommitCalls++
+                        if (restoreFailure != null && autoCommitCalls > 1) throw restoreFailure
+                    }
+                    connMethod.invoke(delegate, *(connArgs ?: emptyArray()))
+                }
+            } else {
+                method.invoke(real, *(args ?: emptyArray()))
+            }
+        } as DataSource
+    }
 
     private fun approvalRequest(
         id: String = "test-approval-1",
@@ -298,6 +336,52 @@ class JdbcApprovalStoreTest {
         assertNotNull(receipt.request.consumedAt)
         assertEquals(2, receipt.request.version)
         assertEquals(false, receipt.replayed)
+    }
+    }
+
+    @Test
+    fun `consumeApprovedOrReplay rethrows CancellationException unchanged from transaction cleanup`() { runBlocking {
+        val id = "cancel-consume"
+        val normal = store()
+        normal.create(approvalRequest(id = id))
+        normal.transition(id, 0, ApprovalTransition.Approve("user:bob"))
+
+        val cancellation = CancellationException("cancelled by test")
+        val failing = JdbcApprovalStore(dataSourceWithFailures(cancellation), fixedClock)
+
+        val thrown = runCatching {
+            failing.consumeApprovedOrReplay(
+                id, 1,
+                Sha256Digest.of("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+                "worker:executor",
+            )
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+    }
+    }
+
+    @Test
+    fun `consumeApprovedOrReplay preserves primary exception when autoCommit restore fails`() { runBlocking {
+        val id = "cancel-restore"
+        val normal = store()
+        normal.create(approvalRequest(id = id))
+        normal.transition(id, 0, ApprovalTransition.Approve("user:bob"))
+
+        val cancellation = CancellationException("cancelled by test")
+        val restoreFailure = SQLException("restore failed")
+        val failing = JdbcApprovalStore(dataSourceWithFailures(cancellation, restoreFailure), fixedClock)
+
+        val thrown = runCatching {
+            failing.consumeApprovedOrReplay(
+                id, 1,
+                Sha256Digest.of("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+                "worker:executor",
+            )
+        }.exceptionOrNull()
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf(restoreFailure), thrown?.suppressed?.toList())
     }
     }
 

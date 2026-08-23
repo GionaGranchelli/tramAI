@@ -228,21 +228,82 @@ class JdbcApprovalStore(
         validateIdField(consumedBy, "consumedBy", maxIdLength)
         SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")
 
-        dataSource.connection.use { conn ->
-            val current = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
-            val req = mapToApprovalRequest(current)
+        return dataSource.connection.use { conn ->
+            consumeApprovedInTransaction(conn, approvalId, expectedVersion, presentedTokenDigest, consumedBy)
+        }
+    }
 
-            if (req.status != ApprovalStatus.APPROVED) throw ApprovalStoreNotConsumableException(approvalId)
-
-            if (!tokenDigestsMatch(presentedTokenDigest, req.binding.approvalTokenDigest)) {
-                throw ApprovalStoreTokenRejectedException(approvalId)
+    /**
+     * Row lock + explicit transaction so concurrent identical deliveries
+     * serialize: the loser blocks on FOR UPDATE, then reads the winner's
+     * committed state and takes the replay path instead of failing the
+     * conditional UPDATE with a conflict. In autocommit mode the lock would
+     * be released at the end of the SELECT statement, so the
+     * read-modify-write must be one transaction.
+     *
+     * Deliberately non-suspend: there are no coroutine suspension points in
+     * the read-modify-write. Failure precedence is primary operation /
+     * cancellation exception, then rollback failure, then connection-state
+     * restoration failure — later cleanup failures are attached as
+     * suppressed to the primary, never replacing it.
+     */
+    private fun consumeApprovedInTransaction(
+        conn: Connection,
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ): ApprovalConsumptionReceipt {
+        val previousAutoCommit = conn.autoCommit
+        conn.autoCommit = false
+        var primaryFailure: Exception? = null
+        try {
+            val receipt = consumeApprovedLocked(conn, approvalId, expectedVersion, presentedTokenDigest, consumedBy)
+            conn.commit()
+            return receipt
+        } catch (e: Exception) {
+            primaryFailure = e
+            try {
+                conn.rollback()
+            } catch (rollbackFailure: Exception) {
+                e.addSuppressed(rollbackFailure)
             }
-
-            if (req.consumedAt == null && req.consumedBy == null) {
-                return consumeFreshApproval(conn, current, req, expectedVersion, consumedBy)
+            throw e
+        } finally {
+            try {
+                conn.autoCommit = previousAutoCommit
+            } catch (restoreFailure: Exception) {
+                val primary = primaryFailure
+                if (primary != null) {
+                    primary.addSuppressed(restoreFailure)
+                } else {
+                    throw restoreFailure
+                }
             }
+        }
+    }
 
-            return consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
+    private fun consumeApprovedLocked(
+        conn: Connection,
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ): ApprovalConsumptionReceipt {
+        val current = readCurrent(conn, approvalId, forUpdate = true)
+            ?: throw ApprovalStoreNotFoundException(approvalId)
+        val req = mapToApprovalRequest(current)
+
+        if (req.status != ApprovalStatus.APPROVED) throw ApprovalStoreNotConsumableException(approvalId)
+
+        if (!tokenDigestsMatch(presentedTokenDigest, req.binding.approvalTokenDigest)) {
+            throw ApprovalStoreTokenRejectedException(approvalId)
+        }
+
+        return if (req.consumedAt == null && req.consumedBy == null) {
+            consumeFreshApproval(conn, current, req, expectedVersion, consumedBy)
+        } else {
+            consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
         }
     }
 
@@ -483,13 +544,17 @@ class JdbcApprovalStore(
         }
     }
 
-    private fun readCurrent(conn: java.sql.Connection, approvalId: String): ApprovalRow? {
+    private fun readCurrent(
+        conn: java.sql.Connection,
+        approvalId: String,
+        forUpdate: Boolean = false,
+    ): ApprovalRow? {
         val sql = """
             SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
                    sanitized_metadata, version
             FROM approvals
             WHERE approval_id = ?
-        """.trimIndent()
+        """.trimIndent() + if (forUpdate) " FOR UPDATE" else ""
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
