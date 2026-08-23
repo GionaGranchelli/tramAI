@@ -1,7 +1,5 @@
 package dev.tramai.engine
 
-import dev.tramai.core.model.Message
-import dev.tramai.core.model.MessageRole
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -68,26 +66,11 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
         metadata.conversationId?.let { validateIdField(it, "conversationId") }
 
         val messages = replayEnvelope.revealForResume().messages
-        validateEnvelopeBinding(metadata, messages)
+        ReplayEnvelopeValidator.validate(metadata, messages)
         val canonical = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, messages)
         require(canonical == metadata.replayEnvelopeDigest) {
             "replay-envelope-digest-mismatch: canonical=$canonical, provided=${metadata.replayEnvelopeDigest}"
         }
-    }
-
-    private fun validateEnvelopeBinding(
-        metadata: SuspendedInvocationMetadata,
-        messages: List<Message>,
-    ) {
-        val assistantMsg = messages.lastOrNull { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
-            ?: throw IllegalArgumentException("replay-envelope-no-assistant-tool-calls")
-        val toolCalls = checkNotNull(assistantMsg.toolCalls)
-        require(metadata.toolCallIndex in toolCalls.indices) {
-            "replay-envelope-tool-call-index-out-of-bounds"
-        }
-        val selectedCall = toolCalls[metadata.toolCallIndex]
-        require(selectedCall.id == metadata.toolCallId) { "replay-envelope-tool-call-id-mismatch" }
-        require(selectedCall.name == metadata.toolName) { "replay-envelope-tool-call-name-mismatch" }
     }
 
     private fun validateIdField(value: String, fieldName: String) {

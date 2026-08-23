@@ -558,7 +558,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                     ToolCall(
                         id = "tool-call-$approvalId",
                         name = "tool-$approvalId",
-                        argumentsJson = "{}",
+                        argumentsJson = "__redacted_approval_continuation_args__",
                     ),
                 ),
             ),

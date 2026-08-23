@@ -224,7 +224,7 @@ public API change; no persisted format or schema changes.
 
 ## SuspendedInvocationStore TCK (PR #270)
 
-`SuspendedInvocationStoreTck` (tramai-testing testFixtures) runs **33 shared
+`SuspendedInvocationStoreTck` (tramai-testing testFixtures) runs **39 shared
 behavioral cases** against every `SuspendedInvocationStore` implementation:
 the engine's default in-memory store (`InMemorySuspendedInvocationStore`,
 `tramai-engine`), the encrypted file store (`tramai-persistence-file`), and
@@ -251,6 +251,14 @@ JDBC-only unique replay-envelope-digest constraint (see below).
   (wrong digest and tampered envelope both), an envelope without an assistant
   tool-call message, a toolCallId absent from the envelope, a toolCallIndex
   out of bounds, and a toolName that does not match the envelope.
+- **Redaction invariants (6):** the replay envelope must already be redacted
+  — a correctly-digested envelope whose selected tool call carries RAW
+  arguments is rejected (the digest is recomputed over the invalid envelope,
+  so only the redaction check can fire); a duplicate selected toolCallId
+  across the envelope is rejected; an extra or misplaced redaction sentinel
+  is rejected; a selected call outside the latest assistant tool-call batch
+  is rejected; negative historySize and an envelope smaller than its
+  historySize are rejected.
 - **Remove (5):** remove returns the created metadata, remove then get →
   null, remove then reveal → null, missing → null, create after remove
   succeeds with the same approvalId.
@@ -281,18 +289,30 @@ does not pin it:
 ### Production changes the enrollment required
 
 - **`InMemorySuspendedInvocationStore` gained the shared validations** it
-  lacked: ID-field validation on every operation, envelope binding
-  (assistant tool-call batch, toolCallId/name/index match), and the
-  canonical replay-envelope digest check. It previously accepted records the
-  file and JDBC stores rejected — the exact drift Epic 8.1 exists to remove.
-  The engine's own test doubles that built invalid envelopes were corrected
-  to build valid ones (the engine's real suspension path always produces
-  valid records).
+  lacked, delegated to a shared `ReplayEnvelopeValidator` (tramai-engine,
+  internal): ID-field validation on every operation, envelope binding, the
+  canonical replay-envelope digest check, and the **redaction invariants** —
+  history-size consistency, globally unique selected toolCallId, selected
+  slot in the latest assistant batch, and exactly one redaction sentinel at
+  the selected slot. It previously accepted records the file store rejected.
+- **`JdbcSuspendedInvocationStore` now enforces the same redaction
+  invariants** (mirrored inline — cross-module copy of the engine validator,
+  pinned by the TCK so the copies cannot drift). It previously accepted and
+  encrypted a correctly-digested unredacted envelope, which violated the
+  architecture invariant that raw tool arguments live only behind the
+  ApprovalContinuationStore boundary (SPEC-016).
 - **SPI KDoc fixed**: the interface claimed stores "do not persist beyond
   the JVM lifecycle"; durability is implementation-specific (in-memory is
   process-local, file/JDBC may survive restart).
+- Engine test doubles that built invalid envelopes now build valid ones
+  (redacted sentinel + canonical digest): the testFixtures
+  `TestApprovalGatewayPersistenceRequestBuilder`, `DefaultApprovalGatewayTest`,
+  and the JDBC implementation-specific fixtures. The JDBC
+  `raw replay envelope is not visible in the database` test was rewritten:
+  raw-args envelopes are now rejected at the API boundary, and the valid
+  (redacted) envelope's sensitive message content is still encrypted at rest.
 
-### Mutation evidence (all restored after each run; InMemory store)
+### Mutation evidence (all restored after each run; InMemory store + validator)
 
 | Mutation | TCK outcome |
 |---|---|
@@ -301,10 +321,12 @@ does not pin it:
 | Reveal returns null despite existing entry | RED — reveal round-trip + non-consuming reveal cases fail |
 | Remove leaves replay envelope reachable | RED — remove-then-reveal case fails |
 | Digest mismatch accepted | RED — digest-mismatch + tampered-envelope cases fail |
-| toolCallId mismatch accepted | RED — toolCallId-binding case fails |
+| toolCallId mismatch accepted | RED — toolCallId-binding case fails (the duplicate-id case passes via `single()`'s incidental IAE — documented) |
 | toolName mismatch accepted | RED — toolName-binding case fails |
-| toolCallIndex mismatch accepted | RED — toolCallIndex-binding case fails |
+| toolCallIndex checks dropped | RED — toolCallIndex-binding case fails |
 | Concurrent remove check-then-act (two winners) | RED — concurrent-remove race fails |
+| Redaction sentinel not required | RED — not-redacted + extra-sentinel cases fail |
+| historySize consistency not validated | RED — negative-historySize + too-small-envelope cases fail |
 
 ### Scope
 

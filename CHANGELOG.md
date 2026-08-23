@@ -98,35 +98,46 @@
   implementation — the engine's default in-memory store, the encrypted file
   store, and JDBC. `SuspendedInvocationStoreTck` (tramai-testing
   testFixtures; the module gained a testFixtures dependency on
-  `tramai-engine`, the SPI's home module) runs **33 cases** — creation/read
+  `tramai-engine`, the SPI's home module) runs **39 cases** — creation/read
   (13: full-metadata round-trip incl. token budget and tool security,
   missing null, duplicate approvalId rejected, blank/control/whitespace/
   oversized ID fields rejected on every operation), sensitive release (6:
   reveal returns equal messages, missing null, get() never exposes the
   messages, envelope `toString` is `[REDACTED]`, reveal does not consume,
-  repeated reveals equal), digest + envelope binding (6: digest mismatch,
+  repeated reveals equal), digest + envelope binding (8: digest mismatch,
   tampered envelope, no assistant tool-call batch, toolCallId absent,
-  toolCallIndex out of bounds, toolName mismatch — all rejected), remove
-  (5: returns metadata, then get/reveal null, missing null, create after
-  remove succeeds), and concurrency (3 real parallel races with a start
-  barrier, 20 iterations each: concurrent create — exactly one winner;
-  concurrent remove — exactly one winner; reveal while remove — no crashes,
-  exactly one remove winner). Three runners execute the same contract
-  (33/33 each): `InMemorySuspendedInvocationStoreTckTest` (tramai-engine —
-  the engine's default store is enrolled like any other, not exempt),
-  `FileSuspendedInvocationStoreTckTest` (per-case encrypted temp dir),
-  `JdbcSuspendedInvocationStoreTckTest` (PostgreSQL testcontainers, table
-  reset per case). The enrollment guard reuses the shared
-  `StoreEnrollmentScanner`. **Production changes the enrollment required:**
-  `InMemorySuspendedInvocationStore` gained the shared validations it lacked
-  (ID-field validation on every operation, envelope binding, canonical
-  replay-envelope digest check) — it previously accepted records the file
-  and JDBC stores reject; the SPI KDoc durability claim was corrected
-  ("not persist beyond the JVM lifecycle" → durability is
-  implementation-specific: in-memory is process-local, file/JDBC may
-  survive restart); engine test doubles that built invalid envelopes now
-  build valid ones (the real suspension path always produces valid
-  records). **Deliberate decision — replay-digest uniqueness stays
+  toolCallIndex out of bounds, toolName mismatch — all rejected),
+  redaction invariants (6: correctly-digested RAW selected arguments
+  rejected, duplicate selected toolCallId rejected, extra/misplaced
+  sentinel rejected, selected call outside the latest assistant batch
+  rejected, negative historySize and envelope-smaller-than-historySize
+  rejected), remove (5: returns metadata, then get/reveal null, missing
+  null, create after remove succeeds), and concurrency (3 real parallel
+  races with a start barrier, 20 iterations each: concurrent create —
+  exactly one winner; concurrent remove — exactly one winner; reveal while
+  remove — no crashes, exactly one remove winner). Three runners execute
+  the same contract (39/39 each): `InMemorySuspendedInvocationStoreTckTest`
+  (tramai-engine — the engine's default store is enrolled like any other,
+  not exempt), `FileSuspendedInvocationStoreTckTest` (per-case encrypted
+  temp dir), `JdbcSuspendedInvocationStoreTckTest` (PostgreSQL
+  testcontainers, table reset per case). The enrollment guard reuses the
+  shared `StoreEnrollmentScanner`. **Production changes the enrollment
+  required:** `InMemorySuspendedInvocationStore` gained the shared
+  validations it lacked, delegated to a shared `ReplayEnvelopeValidator`
+  (ID fields, envelope binding, canonical digest, and the **redaction
+  invariants** — history-size consistency, globally unique selected
+  toolCallId, latest-assistant-batch slot, exactly one redaction sentinel
+  at the selected slot); `JdbcSuspendedInvocationStore` now enforces the
+  same redaction invariants (mirrored inline, pinned by the TCK) — it
+  previously accepted and encrypted a correctly-digested unredacted
+  envelope, violating the SPEC-016 boundary that raw tool arguments live
+  only behind the ApprovalContinuationStore; the SPI KDoc durability claim
+  was corrected ("not persist beyond the JVM lifecycle" → durability is
+  implementation-specific); engine test doubles that built invalid
+  envelopes now build valid ones (redacted sentinel + canonical digest),
+  and the JDBC raw-in-DB test now asserts the API boundary rejects
+  raw-args envelopes while the valid envelope's sensitive content stays
+  encrypted at rest. **Deliberate decision — replay-digest uniqueness stays
   JDBC-specific:** the JDBC unique index on `replay_envelope_digest`
   (double-suspension hardening) is NOT copied to the in-memory/file stores
   and is NOT pinned by the TCK, because the engine's suspension flow
@@ -134,11 +145,14 @@
   documented in the contract reference so future implementations know the
   divergence is deliberate. Implementation-specific concerns (restart
   durability, encryption format, permissions, corruption, schema versions,
-  SQL locking) stay out of the shared TCK. Mutation evidence (9 mutations,
+  SQL locking) stay out of the shared TCK. Mutation evidence (11 mutations,
   each restored): duplicate create overwrites existing, remove becomes
   get-without-delete, reveal returns null, remove leaves the envelope
   reachable, digest/toolCallId/toolName/toolCallIndex checks dropped,
-  non-atomic check-then-act remove — each turns shared TCK cases RED. Zero
+  non-atomic check-then-act remove, redaction sentinel not required,
+  historySize consistency not validated — each turns shared TCK cases RED
+  (the duplicate-id case passes via `single()`'s incidental IAE under the
+  toolCallId mutation — documented in the contract reference). Zero
   public API change, no persisted format or schema changes, no existing
   tests deleted. Epic 8.1 stays IN PROGRESS. Reference:
   `docs/reference/persistence-store-compatibility-contract.md`.

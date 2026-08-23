@@ -85,6 +85,75 @@ object SuspendedInvocationFixtures {
         ),
     )
 
+    /**
+     * Envelope whose selected tool call carries RAW arguments — the exact
+     * violation the redaction invariant must reject. Digest computed over
+     * these messages stays canonical, so only the redaction check can fire.
+     */
+    fun messagesWithRawSelectedArguments(
+        rawArguments: String = """{"customerSecret":"abc"}""",
+    ): List<Message> = listOf(
+        Message(role = MessageRole.USER, content = "review-sensitive-prompt"),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = TOOL_CALL_ID, name = TOOL_NAME, argumentsJson = rawArguments),
+            ),
+        ),
+    )
+
+    /** Envelope whose selected toolCallId appears in TWO assistant batches. */
+    fun messagesWithDuplicateSelectedId(): List<Message> = listOf(
+        Message(role = MessageRole.USER, content = "review-sensitive-prompt"),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = TOOL_CALL_ID, name = TOOL_NAME, argumentsJson = REDACTED_ARGUMENTS),
+            ),
+        ),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = TOOL_CALL_ID, name = TOOL_NAME, argumentsJson = """{"x":1}"""),
+            ),
+        ),
+    )
+
+    /** Envelope with the selected slot redacted PLUS a stray extra sentinel. */
+    fun messagesWithExtraSentinel(): List<Message> = listOf(
+        Message(role = MessageRole.USER, content = "review-sensitive-prompt"),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = TOOL_CALL_ID, name = TOOL_NAME, argumentsJson = REDACTED_ARGUMENTS),
+                ToolCall(id = "other-call", name = "other_tool", argumentsJson = REDACTED_ARGUMENTS),
+            ),
+        ),
+    )
+
+    /** Envelope whose selected call sits in an EARLIER assistant batch. */
+    fun messagesWithSelectedCallInEarlierBatch(): List<Message> = listOf(
+        Message(role = MessageRole.USER, content = "review-sensitive-prompt"),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = TOOL_CALL_ID, name = TOOL_NAME, argumentsJson = REDACTED_ARGUMENTS),
+            ),
+        ),
+        Message(
+            role = MessageRole.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall(id = "later-call", name = "later_tool", argumentsJson = """{"x":1}"""),
+            ),
+        ),
+    )
+
     /** Envelope wrapping [messages], with a defensive copy like the engine's. */
     fun envelope(messages: List<Message> = messages()): SensitiveReplayEnvelope =
         SensitiveReplayEnvelope.of(messages)
@@ -155,7 +224,9 @@ object SuspendedInvocationFixtures {
         conversationId = conversationId,
         historySize = historySize,
         tokenBudgetSnapshot = TOKEN_BUDGET,
-        toolReference = TOOL_REFERENCE,
+        // toolReference must stay internally consistent with toolName so a
+        // negative fixture mutates exactly one relationship at a time.
+        toolReference = TOOL_REFERENCE.copy(toolName = toolName),
         toolSecurity = TOOL_SECURITY,
     )
 }

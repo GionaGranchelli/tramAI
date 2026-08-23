@@ -1199,7 +1199,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 - Approval store — ✅ PR #267 (shared `ApprovalStoreTck`, 37 cases × 3 implementations + enrollment guard)
 - Approval continuation store — ✅ PR #269 (shared `ApprovalContinuationStoreTck`, 50 cases × 3 implementations + enrollment guard)
-- Suspended invocation store — ✅ PR #270 (shared `SuspendedInvocationStoreTck`, 33 cases × 3 implementations + enrollment guard)
+- Suspended invocation store — ✅ PR #270 (shared `SuspendedInvocationStoreTck`, 39 cases × 3 implementations + enrollment guard)
 - Audit store — ⏳
 - Audit outbox store — ⏳
 - Workflow checkpoint store — ⏳
@@ -1250,12 +1250,12 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Deliverables (PR #270)
 
-- `tramai-testing/src/testFixtures/.../persistence/engine/` — `SuspendedInvocationStoreTck` (33 cases), `SuspendedInvocationFixtures`; `tramai-testing` testFixtures gained a dependency on `tramai-engine` (the SPI's home module)
+- `tramai-testing/src/testFixtures/.../persistence/engine/` — `SuspendedInvocationStoreTck` (39 cases), `SuspendedInvocationFixtures`; `tramai-testing` testFixtures gained a dependency on `tramai-engine` (the SPI's home module)
 - Runners: `InMemorySuspendedInvocationStoreTckTest` (tramai-engine — the engine's default store, enrolled like any other), `FileSuspendedInvocationStoreTckTest`, `JdbcSuspendedInvocationStoreTckTest`
 - `SuspendedInvocationStoreTckEnrollmentArchitectureTest` — reuses the shared `StoreEnrollmentScanner`
-- `InMemorySuspendedInvocationStore` gained the shared validations it lacked (ID fields, envelope binding, canonical digest); SPI KDoc durability claim corrected to implementation-specific
-- Deliberate decision: JDBC's unique `replay_envelope_digest` index stays JDBC-specific (engine never double-suspends; continuation store already rejects duplicate approvalId) — documented, not copied to the other stores
-- Mutation evidence (9 mutations, each restored): duplicate overwrite, remove-without-delete, reveal-null, envelope-leak-after-remove, digest/toolCallId/toolName/toolCallIndex checks dropped, non-atomic remove
+- `InMemorySuspendedInvocationStore` gained the shared validations it lacked (ID fields, envelope binding, canonical digest, redaction invariants via shared `ReplayEnvelopeValidator`); `JdbcSuspendedInvocationStore` now enforces the same redaction invariants (rejects correctly-digested unredacted envelopes); SPI KDoc durability claim corrected to implementation-specific
+- Deliberate decisions: JDBC's unique `replay_envelope_digest` index stays JDBC-specific (documented, not copied); historySize consistency and the redaction sentinel ARE shared contract (File already enforced them)
+- Mutation evidence (11 mutations, each restored): duplicate overwrite, remove-without-delete, reveal-null, envelope-leak-after-remove, digest/toolCallId/toolName/toolCallIndex checks dropped, non-atomic remove, redaction-sentinel not required, historySize not validated
 - Zero public API change; no persisted format or schema changes; no existing tests deleted
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`
 

@@ -202,7 +202,7 @@ class JdbcSuspendedInvocationStoreTest {
         ),
         replayEnvelopeDigest = digest,
         conversationId = "conv-1",
-        historySize = 5,
+        historySize = 1,
         tokenBudgetSnapshot = TokenBudgetSnapshot(
             totalInputTokens = 100,
             totalOutputTokens = 50,
@@ -229,7 +229,7 @@ class JdbcSuspendedInvocationStoreTest {
                 ToolCall(
                     id = "tc-1",
                     name = "test_tool",
-                    argumentsJson = """{"key":"value"}""",
+                    argumentsJson = "__redacted_approval_continuation_args__",
                 ),
             ),
         ),
@@ -261,7 +261,7 @@ class JdbcSuspendedInvocationStoreTest {
             Message(MessageRole.USER, "Hello B"),
             Message(
                 MessageRole.ASSISTANT, "",
-                toolCalls = listOf(ToolCall("tc-2", "other_tool", """{"key":"value"}""")),
+                toolCalls = listOf(ToolCall("tc-2", "other_tool", "__redacted_approval_continuation_args__")),
             ),
         )
         val digestB = ReplayEnvelopeDigestHelper.compute(
@@ -445,9 +445,11 @@ class JdbcSuspendedInvocationStoreTest {
     }
 
     @Test
-    fun `raw replay envelope is not visible in the database`() { runBlocking {
+    fun `raw replay envelope is rejected before reaching the database`() { runBlocking {
         val s = store()
-        // Create with some sensitive content
+        // Raw selected tool arguments never reach the store: the shared
+        // contract rejects a correctly-digested unredacted envelope, so the
+        // encryption boundary never sees them.
         val messages = listOf(
             Message(MessageRole.USER, "Sensitive query: password=secret123"),
             Message(
@@ -464,9 +466,34 @@ class JdbcSuspendedInvocationStoreTest {
             ),
             messages = messages,
         )
+        assertFailsWith<IllegalArgumentException> {
+            s.create(
+                sampleMetadata("si-no-raw", digest = rawDigest).copy(toolCallId = "tc-x"),
+                sampleEnvelope(messages),
+            )
+        }
+
+        // And a valid (redacted) envelope's sensitive message content is still
+        // encrypted at rest — never visible as plaintext in the DB.
+        val validMessages = listOf(
+            Message(MessageRole.USER, "Sensitive query: password=secret123"),
+            Message(
+                MessageRole.ASSISTANT, "",
+                toolCalls = listOf(ToolCall("tc-x", "test_tool", "__redacted_approval_continuation_args__")),
+            ),
+        )
+        val validDigest = ReplayEnvelopeDigestHelper.compute(
+            operationReference = ResumeOperationReference(
+                serviceInterface = "com.example.TestService",
+                methodName = "execute",
+                jvmMethodDescriptor = "(Ljava/lang/String;)V",
+                resumeDefinitionDigest = operationDigest,
+            ),
+            messages = validMessages,
+        )
         s.create(
-            sampleMetadata("si-no-raw", digest = rawDigest).copy(toolCallId = "tc-x"),
-            sampleEnvelope(messages),
+            sampleMetadata("si-no-raw", digest = validDigest).copy(toolCallId = "tc-x"),
+            sampleEnvelope(validMessages),
         )
 
         val conn: Connection = DriverManager.getConnection(
@@ -481,7 +508,6 @@ class JdbcSuspendedInvocationStoreTest {
                     val text = ciphertext.toString(StandardCharsets.UTF_8)
                     // Verify ciphertext does not contain the plaintext strings
                     assertTrue(text.contains("secret123").not(), "Raw content visible in DB")
-                    assertTrue(text.contains("top-secret").not(), "Raw tool args visible in DB")
                     assertTrue(text.contains("password").not(), "Raw password visible in DB")
                 }
             }
@@ -713,7 +739,7 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals(operationDigest, loaded.operationReference.resumeDefinitionDigest)
         assertEquals(fixedDigest, loaded.replayEnvelopeDigest)
         assertEquals("conv-1", loaded.conversationId)
-        assertEquals(5, loaded.historySize)
+        assertEquals(1, loaded.historySize)
         assertEquals(100L, loaded.tokenBudgetSnapshot?.totalInputTokens)
         assertEquals(50L, loaded.tokenBudgetSnapshot?.totalOutputTokens)
         assertEquals(0.01, loaded.tokenBudgetSnapshot!!.totalInputCost, 0.001)

@@ -276,6 +276,69 @@ abstract class SuspendedInvocationStoreTck {
         assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
     }
 
+    // ── Redaction invariants (raw selected arguments never reach a store) ──
+
+    @Test
+    fun `create rejects selected tool call that is not redacted`() = runBlocking<Unit> {
+        val store = createStore()
+        // Raw selected arguments with a canonical digest over THAT envelope:
+        // only the redaction invariant can reject it, not the digest check.
+        val rawMessages = SuspendedInvocationFixtures.messagesWithRawSelectedArguments()
+        val metadata = SuspendedInvocationFixtures.metadata(
+            replayEnvelopeDigest = SuspendedInvocationFixtures.digest(rawMessages),
+        )
+        val envelope = SuspendedInvocationFixtures.envelope(rawMessages)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
+    @Test
+    fun `create rejects duplicate selected toolCallId across the envelope`() = runBlocking<Unit> {
+        val store = createStore()
+        val duplicateMessages = SuspendedInvocationFixtures.messagesWithDuplicateSelectedId()
+        val metadata = SuspendedInvocationFixtures.metadata(
+            replayEnvelopeDigest = SuspendedInvocationFixtures.digest(duplicateMessages),
+        )
+        val envelope = SuspendedInvocationFixtures.envelope(duplicateMessages)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
+    @Test
+    fun `create rejects extra or misplaced redaction sentinel`() = runBlocking<Unit> {
+        val store = createStore()
+        val extraSentinelMessages = SuspendedInvocationFixtures.messagesWithExtraSentinel()
+        val metadata = SuspendedInvocationFixtures.metadata(
+            replayEnvelopeDigest = SuspendedInvocationFixtures.digest(extraSentinelMessages),
+        )
+        val envelope = SuspendedInvocationFixtures.envelope(extraSentinelMessages)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
+    @Test
+    fun `create rejects selected tool call outside the latest assistant batch`() = runBlocking<Unit> {
+        val store = createStore()
+        val earlierBatchMessages = SuspendedInvocationFixtures.messagesWithSelectedCallInEarlierBatch()
+        val metadata = SuspendedInvocationFixtures.metadata(
+            replayEnvelopeDigest = SuspendedInvocationFixtures.digest(earlierBatchMessages),
+        )
+        val envelope = SuspendedInvocationFixtures.envelope(earlierBatchMessages)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
+    @Test
+    fun `create rejects negative historySize`() = runBlocking<Unit> {
+        val store = createStore()
+        val (metadata, envelope) = SuspendedInvocationFixtures.record(historySize = -1)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
+    @Test
+    fun `create rejects envelope smaller than its historySize`() = runBlocking<Unit> {
+        val store = createStore()
+        // Two messages cannot account for five history entries.
+        val (metadata, envelope) = SuspendedInvocationFixtures.record(historySize = 5)
+        assertFailsWith<IllegalArgumentException> { store.create(metadata, envelope) }
+    }
+
     // ── Remove ─────────────────────────────────────────────────────
 
     @Test

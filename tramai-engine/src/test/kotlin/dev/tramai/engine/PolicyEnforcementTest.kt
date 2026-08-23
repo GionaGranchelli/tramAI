@@ -2096,7 +2096,7 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `provider failure before fallback fires and allow proceeds to secondary`() { runBlocking {
+    fun `provider failure - BEFORE_FALLBACK fires and allow proceeds to secondary`() { runBlocking {
         val fallbackCalled = AtomicInteger(0)
         var fallbackEnforced = false
         val failOnceProvider = object : ModelProvider {

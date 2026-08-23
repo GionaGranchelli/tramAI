@@ -104,12 +104,9 @@ class SuspendedInvocationStoreTckEnrollmentArchitectureTest {
         assertThat(scanner.implementationsIn(file)).isEmpty()
     }
 
-    private fun tempSourceFile(content: String): File {
-        val dir = Files.createTempDirectory("enrollment-probe-")
-        val file = dir.resolve("Probe.kt").toFile()
-        file.writeText(content)
-        file.deleteOnExit()
-        dir.toFile().deleteOnExit()
-        return file
-    }
+    private fun tempSourceFile(content: String): File =
+        Files.createTempFile("enrollment-probe-", ".kt").toFile().apply {
+            writeText(content)
+            deleteOnExit()
+        }
 }

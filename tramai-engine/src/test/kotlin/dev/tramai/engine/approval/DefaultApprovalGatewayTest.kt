@@ -617,13 +617,20 @@ internal class FakeApprovalGatewayRequestFactory(
             resumeDefinitionDigest = zeroDigest,
         )
         // The envelope must bind to the metadata (assistant tool-call message
-        // with matching id/name/index) and carry the canonical digest, per the
+        // with matching id/name/index), carry the canonical digest, and have
+        // the selected arguments replaced by the redaction sentinel — per the
         // shared SuspendedInvocationStore contract.
         val envelopeMessages = listOf(
             Message(
                 role = MessageRole.ASSISTANT,
                 content = "",
-                toolCalls = listOf(ToolCall(id = "tc-1", name = "test-tool", argumentsJson = "{}")),
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "tc-1",
+                        name = "test-tool",
+                        argumentsJson = "__redacted_approval_continuation_args__",
+                    ),
+                ),
             ),
         )
         val envelopeDigest = ReplayEnvelopeDigestHelper.compute(operationReference, envelopeMessages)
