@@ -16,10 +16,11 @@ import java.util.UUID
  * ```
  * PREPARED (appended, transition pending)
  *   ├──→ PENDING (transition succeeded, dispatchable)
- *   │      ├──→ EMITTING (claimed)
- *   │      │      ├──→ EMITTED (success)
- *   │      │      └──→ FAILED_RETRYABLE → PENDING (re-claim)
- *   │      └──→ FAILED_PERMANENT (terminal)
+ *   │      └──→ EMITTING (claimed)
+ *   │             ├──→ EMITTED (success)
+ *   │             ├──→ FAILED_RETRYABLE → EMITTING (re-claim, attempt + 1)
+ *   │             ├──→ FAILED_PERMANENT (terminal)
+ *   │             └──→ EMITTING (expired claim re-claimed, attempt + 1)
  *   └──→ FAILED_PERMANENT (transition failed, orphaned intent)
  * ```
  *

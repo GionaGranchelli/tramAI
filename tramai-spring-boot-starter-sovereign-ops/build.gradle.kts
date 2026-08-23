@@ -40,6 +40,7 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(libs.jackson.databind)
+    testImplementation(testFixtures(project(":tramai-testing")))
 }
 
 tasks.test {

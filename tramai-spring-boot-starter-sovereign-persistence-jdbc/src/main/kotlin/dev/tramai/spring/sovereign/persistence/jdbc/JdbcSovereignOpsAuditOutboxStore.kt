@@ -83,27 +83,20 @@ class JdbcSovereignOpsAuditOutboxStore(
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-invalid-status: only PREPARED records can be appended"
+            "tramai-sovereign-ops-outbox-invalid-status"
         }
 
         return dataSource.connection.use { conn ->
-            val previousAutoCommit = conn.autoCommit
-            conn.autoCommit = false
             try {
-                val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
-                val encrypted = payloadCodec.encode(payloadJson)
+                inOutboxTransaction(conn) { c ->
+                    val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
+                    val encrypted = payloadCodec.encode(payloadJson)
 
-                insertAppend(conn, record, encrypted)
-                conn.commit()
-                record
+                    insertAppend(c, record, encrypted)
+                    record
+                }
             } catch (e: SQLException) {
-                conn.rollback()
-                throw mapAppendException(e, record)
-            } catch (e: Exception) {
-                conn.rollback()
-                throw e
-            } finally {
-                conn.autoCommit = previousAutoCommit
+                throw mapAppendException(e)
             }
         }
     }
@@ -112,10 +105,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        val previousAutoCommit = conn.autoCommit
-        conn.autoCommit = false
-        try {
-            val row = selectForUpdate(conn, outboxId)
+        inOutboxTransaction(conn) { c ->
+            val row = selectForUpdate(c, outboxId)
                 ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
             val domain = row.toDomain()
@@ -132,14 +123,8 @@ class JdbcSovereignOpsAuditOutboxStore(
             val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
             val encrypted = payloadCodec.encode(payloadJson)
 
-            updateStatusAndPayload(conn, outboxId, row.version, updated.status.name, encrypted)
-            conn.commit()
+            updateStatusAndPayload(c, outboxId, row.version, updated.status.name, encrypted)
             updated
-        } catch (e: Exception) {
-            conn.rollback()
-            throw e
-        } finally {
-            conn.autoCommit = previousAutoCommit
         }
     }
 
@@ -152,11 +137,9 @@ class JdbcSovereignOpsAuditOutboxStore(
         val actualLimit = minOf(limit, maxClaimLimit)
 
         return dataSource.connection.use { conn ->
-            val previousAutoCommit = conn.autoCommit
-            conn.autoCommit = false
-            try {
+            inOutboxTransaction(conn) { c ->
                 val claimExpiresAt = now.plus(claimLeaseDuration)
-                val selected = selectClaimableForUpdateSkipLocked(conn, actualLimit, now)
+                val selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
 
                 val claimed = selected.map { row ->
                     val record = row.toDomain()
@@ -175,16 +158,10 @@ class JdbcSovereignOpsAuditOutboxStore(
                     val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
                     val encrypted = payloadCodec.encode(payloadJson)
 
-                    updateClaimed(conn, updated.outboxId, encrypted, now, claimExpiresAt)
+                    updateClaimed(c, updated.outboxId, encrypted, now, claimExpiresAt)
                     updated
                 }
-                conn.commit()
                 claimed
-            } catch (e: Exception) {
-                conn.rollback()
-                throw e
-            } finally {
-                conn.autoCommit = previousAutoCommit
             }
         }
     }
@@ -194,9 +171,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         expectedStatus: SovereignOpsAuditOutboxStatus,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        val previousAutoCommit = conn.autoCommit
-        conn.autoCommit = false
-        try {
+        inOutboxTransaction(conn) { conn ->
             val row = selectForUpdate(conn, outboxId)
                 ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
@@ -242,13 +217,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 val updatedCount = stmt.executeUpdate()
                 require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
             }
-            conn.commit()
             updated
-        } catch (e: Exception) {
-            conn.rollback()
-            throw e
-        } finally {
-            conn.autoCommit = previousAutoCommit
         }
     }
 
@@ -258,9 +227,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        val previousAutoCommit = conn.autoCommit
-        conn.autoCommit = false
-        try {
+        inOutboxTransaction(conn) { conn ->
             val row = selectForUpdate(conn, outboxId)
                 ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
@@ -322,13 +289,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 val updatedCount = stmt.executeUpdate()
                 require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
             }
-            conn.commit()
             updated
-        } catch (e: Exception) {
-            conn.rollback()
-            throw e
-        } finally {
-            conn.autoCommit = previousAutoCommit
         }
     }
 
@@ -771,15 +732,51 @@ class JdbcSovereignOpsAuditOutboxStore(
 
     private fun mapAppendException(
         e: SQLException,
-        record: SovereignOpsAuditOutboxRecord,
     ): RuntimeException {
         val message = e.message ?: ""
         return when {
             message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") ->
-                IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key: ${record.eventKey}")
+                IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key")
             message.contains("audit_outbox_pkey") ->
-                IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id: ${record.outboxId}")
+                IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id")
             else -> IllegalStateException("tramai-sovereign-ops-outbox-database-failure", e)
+        }
+    }
+
+    /**
+     * Deliberately non-suspend helper (the #267/#271 cleanup model): runs
+     * [block] in one explicit transaction. Failure precedence is primary
+     * operation / cancellation, then rollback failure, then
+     * autoCommit-restore failure — later cleanup failures are attached as
+     * suppressed to the primary, never replacing it.
+     */
+    private fun <T> inOutboxTransaction(conn: Connection, block: (Connection) -> T): T {
+        val previousAutoCommit = conn.autoCommit
+        conn.autoCommit = false
+        var primaryFailure: Exception? = null
+        try {
+            val result = block(conn)
+            conn.commit()
+            return result
+        } catch (e: Exception) {
+            primaryFailure = e
+            try {
+                conn.rollback()
+            } catch (rollbackFailure: Exception) {
+                e.addSuppressed(rollbackFailure)
+            }
+            throw e
+        } finally {
+            try {
+                conn.autoCommit = previousAutoCommit
+            } catch (restoreFailure: Exception) {
+                val primary = primaryFailure
+                if (primary != null) {
+                    primary.addSuppressed(restoreFailure)
+                } else {
+                    throw restoreFailure
+                }
+            }
         }
     }
 }

@@ -1,10 +1,11 @@
 # Persistence Store Compatibility Contract
 
 Epic 8.1 (PR #267 ApprovalStore slice, PR #269 ApprovalContinuationStore
-slice, PR #270 SuspendedInvocationStore slice, PR #271 AuditStore slice).
-Shared behavioral TCKs prove every implementation of a store family
-satisfies exactly the same externally observable contract, regardless of
-storage technology (memory, encrypted files, JDBC).
+slice, PR #270 SuspendedInvocationStore slice, PR #271 AuditStore slice,
+PR #272 SovereignOpsAuditOutboxStore slice). Shared behavioral TCKs prove
+every implementation of a store family satisfies exactly the same externally
+observable contract, regardless of storage technology (memory, encrypted
+files, JDBC).
 
 ## Epic 8.1 matrix
 
@@ -14,7 +15,7 @@ storage technology (memory, encrypted files, JDBC).
 | Approval continuation | ✅ | ✅ | ✅ | ✅ #269 |
 | Suspended invocation | ✅ | ✅ | ✅ | ✅ #270 |
 | Audit | ✅ | ✅ | ✅ | ✅ #271 |
-| Audit outbox | … | … | … | ⏳ |
+| Audit outbox | ✅ | ✅ | ✅ | ✅ #272 |
 | Workflow checkpoint | … | … | … | ⏳ |
 | Workflow lease | … | … | … | ⏳ |
 | Step attempt | ✅ | ✅ | ✅ | ✅ #218 |
@@ -468,3 +469,136 @@ injection, SQL schema internals, indexes/query strategy, and `maxPageSize`.
 No existing tests were deleted. The `tramai-testing` testFixtures gained a
 dependency on `tramai-security` (the SPI's home module) so the shared suite
 can be written in one place.
+
+## SovereignOpsAuditOutboxStore TCK (PR #272)
+
+`SovereignOpsAuditOutboxStoreTck` (tramai-testing testFixtures) runs **55
+shared behavioral cases** against every `SovereignOpsAuditOutboxStore`
+implementation. The outbox is a delivery state machine, not generic
+persistence — the contract pins one legal lifecycle (the JDBC guards from
+PR #85's review are the authoritative semantics):
+
+```
+PREPARED ──markReadyForDispatch──→ PENDING ──claimPending──→ EMITTING
+PREPARED ──markFailed(retryable=false)──→ FAILED_PERMANENT
+EMITTING ──markEmitted──→ EMITTED
+EMITTING ──markFailed(retryable=true)──→ FAILED_RETRYABLE ──claimPending──→ EMITTING
+EMITTING ──markFailed(retryable=false)──→ FAILED_PERMANENT
+EMITTING (claimExpiresAt < now) ──claimPending──→ EMITTING (attempt + 1)
+```
+
+- **Append / lookup (13):** valid PREPARED round-trips exactly; append
+  returns the stored record; missing `get`/`findByEventKey` → null; exact
+  event-key lookup; duplicate outboxId rejected; duplicate eventKey rejected
+  (and leaves no orphan second record, with the original event-key mapping
+  intact); blank outboxId/eventKey rejected; every non-PREPARED initial
+  status rejected; reason codes are exact fixed strings, never interpolated
+  (`tramai-sovereign-ops-outbox-invalid-id`,
+  `-invalid-event-key`, `-invalid-status`, `-duplicate-id`,
+  `-duplicate-event-key`, `-not-found`, `-status-mismatch`).
+- **markReadyForDispatch (5):** PREPARED → PENDING preserving every
+  non-status field; persisted PENDING; missing → `IllegalStateException` +
+  not-found; wrong current status rejected; **the supplied expectedStatus
+  itself must be PREPARED** (markReady(expectedStatus = PENDING) on a
+  PREPARED record rejects — catches the InMemory divergence).
+- **markEmitted (7):** EMITTING → EMITTED with the exact supplied
+  `emittedAt`; attempt/claim fields preserved; missing → not-found;
+  PREPARED/PENDING/EMITTED/FAILED_RETRYABLE/FAILED_PERMANENT all rejected —
+  the expected status must be EMITTING.
+- **markFailed (9):** legal matrix — PREPARED + permanent → FAILED_PERMANENT;
+  EMITTING + retryable → FAILED_RETRYABLE; EMITTING + permanent →
+  FAILED_PERMANENT, each pinning `lastErrorCode == errorCode`; everything
+  else rejected (PREPARED + retryable, PENDING + either, FAILED_RETRYABLE,
+  EMITTED, FAILED_PERMANENT).
+- **Claim / retry / lease (10):** PENDING claim → EMITTING with attempt +1,
+  claimant, claim timestamp, expiry = now + 5 minutes; FAILED_RETRYABLE
+  claim → EMITTING with new claimant and **`lastErrorCode = null`** (its own
+  dedicated case — removing that one line turns the TCK red); expired
+  EMITTING reclaim replaces claimant/attempt/expiry; the lease boundary is
+  strictly `claimExpiresAt < now` (exact equality is NOT reclaimable, one
+  second past IS); PREPARED, EMITTED, FAILED_PERMANENT and fresh EMITTING
+  are never claimable.
+- **Diagnostic listing (7):** membership only, never ordering (JDBC orders
+  by `created_at`; InMemory/File do not) — listPending → PENDING only,
+  listByStatus → exact status only, listExpiredEmitting → EMITTING with
+  expiry < now only; limits cap the result size without pinning which
+  records win; zero/negative limits → empty on all four paths; the expired
+  boundary excludes exact equality; `findByEventKey` reflects the current
+  transitioned version, not the original PREPARED snapshot.
+- **Concurrency (5 real parallel races, start barrier, 20 iterations
+  each):** duplicate outboxId — exactly one append winner; duplicate
+  eventKey — exactly one winner AND every loser's record is absent (proves
+  the InMemory event-key index rollback is real); one PENDING record, 8
+  claimers with limit 1 — exactly one claim total, attempt 1, one claimant;
+  pool claim — 8 PENDING records claimed by 8 workers, every record exactly
+  once, every persisted attemptCount 1; concurrent completion — exactly one
+  `markEmitted` winner, final EMITTED.
+
+### Decisions (deliberate, per review)
+
+- **The JDBC lifecycle guards are the authoritative semantics** (they were
+  explicitly added in PR #85's review): InMemory and File were aligned to
+  them rather than weakening JDBC.
+- **Clearing `lastErrorCode` on a fresh claim is shared contract** — a retry
+  actively claimed must not carry the previous failure forward.
+- **Non-positive diagnostic limits return `[]`** on every path (the public
+  ops layer separately validates user-facing limits as positive and bounded).
+- **Error messages are stable safe reason codes**, never interpolated IDs or
+  event keys (policy continued from #271).
+
+### Production changes the enrollment required
+
+- **`InMemorySovereignOpsAuditOutboxStore`** gained: PREPARED-only readiness
+  guard, EMITTING-only emission guard, the legal markFailed matrix, clearing
+  `lastErrorCode` on claim, `[]` for non-positive list limits, and fixed
+  (non-interpolated) duplicate/invalid-status reason codes.
+- **`FileSovereignOpsAuditOutboxStore`** gained blank outboxId/eventKey
+  validation, the EMITTING-only emission guard, the legal markFailed matrix,
+  and clearing `lastErrorCode` on claim. Its write staging was also fixed:
+  temp files are now created **outside** the scanned outbox directory, so a
+  concurrent `committedEntries()` scan never observes an in-flight write as
+  an unexpected entry (the TCK's pool-claim race exposed this).
+- **`JdbcSovereignOpsAuditOutboxStore`** normalized its duplicate errors to
+  fixed reason codes and collapsed all five mutating transaction paths onto
+  one non-suspend `inOutboxTransaction` helper with the #267 precedence:
+  operation / cancellation **>** rollback failure **>** autoCommit-restore
+  failure, later cleanup failures suppressed. Deterministic regressions
+  prove a primary `CancellationException` escapes unchanged when rollback
+  fails, and when autoCommit-restore fails. No database schema change.
+- `SovereignOpsAuditOutboxRecord` KDoc lifecycle diagram corrected to the
+  shared matrix (retryable failures re-claim directly to EMITTING; no
+  PENDING → FAILED_PERMANENT path).
+
+### Mutation evidence (all restored after each run; InMemory store)
+
+| Mutation | TCK outcome |
+|---|---|
+| duplicate outbox ID overwrites existing | RED — duplicate-id + concurrent-duplicate races |
+| duplicate eventKey accepted | RED — event-key + concurrent event-key race |
+| loser record not removed after eventKey race | RED — concurrent event-key race |
+| blank outboxId validation removed | RED — blank-id case |
+| markReady allows expected PENDING | RED — readiness lifecycle cases |
+| markEmitted accepts PREPARED | RED — emission lifecycle cases |
+| retryable markFailed accepts PREPARED | RED — failure-matrix cases |
+| permanent markFailed accepts PENDING | RED — failure-matrix case |
+| claim allows PREPARED | RED — claim-eligibility case |
+| fresh EMITTING reclaimed (expiry ignored) | RED — fresh-EMITTING + lease-boundary + list-boundary cases |
+| lease boundary becomes inclusive (`<=`) | RED — exact-boundary case |
+| attemptCount not incremented | RED — claim/reclaim cases |
+| retry claim retains lastErrorCode | RED — dedicated clear-error case |
+| listPending includes FAILED_RETRYABLE | RED — listing case |
+| non-atomic claim (CAS replaced) | RED — claim + pool-claim races |
+| claim ignores limit | RED — limit-capped case |
+
+### Scope
+
+The TCK owns SPI semantics; implementation-specific suites continue owning
+durability/restart guarantees, encryption/ciphertext, filesystem
+permissions, corruption detection, JDBC queryable-column tamper detection,
+SQL indexes/schema, `FOR UPDATE SKIP LOCKED`, file record versions, JDBC
+`maxClaimLimit`, and `isDurable()` (the SPI documents it as
+implementation-dependent). No existing tests were deleted. The
+`tramai-testing` testFixtures gained a dependency on
+`tramai-spring-boot-starter-sovereign-ops` (test-fixture-only; no Spring
+enters any production runtime module) so the shared suite can be written in
+one place.

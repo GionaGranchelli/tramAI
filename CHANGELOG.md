@@ -213,6 +213,67 @@
   reason codes). Epic 8.1 stays IN PROGRESS. Reference:
   `docs/reference/persistence-store-compatibility-contract.md`.
 
+- **SovereignOpsAuditOutboxStore compatibility TCK (PR #272, Epic 8.1e).**
+  One shared behavioral contract for every `SovereignOpsAuditOutboxStore`
+  implementation — the sovereign-ops module's in-memory store, the
+  encrypted file store, and JDBC. The outbox is a delivery state machine,
+  not generic persistence: `SovereignOpsAuditOutboxStoreTck` (tramai-testing
+  testFixtures, which gained a test-fixture-only dependency on
+  `tramai-spring-boot-starter-sovereign-ops`, the SPI's home module — no
+  Spring enters any production runtime module) runs **55 cases** — append/
+  lookup (13: exact PREPARED round-trip, missing nulls, event-key lookup,
+  duplicate outboxId/eventKey rejected with the orphan-rollback and
+  mapping-intact assertions, blank IDs rejected, every non-PREPARED status
+  rejected, exact fixed reason codes), markReadyForDispatch (5: PREPARED→
+  PENDING preserving non-status fields, missing → not-found, wrong current
+  status rejected, **expectedStatus itself must be PREPARED**),
+  markEmitted (7: EMITTING→EMITTED with exact emittedAt, claim fields
+  preserved, all five illegal source statuses rejected), markFailed (9: the
+  legal matrix PREPARED+permanent, EMITTING+retryable, EMITTING+permanent
+  with `lastErrorCode` pinned, everything else rejected), claim/retry/lease
+  (10: PENDING claim with attempt/claimant/5-minute expiry, FAILED_RETRYABLE
+  re-claim with **`lastErrorCode = null`** as its own case, expired-EMITTING
+  recovery, strict `claimExpiresAt < now` lease boundary at exact equality
+  and one-second-past, PREPARED/EMITTED/FAILED_PERMANENT/fresh-EMITTING
+  never claimable), diagnostic listing (7: membership only, limits cap the
+  result, zero/negative limits → empty on all four paths, expired boundary
+  exclusive, `findByEventKey` reflects the current version), and concurrency
+  (5 real parallel races with a start barrier, 20 iterations each: duplicate
+  outboxId — one winner; duplicate eventKey — one winner AND every loser
+  record absent, proving the event-key index rollback is real; one PENDING
+  record, 8 claimers, exactly one claim; 8-record pool claim, every record
+  exactly once, every attempt 1; concurrent completion — one winner, final
+  EMITTED). Three runners execute the same contract (55/55 each):
+  `InMemorySovereignOpsAuditOutboxStoreTckTest` (sovereign-ops — the default
+  store, enrolled like any other), `FileSovereignOpsAuditOutboxStoreTckTest`
+  (per-case dir), `JdbcSovereignOpsAuditOutboxStoreTckTest` (PostgreSQL
+  testcontainers, V1+V4 migrations, per-case truncate). The enrollment
+  guard reuses the shared `StoreEnrollmentScanner`. **Production changes the
+  enrollment required:** the reviewed JDBC lifecycle guards (PR #85) are the
+  authoritative semantics — `InMemorySovereignOpsAuditOutboxStore` gained
+  the PREPARED-only readiness guard, EMITTING-only emission guard, legal
+  markFailed matrix, `lastErrorCode` clearing on claim, `[]` for
+  non-positive limits, and fixed non-interpolated reason codes;
+  `FileSovereignOpsAuditOutboxStore` gained blank-ID validation, the
+  emission/failure guards, error-code clearing, and a write-staging fix
+  (temp files now staged outside the scanned outbox directory — the TCK's
+  pool-claim race exposed the concurrent-scan corruption);
+  `JdbcSovereignOpsAuditOutboxStore` normalized duplicate errors to fixed
+  codes and collapsed all five mutating transaction paths onto one
+  non-suspend `inOutboxTransaction` helper with the #267 precedence
+  (operation/cancellation > rollback failure > autoCommit-restore failure,
+  later cleanup failures suppressed), with deterministic regressions proving
+  a primary `CancellationException` escapes unchanged when rollback or
+  autoCommit-restore fails. `SovereignOpsAuditOutboxRecord` KDoc lifecycle
+  diagram corrected to the shared matrix. Mutation evidence (16 mutations,
+  each restored): duplicate-ID/event-key overwrites, loser-record rollback,
+  blank-ID, readiness/emission/failure-matrix guards, claim eligibility,
+  lease boundary `<`→`<=`, attempt increment, error-code clearing, listing
+  filter, non-atomic claim, ignored limit — each turns shared TCK cases RED.
+  Zero public API change, no persisted format or schema changes, no existing
+  tests deleted. Epic 8.1 stays IN PROGRESS. Reference:
+  `docs/reference/persistence-store-compatibility-contract.md`.
+
 - **Structured-output contract TCK (PR #266, Epic 7.2).** One reusable test
   kit drives the entire structured-output lifecycle per fixture — descriptor
   compilation → generated schema → raw JSON shape validation →
