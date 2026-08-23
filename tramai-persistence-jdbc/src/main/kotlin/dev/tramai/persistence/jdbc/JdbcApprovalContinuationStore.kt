@@ -14,6 +14,7 @@ import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
+import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -193,15 +194,19 @@ class JdbcApprovalContinuationStore(
             }
 
             val currentStatus = ApprovalContinuationStatus.valueOf(normalized.status)
+
+            // Version before status: a stale expectedVersion is a concurrency
+            // conflict regardless of what state the row is in (same contract
+            // as the in-memory and file stores).
+            if (normalized.version != expectedVersion) {
+                throw ApprovalContinuationConflictException(approvalId)
+            }
+
             if (currentStatus != ApprovalContinuationStatus.PENDING) {
                 throw ApprovalContinuationNotClaimableException(approvalId)
             }
 
-            if (row.version != expectedVersion) {
-                throw ApprovalContinuationConflictException(approvalId)
-            }
-
-            val newVersion = incrementVersion(approvalId, row.version)
+            val newVersion = incrementVersion(approvalId, normalized.version)
             val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
 
             // Decrypt arguments BEFORE the CAS update.
@@ -234,16 +239,21 @@ class JdbcApprovalContinuationStore(
 
                 val updated = stmt.executeUpdate()
                 if (updated == 0) {
-                    // Re-read to provide the right exception
+                    // CAS lost. Re-read and apply the same precedence as the
+                    // initial path: version first, then status. In-memory and
+                    // file stores serialize per ID, so a claim that loses to
+                    // a cancel observes version 1 vs expected 0 and reports
+                    // Conflict — the CAS-loss branch must not diverge into
+                    // NotClaimable for the same interleaving.
                     val current = readCurrent(conn, approvalId)
-                    if (current == null) {
-                        throw ApprovalContinuationNotFoundException(approvalId)
-                    }
-                    val status = ApprovalContinuationStatus.valueOf(current.status)
-                    if (status == ApprovalContinuationStatus.CLAIMED) {
+                        ?: throw ApprovalContinuationNotFoundException(approvalId)
+                    if (current.version != expectedVersion) {
                         throw ApprovalContinuationConflictException(approvalId)
                     }
-                    throw ApprovalContinuationNotClaimableException(approvalId)
+                    if (ApprovalContinuationStatus.valueOf(current.status) != ApprovalContinuationStatus.PENDING) {
+                        throw ApprovalContinuationNotClaimableException(approvalId)
+                    }
+                    throw ApprovalContinuationConflictException(approvalId)
                 }
             }
 
@@ -399,16 +409,25 @@ class JdbcApprovalContinuationStore(
             val row = readCurrent(conn, approvalId)
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
 
-            if (row.version != expectedVersion) {
+            // Lazy expiry for PENDING only — a late cancel must first persist
+            // EXPIRED, then fail with a conflict (same contract as the
+            // in-memory and file stores).
+            val now = clock.instant()
+            val (normalized, expired) = maybeExpireLazy(row, now)
+            if (expired) {
+                applyLazyExpiry(normalized, row.version)
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            val status = ApprovalContinuationStatus.valueOf(row.status)
+            val status = ApprovalContinuationStatus.valueOf(normalized.status)
+            if (normalized.version != expectedVersion) {
+                throw ApprovalContinuationConflictException(approvalId)
+            }
             if (status != ApprovalContinuationStatus.PENDING) {
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            val newVersion = incrementVersion(approvalId, row.version)
+            val newVersion = incrementVersion(approvalId, normalized.version)
             val sql = """
                 UPDATE approval_continuations
                 SET status = 'CANCELLED',
@@ -440,7 +459,7 @@ class JdbcApprovalContinuationStore(
                 claimedBy = null,
                 claimedAt = null,
                 completedAt = null,
-                base = row,
+                base = normalized,
             )
             return updatedContinuation.toDomain()
         }
@@ -657,6 +676,15 @@ class JdbcApprovalContinuationStore(
         require(continuation.recoveryResolvedBy == null) { "Initial continuation must not have recoveryResolvedBy set" }
         require(continuation.recoveryResolvedAt == null) { "Initial continuation must not have recoveryResolvedAt set" }
         require(continuation.recoveryReasonCode == null) { "Initial continuation must not have recoveryReasonCode set" }
+
+        // Arguments digest verification — the stored digest must match the
+        // released payload (same contract as the in-memory and file stores).
+        val actualDigest = MessageDigest.getInstance("SHA-256")
+            .digest(arguments.reveal().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        require(actualDigest == continuation.argumentsDigest.value.removePrefix("sha256:")) {
+            "argumentsDigest does not match arguments"
+        }
     }
 
     /**

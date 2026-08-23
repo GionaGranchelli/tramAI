@@ -51,8 +51,46 @@
   persisted format or schema changes, no existing tests deleted — existing
   suites remain the implementation-specific regression oracle (encryption,
   permissions, corruption, record format for file; SQL schema, JSON mapping,
-  connection cleanup for JDBC). Epic 8.1 stays IN PROGRESS; continuation
-  store is the next slice (#268, Epic 8.1b). Reference:
+  connection cleanup for JDBC). Epic 8.1 stays IN PROGRESS. Reference:
+  `docs/reference/persistence-store-compatibility-contract.md`.
+
+- **ApprovalContinuationStore compatibility TCK (PR #269, Epic 8.1b).** One
+  shared behavioral contract for every `ApprovalContinuationStore`
+  implementation — memory, encrypted file, and JDBC — pinning the
+  PENDING/CLAIMED/COMPLETED/EXPIRED/CANCELLED/CANCELLED_UNCERTAIN state
+  machine, strict optimistic concurrency, and the exactly-once release of
+  raw sensitive arguments (the only API path that exposes them).
+  `ApprovalContinuationStoreTck` (tramai-testing testFixtures) runs **50
+  cases** — creation/read (13), claim (5), exactly-once release (2), expiry
+  (8), cancellation (4), completion (5), recovery (8), sweep (3), and
+  concurrency (3 real parallel races with a start barrier, 5 iterations
+  each). Typed failure taxonomy pinned (Conflict / NotFound / NotClaimable /
+  NotCompletable / IllegalArgumentException). Three runners execute the same
+  contract (50/50 each): `InMemoryApprovalContinuationStoreTckTest`,
+  `FileApprovalContinuationStoreTckTest` (per-case encrypted temp dir),
+  `JdbcApprovalContinuationStoreTckTest` (PostgreSQL testcontainers, table
+  reset per case). The TCK exposed **three real JDBC divergences**, all
+  fixed: late `cancel()` now persists EXPIRED then fails Conflict (was
+  CANCELLED), `create()` validates `argumentsDigest` against the payload
+  (was accepted unchecked), and `claimForExecution()` checks version before
+  status (was NotClaimable on stale-version claims of CLAIMED rows). A
+  follow-up review found a fourth in the same family — the claim CAS-loss
+  re-read mapped a lost claim/cancel race to NotClaimable instead of
+  Conflict; fixed with the same version-before-status precedence and pinned
+  by a deterministic interleaving regression (gated codec: claim blocks at
+  decrypt, cancel wins, released claim must throw Conflict). The shared
+  race assertions were tightened from "a typed failure" to exactly
+  `Conflict` on the loser. The
+  enrollment guard from #267 was extracted into a shared
+  `StoreEnrollmentScanner` and extended to continuation stores. Mutation
+  evidence (8 mutations, each restored): claim leaves arguments stored,
+  claim skips version increment, claim drops version + status guards
+  (concurrent claims both succeed), CLAIMED lazy-expires / sweep touches
+  CLAIMED, late cancel produces CANCELLED, complete ignores claimedBy,
+  forceCancelClaimed accepts PENDING, findStaleClaimed drops secondary
+  ordering — each turns shared TCK cases RED. Zero public API change, no
+  persisted format or schema changes, no existing tests deleted. Epic 8.1
+  stays IN PROGRESS. Reference:
   `docs/reference/persistence-store-compatibility-contract.md`.
 
 - **Structured-output contract TCK (PR #266, Epic 7.2).** One reusable test

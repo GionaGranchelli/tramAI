@@ -8,6 +8,8 @@ import dev.tramai.core.exception.ApprovalContinuationConflictException
 import dev.tramai.core.exception.ApprovalContinuationNotClaimableException
 import dev.tramai.core.exception.ApprovalContinuationNotCompletableException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -937,6 +939,61 @@ class JdbcApprovalContinuationStoreTest {
         }
     }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Claim CAS-loss error precedence (deterministic interleaving)
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Codec that blocks inside decode() until released — a deterministic gate on the claim's CAS boundary. */
+    private class GatedCodec(
+        private val delegate: JdbcContinuationArgumentsCodec,
+    ) : JdbcContinuationArgumentsCodec {
+        val decodeStarted = CompletableDeferred<Unit>()
+        val releaseDecode = CompletableDeferred<Unit>()
+
+        override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments = delegate.encode(plaintext)
+
+        override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray {
+            decodeStarted.complete(Unit)
+            runBlocking { releaseDecode.await() }
+            return delegate.decode(envelope)
+        }
+    }
+
+    @Test
+    fun `claim that loses its CAS to a cancel reports Conflict not NotClaimable`() { runBlocking {
+        val id = "cas-loss-claim"
+        val gated = GatedCodec(testCodec)
+        val s = store(codec = gated)
+        val (continuation, args) = createContinuation(approvalId = id)
+        s.create(continuation, args)
+
+        // The claim reads PENDING v0, validates, then blocks inside
+        // argument decryption — immediately before its CAS update.
+        val claim = async(Dispatchers.Default) {
+            runCatching { s.claimForExecution(id, 0L, "worker:alice") }
+        }
+        gated.decodeStarted.await()
+
+        // Cancel wins while the claim is in flight: CANCELLED v1.
+        s.cancel(id, 0L)
+
+        // Release the claim: its CAS (WHERE version=0 AND status='PENDING')
+        // loses. It must report Conflict (stale version), matching the
+        // in-memory and file stores' version-first precedence — not
+        // NotClaimable.
+        gated.releaseDecode.complete(Unit)
+        val outcome = claim.await()
+
+        assertTrue(
+            outcome.exceptionOrNull() is ApprovalContinuationConflictException,
+            "claim losing to cancel must throw Conflict, was: ${outcome.exceptionOrNull()}",
+        )
+        val persisted = s.get(id)
+        assertNotNull(persisted)
+        assertEquals(ApprovalContinuationStatus.CANCELLED, persisted.status)
+        assertEquals(1L, persisted.version)
+    } }
 
     // ═══════════════════════════════════════════════════════════════
     // P2 regression — lazy expiry CAS race
