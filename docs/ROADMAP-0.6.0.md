@@ -1191,7 +1191,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
-**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271); remaining families pending.
+**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272); remaining families pending.
 
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
@@ -1201,7 +1201,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Approval continuation store — ✅ PR #269 (shared `ApprovalContinuationStoreTck`, 50 cases × 3 implementations + enrollment guard)
 - Suspended invocation store — ✅ PR #270 (shared `SuspendedInvocationStoreTck`, 39 cases × 3 implementations + enrollment guard)
 - Audit store — ✅ PR #271 (shared `AuditStoreTck`, 43 cases × 3 implementations + enrollment guard)
-- Audit outbox store — ⏳
+- Audit outbox store — ✅ PR #272 (shared `SovereignOpsAuditOutboxStoreTck`, 55 cases × 3 implementations + enrollment guard)
 - Workflow checkpoint store — ⏳
 - Workflow lease store — ⏳
 - Step-attempt store — ✅ PR #218 (shared TCK + restart recovery tests for in-memory, file, and JDBC)
@@ -1225,7 +1225,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Acceptance criteria
 
-- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; step-attempt: 3/3 via PR #218).
+- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; audit outbox: 3/3 via #272; step-attempt: 3/3 via PR #218).
 - ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
 - ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`; `ApprovalContinuationConflictException`, `ApprovalContinuationNotFoundException`, `ApprovalContinuationNotClaimableException`, `ApprovalContinuationNotCompletableException`; AuditStore: `audit-store-invalid-stream-id`, `audit-store-invalid-event-id`, `audit-stream-id-mismatch`, `audit-sequence-gap`, `audit-hash-chain-broken`, `audit-event-hash-mismatch`, `audit-schema-version-unsupported`, `audit-duplicate-event-id`).
 
@@ -1257,6 +1257,27 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Deliberate decisions: JDBC's unique `replay_envelope_digest` index stays JDBC-specific (documented, not copied); historySize consistency and the redaction sentinel ARE shared contract (File already enforced them)
 - Mutation evidence (11 mutations, each restored): duplicate overwrite, remove-without-delete, reveal-null, envelope-leak-after-remove, digest/toolCallId/toolName/toolCallIndex checks dropped, non-atomic remove, redaction-sentinel not required, historySize not validated
 - Zero public API change; no persisted format or schema changes; no existing tests deleted
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`
+
+### Deliverables (PR #271)
+
+- `tramai-testing/src/testFixtures/.../persistence/audit/` — `AuditStoreTck` (43 cases), `AuditStoreFixtures`; `tramai-testing` testFixtures gained a dependency on `tramai-security` (the SPI's home module)
+- Runners: `InMemoryAuditStoreTckTest` (tramai-security — the default store, enrolled like any other), `FileAuditStoreTckTest`, `JdbcAuditStoreTckTest`; `AuditStoreTckEnrollmentArchitectureTest` reuses the shared `StoreEnrollmentScanner`
+- Production alignment: `InMemoryAuditStore` gained blank stream/event-ID validation + fixed safe reason codes (was interpolated); `FileAuditStore` gained blank stream/event-ID validation; `JdbcAuditStore` gained blank event-ID validation and `appendNext()`'s transaction cleanup follows the #267 precedence (rollback/restore failures suppressed on the primary), with deterministic cancellation regressions
+- Deliberate decisions: appendNext is a chain-authority API (factory-callback semantics pinned, not just rows); event-ID uniqueness is per-stream shared contract — JDBC's global `uq_audit_events_event_id` stays implementation-specific hardening (a direct SPI caller can reuse an ID across streams; retained because AuditEngine uses UUID IDs)
+- Mutation evidence (14 mutations, each restored): stream/sequence/previous-hash/self-hash/schema/duplicate-event-ID/blank-ID checks dropped, inclusive cursor, ignored limit, latest-returns-first, removed append lock, shared metadata reference, store-before-validate
+- Zero public API change; no persisted format or schema changes; no existing tests deleted
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`
+
+### Deliverables (PR #272)
+
+- `tramai-testing/src/testFixtures/.../persistence/outbox/` — `SovereignOpsAuditOutboxStoreTck` (55 cases), `SovereignOpsAuditOutboxFixtures` (deterministic T0/IDs/lease — never `UUID.randomUUID()`/`Instant.now()`); `tramai-testing` testFixtures gained a test-fixture-only dependency on `tramai-spring-boot-starter-sovereign-ops` (the SPI's home module; no Spring enters any production runtime module)
+- Runners: `InMemorySovereignOpsAuditOutboxStoreTckTest`, `FileSovereignOpsAuditOutboxStoreTckTest`, `JdbcSovereignOpsAuditOutboxStoreTckTest`; `SovereignOpsAuditOutboxStoreTckEnrollmentArchitectureTest` reuses the shared `StoreEnrollmentScanner`
+- One legal delivery state machine pinned across all three stores (JDBC's PR #85 guards are authoritative): PREPARED→PENDING→EMITTING→EMITTED; EMITTING→FAILED_RETRYABLE→(re-claim)→EMITTING; PREPARED|EMITTING→FAILED_PERMANENT; expired-claim recovery with strict `claimExpiresAt < now` lease boundary; `lastErrorCode = null` on every fresh claim
+- Real cross-store divergences fixed: InMemory gained PREPARED-only readiness, EMITTING-only emission, the legal markFailed matrix, error-code clearing on claim, `[]` for non-positive limits, fixed reason codes; File gained blank-ID validation, the emission/failure guards, error-code clearing, and a write-staging fix (temp files now outside the scanned outbox dir — the pool-claim race exposed it); Jdbc normalized duplicate errors and collapsed all five mutating transaction paths onto one #267-precedence helper with deterministic cancellation regressions
+- Mutation evidence (16 mutations, each restored): duplicate-ID/event-key overwrites, loser-record rollback, blank-ID, readiness/emission/failure-matrix guards, claim eligibility, lease boundary, attempt increment, error-code clearing, listing filter, non-atomic claim, ignored limit
+- Zero public API change; no persisted format or schema changes; no existing tests deleted
+- Remaining families: workflow checkpoint, workflow lease, memory
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`
 
 ---
