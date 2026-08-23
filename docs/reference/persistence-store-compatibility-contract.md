@@ -1,16 +1,16 @@
 # Persistence Store Compatibility Contract
 
-Epic 8.1 (PR #267, ApprovalStore slice). Shared behavioral TCKs prove every
-implementation of a store family satisfies exactly the same externally
-observable contract, regardless of storage technology (memory, encrypted
-files, JDBC).
+Epic 8.1 (PR #267 ApprovalStore slice, PR #269 ApprovalContinuationStore
+slice). Shared behavioral TCKs prove every implementation of a store family
+satisfies exactly the same externally observable contract, regardless of
+storage technology (memory, encrypted files, JDBC).
 
 ## Epic 8.1 matrix
 
 | Store family | In-memory | File | JDBC | Shared TCK |
 |---|---|---|---|---|
 | Approval | ✅ | ✅ | ✅ | ✅ #267 |
-| Approval continuation | ✅ | ✅ | ✅ | ⏳ (Epic 8.1b) |
+| Approval continuation | ✅ | ✅ | ✅ | ✅ #269 |
 | Suspended invocation | … | … | … | ⏳ |
 | Audit | … | … | … | ⏳ |
 | Audit outbox | … | … | … | ⏳ |
@@ -105,4 +105,97 @@ must pass the TCK" is architecture, not documentation.
 The TCK owns SPI semantics; implementation-specific suites continue owning
 encryption, permissions, corruption, record format (file), SQL schema, JSON
 mapping, connection cleanup (JDBC). No existing tests were deleted. Zero
+public API change; no persisted format or schema changes.
+
+---
+
+## ApprovalContinuationStore TCK (PR #269)
+
+`ApprovalContinuationStoreTck` (tramai-testing testFixtures) runs **50 shared
+behavioral cases** against every `ApprovalContinuationStore` implementation.
+It pins the state machine (PENDING → CLAIMED → COMPLETED, → EXPIRED,
+→ CANCELLED, CLAIMED → CANCELLED_UNCERTAIN), strict optimistic concurrency,
+and the exactly-once release of raw sensitive arguments — the only API path
+that exposes them.
+
+- **Creation/read (13):** PENDING round-trip, missing-ID null, duplicate
+  conflict, non-zero version / non-PENDING / pre-populated claimed /
+  completion / recovery fields rejected, blank ID rejected, future createdAt
+  rejected, non-future expiry rejected, TTL bound enforced, arguments digest
+  mismatch rejected.
+- **Claim (5):** PENDING → CLAIMED with version +1, claimedBy/claimedAt from
+  the injected clock, exact raw arguments released, missing → NotFound,
+  stale version → Conflict, non-claimable terminal statuses → NotClaimable.
+- **Exactly-once release (2):** a second claim can never retrieve arguments
+  (typed rejection on both stale and current versions); arguments are
+  cleared from storage on claim.
+- **Expiry (8):** explicit expire only after the deadline, early expire →
+  Conflict, late claim persists EXPIRED and fails NotClaimable, **late
+  cancel persists EXPIRED and fails Conflict**, lazy get() expires exactly
+  once, CLAIMED never lazy-expires, expire on non-PENDING and on
+  already-EXPIRED → Conflict.
+- **Cancellation (4):** PENDING → CANCELLED with version +1 and arguments
+  gone, cancel on CLAIMED / COMPLETED / CANCELLED_UNCERTAIN → Conflict,
+  stale version → Conflict, missing → NotFound.
+- **Completion (5):** CLAIMED → COMPLETED by the claimant with completedAt
+  from the injected clock, wrong actor → NotCompletable, stale version →
+  Conflict, non-completable statuses → NotCompletable, missing → NotFound.
+- **Recovery (8):** findStaleClaimed includes the claimedAt boundary and
+  excludes fresh/terminal rows, deterministic ordering by claimedAt then
+  approvalId (same-instant claims exercise the secondary key), limit
+  enforced, invalid limit → IAE, forceCancelClaimed → CANCELLED_UNCERTAIN
+  with recovery actor/time/reason pinned, non-CLAIMED → NotClaimable,
+  invalid reason codes → IAE, stale version → Conflict.
+- **Sweep (3):** sweeps only elapsed PENDING rows with exact count, second
+  sweep returns 0, CLAIMED and terminal rows never touched.
+- **Concurrency (3, real parallel races with a start barrier, 5 iterations
+  each):** concurrent claims — exactly one winner releases the raw
+  arguments and the loser gets a typed failure; claim vs cancel — exactly
+  one legal transition, version stays 1; competing same-version cancels —
+  exactly one wins, one Conflict, version 1.
+
+### Typed failure taxonomy (pinned, not just "some RuntimeException")
+
+| Failure | Exception |
+|---|---|
+| duplicate / stale version | `ApprovalContinuationConflictException` |
+| missing continuation | `ApprovalContinuationNotFoundException` |
+| not claimable (status / expired) | `ApprovalContinuationNotClaimableException` |
+| not completable (status / actor) | `ApprovalContinuationNotCompletableException` |
+| invalid input (fields, TTL, digest, reason code, limit) | `IllegalArgumentException` |
+
+### Cross-store discrepancies the TCK exposed (all fixed in #269)
+
+The TCK found three real JDBC divergences from the in-memory/file contract:
+
+1. **Late cancel** produced `CANCELLED` instead of persisting `EXPIRED` and
+   failing with `Conflict` — JDBC `cancel()` lacked the PENDING-only
+   lazy-expiry normalization its `get()`/`claimForExecution()` paths already
+   had.
+2. **`create()` accepted a mismatched `argumentsDigest`** — the in-memory and
+   file stores validate the digest against the released payload; JDBC did
+   not.
+3. **`claimForExecution()` checked status before version** — a stale-version
+   claim on a CLAIMED row returned `NotClaimable` instead of `Conflict`,
+   diverging from the version-first precedence of the other two stores.
+
+### Mutation evidence (all restored after each run; InMemory store)
+
+| Mutation | TCK outcome |
+|---|---|
+| Claim leaves arguments stored | RED — completion guard fails (claim keeps arguments, complete on CLAIMED → NotCompletable) |
+| Claim does not increment version | RED — claim-transition + completion cases fail |
+| Claim drops version + status guards (non-atomic check-then-act claim) | RED — concurrent-claim race detects two winners releasing arguments; second claim succeeds |
+| CLAIMED lazy-expires / sweep touches CLAIMED | RED — claimed-never-expires + sweep-cases fail |
+| Late cancel produces CANCELLED | RED — late-cancel case fails (the exact JDBC bug the TCK caught) |
+| Complete ignores claimedBy | RED — wrong-actor case fails |
+| forceCancelClaimed accepts PENDING | RED — non-claimed recovery case fails |
+| findStaleClaimed drops secondary ordering | RED — deterministic-ordering case fails |
+
+### Scope
+
+The TCK owns SPI semantics; implementation-specific suites continue owning
+encryption codecs, BYTEA representation, SQL schema/migrations, database
+integrity, connection cleanup (JDBC) and encryption envelopes, permissions,
+corruption, record format (file). No existing tests were deleted. Zero
 public API change; no persisted format or schema changes.
