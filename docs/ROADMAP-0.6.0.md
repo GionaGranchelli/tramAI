@@ -1197,7 +1197,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Store families
 
-- Approval store — ✅ PR #267 (shared `ApprovalStoreTck`, 33 cases × 3 implementations + enrollment guard)
+- Approval store — ✅ PR #267 (shared `ApprovalStoreTck`, 37 cases × 3 implementations + enrollment guard)
 - Approval continuation store — ⏳ (Epic 8.1b)
 - Suspended invocation store — ⏳
 - Audit store — ⏳

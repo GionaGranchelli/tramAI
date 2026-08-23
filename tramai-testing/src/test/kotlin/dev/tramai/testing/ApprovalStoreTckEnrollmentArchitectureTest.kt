@@ -1,6 +1,7 @@
 package dev.tramai.testing
 
 import java.io.File
+import java.nio.file.Files
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -16,9 +17,11 @@ import org.junit.jupiter.api.Test
  *    the gate.
  * 2. **Every concrete `ApprovalStore` implementation** in any module's main
  *    source set must have a runner named after it (`<Store>TckTest`), in the
- *    same module. Adding a store without a runner fails the gate — the phrase
+ *    same module, that actually extends [dev.tramai.testing.persistence.approval.ApprovalStoreTck].
+ *    Adding a store without a runner fails the gate — the phrase
  *    "future stores must pass the TCK" is otherwise documentation, not
- *    architecture.
+ *    architecture. A file named `<Store>TckTest.kt` that does not subclass
+ *    the TCK does not count.
  *
  * The runner file IS the reviewed contract matrix: it wires the store to the
  * shared [dev.tramai.testing.persistence.approval.ApprovalStoreTck].
@@ -47,19 +50,57 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
     }
 
     @Test
-    fun `every ApprovalStore implementation has a runner named after it in its module`() {
+    fun `every ApprovalStore implementation has a valid TCK runner in its module`() {
         val unenrolled = storeModules().flatMap { (module, implementations) ->
             implementations
-                .filter { storeName -> !hasRunner(module, storeName) }
+                .filter { storeName -> !hasValidRunner(module, storeName) }
                 .map { store -> "$module/$store" }
         }
         assertThat(unenrolled)
             .withFailMessage(
-                "ApprovalStore implementations without a <Store>TckTest runner in the same module: $unenrolled. " +
+                "ApprovalStore implementations without a <Store>TckTest runner extending " +
+                    "ApprovalStoreTck in the same module: $unenrolled. " +
                     "Adding an ApprovalStore without enrolling it in the compatibility contract " +
                     "must make a gate fail.",
             )
             .isEmpty()
+    }
+
+    // ── probe tests for the scanner itself ──────────────────────────
+
+    @Test
+    fun `body-less ApprovalStore implementation is detected`() {
+        val file = tempSourceFile(
+            """
+            package probe
+            import dev.tramai.core.approval.ApprovalStore
+            class RedisApprovalStore(private val delegate: ApprovalStore) : ApprovalStore by delegate
+            """.trimIndent(),
+        )
+        assertThat(storeImplementations(file)).containsExactly("RedisApprovalStore")
+    }
+
+    @Test
+    fun `multiline ApprovalStore implementation is detected`() {
+        val file = tempSourceFile(
+            """
+            package probe
+            class MultiLineApprovalStore(
+                private val clock: java.time.Clock,
+            ) : ApprovalStore {
+                override suspend fun create(request: ApprovalRequest): ApprovalRequest = request
+            }
+            """.trimIndent(),
+        )
+        assertThat(storeImplementations(file)).containsExactly("MultiLineApprovalStore")
+    }
+
+    @Test
+    fun `runner file must actually subclass ApprovalStoreTck`() {
+        val fake = tempSourceFile("class RedisApprovalStoreTckTest")
+        val real = tempSourceFile("class RedisApprovalStoreTckTest : ApprovalStoreTck() { }")
+        assertThat(runnerSubclassesTck(fake, "RedisApprovalStore")).isFalse()
+        assertThat(runnerSubclassesTck(real, "RedisApprovalStore")).isTrue()
     }
 
     // ── helpers ─────────────────────────────────────────────────────
@@ -92,9 +133,7 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
      */
     private fun storeImplementations(file: File): List<String> {
         val text = file.readText()
-        return CLASS_HEADER.findAll(text).mapNotNull { match ->
-            val name = match.groupValues[1]
-            val header = match.groupValues[2]
+        return classHeaders(text).mapNotNull { (name, header) ->
             val supertype = supertypeSection(header)
             // A body-less declaration (no '{' of its own) makes the non-greedy
             // header regex bleed into the next declaration; a supertype section
@@ -103,6 +142,22 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
             val overSpanned = DECLARATION_KEYWORD.containsMatchIn(supertype)
             if (!overSpanned && supertype.contains("ApprovalStore")) name else null
         }.toList()
+    }
+
+    /**
+     * Class/object name + header, as a union of two shapes:
+     * - with a body: header runs to the first `{` (may span lines);
+     * - body-less (e.g. `class X : ApprovalStore by delegate`): single-line
+     *   declaration, header runs to end of line.
+     */
+    private fun classHeaders(text: String): List<Pair<String, String>> {
+        val withBody = Regex("""(?s)(?:class|object)\s+(\w+)(.*?)\{""")
+            .findAll(text)
+            .map { it.groupValues[1] to it.groupValues[2] }
+        val bodyless = Regex("""(?m)^\s*(?:class|object)\s+(\w+)([^\n{]*)$""")
+            .findAll(text)
+            .map { it.groupValues[1] to it.groupValues[2] }
+        return (withBody + bodyless).toList()
     }
 
     /** Everything after the first top-level `:` in a class header (the supertype list). */
@@ -118,12 +173,27 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
         return ""
     }
 
-    private fun hasRunner(module: String, storeName: String): Boolean {
-        val testDir = File(repoRoot, "$module/src/test/kotlin")
-        if (!testDir.isDirectory) return false
-        return testDir.walkTopDown()
-            .any { it.isFile && it.name == "${storeName}TckTest.kt" }
+    private fun hasValidRunner(module: String, storeName: String): Boolean {
+        val runner = findRunnerFileInModule(module, storeName) ?: return false
+        return runnerSubclassesTck(runner, storeName)
     }
+
+    private fun findRunnerFileInModule(module: String, storeName: String): File? {
+        val testDir = File(repoRoot, "$module/src/test/kotlin")
+        if (!testDir.isDirectory) return null
+        return testDir.walkTopDown()
+            .firstOrNull { it.isFile && it.name == "${storeName}TckTest.kt" }
+    }
+
+    /**
+     * A `<Store>TckTest` file only counts as enrollment if its class actually
+     * extends [dev.tramai.testing.persistence.approval.ApprovalStoreTck]. A
+     * same-named file with an unrelated class would otherwise satisfy the
+     * gate while executing zero contract tests.
+     */
+    private fun runnerSubclassesTck(runnerFile: File, storeName: String): Boolean =
+        Regex("""(?s)class\s+${storeName}TckTest\b[^{]*:\s*ApprovalStoreTck\b""")
+            .containsMatchIn(runnerFile.readText())
 
     private fun findRunnerFile(runnerName: String): File? {
         val modules = repoRoot.listFiles { file -> file.isDirectory && file.name.startsWith("tramai-") }
@@ -135,10 +205,13 @@ class ApprovalStoreTckEnrollmentArchitectureTest {
             .firstOrNull { it.isFile && it.name == "$runnerName.kt" }
     }
 
-    private companion object {
-        /** Class/object name + header up to the first `{`, spanning newlines. */
-        val CLASS_HEADER = Regex("""(?s)(?:class|object)\s+(\w+)(.*?)\{""")
+    private fun tempSourceFile(content: String): File {
+        val dir = Files.createTempDirectory("tck-enrollment-probe-").toFile()
+        dir.deleteOnExit()
+        return File(dir, "Probe.kt").apply { writeText(content) }
+    }
 
+    private companion object {
         /** Declaration keywords that must never appear inside a real supertype list. */
         val DECLARATION_KEYWORD = Regex("""(fun |class |interface |object |/\*\*)""")
     }

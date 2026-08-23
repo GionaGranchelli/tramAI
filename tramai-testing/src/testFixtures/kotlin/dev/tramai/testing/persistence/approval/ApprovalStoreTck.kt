@@ -8,7 +8,10 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -195,13 +198,31 @@ abstract class ApprovalStoreTck {
     }
 
     @Test
-    fun `terminal state rejects any further transition`() = runBlocking<Unit> {
-        val request = ApprovalStoreFixtures.pending("terminal-1", t0, expiry)
-        store.create(request)
-        store.transition("terminal-1", 0L, ApprovalTransition.Approve("approver-1"))
+    fun `terminal states reject any further transition`() = runBlocking<Unit> {
+        // APPROVED is terminal
+        val approved = ApprovalStoreFixtures.pending("terminal-approved", t0, expiry)
+        store.create(approved)
+        store.transition("terminal-approved", 0L, ApprovalTransition.Approve("approver-1"))
+        assertThat(
+            runCatching { store.transition("terminal-approved", 1L, ApprovalTransition.Deny("denier-1")) }.exceptionOrNull(),
+        ).isInstanceOf(IllegalApprovalTransitionException::class.java)
 
-        assertThat(runCatching { store.transition("terminal-1", 1L, ApprovalTransition.Deny("denier-1")) }.exceptionOrNull())
-            .isInstanceOf(IllegalApprovalTransitionException::class.java)
+        // DENIED is terminal
+        val denied = ApprovalStoreFixtures.pending("terminal-denied", t0, expiry)
+        store.create(denied)
+        store.transition("terminal-denied", 0L, ApprovalTransition.Deny("denier-1"))
+        assertThat(
+            runCatching { store.transition("terminal-denied", 1L, ApprovalTransition.Approve("approver-1")) }.exceptionOrNull(),
+        ).isInstanceOf(IllegalApprovalTransitionException::class.java)
+
+        // TIMED_OUT is terminal
+        val timedOut = ApprovalStoreFixtures.pending("terminal-timedout", t0, expiry)
+        store.create(timedOut)
+        clock.advance(Duration.ofSeconds(601))
+        store.transition("terminal-timedout", 0L, ApprovalTransition.Timeout)
+        assertThat(
+            runCatching { store.transition("terminal-timedout", 1L, ApprovalTransition.Approve("approver-1")) }.exceptionOrNull(),
+        ).isInstanceOf(IllegalApprovalTransitionException::class.java)
     }
 
     @Test
@@ -379,50 +400,121 @@ abstract class ApprovalStoreTck {
         assertThat(store.get("non-mutating")?.version).isEqualTo(1L)
     }
 
+    @Test
+    fun `replay with stale expected version rejected`() = runBlocking<Unit> {
+        approveAndConsumeSetup("replay-stale")
+        store.consumeApprovedOrReplay("replay-stale", 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
+
+        assertThat(
+            runCatching {
+                store.consumeApprovedOrReplay("replay-stale", 0L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
+            }.exceptionOrNull(),
+        ).isInstanceOf(ApprovalStoreConflictException::class.java)
+    }
+
+    @Test
+    fun `wrong token on replay rejected`() = runBlocking<Unit> {
+        approveAndConsumeSetup("replay-bad-token")
+        store.consumeApprovedOrReplay("replay-bad-token", 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
+
+        assertThat(
+            runCatching {
+                store.consumeApprovedOrReplay("replay-bad-token", 1L, ApprovalStoreFixtures.wrongTokenDigest(), "worker-1")
+            }.exceptionOrNull(),
+        ).isInstanceOf(ApprovalStoreTokenRejectedException::class.java)
+    }
+
+    @Test
+    fun `consume on missing approval throws not found`() = runBlocking<Unit> {
+        assertThat(
+            runCatching {
+                store.consumeApprovedOrReplay("missing-consume", 0L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
+            }.exceptionOrNull(),
+        ).isInstanceOf(ApprovalStoreNotFoundException::class.java)
+    }
+
+    @Test
+    fun `fresh consumption records the advanced clock instant`() = runBlocking<Unit> {
+        val request = ApprovalStoreFixtures.pending("consume-advanced", t0, expiry)
+        store.create(request)
+        store.transition("consume-advanced", 0L, ApprovalTransition.Approve("approver-1"))
+        clock.advance(Duration.ofSeconds(10))
+
+        val receipt = store.consumeApprovedOrReplay(
+            "consume-advanced", 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1",
+        )
+
+        assertThat(receipt.request.consumedAt).isEqualTo(t0.plusSeconds(10))
+    }
+
     // ── Concurrency ─────────────────────────────────────────────────
+
+    /**
+     * Runs [contenders] on parallel workers, releasing them only once every
+     * contender is ready, so the operations genuinely overlap instead of
+     * serializing on the caller's single-threaded event loop. A non-atomic
+     * store (check-then-act without a lock/row-lock) must fail the race
+     * assertions below.
+     */
+    private suspend fun <T> runInParallel(vararg contenders: suspend () -> T): List<T> = coroutineScope {
+        val ready = Channel<Unit>(capacity = contenders.size)
+        val release = CompletableDeferred<Unit>()
+        val results = contenders.map { op ->
+            async(Dispatchers.Default) {
+                ready.send(Unit)
+                release.await()
+                op()
+            }
+        }
+        repeat(contenders.size) { ready.receive() }
+        release.complete(Unit)
+        results.map { it.await() }
+    }
 
     @Test
     fun `concurrent transition race - exactly one wins`() = runBlocking<Unit> {
-        val request = ApprovalStoreFixtures.pending("race-1", t0, expiry)
-        store.create(request)
+        // Several scheduling opportunities: one run per id, each on a fresh
+        // approval, so a store that only wins by luck once still fails.
+        repeat(5) { iteration ->
+            val id = "race-$iteration"
+            val request = ApprovalStoreFixtures.pending(id, t0, expiry)
+            store.create(request)
 
-        val outcomes = coroutineScope {
-            val approve = async { runCatching { store.transition("race-1", 0L, ApprovalTransition.Approve("a")) } }
-            val deny = async { runCatching { store.transition("race-1", 0L, ApprovalTransition.Deny("b")) } }
-            listOf(approve.await(), deny.await())
+            val outcomes = runInParallel(
+                { runCatching { store.transition(id, 0L, ApprovalTransition.Approve("a")) } },
+                { runCatching { store.transition(id, 0L, ApprovalTransition.Deny("b")) } },
+            )
+
+            val successes = outcomes.count { it.isSuccess }
+            val conflicts = outcomes.count { it.exceptionOrNull() is ApprovalStoreConflictException }
+            assertThat(successes).isEqualTo(1)
+            assertThat(conflicts).isEqualTo(1)
+
+            val persisted = store.get(id)!!
+            assertThat(persisted.version).isEqualTo(1L)
+            assertThat(persisted.status).isIn(ApprovalStatus.APPROVED, ApprovalStatus.DENIED)
+            val winner = outcomes.first { it.isSuccess }.getOrThrow()
+            assertThat(persisted.status).isEqualTo(winner.status)
         }
-
-        val successes = outcomes.count { it.isSuccess }
-        val conflicts = outcomes.count { it.exceptionOrNull() is ApprovalStoreConflictException }
-        assertThat(successes).isEqualTo(1)
-        assertThat(conflicts).isEqualTo(1)
-
-        val persisted = store.get("race-1")!!
-        assertThat(persisted.version).isEqualTo(1L)
-        assertThat(persisted.status).isIn(ApprovalStatus.APPROVED, ApprovalStatus.DENIED)
-        val winner = outcomes.first { it.isSuccess }.getOrThrow()
-        assertThat(persisted.status).isEqualTo(winner.status)
     }
 
     @Test
     fun `concurrent identical consumption - one fresh one replay, same durable record`() = runBlocking<Unit> {
-        approveAndConsumeSetup("consume-race")
+        repeat(5) { iteration ->
+            val id = "consume-race-$iteration"
+            approveAndConsumeSetup(id)
 
-        val receipts = coroutineScope {
-            val first = async {
-                store.consumeApprovedOrReplay("consume-race", 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
-            }
-            val second = async {
-                store.consumeApprovedOrReplay("consume-race", 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1")
-            }
-            listOf(first.await(), second.await())
+            val receipts = runInParallel(
+                { store.consumeApprovedOrReplay(id, 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1") },
+                { store.consumeApprovedOrReplay(id, 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-1") },
+            )
+
+            assertThat(receipts.count { !it.replayed }).isEqualTo(1)
+            assertThat(receipts.count { it.replayed }).isEqualTo(1)
+            assertThat(receipts[0].request).isEqualTo(receipts[1].request)
+            assertThat(receipts[0].request.consumedAt).isEqualTo(receipts[1].request.consumedAt)
+            assertThat(receipts[0].request.version).isEqualTo(2L)
+            assertThat(store.get(id)?.version).isEqualTo(2L)
         }
-
-        assertThat(receipts.count { !it.replayed }).isEqualTo(1)
-        assertThat(receipts.count { it.replayed }).isEqualTo(1)
-        assertThat(receipts[0].request).isEqualTo(receipts[1].request)
-        assertThat(receipts[0].request.consumedAt).isEqualTo(receipts[1].request.consumedAt)
-        assertThat(receipts[0].request.version).isEqualTo(2L)
-        assertThat(store.get("consume-race")?.version).isEqualTo(2L)
     }
 }

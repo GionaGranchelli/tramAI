@@ -11,6 +11,7 @@ import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.testing.persistence.approval.MutableClock
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -24,22 +25,6 @@ import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-
-/**
- * A test clock whose instant can be advanced programmatically.
- * Used to test time-dependent behavior without reflection.
- */
-class MutableClock(
-    @Volatile private var now: Instant,
-    private val zone: ZoneId = ZoneId.of("UTC"),
-) : Clock() {
-    override fun instant(): Instant = now
-    override fun withZone(zone: ZoneId): Clock = Clock.fixed(now, zone)
-    override fun getZone(): ZoneId = zone
-
-    fun advance(amount: java.time.Duration) { now = now.plus(amount) }
-    fun set(newNow: Instant) { now = newNow }
-}
 
 class InMemoryApprovalStoreTest {
 

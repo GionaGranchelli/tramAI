@@ -21,12 +21,13 @@ import javax.sql.DataSource
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcApprovalStoreTckTest : ApprovalStoreTck() {
 
+    private lateinit var postgres: PostgreSQLContainer<*>
     private lateinit var dataSource: DataSource
     private lateinit var setupConnection: Connection
 
     @BeforeAll
     fun setUpAll() {
-        val postgres = PostgreSQLContainer("postgres:17-alpine")
+        postgres = PostgreSQLContainer("postgres:17-alpine")
             .withDatabaseName("approval_tck")
             .withUsername("test")
             .withPassword("test")
@@ -51,10 +52,17 @@ class JdbcApprovalStoreTckTest : ApprovalStoreTck() {
     @AfterAll
     fun tearDownAll() {
         runCatching { setupConnection.close() }
+        runCatching { postgres.stop() }
     }
 
     override val harness = object : ApprovalStoreTckHarness {
-        override fun createStore(clock: MutableClock): ApprovalStore =
-            JdbcApprovalStore(dataSource, clock = clock)
+        override fun createStore(clock: MutableClock): ApprovalStore {
+            // Fresh isolated storage per case: previous cases' records must
+            // not leak into the next case.
+            dataSource.connection.use { conn ->
+                conn.createStatement().use { stmt -> stmt.execute("DELETE FROM approvals") }
+            }
+            return JdbcApprovalStore(dataSource, clock = clock)
+        }
     }
 }

@@ -24,15 +24,11 @@ class FileApprovalStoreTckTest : ApprovalStoreTck() {
     private lateinit var rootDir: Path
     private lateinit var key: SecretKey
     private val keyProvider = FileStoreEncryptionKeyProvider { key }
+    private var caseCounter = 0
 
     @BeforeAll
     fun setUpAll() {
         rootDir = Files.createTempDirectory("tramai-approval-tck-").toAbsolutePath()
-        Files.createDirectories(rootDir.resolve("approvals"))
-        Files.setPosixFilePermissions(
-            rootDir.resolve("approvals"),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
-        )
         key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     }
 
@@ -41,17 +37,26 @@ class FileApprovalStoreTckTest : ApprovalStoreTck() {
         if (rootDir.toFile().exists()) rootDir.toFile().deleteRecursively()
     }
 
-    private fun createConfig() = FileBackedStoreConfiguration(
-        rootDirectory = rootDir,
-        encryption = FileStoreEncryptionConfiguration(
-            activeKeyId = "tck-key",
-            keyProvider = keyProvider,
-        ),
-        verifyOnOpen = false,
-    )
-
     override val harness = object : ApprovalStoreTckHarness {
-        override fun createStore(clock: MutableClock): ApprovalStore =
-            FileApprovalStore(rootDir, key, createConfig(), FileStoreLease(), clock)
+        override fun createStore(clock: MutableClock): ApprovalStore {
+            // Fresh isolated storage per case: a unique child directory, so
+            // previous cases' records never leak into the next case. The
+            // @AfterAll cleanup removes the whole tree.
+            val caseDir = rootDir.resolve("case-${caseCounter++}")
+            Files.createDirectories(caseDir.resolve("approvals"))
+            Files.setPosixFilePermissions(
+                caseDir.resolve("approvals"),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+            )
+            val config = FileBackedStoreConfiguration(
+                rootDirectory = caseDir,
+                encryption = FileStoreEncryptionConfiguration(
+                    activeKeyId = "tck-key",
+                    keyProvider = keyProvider,
+                ),
+                verifyOnOpen = false,
+            )
+            return FileApprovalStore(caseDir, key, config, FileStoreLease(), clock)
+        }
     }
 }
