@@ -117,6 +117,16 @@ encryption, permissions, corruption, record format (file), SQL schema, JSON
 mapping, connection cleanup (JDBC). No existing tests were deleted. Zero
 public API change; no persisted format or schema changes.
 
+### Epic 8.2a augmentation (PR #277)
+
+`ApprovalStoreTck` was augmented with model-based lifecycle properties — 5
+new shared cases (37 → 42): generated lifecycle sequences against a pure
+`ApprovalLifecycleModel` oracle (32 seeds × 32 actions, whole-record
+equality + invariants after every action), a wrong-version decision matrix,
+duplicate concurrent decisions, identical consumption, and competing
+consumers. See
+`docs/reference/state-machine-property-testing-contract.md`.
+
 ---
 
 ## ApprovalContinuationStore TCK (PR #269)
