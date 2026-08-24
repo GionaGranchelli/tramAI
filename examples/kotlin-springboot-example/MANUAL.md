@@ -114,7 +114,15 @@ This shows how TramAI composes with explicit orchestration rather than hiding mu
 After running a workflow, inspect:
 
 ```bash
-cat build/tramai-example/workflows/invoice-review-workflow/<workflowId>/checkpoint.md
+# checkpoint (collision-free layout — each segment is base64url-encoded)
+ls build/tramai-example/workflows/
+cat "build/tramai-example/workflows/$(echo -n invoice-review-workflow | base64 -w0 | tr '+/' '-_' | tr -d '=')/$(echo -n <workflowId> | base64 -w0 | tr '+/' '-_' | tr -d '=')/checkpoint.md"
+```
+
+Or, for the lease file (legacy sanitized layout):
+
+```bash
+cat build/tramai-example/workflows/invoice-review-workflow/<workflowId>/lease.properties
 ```
 
 The saved checkpoint lets you audit:

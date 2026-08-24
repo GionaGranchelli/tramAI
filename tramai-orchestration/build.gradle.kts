@@ -27,6 +27,7 @@ dependencies {
 
     testImplementation(project(":tramai-engine"))
     testImplementation(project(":tramai-testing"))
+    testImplementation(testFixtures(project(":tramai-testing")))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)

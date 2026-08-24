@@ -194,11 +194,17 @@ class ExampleApplicationTest {
             .andExpect(jsonPath("$.workflowId").value(workflowId))
             .andExpect(jsonPath("$.result.handlingLane").value("ESCALATION"))
 
-        val workflowDirectory = workflowRoot
+        // The checkpoint store resolves paths with the collision-free
+        // strategy (base64url segments); the lease store still uses the
+        // legacy sanitized layout.
+        val checkpointDirectory = dev.tramai.orchestration.CollisionFreeWorkflowCheckpointPathStrategy("checkpoint.md")
+            .resolve(workflowRoot, InvoiceWorkflowCoordinator.WORKFLOW_NAME, workflowId)
+            .parent
+        assertThat(Files.exists(checkpointDirectory.resolve("checkpoint.md"))).isTrue()
+        val legacyDirectory = workflowRoot
             .resolve(InvoiceWorkflowCoordinator.WORKFLOW_NAME)
             .resolve(workflowId)
-        assertThat(Files.exists(workflowDirectory.resolve("checkpoint.md"))).isTrue()
-        assertThat(Files.exists(workflowDirectory.resolve("lease.properties"))).isFalse()
+        assertThat(Files.exists(legacyDirectory.resolve("lease.properties"))).isFalse()
     }
 
     @Test

@@ -1191,7 +1191,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
-**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272); remaining families pending.
+**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272), workflow checkpoint slice done (PR #273); remaining families pending.
 
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
@@ -1202,7 +1202,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Suspended invocation store — ✅ PR #270 (shared `SuspendedInvocationStoreTck`, 39 cases × 3 implementations + enrollment guard)
 - Audit store — ✅ PR #271 (shared `AuditStoreTck`, 43 cases × 3 implementations + enrollment guard)
 - Audit outbox store — ✅ PR #272 (shared `SovereignOpsAuditOutboxStoreTck`, 55 cases × 3 implementations + enrollment guard)
-- Workflow checkpoint store — ⏳
+- Workflow checkpoint store — ✅ PR #273 (shared `WorkflowCheckpointStoreTck`, 42 cases × 4 implementations + enrollment guard)
 - Workflow lease store — ⏳
 - Step-attempt store — ✅ PR #218 (shared TCK + restart recovery tests for in-memory, file, and JDBC)
 - Memory store — ⏳
@@ -1225,7 +1225,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Acceptance criteria
 
-- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; audit outbox: 3/3 via #272; step-attempt: 3/3 via PR #218).
+- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; audit outbox: 3/3 via #272; workflow checkpoint: 4/4 via #273; step-attempt: 3/3 via PR #218).
 - ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
 - ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`; `ApprovalContinuationConflictException`, `ApprovalContinuationNotFoundException`, `ApprovalContinuationNotClaimableException`, `ApprovalContinuationNotCompletableException`; AuditStore: `audit-store-invalid-stream-id`, `audit-store-invalid-event-id`, `audit-stream-id-mismatch`, `audit-sequence-gap`, `audit-hash-chain-broken`, `audit-event-hash-mismatch`, `audit-schema-version-unsupported`, `audit-duplicate-event-id`).
 
@@ -1279,6 +1279,17 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Zero public API change; no persisted format or schema changes; no existing tests deleted
 - Remaining families: workflow checkpoint, workflow lease, memory
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`
+
+### Deliverables (PR #273)
+
+- `tramai-testing/src/testFixtures/.../persistence/checkpoint/` — `WorkflowCheckpointStoreTck` (42 cases), `WorkflowCheckpointFixtures` (deterministic — never the `System.currentTimeMillis()` savedAt default); `tramai-testing` testFixtures gained a test-fixture-only dependency on `tramai-orchestration` (the SPI's home module)
+- Runners: `InMemoryWorkflowCheckpointStoreTckTest`, `FileWorkflowCheckpointStoreTckTest`, `MarkdownWorkflowCheckpointStoreTckTest`, `JdbcWorkflowCheckpointStoreTckTest` (real H2, not a proxy backend); `WorkflowCheckpointStoreTckEnrollmentArchitectureTest` reuses the shared `StoreEnrollmentScanner` (now skipping private declarations — the supervisor's private lease-fencing decorator is not a store family member)
+- One identity/revision/delete/recovery contract across all four stores: checkpoint = versioned logical record keyed by (workflowName, workflowId); store-owned revision progression (1 → 2 → 3); optimistic concurrency via expectedRevision; delete/idempotency (unconditional delete is a no-op on missing, recreate starts at rev 1); recovery-state persistence through the SPI's default load-then-save (proven sufficiently atomic by the competing-requireRecovery race — no override rewritten); `WorkflowCheckpointCatalog` deliberately outside the TCK (distinct optional SPI, Markdown intentionally does not implement it)
+- Principal production fix: **File/Markdown logical-key collision repair** — the lossy `sanitizePathSegment` collapsed `"order/a"` and `"order?a"` onto one file; the checkpoint stores now default to the new collision-free `CollisionFreeWorkflowCheckpointPathStrategy` (URL-safe Base64, injective) with legacy-path fallback, identity verification (never overwrite a colliding key's record), and migrate-on-first-update (never two authoritative copies). `DefaultWorkflowCheckpointPathStrategy` unchanged (lease store depends on it). Additive public API; `api/` dump regenerated
+- Mutation evidence (13 mutations, each restored): duplicate-create overwrite, input-revision trust, revision 0, ignored expected-revision (save + delete), missing+expected create/delete, missing-delete throws, non-atomic save/delete, recovery-state normalization, lossy path regression
+- Zero public API change to existing types; no persisted format or schema changes to existing records (legacy records readable + migratable); no existing tests deleted
+- Remaining families: workflow lease, memory
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`; legacy path behavior documented in `docs/guides/orchestration-persistence.md`
 
 ---
 

@@ -2,24 +2,29 @@
 
 Epic 8.1 (PR #267 ApprovalStore slice, PR #269 ApprovalContinuationStore
 slice, PR #270 SuspendedInvocationStore slice, PR #271 AuditStore slice,
-PR #272 SovereignOpsAuditOutboxStore slice). Shared behavioral TCKs prove
-every implementation of a store family satisfies exactly the same externally
-observable contract, regardless of storage technology (memory, encrypted
-files, JDBC).
+PR #272 SovereignOpsAuditOutboxStore slice, PR #273 WorkflowCheckpointStore
+slice). Shared behavioral TCKs prove every implementation of a store family
+satisfies exactly the same externally observable contract, regardless of
+storage technology (memory, encrypted files, Markdown, JDBC).
 
 ## Epic 8.1 matrix
 
-| Store family | In-memory | File | JDBC | Shared TCK |
-|---|---|---|---|---|
-| Approval | ✅ | ✅ | ✅ | ✅ #267 |
-| Approval continuation | ✅ | ✅ | ✅ | ✅ #269 |
-| Suspended invocation | ✅ | ✅ | ✅ | ✅ #270 |
-| Audit | ✅ | ✅ | ✅ | ✅ #271 |
-| Audit outbox | ✅ | ✅ | ✅ | ✅ #272 |
-| Workflow checkpoint | … | … | … | ⏳ |
-| Workflow lease | … | … | … | ⏳ |
-| Step attempt | ✅ | ✅ | ✅ | ✅ #218 |
-| Memory | … | … | … | ⏳ |
+| Store family | In-memory | File | Markdown | JDBC | Shared TCK |
+|---|---|---|---|---|---|
+| Approval | ✅ | ✅ | — | ✅ | ✅ #267 |
+| Approval continuation | ✅ | ✅ | — | ✅ | ✅ #269 |
+| Suspended invocation | ✅ | ✅ | — | ✅ | ✅ #270 |
+| Audit | ✅ | ✅ | — | ✅ | ✅ #271 |
+| Audit outbox | ✅ | ✅ | — | ✅ | ✅ #272 |
+| Workflow checkpoint | ✅ | ✅ | ✅ | ✅ | ✅ #273 |
+| Workflow lease | … | … | — | … | ⏳ |
+| Step attempt | ✅ | ✅ | — | ✅ | ✅ #218 |
+| Memory | … | … | — | … | ⏳ |
+
+Markdown cells: the Markdown checkpoint store implements the
+`WorkflowCheckpointStore` SPI (enrolled in #273) but not the optional
+`WorkflowCheckpointCatalog`/step-attempt families; the remaining families
+have no Markdown implementation.
 
 ## ApprovalStore TCK (PR #267)
 
@@ -602,3 +607,119 @@ implementation-dependent). No existing tests were deleted. The
 `tramai-spring-boot-starter-sovereign-ops` (test-fixture-only; no Spring
 enters any production runtime module) so the shared suite can be written in
 one place.
+
+## WorkflowCheckpointStore TCK (PR #273)
+
+`WorkflowCheckpointStoreTck` (tramai-testing testFixtures, which gained a
+test-fixture-only dependency on `tramai-orchestration`, the SPI's home
+module) runs **42 shared behavioral cases** against every
+`WorkflowCheckpointStore` implementation — the orchestration module's
+in-memory store, the properties-file store, the Markdown store, and JDBC
+(real H2, not a fake backend; the checkpoint SPI is standard SQL). A
+checkpoint is a **versioned logical record identified by (workflowName,
+workflowId)**, never "a file containing state": filesystem-safe naming,
+Markdown formatting and JDBC primary keys are implementation mechanics and
+cannot change what constitutes a unique checkpoint.
+
+- **Creation / read / identity (14):** full round-trip; save returns the
+  persisted value; missing load → null; first revision always 1; the
+  caller-supplied `revision` field is never authoritative; nullable
+  `lastCompletedStepName` preserved; multiline/Unicode/punctuation state
+  payload preserved; metadata exact; `Required` recovery state round-trips;
+  same workflowName/different IDs and same workflowId/different names
+  independent; duplicate create → `WorkflowCheckpointConflictException`
+  with exactly `"Workflow checkpoint conflict"` and null cause; rejected
+  duplicate leaves the original unchanged; **distinct keys whose legacy
+  sanitized paths collide remain distinct** (`"a/b"` vs `"a?b"` — the
+  discriminator that exposed the File/Markdown identity-domain divergence).
+- **Revision / optimistic concurrency (9):** exact expected revision
+  succeeds; update persists new values; stale lower revision conflicts;
+  impossible higher revision conflicts; expected revision on missing record
+  conflicts; expected null on existing record conflicts; failed update is
+  non-mutating; supplied revision 999 never becomes 999/1000; repeated
+  updates advance exactly 1 → 2 → 3.
+- **Delete / idempotency (7):** exact revision deletes; stale revision
+  conflicts; stale delete non-mutating; missing + expected revision
+  conflicts; missing + null expected is a no-op; existing + null expected
+  deletes; recreate after delete starts fresh at revision 1 (deleting a
+  checkpoint deletes its revision history).
+- **Recovery state (8):** `requireRecovery` transitions Normal@1 →
+  Required@2 with the exact `WorkflowRecoveryRecord` (reason, stepName,
+  attemptId, priorWorkerId, detectedAt, nullable idempotencyKey,
+  instructions); unrelated checkpoint fields preserved; stale expected
+  revision conflicts; missing checkpoint conflicts; failed operation
+  non-mutating. `clearRecovery` transitions Required@2 → Normal@3; stale
+  revision conflicts; failed operation non-mutating. The store-level
+  recovery contract deliberately does NOT declare
+  `requireRecovery(Required)`/`clearRecovery(Normal)` illegal — those
+  higher-level lifecycle restrictions belong to `WorkflowRecoveryController`.
+- **Concurrency (4 real parallel races, start barrier, 20 iterations
+  each):** concurrent create — exactly one winner, final revision 1;
+  **competing same-revision updates** — exactly one winner, final revision
+  2 with the winner's payload, all others conflict; update versus delete —
+  exactly one legal winner; **competing requireRecovery** — exactly one
+  winner with the winner's exact record (proves the SPI's default
+  load-then-save implementation is sufficiently atomic through the
+  underlying save CAS — no store override was rewritten).
+
+### Decisions (deliberate, per review)
+
+- **File/Markdown logical-key collision repair (the principal production
+  fix).** The lossy `sanitizePathSegment` mapping collapsed distinct keys
+  onto one file (`"order/a"` and `"order?a"` → `"order_a"`), while
+  InMemory/JDBC distinguished them. The checkpoint stores now default to the
+  new collision-free `CollisionFreeWorkflowCheckpointPathStrategy`
+  (URL-safe Base64 segments, injective and reversible) and read pre-upgrade
+  checkpoints via the legacy sanitized path **with identity verification**
+  (the decoded record must identify the requested key — a legacy path may
+  hold a colliding key's record, and it is never overwritten). The first
+  legitimate update migrates the record to the canonical path and deletes
+  the legacy file — never two authoritative copies.
+  `DefaultWorkflowCheckpointPathStrategy` is unchanged (the lease store and
+  explicit-injection callers depend on it). New public class is additive;
+  `api/` dump regenerated.
+- **`WorkflowCheckpointCatalog` is outside the shared #273 TCK**: it is a
+  distinct optional SPI and Markdown intentionally does not implement it.
+- **The JDBC runner uses real H2** — stronger contract evidence than the
+  proxy backend; no Testcontainers needed for standard-SQL semantics.
+- **Conflict taxonomy pinned:** `WorkflowCheckpointConflictException` with
+  message `"Workflow checkpoint conflict"` and null cause. Raw
+  SQL/filesystem exceptions and corruption behavior stay out of the shared
+  contract.
+- The enrollment scanner now skips `private` declarations (the supervisor's
+  private lease-fencing decorator is an implementation detail, not a store
+  family member).
+
+### Mutation evidence (13 mutations, each restored; InMemory store + strategy)
+
+| Mutation | TCK outcome |
+|---|---|
+| duplicate create overwrites existing | RED — duplicate-create + create race |
+| initial revision trusts supplied revision | RED — first-revision + input-revision cases |
+| initial revision becomes 0 | RED — first-revision case |
+| update ignores expected revision | RED — stale/higher conflicts + update & recovery races |
+| update does not increment revision | RED — exact-revision + 1→2→3 cases |
+| missing + expected becomes create | RED — missing-with-expected conflict |
+| delete ignores expected revision | RED — stale-delete cases |
+| missing + expected delete silently succeeds | RED — missing-with-expected delete conflict |
+| missing unconditional delete throws | RED — missing no-op idempotency |
+| save becomes check-then-write (synchronized removed) | RED — update race + create race |
+| delete becomes check-then-delete (synchronized removed) | RED — update-vs-delete race |
+| save always writes Normal recovery state | RED — Required round-trip case |
+| file path mapping reverts to lossy sanitize | RED — collision discriminator (File + Markdown) |
+
+### Scope
+
+The TCK owns SPI semantics; implementation-specific suites continue owning
+persistence formats (properties/Markdown/JSON), restart durability,
+permissions, corruption injection, JDBC schema internals, and the
+`WorkflowCheckpointCatalog` listing SPI. Existing suites
+(`WorkflowCheckpointStoreTest`, `WorkflowRecoveryContractTest`,
+`DurableWorkflowRecoveryFileTest`/`JdbcTest`,
+`FileWorkflowPersistenceCancellationContractTest`,
+`JdbcWorkflowPersistenceCancellationContractTest`,
+`PersistenceSafeFailureBoundaryTest`) are untouched and keep their
+higher-level coverage. No existing tests were deleted. `tramai-testing`
+testFixtures gained a dependency on `tramai-orchestration` (test-fixture-only)
+so the shared suite can be written in one place. Legacy path behavior is
+documented in `docs/guides/orchestration-persistence.md`.

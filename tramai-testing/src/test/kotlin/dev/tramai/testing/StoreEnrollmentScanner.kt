@@ -43,7 +43,10 @@ class StoreEnrollmentScanner(
      * after the first top-level `:` (depth-aware), so a constructor parameter
      * like `class X(val store: ApprovalStore, ...)` never counts as a
      * supertype, while `class X(...) : ApprovalStore` (multi-line or not) is
-     * caught.
+     * caught. `private` declarations are skipped: a private class cannot be a
+     * publishable store-family member (nothing outside its file can
+     * instantiate it or enroll it in a runner), e.g. the supervisor's
+     * private lease-fencing decorator.
      */
     fun implementationsIn(file: File): List<String> {
         val text = file.readText()
@@ -54,10 +57,11 @@ class StoreEnrollmentScanner(
             // containing declaration keywords or a doc comment is such a false
             // positive (e.g. exception classes with implicit bodies).
             val overSpanned = DECLARATION_KEYWORD.containsMatchIn(supertype)
+            val isPrivate = Regex("""(?m)^\s*private\s+(?:class|object)\s+$name\b""").containsMatchIn(text)
             // Word-boundary match on the interface name so a supertype like
             // `ApprovalContinuationStoreException` (whose name merely
             // contains the words) never counts as an implementation.
-            if (!overSpanned && interfaceType.containsMatchIn(supertype)) name else null
+            if (!overSpanned && !isPrivate && interfaceType.containsMatchIn(supertype)) name else null
         }.distinct().toList()
     }
 

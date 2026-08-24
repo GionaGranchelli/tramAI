@@ -64,6 +64,51 @@ class WorkflowCheckpointStoreTest {
         }
     }
     @Test
+    fun `file store reads and migrates a legacy sanitized-path checkpoint`() {
+        val directory = createTempDirectory("tramai-file-legacy")
+        try {
+            // Simulate a checkpoint persisted BEFORE the collision-free path
+            // strategy: written directly at the historical lossy path.
+            val legacyCheckpoint = sampleCheckpoint(
+                workflowName = "legacy-workflow",
+                workflowId = "wf-legacy",
+                statePayload = "legacy-state",
+            ).copy(nextStepIndex = 2, revision = 1)
+            val legacyPath = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties")
+                .resolve(directory, "legacy-workflow", "wf-legacy")
+            Files.createDirectories(legacyPath.parent)
+            Files.writeString(legacyPath, encodeCheckpoint(legacyCheckpoint))
+
+            val store = FileWorkflowCheckpointStore(directory)
+            // Old record is still readable through the new store (revision is
+            // whatever was persisted — the store does not rewrite it on load).
+            assertThat(runBlocking { store.load("legacy-workflow", "wf-legacy") })
+                .isEqualTo(legacyCheckpoint)
+
+            // First legitimate update migrates to the canonical path and
+            // removes the legacy file (never two authoritative copies).
+            val updated = runBlocking {
+                store.save(
+                    sampleCheckpoint(
+                        workflowName = "legacy-workflow",
+                        workflowId = "wf-legacy",
+                        statePayload = "legacy-state-2",
+                    ).copy(nextStepIndex = 4),
+                    expectedRevision = 1,
+                )
+            }
+            assertThat(updated.revision).isEqualTo(2)
+            val canonicalPath = CollisionFreeWorkflowCheckpointPathStrategy("checkpoint.properties")
+                .resolve(directory, "legacy-workflow", "wf-legacy")
+            assertThat(Files.exists(canonicalPath)).isTrue()
+            assertThat(Files.exists(legacyPath)).isFalse()
+            assertThat(runBlocking { store.load("legacy-workflow", "wf-legacy")?.nextStepIndex }).isEqualTo(4)
+        } finally {
+            deleteRecursively(directory)
+        }
+    }
+
+    @Test
     fun `markdown checkpoint store writes readable markdown and round trips payload`() {
         val directory = createTempDirectory("tramai-markdown-store")
         try {
@@ -74,10 +119,8 @@ class WorkflowCheckpointStoreTest {
                 statePayload = "line-1\n```json\n{\"ok\":true}\n```",
             )
             val persisted = runBlocking { store.save(checkpoint) }
-            val checkpointPath = directory
-                .resolve("markdown-workflow")
-                .resolve("wf-md")
-                .resolve("checkpoint.md")
+            val checkpointPath = CollisionFreeWorkflowCheckpointPathStrategy("checkpoint.md")
+                .resolve(directory, "markdown-workflow", "wf-md")
             val markdown = Files.readString(checkpointPath)
             val loaded = runBlocking { store.load("markdown-workflow", "wf-md") }
             assertThat(markdown)

@@ -21,8 +21,11 @@ import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.nio.channels.OverlappingFileLockException
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
@@ -590,14 +593,28 @@ class InvoiceWorkflowCoordinator(
     }
 
     private fun discoverCheckpointWorkflowIds(): List<String> {
-        val workflowRoot = Path.of(persistenceRoot).resolve(WORKFLOW_NAME)
-        if (!workflowRoot.exists() || !workflowRoot.isDirectory()) {
+        val root = Path.of(persistenceRoot)
+        if (!root.exists() || !root.isDirectory()) {
             return emptyList()
         }
         return runCatching {
-            workflowRoot.listDirectoryEntries()
-                .filter { it.isDirectory() }
-                .map { it.fileName.toString() }
+            Files.walk(root).use { paths ->
+                paths
+                    .toList()
+                    .filter { it.fileName.toString() == "checkpoint.md" }
+                    .mapNotNull { checkpointFile ->
+                        val idSegment = checkpointFile.parent?.fileName?.toString() ?: return@mapNotNull null
+                        // Collision-free layout encodes the id segment as
+                        // base64url; the legacy layout used the raw id. Try
+                        // decoding first, fall back to the raw name.
+                        runCatching {
+                            String(Base64.getUrlDecoder().decode(idSegment), StandardCharsets.UTF_8)
+                        }.getOrElse { idSegment }
+                    }
+                    .distinct()
+                    .sorted()
+                    .toList()
+            }
         }.getOrDefault(emptyList())
     }
 

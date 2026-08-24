@@ -117,13 +117,19 @@ For a workflow id like `wf-1042`, the example writes files like:
 
 ```text
 build/tramai-example/workflows/
-└── invoice-review-workflow/
+├── <base64url(invoice-review-workflow)>/       # checkpoint store root
+│   └── <base64url(wf-1042)>/
+│       └── checkpoint.md
+└── invoice-review-workflow/                    # lease store (legacy layout)
     └── wf-1042/
-        ├── checkpoint.md
         └── lease.properties
 ```
 
-The checkpoint is retained after completion. The lease file exists only while a node owns the run.
+The checkpoint store uses the collision-free path strategy (each identity
+segment is URL-safe Base64 without padding, so distinct workflow IDs can
+never alias on disk); the lease store still uses the legacy sanitized
+layout. `checkpoint.md` is retained after completion. The lease file exists
+only while a node owns the run.
 
 ## Native Image Metadata
 
