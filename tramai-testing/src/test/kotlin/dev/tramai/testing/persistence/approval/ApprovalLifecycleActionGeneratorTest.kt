@@ -71,14 +71,14 @@ class ApprovalLifecycleActionGeneratorTest {
             "exact-replay-after-expiry",
             "wrong-actor-replay-rejection",
             "wrong-version-replay-rejection",
+            "fresh-consume-wrong-version-rejection",
+            "exact-expiry-boundary",
         )
         val missing = expectedCategories.filterNot { it in categories }
         assertThat(missing)
             .withFailMessage {
-                val sample = events.filter { it.category in missing }.take(3).joinToString("\n") {
-                    "  seed=${it.seed} step=${it.step} action=${it.action.describe()}"
-                }
-                "corpus missing categories: $missing\nfirst occurrences:\n$sample\n" +
+                val available = categories.sorted().joinToString(", ")
+                "corpus missing categories: $missing\navailable: $available\n" +
                     "total events: ${events.size}, seeds: ${ApprovalLifecycleActionGenerator.SEED_COUNT}"
             }
             .isEmpty()
@@ -121,7 +121,12 @@ class ApprovalLifecycleActionGeneratorTest {
         fun add(category: String) = events.add(RecordedEvent(category, seed, step, action, outcome))
         when (action) {
             is ApprovalLifecycleAction.ApproveCurrentVersion -> when (outcome) {
-                is ApprovalLifecycleOutcome.Success -> add("valid-approve")
+                is ApprovalLifecycleOutcome.Success -> {
+                    add("valid-approve")
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now == expiry) {
+                        add("exact-expiry-boundary")
+                    }
+                }
                 is ApprovalLifecycleOutcome.Failure -> {
                     // Genuine after-expiry rejection requires the PENDING
                     // pre-state: a decision on a terminal status is a
@@ -129,20 +134,42 @@ class ApprovalLifecycleActionGeneratorTest {
                     if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now >= expiry) {
                         add("approve-after-expiry-rejection")
                     }
+                    // Exact-equality (now == expiresAt) must be reached, not
+                    // just now > expiresAt — a future generator edit that
+                    // silently loses exact-equality would make the M2
+                    // boundary mutation weak again.
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now == expiry) {
+                        add("exact-expiry-boundary")
+                    }
                     if (before.status != dev.tramai.core.approval.ApprovalStatus.PENDING) add("post-terminal-rejection")
                 }
             }
             is ApprovalLifecycleAction.DenyCurrentVersion -> when (outcome) {
-                is ApprovalLifecycleOutcome.Success -> add("valid-deny")
+                is ApprovalLifecycleOutcome.Success -> {
+                    add("valid-deny")
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now == expiry) {
+                        add("exact-expiry-boundary")
+                    }
+                }
                 is ApprovalLifecycleOutcome.Failure -> {
                     if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now >= expiry) {
                         add("deny-after-expiry-rejection")
+                    }
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now == expiry) {
+                        add("exact-expiry-boundary")
                     }
                     if (before.status != dev.tramai.core.approval.ApprovalStatus.PENDING) add("post-terminal-rejection")
                 }
             }
             is ApprovalLifecycleAction.TimeoutCurrentVersion -> when (outcome) {
-                is ApprovalLifecycleOutcome.Success -> add("valid-timeout")
+                is ApprovalLifecycleOutcome.Success -> {
+                    add("valid-timeout")
+                    // Timeout is legal at exact expiry (now == expiresAt) —
+                    // the boundary where the M2 `>=` vs `>` mutation differs.
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now == expiry) {
+                        add("exact-expiry-boundary")
+                    }
+                }
                 is ApprovalLifecycleOutcome.Failure -> {
                     if (before.status == dev.tramai.core.approval.ApprovalStatus.PENDING && before.now < expiry) {
                         add("early-timeout-rejection")
@@ -191,6 +218,13 @@ class ApprovalLifecycleActionGeneratorTest {
                 is ApprovalLifecycleOutcome.Failure -> {
                     add("wrong-version-conflict")
                     if (before.consumedAt != null) add("wrong-version-replay-rejection")
+                    // Fresh-consumption version guard (M10): APPROVED +
+                    // unconsumed + wrong expected version -> CONFLICT. Not
+                    // implied by wrong-version-conflict (decisions) nor by
+                    // wrong-version-replay-rejection (consumed state).
+                    if (before.status == dev.tramai.core.approval.ApprovalStatus.APPROVED && before.consumedAt == null) {
+                        add("fresh-consume-wrong-version-rejection")
+                    }
                 }
                 is ApprovalLifecycleOutcome.Success -> Unit
             }

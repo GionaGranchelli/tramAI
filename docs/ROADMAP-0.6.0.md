@@ -1313,7 +1313,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Targets
 
-- Approval lifecycle — ✅ PR #278 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 16-mutation evidence; zero production changes)
+- Approval lifecycle — ✅ PR #278 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 18-mutation evidence; zero production changes)
 - Continuation lifecycle
 - Worker lifecycle
 - Lease lifecycle

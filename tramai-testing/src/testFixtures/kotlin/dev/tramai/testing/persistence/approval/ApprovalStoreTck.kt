@@ -522,7 +522,7 @@ abstract class ApprovalStoreTck {
 
     // ── Epic 8.2a: model-based lifecycle properties ────────────────
     //
-    // The four properties below replace "specific scenario → expected
+    // The properties below replace "specific scenario → expected
     // result" with "model state → generated action → predicted transition →
     // execute real store → compare → assert all invariants → repeat". The
     // oracle is ApprovalLifecycleModel — a PURE, independent encoding of the
@@ -697,15 +697,19 @@ abstract class ApprovalStoreTck {
             val winnerIndex = outcomes.indexOfFirst { it.isSuccess && it.getOrThrow().replayed == false }
             assertThat(durable.consumedBy).isEqualTo("worker-$winnerIndex")
 
-            // Losers fail with one of the typed non-success outcomes; which
-            // one depends on the store's check precedence after the winner
-            // committed — only the absence of a second success is pinned.
+            // After the winner commits, every backend's whole-consume atomicity
+            // (InMemory CAS, File per-record lock, JDBC FOR UPDATE row-lock)
+            // serializes each loser AFTER the winner: the loser reads the
+            // consumed record, dispatches to the replay path with the valid
+            // predecessor version (1) and matching token, and fails only on
+            // the actor check. Conflict or TokenRejected are NOT legal
+            // serialized loser outcomes — a loser leaking Conflict would mean
+            // an implementation that lost a race without re-reading the
+            // winning state (exactly the false confidence Epic 8.2 removes).
             val loserFailures = outcomes.filter { it.isFailure }.map { it.exceptionOrNull() }
             assertThat(loserFailures.size).isEqualTo(7)
-            assertThat(loserFailures.map { it?.javaClass }).allMatch { failureClass ->
-                failureClass == ApprovalStoreConflictException::class.java ||
-                    failureClass == ApprovalStoreNotConsumableException::class.java ||
-                    failureClass == ApprovalStoreTokenRejectedException::class.java
+            assertThat(loserFailures.map { it?.javaClass }).allMatch {
+                it == ApprovalStoreNotConsumableException::class.java
             }
         }
     }
@@ -743,8 +747,15 @@ abstract class ApprovalStoreTck {
             is ApprovalLifecycleAction.ApproveWrongVersion,
             is ApprovalLifecycleAction.DenyWrongVersion,
             ApprovalLifecycleAction.TimeoutWrongVersion,
-            is ApprovalLifecycleAction.ConsumeWrongVersion,
             -> model.version + 1
+            is ApprovalLifecycleAction.ConsumeWrongVersion ->
+                // The dangerous wrong expected-version is the one ADJACENT to
+                // the valid expected version, not durable+1: fresh consume
+                // valid expected = durable (v1) -> wrong = v2; replay valid
+                // expected = durable-1 (v1) -> wrong = v2 (an implementation
+                // accepting expectedVersion == durableVersion would pass a
+                // durable+1 probe but must fail here).
+                if (model.consumedAt == null) model.version + 1 else model.version
             is ApprovalLifecycleAction.ConsumeValid,
             is ApprovalLifecycleAction.ConsumeWrongToken,
             -> if (model.consumedAt == null) model.version else model.version - 1

@@ -130,7 +130,9 @@ never decreases or jumps (max lifecycle version v2); binding/identity
 immutable; PENDING carries no decision/consumption fields; DENIED/TIMED_OUT
 never acquire consumption fields; APPROVED consumption fields both-null or
 both-set; decision and consumption metadata immutable after being set;
-rejected action → durable record byte-identical before/after.
+rejected action → durable record value-identical before/after (externally
+observable domain equality — `store.get(id)` equals the pre-action record;
+not a claim about persisted bytes).
 
 ### Generated corpus
 
@@ -139,23 +141,36 @@ rejected action → durable record byte-identical before/after.
 wrong-version decision evaluated against the PENDING pre-state (the only
 state where the transition version guard is the discriminator) — the corpus
 must never depend on luck for a primary optimistic-concurrency invariant.
-`ApprovalLifecycleActionGeneratorTest` pins: same seed → same trace, all 16
+`ApprovalLifecycleActionGeneratorTest` pins: same seed → same trace, all 18
 semantic categories present (valid approve/deny/timeout, early-timeout
-rejection, approve/deny-after-expiry rejection, wrong-version conflict,
-wrong-version-while-pending, post-terminal rejection, fresh consume, expired
-fresh-consume rejection, wrong-token rejection, exact replay, replay after
+rejection, approve/deny-after-expiry rejection, exact-expiry boundary,
+wrong-version conflict, wrong-version-while-pending, post-terminal
+rejection, fresh consume, expired fresh-consume rejection, fresh-consume
+wrong-version rejection, wrong-token rejection, exact replay, replay after
 expiry, wrong-actor/wrong-version replay rejections), and all four statuses
-reached.
+reached. Categories are recorded from the MODEL WALK (reachable pre-state
+semantics), not from action-enum presence: e.g. `exact-expiry-boundary`
+requires a PENDING pre-state at exactly `now == expiresAt` (not just
+`now > expiresAt`), and `fresh-consume-wrong-version-rejection` requires
+APPROVED + unconsumed — a future generator edit that silently loses these
+discriminators fails the guard.
+
+Note on time actions: the `Advance*` actions SET the clock absolutely and
+may move it backwards (e.g. past-expiry then before-expiry). Clock reversal
+is part of the tested model — deterministic time control for boundary
+pinning, not wall-clock monotonicity. Epic 8.3 owns time abstractions.
+
+### Wrong-version decision matrix (deterministic, not a race)
+
+For every Approve/Deny/Timeout with `expectedVersion = durable + 1`, at
+t0 / exact expiry / after expiry → `ApprovalStoreConflictException` and the
+durable record exactly unchanged. Pins optimistic versioning on DECISION
+transitions including failure precedence: version is checked before the
+expiry window, so a stale-version decision at/after expiry is a CONFLICT,
+not an IllegalApprovalTransition.
 
 ### Concurrency properties (×20 iterations, start barrier)
 
-- **Wrong-version decisions (deterministic matrix):** for every
-  Approve/Deny/Timeout with `expectedVersion = durable + 1`, at t0 / exact
-  expiry / after expiry → `ApprovalStoreConflictException` and the durable
-  record exactly unchanged. Pins optimistic versioning on DECISION
-  transitions including failure precedence: version is checked before the
-  expiry window, so a stale-version decision at/after expiry is a CONFLICT,
-  not an IllegalApprovalTransition.
 - **Duplicate decisions:** 8 contenders (Approve/Deny alternating,
   expectedVersion 0) → exactly 1 success, 7 conflicts, durable v1 with the
   winner's status/decidedBy; no second decision can overwrite the winner.
@@ -164,9 +179,15 @@ reached.
   durable v2 record with identical consumedAt.
 - **Competing consumers:** 8 unique actors → exactly one fresh winner,
   durable v2 with the winner's consumedBy; no second actor ever obtains a
-  successful receipt (replay requires the durable consumer identity to match
-  the caller); losers may surface any of the typed non-success outcomes
-  (check precedence is not pinned after the winner commits).
+  successful receipt. Every loser deterministically surfaces
+  `ApprovalStoreNotConsumableException`: whole-consume atomicity (InMemory
+  CAS, File per-record lock, JDBC `FOR UPDATE` row-lock) serializes each
+  loser AFTER the winner, so the loser reads the consumed record, takes the
+  replay path with the valid predecessor version (1) and matching token,
+  and fails only on the actor check. Conflict or TokenRejected are NOT
+  legal serialized loser outcomes — a loser leaking Conflict would mean an
+  implementation that lost a race without re-reading the winning state
+  (the exact false confidence this suite exists to remove).
 
 ### Contract precedence discovered
 
@@ -174,13 +195,17 @@ The model originally checked the expiry window before the token on the
 wrong-token path; all three stores uniformly check the token FIRST (an
 expired-but-unconsumed approval with a wrong token is
 `ApprovalStoreTokenRejectedException`, not `NotConsumable`). The SPI KDoc
-does not pin check order — the model was aligned to the cross-store
-behavior (token-first) rather than weakening either side.
+does not pin check order. This PR makes an explicit decision: **token-first
+is promoted to an intentional cross-store contract**, pinned by the model
+and verified on all three implementations. If a future implementation ever
+wants a different precedence, it must first change the SPI KDoc — the
+shared TCK will reject the divergence.
 
-### Mutation evidence (16 mutations, each restored)
+### Mutation evidence (18 mutations, each restored)
 
-Each mutation makes a NEW 8.2 property RED (generated-sequence and/or
-identical-consumption); none rely on an old #267 example test:
+Each mutation makes a NEW 8.2 property RED (generated-sequence, identical-
+consumption and/or competing-consumers); none rely on an old #267 example
+test:
 
 | Mutation | Discriminator |
 |---|---|
@@ -200,6 +225,8 @@ identical-consumption); none rely on an old #267 example test:
 | replay accepts a different consumer | generated sequence |
 | token check removed | generated sequence |
 | exact replay disabled | generated sequence + identical consumption |
+| replay accepts expectedVersion == durableVersion | generated sequence |
+| replay loser leaks Conflict instead of NotConsumable | competing consumers + generated sequence |
 
 ### Production changes
 
