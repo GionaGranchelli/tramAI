@@ -80,6 +80,45 @@ class WorkflowLeaseConflictException(
     var safeFactoryTrusted: Boolean = false
         internal set
 }
+
+/**
+ * Caller-input validation for lease operations, enforced OUTSIDE the
+ * persistence boundary: these are caller errors (IllegalArgumentException),
+ * not persistence failures. Mirrors the WorkflowLeasePolicy runtime
+ * invariants (nonblank ownership, positive duration).
+ */
+internal fun validateLeaseIdentityInput(
+    workflowName: String,
+    workflowId: String,
+    ownerId: String,
+    leaseDurationMillis: Long,
+) {
+    require(workflowName.isNotBlank()) { "workflowName must not be blank" }
+    require(workflowId.isNotBlank()) { "workflowId must not be blank" }
+    require(ownerId.isNotBlank()) { "ownerId must not be blank" }
+    require(leaseDurationMillis > 0) { "leaseDurationMillis must be greater than zero" }
+}
+
+internal fun validateLeaseToken(lease: WorkflowLease) {
+    require(lease.leaseId.isNotBlank()) { "leaseId must not be blank" }
+}
+
+/**
+ * The fence binds the expected lease identity to the checkpoint identity:
+ * a lease for workflow A must never authorize a mutation of workflow B.
+ * Framework/caller misuse — IllegalArgumentException, before touching
+ * storage, with no checkpoint or lease mutation.
+ */
+internal fun validateFenceIdentity(
+    expectedLease: WorkflowLease,
+    workflowName: String,
+    workflowId: String,
+) {
+    require(expectedLease.workflowName == workflowName && expectedLease.workflowId == workflowId) {
+        "Fenced checkpoint identity ($workflowName, $workflowId) must match the lease identity " +
+            "(${expectedLease.workflowName}, ${expectedLease.workflowId})"
+    }
+}
 /**
  * Simple in-memory lease store for tests and lightweight local use.
  */
@@ -119,59 +158,67 @@ class InMemoryWorkflowLeaseStore(
         ownerId: String,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = persistenceBoundary(
-        PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
-    ) { leaseMutex.withLock {
-        synchronized(monitor) {
-            val key = LeaseKey(workflowName, workflowId)
-            val existing = leases[key]
-            if (existing != null && !isExpired(existing)) {
-                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
+    ): WorkflowLease {
+        validateLeaseIdentityInput(workflowName, workflowId, ownerId, leaseDurationMillis)
+        return persistenceBoundary(
+            PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
+        ) { leaseMutex.withLock {
+            synchronized(monitor) {
+                val key = LeaseKey(workflowName, workflowId)
+                val existing = leases[key]
+                if (existing != null && !isExpired(existing)) {
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
+                }
+                val now = clockMillis()
+                val lease = WorkflowLease(
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    leaseId = UUID.randomUUID().toString(),
+                    ownerId = ownerId,
+                    checkpointRevision = checkpointRevision,
+                    acquiredAtEpochMillis = now,
+                    expiresAtEpochMillis = now + leaseDurationMillis,
+                )
+                leases[key] = lease
+                lease
             }
-            val now = clockMillis()
-            val lease = WorkflowLease(
-                workflowName = workflowName,
-                workflowId = workflowId,
-                leaseId = UUID.randomUUID().toString(),
-                ownerId = ownerId,
-                checkpointRevision = checkpointRevision,
-                acquiredAtEpochMillis = now,
-                expiresAtEpochMillis = now + leaseDurationMillis,
-            )
-            leases[key] = lease
-            lease
-        }
-    } }
+        } }
+    }
 
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = persistenceBoundary(
-        PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
-    ) { leaseMutex.withLock {
-        synchronized(monitor) {
-            val key = LeaseKey(lease.workflowName, lease.workflowId)
-            val existing = leases[key]
-                ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
-            if (isExpired(existing)) {
-                leases.remove(key)
-                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+    ): WorkflowLease {
+        validateLeaseToken(lease)
+        require(leaseDurationMillis > 0) { "leaseDurationMillis must be greater than zero" }
+        return persistenceBoundary(
+            PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
+        ) { leaseMutex.withLock {
+            synchronized(monitor) {
+                val key = LeaseKey(lease.workflowName, lease.workflowId)
+                val existing = leases[key]
+                    ?: throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+                if (isExpired(existing)) {
+                    leases.remove(key)
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+                }
+                if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
+                    throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
+                }
+                val now = clockMillis()
+                val renewed = existing.copy(
+                    checkpointRevision = checkpointRevision,
+                    expiresAtEpochMillis = now + leaseDurationMillis,
+                )
+                leases[key] = renewed
+                renewed
             }
-            if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-                throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, PersistenceFailureCode.CONFLICT)
-            }
-            val now = clockMillis()
-            val renewed = existing.copy(
-                checkpointRevision = checkpointRevision,
-                expiresAtEpochMillis = now + leaseDurationMillis,
-            )
-            leases[key] = renewed
-            renewed
-        }
-    } }
+        } }
+    }
 
     override suspend fun release(lease: WorkflowLease) {
+        validateLeaseToken(lease)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) { leaseMutex.withLock {
             synchronized(monitor) {
                 val key = LeaseKey(lease.workflowName, lease.workflowId)
@@ -193,15 +240,18 @@ class InMemoryWorkflowLeaseStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ): WorkflowCheckpoint = persistenceBoundary(
-        PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
-    ) { leaseMutex.withLock {
-        val current = synchronized(monitor) {
-            activeLease(expectedLease.workflowName, expectedLease.workflowId)
-        }
-        validateExpectedLease(expectedLease, current)
-        checkpointStore.save(checkpoint, expectedRevision)
-    } }
+    ): WorkflowCheckpoint {
+        validateFenceIdentity(expectedLease, checkpoint.workflowName, checkpoint.workflowId)
+        return persistenceBoundary(
+            PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
+        ) { leaseMutex.withLock {
+            val current = synchronized(monitor) {
+                activeLease(expectedLease.workflowName, expectedLease.workflowId)
+            }
+            validateExpectedLease(expectedLease, current)
+            checkpointStore.save(checkpoint, expectedRevision)
+        } }
+    }
 
     override suspend fun deleteCheckpointIfLeaseOwner(
         checkpointStore: WorkflowCheckpointStore,
@@ -210,6 +260,7 @@ class InMemoryWorkflowLeaseStore(
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
     ) {
+        validateFenceIdentity(expectedLease, workflowName, workflowId)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { leaseMutex.withLock {
             val current = synchronized(monitor) {
                 activeLease(workflowName, workflowId)
