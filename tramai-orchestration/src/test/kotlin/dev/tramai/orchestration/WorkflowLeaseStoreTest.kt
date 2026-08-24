@@ -1,5 +1,9 @@
 package dev.tramai.orchestration
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.io.path.createTempDirectory
@@ -378,6 +382,74 @@ class WorkflowLeaseStoreTest {
         } finally {
             directory.toFile().deleteRecursively()
         }
+    }
+
+    @Test
+    fun `concurrent takeover of an expired legacy unsafe-key lease yields exactly one winner`() = runBlocking<Unit> {
+        var now = 2_000L
+        val directory = createTempDirectory("tramai-lease-legacy-race")
+        try {
+            // Expired pre-collision-free lease for "order/a" on the legacy
+            // lossy path ("order_a").
+            val legacyLease = WorkflowLease(
+                workflowName = "order",
+                workflowId = "a/b",
+                leaseId = "legacy-token-9",
+                ownerId = "worker-old",
+                checkpointRevision = null,
+                acquiredAtEpochMillis = 500,
+                expiresAtEpochMillis = 1_500,
+            )
+            val legacyPath = DefaultWorkflowCheckpointPathStrategy("lease.properties")
+                .resolve(directory, "order", "a/b")
+            Files.createDirectories(legacyPath.parent)
+            Files.writeString(legacyPath, encodeLease(legacyLease))
+
+            // Deterministically park claimant A INSIDE the migration window:
+            // the legacy file is already deleted, the canonical write is about
+            // to move. B then runs against exactly that transient state.
+            val inMigrationWindow = CompletableDeferred<Unit>()
+            val releaseA = CompletableDeferred<Unit>()
+            val writerA = AtomicFileWriter { _ ->
+                inMigrationWindow.complete(Unit)
+                runBlocking { releaseA.await() }
+            }
+            // B uses a SEPARATE store sharing the same directory with a plain
+            // writer: its outcome must depend only on the lock namespace, not
+            // on the shared hook (which would block B too and mask the race).
+            val strategy = CollisionFreeWorkflowLeasePathStrategy("lease.properties")
+            val storeA = FileWorkflowLeaseStore.forTest(directory, strategy, writerA) { now }
+            val storeB = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+
+            val a = async(Dispatchers.Default) {
+                runCatching { storeA.claim("order", "a/b", "worker-a", checkpointRevision = null, leaseDurationMillis = 1_000) }
+            }
+            inMigrationWindow.await()
+            val b = async(Dispatchers.Default) {
+                runCatching { storeB.claim("order", "a/b", "worker-b", checkpointRevision = null, leaseDurationMillis = 1_000) }
+            }
+            // A is provably parked mid-migration (legacy deleted, canonical
+            // not yet moved) while holding the legacy lock. If B completes
+            // NOW, it must have resolved the stale canonical path and
+            // succeeded — the pre-fix defect. With the stable lock namespace
+            // B blocks on the legacy lock instead and cannot complete.
+            val bCompletedWhileABlocked = withTimeoutOrNull(5_000) { b.await() }
+            releaseA.complete(Unit)
+            val outcomes = listOf(a.await(), bCompletedWhileABlocked ?: b.await())
+
+            assertThat(outcomes.count { it.isSuccess })
+                .withFailMessage("expected exactly one claimant to win the expired legacy takeover, got $outcomes")
+                .isEqualTo(1)
+            assertThat(outcomes.filter { it.isFailure }.map { it.exceptionOrNull()?.javaClass?.name })
+                .containsExactly(WorkflowLeaseConflictException::class.java.name)
+            assertThat(runBlocking { storeA.currentLease("order", "a/b") }).isNotNull
+            // The legacy file is gone; the single authoritative lease is the
+            // canonical one.
+            assertThat(Files.exists(legacyPath)).isFalse()
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+        Unit
     }
 }
 private data class LeaseResumeState(

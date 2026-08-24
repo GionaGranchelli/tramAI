@@ -43,13 +43,16 @@ class CollisionFreeWorkflowLeasePathStrategy(
         .resolve(fileName)
 
     private fun encodeSegment(input: String): String =
-        if (input.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+        if (input.all { it.isAsciiSafe() }) {
             input
         } else {
             "~" + Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(input.toByteArray(StandardCharsets.UTF_8))
         }
+
+    private fun Char.isAsciiSafe(): Boolean =
+        this in 'A'..'Z' || this in 'a'..'z' || this in '0'..'9' || this == '-' || this == '_'
 }
 
 /**
@@ -90,6 +93,18 @@ class FileWorkflowLeaseStore private constructor(
         ) = FileWorkflowLeaseStore(
             rootDirectory,
             DefaultWorkflowCheckpointPathStrategy("lease.properties"),
+            clockMillis,
+            atomicWriter,
+        )
+
+        fun forTest(
+            rootDirectory: Path,
+            pathStrategy: WorkflowCheckpointPathStrategy,
+            atomicWriter: AtomicFileWriter,
+            clockMillis: () -> Long = System::currentTimeMillis,
+        ) = FileWorkflowLeaseStore(
+            rootDirectory,
+            pathStrategy,
             clockMillis,
             atomicWriter,
         )
@@ -145,8 +160,19 @@ class FileWorkflowLeaseStore private constructor(
             PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
         ) {
             val canonical = leasePath(workflowName, workflowId)
-            val target = effectiveLeasePath(workflowName, workflowId)
-            withFileLockCancellable(target) {
+            // The lock namespace is the SYNCHRONIZATION identity and must stay
+            // stable across the legacy -> canonical migration: competing
+            // claimants of one logical workflow always pass through the same
+            // lock, even while the storage path itself moves. For the
+            // collision-free strategy this deliberately resolves to the
+            // legacy-sanitized path (a/b and a?b share a lock — harmless
+            // serialization — while their lease files remain distinct).
+            val lockPath = leaseLockPath(workflowName, workflowId)
+            withFileLockCancellable(lockPath) {
+                // Re-resolve the storage path NOW, inside the acquired lock:
+                // a claimant that resolved the legacy path before waiting must
+                // not act on stale path information after migration.
+                val target = effectiveLeasePath(workflowName, workflowId)
                 val existing = readLeaseIfPresent(target)?.takeIf {
                     identityMatches(it, workflowName, workflowId)
                 }
@@ -272,6 +298,24 @@ class FileWorkflowLeaseStore private constructor(
         workflowName: String,
         workflowId: String,
     ): Path = pathStrategy.resolve(rootDirectory, workflowName, workflowId)
+
+    /**
+     * The stable synchronization identity for one logical workflow: the
+     * lock file both the legacy and the canonical storage paths coordinate
+     * through. For the collision-free strategy that is the legacy-sanitized
+     * path — it is immutable across the migration boundary, so every
+     * concurrent claimant of the same logical workflow serializes on the
+     * same lock regardless of where the lease file currently lives. For any
+     * other strategy the storage path is the lock path (no migration).
+     */
+    private fun leaseLockPath(
+        workflowName: String,
+        workflowId: String,
+    ): Path = when (val strategy = pathStrategy) {
+        is CollisionFreeWorkflowLeasePathStrategy ->
+            strategy.legacyLeasePath(rootDirectory, workflowName, workflowId)
+        else -> leasePath(workflowName, workflowId)
+    }
 
     /**
      * The path currently holding this key's lease: the canonical
