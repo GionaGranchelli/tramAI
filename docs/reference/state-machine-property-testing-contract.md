@@ -234,3 +234,94 @@ None. Zero production code, zero public API, zero schema, zero persisted
 format. The model exposed one genuine cross-store behavior (token-first
 precedence) which the SPI KDoc leaves unpinned; the model was aligned, not
 the stores.
+
+---
+
+## Epic 8.2b — Approval continuation lifecycle state-machine properties (PR #279)
+
+The continuation lifecycle is richer than the approval lifecycle in one
+decisive way: **a failed operation can legitimately mutate durable state**.
+A late claim/cancel normalizes an elapsed PENDING row to EXPIRED before
+reporting its typed failure, so the model outcome carries the post-failure
+state (`Failure(kind, next)`), not merely a failure kind.
+
+### Model
+
+`ApprovalContinuationLifecycleModel` (pure oracle, not derived from
+production helpers) tracks status / version / now / claim / completion /
+recovery metadata / argumentsAvailable over the six statuses
+(PENDING@0 → CLAIMED@1 → COMPLETED@2 | CANCELLED_UNCERTAIN@2;
+PENDING@0 → CANCELLED@1 | EXPIRED@1). Immutable identity fields are pinned
+separately by the executor and reconstructed for whole-record comparison.
+Lazy expiry (`now >= expiresAt` on PENDING) mirrors the stores'
+`expireIfElapsed`; `normalizedAt(observationTime)` handles the crucial
+detail that the TCK's verification `get()` runs at the pre-action clock
+instant and can itself transition a still-PENDING record — the model
+accounts for observation-time normalization before comparing.
+
+### Generated corpus
+
+32 seeds × 32 actions = 1,024 model-checked operations per implementation
+× 3 = 3,072, plus 16-seed multi-record sweep and stale-claim models. Every
+seed opens with a fixed non-mutating phase pinning the version guards
+against the PENDING non-expired pre-state (wrong-version claim, early
+explicit expire, wrong-version cancel/expire, complete on non-claimed,
+force-cancel on non-claimed), then `seed % 4` selects a forced lifecycle
+archetype: claim→complete / claim→cancelled-uncertain / claim→wrong-actor+
+wrong-version recovery exercises; exact-expiry boundary (advance to exactly
+`expiresAt` then explicit expire); advance past expiry then lazy get / late
+claim / late cancel; valid cancel / advance past expiry + explicit expire
+(with a wrong-version expire evaluated AFTER the deadline — the version
+guard is the only thing standing between the record and a spurious EXPIRED
+transition).
+
+**Deliberate scope decision:** wrong-version actions are never emitted on
+terminal/EXPIRED states. The combined-invalid precedence (already-EXPIRED +
+wrong expected version) currently differs across stores (InMemory checks
+status first; File/JDBC fall through to the version check on an
+already-normalized row) and is an implementation detail — the corpus pins
+version-first only on the discriminating pre-states (PENDING before expiry,
+CLAIMED). The `ApprovalContinuationLifecycleActionGeneratorTest` guard
+asserts 25 semantic categories incl. `exact-expiry-boundary`,
+`late-claim-persists-expired`, `late-cancel-persists-expired`,
+`get-lazy-expiry`, `expire-wrong-version-after-expiry`, the four
+terminal-stable categories, and exactly-once argument release per seed.
+
+### Properties (8 new shared cases, 50 → 58 × 3 implementations)
+
+1. **Generated lifecycle sequences** — every action's typed return/failure
+   and durable state agrees with the model, including failure paths that
+   perform lazy-expiry normalization; whole-record equality after every
+   step; released raw arguments equal the original exactly once.
+2. **Wrong-version matrix** — PENDING-before-expiry (claim/cancel/expire
+   with expectedVersion 1) and CLAIMED (complete/forceCancel/cancel with
+   expectedVersion 0) → typed Conflict + value-identical record.
+3. **Eight concurrent claims** (×20) — exactly 1 fresh winner releasing the
+   raw arguments, 7 Conflict losers (whole-consume atomicity serializes
+   each loser after the winner), durable CLAIMED@1 with the winner's
+   identity; a follow-up claim → NotClaimable.
+4. **Mixed claim/cancel race** (×20, 4+4) — exactly one legal transition to
+   CLAIMED (one release) or CANCELLED (zero releases); 7 Conflict losers.
+5. **Claimed resolution race** (×20, 4 complete + 4 forceCancel) — exactly
+   one winner to COMPLETED (completedAt set, recovery null) or
+   CANCELLED_UNCERTAIN (completedAt null, recovery fields = winner); never
+   COMPLETED+recovery, never version > 2.
+6. **Concurrent lazy expiry** (×20, 8 observers at exactly `expiresAt`) —
+   every observation EXPIRED@1, durable EXPIRED@1, never v2+.
+7. **Generated sweep model** (16 seeds × 24 records) — only elapsed PENDING
+   rows transition (each exactly once, v0 → v1 EXPIRED); live PENDING,
+   CLAIMED and terminal rows untouched; second sweep zero.
+8. **Generated stale-claim query model** (16 seeds, accumulated records) —
+   boundary-inclusive filter (`claimedAt <= claimedBefore`), claimedAt ASC
+   then approvalId ASC ordering, limit — compared against a pure collection
+   model.
+
+### Production changes (1, deliberate)
+
+Epic 8.2b exposed one genuine File-store defect: `findStaleClaimed`
+truncated to `limit` in content-hash file order BEFORE sorting, so with
+more stale rows than the limit it returned the wrong subset (the #269
+3-record ordering test could not catch it because its limit exceeded the
+record count). Fixed to filter → sort → take, matching the documented
+contract and the InMemory/JDBC implementations. No other production,
+public-API, schema, or persisted-format changes.

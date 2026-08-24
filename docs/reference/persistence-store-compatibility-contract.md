@@ -131,12 +131,27 @@ consumers. See
 
 ## ApprovalContinuationStore TCK (PR #269)
 
-`ApprovalContinuationStoreTck` (tramai-testing testFixtures) runs **50 shared
-behavioral cases** against every `ApprovalContinuationStore` implementation.
+`ApprovalContinuationStoreTck` (tramai-testing testFixtures) runs **58 shared
+behavioral cases** against every `ApprovalContinuationStore` implementation
+(50 original + 8 model-based Epic 8.2b properties from PR #279).
 It pins the state machine (PENDING → CLAIMED → COMPLETED, → EXPIRED,
 → CANCELLED, CLAIMED → CANCELLED_UNCERTAIN), strict optimistic concurrency,
 and the exactly-once release of raw sensitive arguments — the only API path
 that exposes them.
+
+### Epic 8.2b augmentation (PR #279)
+
+`ApprovalContinuationStoreTck` was augmented with model-based lifecycle
+properties — 8 new shared cases (50 → 58): generated lifecycle sequences
+against a pure `ApprovalContinuationLifecycleModel` oracle (32 seeds × 32
+actions; failure outcomes carry post-failure state because a failed late
+claim/cancel can legitimately normalize to EXPIRED), a wrong-version
+matrix, an 8-way concurrent claim race, a mixed claim/cancel race, a
+claimed resolution race (complete vs forceCancel), concurrent lazy expiry,
+a generated sweep model, and a generated stale-claim query model. The
+Epic 8.2b campaign exposed one genuine File-store divergence — `findStaleClaimed`
+truncated to `limit` before sorting — fixed in production. See
+`docs/reference/state-machine-property-testing-contract.md`.
 
 - **Creation/read (13):** PENDING round-trip, missing-ID null, duplicate
   conflict, non-zero version / non-PENDING rejected, **each pre-populated

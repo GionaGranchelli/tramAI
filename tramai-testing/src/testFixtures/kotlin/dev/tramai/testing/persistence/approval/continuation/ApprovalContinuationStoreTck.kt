@@ -777,4 +777,552 @@ abstract class ApprovalContinuationStoreTck {
             assertThat(persisted.version).isEqualTo(1L)
         }
     }
+
+    // ── Epic 8.2b: model-based lifecycle properties ─────────────────
+
+    /**
+     * Reconstructs the expected durable continuation from the model's
+     * predicted post-action state and the immutable identity fields of the
+     * originally created continuation.
+     */
+    private fun reconstruct(
+        immutable: ApprovalContinuation,
+        m: ApprovalContinuationLifecycleModel,
+    ): ApprovalContinuation =
+        immutable.copy(
+            status = m.status,
+            version = m.version,
+            claimedBy = m.claimedBy,
+            claimedAt = m.claimedAt,
+            completedAt = m.completedAt,
+            recoveryResolvedBy = m.recoveryResolvedBy,
+            recoveryResolvedAt = m.recoveryResolvedAt,
+            recoveryReasonCode = m.recoveryReasonCode,
+        )
+
+    private fun assertLifecycleInvariants(
+        m: ApprovalContinuationLifecycleModel,
+        prev: ApprovalContinuationLifecycleModel?,
+    ) {
+        if (prev != null) {
+            assertThat(m.version).isGreaterThanOrEqualTo(prev.version)
+        }
+        assertThat(m.version).isLessThanOrEqualTo(2L)
+        when (m.status) {
+            ApprovalContinuationStatus.PENDING -> {
+                assertThat(m.version).isEqualTo(0L)
+                assertThat(m.claimedBy).isNull()
+                assertThat(m.claimedAt).isNull()
+                assertThat(m.completedAt).isNull()
+                assertThat(m.recoveryResolvedBy).isNull()
+                assertThat(m.recoveryResolvedAt).isNull()
+                assertThat(m.recoveryReasonCode).isNull()
+            }
+            ApprovalContinuationStatus.CLAIMED -> {
+                assertThat(m.version).isEqualTo(1L)
+                assertThat(m.claimedBy).isNotNull()
+                assertThat(m.claimedAt).isNotNull()
+                assertThat(m.completedAt).isNull()
+                assertThat(m.recoveryResolvedBy).isNull()
+            }
+            ApprovalContinuationStatus.COMPLETED -> {
+                assertThat(m.version).isEqualTo(2L)
+                assertThat(m.claimedBy).isNotNull()
+                assertThat(m.claimedAt).isNotNull()
+                assertThat(m.completedAt).isNotNull()
+                assertThat(m.recoveryResolvedBy).isNull()
+            }
+            ApprovalContinuationStatus.CANCELLED,
+            ApprovalContinuationStatus.EXPIRED,
+            -> {
+                assertThat(m.version).isEqualTo(1L)
+                assertThat(m.claimedBy).isNull()
+                assertThat(m.claimedAt).isNull()
+                assertThat(m.completedAt).isNull()
+                assertThat(m.recoveryResolvedBy).isNull()
+            }
+            ApprovalContinuationStatus.CANCELLED_UNCERTAIN -> {
+                assertThat(m.version).isEqualTo(2L)
+                assertThat(m.claimedBy).isNotNull()
+                assertThat(m.claimedAt).isNotNull()
+                assertThat(m.completedAt).isNull()
+                assertThat(m.recoveryResolvedBy).isNotNull()
+                assertThat(m.recoveryResolvedAt).isNotNull()
+                assertThat(m.recoveryReasonCode).isNotNull()
+            }
+        }
+        if (m.argumentsAvailable) {
+            assertThat(m.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        }
+    }
+
+    private sealed interface ExecutedContinuationAction {
+        data class Claimed(val result: ClaimedApprovalContinuation) : ExecutedContinuationAction
+        data class Plain(val result: ApprovalContinuation) : ExecutedContinuationAction
+        data class Read(val result: ApprovalContinuation?) : ExecutedContinuationAction
+        data class Failed(val exception: Throwable) : ExecutedContinuationAction
+    }
+
+    private suspend fun executeContinuationAction(
+        id: String,
+        action: ApprovalContinuationLifecycleAction,
+        model: ApprovalContinuationLifecycleModel,
+    ): ExecutedContinuationAction = when (action) {
+        is ApprovalContinuationLifecycleAction.AdvanceToBeforeExpiry,
+        is ApprovalContinuationLifecycleAction.AdvanceToExactExpiry,
+        is ApprovalContinuationLifecycleAction.AdvancePastExpiry,
+        -> ExecutedContinuationAction.Read(store.get(id))
+
+        ApprovalContinuationLifecycleAction.Get -> ExecutedContinuationAction.Read(store.get(id))
+        is ApprovalContinuationLifecycleAction.ClaimCurrentVersion ->
+            runCatching { store.claimForExecution(id, model.version, action.worker) }
+                .fold(
+                    { ExecutedContinuationAction.Claimed(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.ClaimWrongVersion ->
+            runCatching { store.claimForExecution(id, model.version + 1, action.worker) }
+                .fold(
+                    { ExecutedContinuationAction.Claimed(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        ApprovalContinuationLifecycleAction.CancelCurrentVersion ->
+            runCatching { store.cancel(id, model.version) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        ApprovalContinuationLifecycleAction.CancelWrongVersion ->
+            runCatching { store.cancel(id, model.version + 1) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        ApprovalContinuationLifecycleAction.ExpireCurrentVersion ->
+            runCatching { store.expire(id, model.version) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        ApprovalContinuationLifecycleAction.ExpireWrongVersion ->
+            runCatching { store.expire(id, model.version + 1) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.CompleteCurrentVersion ->
+            runCatching { store.complete(id, model.version, action.worker) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.CompleteWrongVersion ->
+            runCatching { store.complete(id, model.version + 1, action.worker) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.CompleteWrongActor ->
+            runCatching { store.complete(id, model.version, action.intruder) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.ForceCancelCurrentVersion ->
+            runCatching { store.forceCancelClaimed(id, model.version, action.recoveryActor, action.reasonCode) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+        is ApprovalContinuationLifecycleAction.ForceCancelWrongVersion ->
+            runCatching { store.forceCancelClaimed(id, model.version + 1, action.recoveryActor, action.reasonCode) }
+                .fold(
+                    { ExecutedContinuationAction.Plain(it) },
+                    { ExecutedContinuationAction.Failed(it) },
+                )
+    }
+
+    private fun expectedException(kind: ApprovalContinuationLifecycleFailureKind): Class<*> = when (kind) {
+        ApprovalContinuationLifecycleFailureKind.CONFLICT -> ApprovalContinuationConflictException::class.java
+        ApprovalContinuationLifecycleFailureKind.NOT_CLAIMABLE -> ApprovalContinuationNotClaimableException::class.java
+        ApprovalContinuationLifecycleFailureKind.NOT_COMPLETABLE -> ApprovalContinuationNotCompletableException::class.java
+    }
+
+    @Test
+    fun `generated continuation lifecycle sequences match the independent model after every action`() = runBlocking<Unit> {
+        for (seed in 0L until ApprovalContinuationLifecycleActionGenerator.SEED_COUNT) {
+            val id = "generated-$seed"
+            clock.set(t0)
+            val (original, _) = createPending(id)
+            val rawArguments = ApprovalContinuationFixtures.DEFAULT_ARGUMENTS
+            var model = ApprovalContinuationLifecycleModel.pending(t0)
+            val actions = ApprovalContinuationLifecycleActionGenerator.generate(seed, initialNow = t0, expiresAt = expiry)
+            var previous: ApprovalContinuationLifecycleModel? = null
+            var released = false
+
+            actions.forEachIndexed { step, action ->
+                val observationTime = model.now
+                clock.set(observationTime)
+                val predicted = model.apply(action, expiry)
+                val executed = executeContinuationAction(id, action, model)
+
+                when (predicted) {
+                    is ApprovalContinuationLifecycleOutcome.Success -> {
+                        val message = "seed=$seed step=$step action=${action.describe()} prefix=${actions.take(step).joinToString(",") { it.describe() }}\n" +
+                            "modelBefore=$model\nmodelAfter=${predicted.next}\nexpected=$predicted\nactual=$executed"
+                        when (val actual = executed) {
+                            is ExecutedContinuationAction.Claimed -> {
+                                assertThat(actual.result.continuation).withFailMessage(message).isEqualTo(reconstruct(original, predicted.next))
+                                if (predicted.releasedArguments) {
+                                    assertThat(released).withFailMessage("seed=$seed step=$step: arguments released twice").isFalse()
+                                    released = true
+                                    assertThat(actual.result.arguments.reveal()).withFailMessage(message).isEqualTo(rawArguments)
+                                } else {
+                                    assertThat(released).withFailMessage(message).isTrue()
+                                }
+                            }
+                            is ExecutedContinuationAction.Plain -> {
+                                assertThat(actual.result).withFailMessage(message).isEqualTo(reconstruct(original, predicted.next))
+                            }
+                            is ExecutedContinuationAction.Read -> {
+                                assertThat(actual.result).withFailMessage(message).isEqualTo(reconstruct(original, predicted.next))
+                            }
+                            is ExecutedContinuationAction.Failed -> {
+                                assertThat(actual.exception).withFailMessage(message).isNull()
+                            }
+                        }
+                    }
+                    is ApprovalContinuationLifecycleOutcome.Failure -> {
+                        val message = "seed=$seed step=$step action=${action.describe()} prefix=${actions.take(step).joinToString(",") { it.describe() }}\n" +
+                            "modelBefore=$model\nmodelAfter=${predicted.next}\nexpected=${predicted.kind}\nactual=$executed"
+                        val actual = executed as? ExecutedContinuationAction.Failed
+                        assertThat(actual).withFailMessage("$message\nexpected typed failure, got success").isNotNull()
+                        assertThat(actual!!.exception).withFailMessage(message).isInstanceOf(expectedException(predicted.kind))
+                    }
+                }
+
+                model = when (predicted) {
+                    is ApprovalContinuationLifecycleOutcome.Success -> predicted.next
+                    is ApprovalContinuationLifecycleOutcome.Failure -> predicted.next
+                }
+
+                // Observation-time comparison: store.get() runs at the same
+                // clock instant as the executed action, and get() itself can
+                // trigger lazy expiry of a still-PENDING record — so the
+                // model normalizes BEFORE the observation. normalized() is
+                // idempotent, so an observation of an already-EXPIRED record
+                // never re-increments, and the observed transition is a real
+                // durable one (the model follows the store).
+                val observationModel = model.normalizedAt(observationTime, expiry)
+                assertLifecycleInvariants(observationModel, previous)
+                val observed = store.get(id)!!
+                val expected = reconstruct(original, observationModel)
+                assertThat(observed)
+                    .withFailMessage("seed=$seed step=$step observation mismatch\nexpected=$expected\nactual=$observed")
+                    .isEqualTo(expected)
+
+                previous = observationModel
+                model = observationModel
+            }
+        }
+    }
+
+    @Test
+    fun `wrong-version continuation operations always conflict without changing durable state`() = runBlocking<Unit> {
+        // PENDING before expiry: every wrong-version probe conflicts
+        // (version checked first on the non-expiry path) and leaves the
+        // durable record value-identical.
+        val pendingId = "matrix-pending"
+        val (pendingOriginal, pendingArgs) = createPending(pendingId)
+        listOf<suspend () -> Any>(
+            { store.claimForExecution(pendingId, 1L, "worker-1") },
+            { store.cancel(pendingId, 1L) },
+            { store.expire(pendingId, 1L) },
+        ).forEach { op ->
+            assertThat(runCatching { op() }.exceptionOrNull())
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
+            assertThat(store.get(pendingId)).isEqualTo(pendingOriginal)
+        }
+        assertThat(store.claimForExecution(pendingId, 0L, "worker-1").arguments.reveal())
+            .isEqualTo(pendingArgs.reveal())
+
+        // CLAIMED@1: complete/forceCancel/cancel with a stale expected
+        // version conflict and leave the durable record value-identical.
+        val claimedId = "matrix-claimed"
+        setupClaimed(claimedId, claimedBy = "worker-1")
+        val claimedOriginal = store.get(claimedId)!!
+        listOf<suspend () -> Any>(
+            { store.complete(claimedId, 0L, "worker-1") },
+            { store.forceCancelClaimed(claimedId, 0L, "recovery-1", "stale-claim") },
+            { store.cancel(claimedId, 0L) },
+        ).forEach { op ->
+            assertThat(runCatching { op() }.exceptionOrNull())
+                .isInstanceOf(ApprovalContinuationConflictException::class.java)
+            assertThat(store.get(claimedId)).isEqualTo(claimedOriginal)
+        }
+    }
+
+    @Test
+    fun `eight concurrent claims - exactly one winner releases arguments once`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "claim-race-$iteration"
+            createPending(id)
+
+            val contenders = Array<suspend () -> Result<ClaimedApprovalContinuation>>(8) { index ->
+                { runCatching { store.claimForExecution(id, 0L, "worker-$index") } }
+            }
+            val outcomes = runInParallel(*contenders)
+
+            val successes = outcomes.filter { it.isSuccess }
+            assertThat(successes.size)
+                .withFailMessage("iteration $iteration: exactly one fresh claim winner expected")
+                .isEqualTo(1)
+            // Whole-consume atomicity (InMemory CAS, File per-record lock,
+            // JDBC FOR UPDATE row-lock) serializes every loser AFTER the
+            // winner: the loser reads CLAIMED@1 against its expected 0 and
+            // must report Conflict — the only legal serialized loser outcome.
+            val loserFailures = outcomes.filter { it.isFailure }.map { it.exceptionOrNull() }
+            assertThat(loserFailures.size).isEqualTo(7)
+            assertThat(loserFailures.map { it?.javaClass }).allMatch {
+                it == ApprovalContinuationConflictException::class.java
+            }
+
+            val winnerIndex = outcomes.indexOfFirst { it.isSuccess }
+            val winner = successes.single().getOrThrow()
+            assertThat(winner.arguments.reveal()).isEqualTo(ApprovalContinuationFixtures.DEFAULT_ARGUMENTS)
+
+            val durable = store.get(id)!!
+            assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+            assertThat(durable.version).isEqualTo(1L)
+            assertThat(durable.claimedBy).isEqualTo("worker-$winnerIndex")
+            assertThat(durable.claimedAt).isEqualTo(t0)
+
+            // No second release through the only API that reveals arguments.
+            assertThat(runCatching { store.claimForExecution(id, 1L, "worker-other") }.exceptionOrNull())
+                .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+        }
+    }
+
+    @Test
+    fun `mixed claim and cancel race - one legal transition, no double release`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "claim-cancel-race-$iteration"
+            createPending(id)
+
+            val contenders = Array<suspend () -> Result<Any?>>(8) { index ->
+                if (index % 2 == 0) {
+                    { runCatching<Any?> { store.claimForExecution(id, 0L, "worker-$index") } }
+                } else {
+                    { runCatching<Any?> { store.cancel(id, 0L) } }
+                }
+            }
+            val outcomes = runInParallel(*contenders)
+
+            val successes = outcomes.filter { it.isSuccess }
+            assertThat(successes.size)
+                .withFailMessage("iteration $iteration: exactly one success expected")
+                .isEqualTo(1)
+            val losers = outcomes.filter { it.isFailure }
+            assertThat(losers.size).isEqualTo(7)
+            assertThat(losers.map { it.exceptionOrNull()?.javaClass }).allMatch {
+                it == ApprovalContinuationConflictException::class.java
+            }
+
+            val durable = store.get(id)!!
+            assertThat(durable.version).isEqualTo(1L)
+            when (durable.status) {
+                ApprovalContinuationStatus.CLAIMED -> {
+                    val winner = successes.single().getOrThrow() as ClaimedApprovalContinuation
+                    assertThat(winner.arguments.reveal()).isEqualTo(ApprovalContinuationFixtures.DEFAULT_ARGUMENTS)
+                    assertThat(durable.claimedBy).isEqualTo(winner.continuation.claimedBy)
+                }
+                ApprovalContinuationStatus.CANCELLED -> {
+                    // The claim losers conflicted before any release: zero
+                    // raw-argument exposure on the cancel path.
+                    assertThat(successes.single().getOrThrow()).isInstanceOf(ApprovalContinuation::class.java)
+                }
+                else -> throw AssertionError("iteration $iteration: unexpected final status ${durable.status}")
+            }
+        }
+    }
+
+    @Test
+    fun `claimed resolution race - complete and recovery linearize to one winner`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "resolve-race-$iteration"
+            setupClaimed(id, claimedBy = "worker-a")
+
+            val contenders = Array<suspend () -> Result<Any?>>(8) { index ->
+                if (index % 2 == 0) {
+                    { runCatching<Any?> { store.complete(id, 1L, "worker-a") } }
+                } else {
+                    { runCatching<Any?> { store.forceCancelClaimed(id, 1L, "recovery-$index", "stale-claim") } }
+                }
+            }
+            val outcomes = runInParallel(*contenders)
+
+            assertThat(outcomes.count { it.isSuccess })
+                .withFailMessage("iteration $iteration: exactly one resolution winner expected")
+                .isEqualTo(1)
+            val losers = outcomes.filter { it.isFailure }
+            assertThat(losers.size).isEqualTo(7)
+            // Both operations check the version before anything else, so a
+            // loser observes v2 against its expected 1: Conflict is the only
+            // legal serialized loser outcome.
+            assertThat(losers.map { it.exceptionOrNull()?.javaClass }).allMatch {
+                it == ApprovalContinuationConflictException::class.java
+            }
+
+            val durable = store.get(id)!!
+            assertThat(durable.version).isEqualTo(2L)
+            when (durable.status) {
+                ApprovalContinuationStatus.COMPLETED -> {
+                    assertThat(durable.completedAt).isNotNull()
+                    assertThat(durable.recoveryResolvedBy).isNull()
+                    assertThat(durable.recoveryResolvedAt).isNull()
+                    assertThat(durable.recoveryReasonCode).isNull()
+                }
+                ApprovalContinuationStatus.CANCELLED_UNCERTAIN -> {
+                    assertThat(durable.completedAt).isNull()
+                    assertThat(durable.recoveryResolvedBy).isNotNull()
+                    assertThat(durable.recoveryResolvedAt).isNotNull()
+                    assertThat(durable.recoveryReasonCode).isEqualTo("stale-claim")
+                }
+                else -> throw AssertionError("iteration $iteration: unexpected final status ${durable.status}")
+            }
+        }
+    }
+
+    @Test
+    fun `concurrent lazy expiry is one legal transition under concurrent observers`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "lazy-race-$iteration"
+            clock.set(t0)
+            createPending(id)
+            clock.set(expiry) // exactly the boundary
+            val outcomes = runInParallel(*Array(8) { { store.get(id) } })
+
+            outcomes.forEach { observed ->
+                assertThat(observed).isNotNull()
+                assertThat(observed!!.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+                assertThat(observed.version).isEqualTo(1L)
+            }
+            val durable = store.get(id)!!
+            assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+            assertThat(durable.version).isEqualTo(1L)
+        }
+    }
+
+    @Test
+    fun `generated sweep model - only elapsed pending rows transition exactly once`() = runBlocking<Unit> {
+        for (seed in 0L until 16L) {
+            val rng = kotlin.random.Random(seed)
+            clock.set(t0)
+            val swept = ArrayList<String>()
+            val livePending = ArrayList<String>()
+            // 24 deterministic records: 12 PENDING with expiry chosen by the
+            // seed from {past, exact-boundary, live}, plus CLAIMED/COMPLETED/
+            // CANCELLED/CANCELLED_UNCERTAIN/already-EXPIRED rows.
+            val pendingExpiries = List(12) { i ->
+                when (rng.nextInt(3)) {
+                    0 -> expiry.minusSeconds(120) // past
+                    1 -> expiry // exact boundary
+                    else -> expiry.plusSeconds(300) // live
+                }
+            }
+            pendingExpiries.forEachIndexed { i, expiresAt ->
+                val id = "sweep-$seed-p$i"
+                createPending(id, createdAt = t0, expiresAt = expiresAt)
+                if (expiresAt <= expiry) swept.add(id) else livePending.add(id)
+            }
+            repeat(3) { i ->
+                val id = "sweep-$seed-c$i"
+                setupClaimed(id)
+            }
+            repeat(3) { i ->
+                val id = "sweep-$seed-d$i"
+                setupCompleted(id)
+            }
+            repeat(3) { i ->
+                val id = "sweep-$seed-x$i"
+                setupCancelled(id)
+            }
+            repeat(3) { i ->
+                val id = "sweep-$seed-u$i"
+                setupCancelledUncertain(id)
+            }
+            repeat(3) { i ->
+                val id = "sweep-$seed-e$i"
+                clock.set(t0)
+                createPending(id)
+                clock.set(expiry.plusSeconds(1))
+                store.expire(id, 0L)
+            }
+            clock.set(expiry)
+
+            val count = store.sweepExpired()
+
+            assertThat(count)
+                .withFailMessage("seed $seed: sweep must transition exactly the elapsed pending rows")
+                .isEqualTo(swept.size)
+            swept.forEach { id ->
+                val durable = store.get(id)!!
+                assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+                assertThat(durable.version).isEqualTo(1L)
+            }
+            livePending.forEach { id ->
+                val durable = store.get(id)!!
+                assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+                assertThat(durable.version).isEqualTo(0L)
+            }
+            assertThat(store.sweepExpired()).isZero()
+        }
+    }
+
+    @Test
+    fun `generated stale-claim query model - boundary ordering and limit`() = runBlocking<Unit> {
+        // The store accumulates records across seeds within this test, so
+        // the model accumulates too: each seed's query is checked against
+        // every claimed record created so far (deterministic — ids and
+        // claimedAt offsets are seed-fixed).
+        val claimed = HashMap<String, Instant?>()
+        for (seed in 0L until 16L) {
+            val rng = kotlin.random.Random(seed)
+            val boundary = t0.plusSeconds(15)
+            val ids = (0 until 20).map { "stale-$seed-$it" }.shuffled(rng)
+
+            ids.forEachIndexed { i, id ->
+                val claimedAt = when (i % 5) {
+                    0, 1 -> t0 // before boundary
+                    2 -> t0.plusSeconds(10) // before boundary
+                    3 -> t0.plusSeconds(15) // exactly at the boundary — inclusive contract
+                    else -> t0.plusSeconds(20) // after boundary
+                }
+                clock.set(claimedAt)
+                createPending(id)
+                store.claimForExecution(id, 0L, "worker-1")
+                claimed[id] = claimedAt
+            }
+            repeat(4) { i ->
+                val id = "stale-$seed-nc$i"
+                clock.set(t0)
+                createPending(id)
+                claimed[id] = null
+            }
+            clock.set(boundary)
+
+            val limit = 1 + rng.nextInt(14) // 1..14
+            val actual = store.findStaleClaimed(boundary, limit)
+            val expectedIds = claimed
+                .filterValues { it != null && !it.isAfter(boundary) }
+                .toList()
+                .sortedWith(compareBy<Pair<String, Instant?>> { it.second!! }.thenBy { it.first })
+                .take(limit)
+                .map { it.first }
+
+            assertThat(actual.map { it.approvalId })
+                .withFailMessage("seed $seed limit=$limit\nmodel=$expectedIds\nactual=${actual.map { it.approvalId }}")
+                .containsExactlyElementsOf(expectedIds)
+        }
+    }
 }

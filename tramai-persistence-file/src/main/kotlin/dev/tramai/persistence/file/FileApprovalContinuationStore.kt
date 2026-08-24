@@ -607,8 +607,11 @@ class FileApprovalContinuationStore internal constructor(
 
         val result = mutableListOf<ApprovalContinuation>()
 
+        // Collect ALL matching records first, then sort and apply the limit:
+        // the strict-committed-entry iteration order is content-hash file
+        // order, so truncating before sorting would return the wrong subset
+        // whenever more stale rows exist than the limit.
         for (entry in FileStoreUtil.strictCommittedEntries(continuationsDir, COMMITTED_FILENAME, "continuation")) {
-            if (result.size >= limit) break
             val record = readCommittedContinuationEntryStrict(entry)
             val c = record.continuation
             val status = ApprovalContinuationStatus.valueOf(c.status)
