@@ -39,27 +39,96 @@ class JdbcChatMemoryStore(
         require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         if (messages.isEmpty()) return
 
-        dataSource.connection.use { connection ->
-            val originalAutoCommit = connection.autoCommit
-            try {
-                connection.autoCommit = false
-                val nextOrdinal = loadNextOrdinal(connection, conversationId)
-                connection.prepareStatement(insertMessageSql()).use { statement ->
-                    messages.forEachIndexed { index, message ->
-                        statement.setString(1, conversationId)
-                        statement.setInt(2, nextOrdinal + index)
-                        statement.setString(3, serializeMessage(message))
-                        statement.setLong(4, clockMillis())
-                        statement.addBatch()
-                    }
-                    statement.executeBatch()
+        // Optimistic whole-transaction retry: two concurrent writers can both
+        // read nextOrdinal = N; one commits N..N+k, the other loses on the
+        // (conversation_id, ordinal) PK. A valid concurrent append must not
+        // fail merely because another valid append won ordinal allocation —
+        // retry the ENTIRE batch from a fresh durable MAX, never remaining
+        // messages, never a partial commit. Only the known ordinal-uniqueness
+        // race (SQLState 23505) is retried; other failures keep ordinary JDBC
+        // semantics.
+        var attempt = 0
+        while (true) {
+            attempt++
+            val failure = appendBatchOnce(conversationId, messages)
+            if (failure == null) return
+            if (isOrdinalConflict(failure) && attempt < MAX_APPEND_ATTEMPTS) {
+                continue
+            }
+            throw failure
+        }
+    }
+
+    /**
+     * True when [failure] is (or wraps) the ordinal-uniqueness race. H2
+     * surfaces batch PK violations as a JdbcBatchUpdateException whose
+     * underlying SQLException (SQLState 23505) sits on `nextException` —
+     * walk the whole SQLException chain instead of trusting the top frame.
+     */
+    private fun isOrdinalConflict(failure: Throwable?): Boolean {
+        var current: Throwable? = failure
+        while (current != null) {
+            if (current is java.sql.SQLException && current.sqlState == ORDINAL_UNIQUE_SQL_STATE) return true
+            if (current is java.sql.SQLException && current.nextException != null && current.nextException !== current) {
+                current = current.nextException
+            } else {
+                current = current.cause
+            }
+        }
+        return false
+    }
+
+    private fun appendBatchOnce(
+        conversationId: String,
+        messages: List<Message>,
+    ): Exception? = dataSource.connection.use { connection ->
+        val originalAutoCommit = connection.autoCommit
+        var primaryFailure: Exception? = null
+        var rollbackFailed = false
+        try {
+            connection.autoCommit = false
+            val nextOrdinal = loadNextOrdinal(connection, conversationId)
+            connection.prepareStatement(insertMessageSql()).use { statement ->
+                messages.forEachIndexed { index, message ->
+                    statement.setString(1, conversationId)
+                    statement.setInt(2, nextOrdinal + index)
+                    statement.setString(3, serializeMessage(message))
+                    statement.setLong(4, clockMillis())
+                    statement.addBatch()
                 }
-                connection.commit()
-            } catch (error: Exception) {
+                statement.executeBatch()
+            }
+            connection.commit()
+            null
+        } catch (error: Exception) {
+            primaryFailure = error
+            try {
                 connection.rollback()
-                throw error
-            } finally {
-                connection.autoCommit = originalAutoCommit
+            } catch (rollbackFailure: Exception) {
+                primaryFailure.addSuppressed(rollbackFailure)
+                rollbackFailed = true
+            }
+            // A failed rollback may have left the partial batch in the OPEN
+            // transaction: retrying the batch would duplicate those rows.
+            // Surface as a non-retryable failure and skip the autoCommit
+            // restore (which would COMMIT the partial batch) — closing the
+            // connection rolls it back instead.
+            if (rollbackFailed) {
+                IllegalStateException("append failed and rollback failed; not retrying", primaryFailure)
+            } else {
+                error
+            }
+        } finally {
+            if (!rollbackFailed) {
+                try {
+                    connection.autoCommit = originalAutoCommit
+                } catch (restoreFailure: Exception) {
+                    if (primaryFailure != null) {
+                        primaryFailure.addSuppressed(restoreFailure)
+                    } else {
+                        throw restoreFailure
+                    }
+                }
             }
         }
     }
@@ -182,4 +251,15 @@ data class JdbcChatMemoryTable(
 
 /** @see JdbcChatMemoryStore */
 private const val VALIDATION_CONVERSATION_ID_BLANK = "conversationId must not be blank"
+
+/** SQLState for a unique-constraint violation (the (conversation_id, ordinal) PK race). */
+private const val ORDINAL_UNIQUE_SQL_STATE = "23505"
+
+/**
+ * Bounded retries for the ordinal-allocation race; after this the race
+ * failure is surfaced. Each attempt resolves at most one contention level
+ * (one writer wins per ordinal), so the bound must comfortably exceed the
+ * maximum expected concurrent writers.
+ */
+private const val MAX_APPEND_ATTEMPTS = 20
 

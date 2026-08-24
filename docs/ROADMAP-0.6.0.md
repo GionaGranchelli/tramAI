@@ -1191,7 +1191,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
-**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272), workflow checkpoint slice done (PR #273), workflow lease slice done (PR #274); memory family remaining.
+**Status: ✅ DONE** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272), workflow checkpoint slice done (PR #273), workflow lease slice done (PR #274), memory slice done (PR #275).
 
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
@@ -1205,7 +1205,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Workflow checkpoint store — ✅ PR #273 (shared `WorkflowCheckpointStoreTck`, 42 cases × 4 implementations + enrollment guard)
 - Workflow lease store — ✅ PR #274 (shared `WorkflowLeaseStoreTck` 51 cases + `WorkflowLeaseCheckpointFenceTck` 14 cases, × 3 implementations + enrollment guards)
 - Step-attempt store — ✅ PR #218 (shared TCK + restart recovery tests for in-memory, file, and JDBC)
-- Memory store — ⏳
+- Memory store — ✅ PR #275 (shared `ChatMemoryStoreTck`, 50 cases × 2 implementations (JDBC + Redis) + enrollment guard; Redis activity-index + atomic batch appends + JDBC ordinal-retry production changes)
 
 ### Contract areas
 

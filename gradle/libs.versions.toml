@@ -55,6 +55,7 @@ jedis = { module = "redis.clients:jedis", version.ref = "jedis" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-core = { module = "org.testcontainers:testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
 testcontainers-junit-jupiter = { module = "org.testcontainers:testcontainers-junit-jupiter" }
 pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }

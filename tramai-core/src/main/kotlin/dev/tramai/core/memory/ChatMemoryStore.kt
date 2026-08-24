@@ -46,7 +46,7 @@ interface ChatMemoryStore {
      *
      * @param limit the maximum number of identifiers to return (must be >= 1)
      * @param offset the number of identifiers to skip before returning results (must be >= 0)
-     * @return a list of conversation identifiers, ordered by creation time descending
+     * @return a list of conversation identifiers, ordered by most recent append/activity descending
      * @throws IllegalArgumentException if [limit] is less than 1 or [offset] is negative
      */
     fun listConversations(limit: Int, offset: Int): List<String>
