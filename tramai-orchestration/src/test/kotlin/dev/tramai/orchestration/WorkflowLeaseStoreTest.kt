@@ -327,6 +327,58 @@ class WorkflowLeaseStoreTest {
         runBlocking { store.release(renewed) }
         assertThat(runBlocking { store.currentLease("jdbc-lease", "wf-1") }).isNull()
     }
+
+    @Test
+    fun `file store honors an exact legacy lease and never aliases a colliding identity`() {
+        var now = 1_000L
+        val directory = createTempDirectory("tramai-lease-legacy")
+        try {
+            // Pre-collision-free lease for "order/a" written at the legacy
+            // lossy path ("order_a").
+            val legacyLease = WorkflowLease(
+                workflowName = "order",
+                workflowId = "a/b",
+                leaseId = "legacy-token-1",
+                ownerId = "worker-old",
+                checkpointRevision = null,
+                acquiredAtEpochMillis = now,
+                expiresAtEpochMillis = now + 10_000,
+            )
+            val legacyPath = DefaultWorkflowCheckpointPathStrategy("lease.properties")
+                .resolve(directory, "order", "a/b")
+            Files.createDirectories(legacyPath.parent)
+            Files.writeString(legacyPath, encodeLease(legacyLease))
+
+            val store = FileWorkflowLeaseStore(directory, clockMillis = { now })
+            // The exact matching legacy lease is honored (no migration).
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(legacyLease)
+
+            // The colliding identity must never see A's lease as its own —
+            // even before it has any lease of its own.
+            assertThat(runBlocking { store.currentLease("order", "a?b") }).isNull()
+
+            // ...and can claim its canonical path independently.
+            val b = runBlocking {
+                store.claim("order", "a?b", "worker-new", checkpointRevision = null, leaseDurationMillis = 1_000)
+            }
+            assertThat(runBlocking { store.currentLease("order", "a?b") }).isEqualTo(b)
+            assertThat(runBlocking { store.currentLease("order", "a?b") })
+                .isNotEqualTo(legacyLease)
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(legacyLease)
+
+            // After expiry, the next claim for "a/b" uses the canonical path
+            // and the legacy file is not authoritative anymore.
+            now += 11_000
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isNull()
+            val again = runBlocking {
+                store.claim("order", "a/b", "worker-old", checkpointRevision = null, leaseDurationMillis = 1_000)
+            }
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(again)
+            assertThat(again.leaseId).isNotEqualTo("legacy-token-1")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }
 private data class LeaseResumeState(
     val value: String,
@@ -545,4 +597,4 @@ private fun defaultLeaseValue(returnType: Class<*>): Any? = when {
     returnType == Float::class.javaPrimitiveType -> 0f
     returnType == Char::class.javaPrimitiveType -> '\u0000'
     else -> null
-}
+    }

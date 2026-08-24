@@ -3,9 +3,10 @@
 Epic 8.1 (PR #267 ApprovalStore slice, PR #269 ApprovalContinuationStore
 slice, PR #270 SuspendedInvocationStore slice, PR #271 AuditStore slice,
 PR #272 SovereignOpsAuditOutboxStore slice, PR #273 WorkflowCheckpointStore
-slice). Shared behavioral TCKs prove every implementation of a store family
-satisfies exactly the same externally observable contract, regardless of
-storage technology (memory, encrypted files, Markdown, JDBC).
+slice, PR #274 WorkflowLeaseStore slice). Shared behavioral TCKs prove every
+implementation of a store family satisfies exactly the same externally
+observable contract, regardless of storage technology (memory, encrypted
+files, Markdown, JDBC).
 
 ## Epic 8.1 matrix
 
@@ -17,7 +18,7 @@ storage technology (memory, encrypted files, Markdown, JDBC).
 | Audit | ✅ | ✅ | — | ✅ | ✅ #271 |
 | Audit outbox | ✅ | ✅ | — | ✅ | ✅ #272 |
 | Workflow checkpoint | ✅ | ✅ | ✅ | ✅ | ✅ #273 |
-| Workflow lease | … | … | — | … | ⏳ |
+| Workflow lease | ✅ | ✅ | — | ✅ | ✅ #274 |
 | Step attempt | ✅ | ✅ | — | ✅ | ✅ #218 |
 | Memory | … | … | — | … | ⏳ |
 
@@ -723,3 +724,152 @@ higher-level coverage. No existing tests were deleted. `tramai-testing`
 testFixtures gained a dependency on `tramai-orchestration` (test-fixture-only)
 so the shared suite can be written in one place. Legacy path behavior is
 documented in `docs/guides/orchestration-persistence.md`.
+
+## WorkflowLeaseStore TCK (PR #274)
+
+`WorkflowLeaseStoreTck` (tramai-testing testFixtures) runs **51 shared
+behavioral cases** against every `WorkflowLeaseStore` implementation — the
+orchestration module's in-memory store, the properties-file store, and JDBC
+(real H2, not a proxy backend). The companion
+`WorkflowLeaseCheckpointFenceTck` runs **14 shared cases** against every
+`WorkflowLeaseCheckpointFence` implementation (same three stores), because
+the worker depends on the fence and the distributed-execution design
+requires stale-worker checkpoint writes to be rejected by the active lease
+token. Both TCKs are deterministic: a thread-safe `MutableMillisClock`
+(AtomicLong) replaces the system clock; no sleeps, no `Instant.now()`.
+
+The property the contract enforces: **for one (workflowName, workflowId),
+at any instant there is at most one active lease token capable of
+authorizing mutations, and storage technology cannot change that answer.**
+Identity → claim ownership → time-bound validity → renewal/takeover →
+checkpoint fencing. What proves a worker owns a workflow is NOT ownerId,
+filesystem path, checkpoint revision, or a lease object that used to be
+valid — it is logical workflow identity + current active leaseId + matching
+owner + not expired, and the ownership check and mutation form ONE atomic
+fencing operation.
+
+- **Claim / identity (14):** missing → null; claim returns an active lease;
+  exact name/id/owner; nullable checkpoint revision; acquiredAt == now;
+  expiresAt == now + duration; nonblank leaseId; same-name/different-id and
+  same-id/different-name independence; second active claim by another owner
+  → `WorkflowLeaseConflictException` (`"Workflow lease conflict"`, null
+  cause); second active claim by the SAME owner → conflict; rejected claim
+  leaves the original unchanged; **two legacy-colliding identities
+  (`"order/a"` vs `"order?a"`) can own active leases simultaneously** —
+  storage layout cannot redefine who owns a workflow.
+- **Exact expiry semantics (10):** authoritative boundary `expiresAt > now`
+  → active, `expiresAt <= now` → expired. T0+999 → lease; T0+1000 → null;
+  claim at T0+999 → conflict; claim at T0+1000 → succeeds; takeover gets
+  new owner/acquisition time/fresh expiry; stale old lease cannot renew or
+  release the successor; same owner taking over after expiry still receives
+  a NEW fencing token. Implementations may or may not physically delete
+  expired state — only observable behavior is pinned.
+- **Renewal (9):** successful renew preserves workflow identity, leaseId,
+  ownerId, acquiredAt; new checkpointRevision; new expiresAt =
+  renewalNow + duration (never old-expiry + duration); **the caller's lease
+  object is a capability snapshot, not writable metadata — a tampered
+  `acquiredAt=42` snapshot must not leak into the returned lease** (this
+  discriminator exposed the JDBC divergence); renew to/from nullable
+  revision; wrong leaseId → conflict; wrong owner → conflict; missing →
+  conflict; exact-expiry → conflict; rejected renew non-mutating.
+- **Release (7):** active + correct token removed; missing → no-op; expired
+  → no-op; wrong token → conflict; wrong owner → conflict; **stale
+  predecessor (even the same ownerId, different leaseId) cannot release the
+  successor** — leaseId is the fencing capability, not owner name alone.
+- **Input-domain hardening (6):** blank workflowName/workflowId/ownerId,
+  leaseDurationMillis == 0 or < 0, and blank leaseId on renew/release are
+  `IllegalArgumentException` — caller errors OUTSIDE the persistence
+  boundary, mirroring `WorkflowLeasePolicy` runtime invariants. Unicode and
+  punctuation remain legitimate identities (no ASCII/path-safe restriction —
+  that would merely hide the File-store bug).
+- **Concurrency (4 real parallel races, start barrier, 20 iterations
+  each):** initial claim race (8 owners → 1 success, 7 conflicts, 1 active
+  durable lease); expired takeover race (seed expired → exactly 1 takeover);
+  **renewal vs takeover at the exact expiry boundary** (renew → conflict,
+  claim → success, final owner = new); parallel claims of the two
+  legacy-colliding keys (both succeed — turns File RED before its identity
+  fix).
+
+### WorkflowLeaseCheckpointFence TCK (companion, 14 cases)
+
+- **Valid fence:** active lease + checkpoint rev1 → fenced save → rev2,
+  fenced delete → absent, lease still active; works with null
+  checkpointRevision.
+- **Stale fence:** `StaleWorkflowLeaseException` with exactly
+  `"Workflow lease is no longer active"` and null cause for expired lease,
+  replaced lease, wrong leaseId, wrong owner, missing lease — and the
+  checkpoint remains completely unchanged. Semantically distinct from the
+  ordinary `WorkflowLeaseConflictException`.
+- **Identity binding (new shared invariant):** a lease for workflow A must
+  never authorize a mutation of workflow B — `IllegalArgumentException`
+  before touching storage, no checkpoint or lease mutation (save AND
+  delete). This closes a shared weakness in all three fences.
+- **The fence is NOT a renewal API:** fenced saves never extend the lease;
+  and the fence must not write the expected lease's checkpointRevision into
+  the durable lease as a side effect of checking ownership (the
+  discriminator that exposed the JDBC lockLeaseRow UPDATE).
+
+### Production changes (runtime-behaviour)
+
+- **File lease identity fix (the principal one).** The lossy
+  `sanitizePathSegment` collapsed `"order/a"` and `"order?a"` onto one lease
+  file — for leases this is worse than for checkpoints: storage layout could
+  redefine who owns a workflow. The new
+  `CollisionFreeWorkflowLeasePathStrategy` is minimally disruptive: segments
+  already in the legacy-safe raw domain `[A-Za-z0-9_-]` keep their existing
+  path (UUID/hyphenated workflow IDs do not move), any other segment is
+  encoded as `~` + URL-safe Base64 (`~` is outside the legacy-safe domain,
+  so canonical paths can never collide with legacy paths). Legacy leases are
+  honored on their legacy path with identity verification (a colliding
+  key's lease is never returned as yours, never overwritten); a live lease
+  is NOT migrated (the lock namespace must not change under an active
+  lease) — after release or expiry the next claim uses the canonical path.
+  `DefaultWorkflowCheckpointPathStrategy` is unchanged.
+- **JDBC renew returns the durable row** instead of the caller-derived
+  snapshot (`lease.copy(...)`): the caller's tampered acquiredAt/expiresAt
+  can no longer leak into the returned lease.
+- **JDBC fence uses a genuine row lock** (`SELECT ... FOR UPDATE` inside
+  the shared-DataSource checkpoint transaction) instead of the
+  state-mutating `UPDATE ... SET checkpoint_revision = ?` — the fence no
+  longer mutates lease metadata as a side effect.
+- **Shared caller-input validation** (`validateLeaseIdentityInput`,
+  `validateLeaseToken`, `validateFenceIdentity`) added to all three stores
+  outside their persistence boundaries.
+- New public class `CollisionFreeWorkflowLeasePathStrategy` is additive;
+  `api/` dump regenerated.
+
+### Mutation evidence (17 mutations, each restored)
+
+| Mutation | TCK outcome |
+|---|---|
+| active claim guard removed | RED — duplicate-claim cases + claim race |
+| expiry boundary `>=` → `>` | RED — exact-expiry cases + boundary race |
+| claim reuses a fixed lease id | RED — new-token-on-takeover |
+| renew ignores leaseId | RED — wrong-token renew |
+| renew ignores owner | RED — wrong-owner renew |
+| renew accepts expired lease | RED — exact-expiry renew |
+| renew does not update revision | RED — renew identity case |
+| renew expiry based on old expiry | RED — renewal-time case |
+| release ignores token | RED — wrong-token/stale-release cases |
+| fence accepts mismatched checkpoint identity | RED — key-binding save |
+| stale fence accepts forged token | RED — wrong-token/owner fence cases |
+| claim input validation removed | RED — blank/zero/negative-arg cases |
+| File reverts to lossy path | RED — collision discriminator |
+| File accepts foreign colliding legacy identity | RED — File legacy regression |
+| JDBC renew returns caller snapshot | RED — durable-authority case |
+| JDBC fence mutates checkpoint revision | RED — fence non-mutation case |
+| File claim loses its file lock | RED — claim race |
+
+### Scope
+
+The TCK owns cross-technology lease semantics. Implementation-specific
+suites continue owning file format/permissions, JDBC schema internals,
+cancellation, safe-failure diagnostics, worker takeover and renewal-loop
+behavior (`WorkflowLeaseStoreTest`, `LeaseCoordinatorTest`,
+`LeaseRenewalLoopTest`, `TramaiWorkerTest`,
+`FileWorkflowPersistenceCancellationContractTest`,
+`JdbcWorkflowPersistenceCancellationContractTest`,
+`PersistenceSafeFailureBoundaryTest`) — none were deleted or replaced. The
+example smoke suite re-verified (safe-segment lease paths are unchanged, so
+the example's persisted-layout assertions still hold). Lease path behavior
+is documented in `docs/guides/orchestration-persistence.md`.

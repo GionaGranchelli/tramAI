@@ -1191,7 +1191,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.1: Persistence Store TCKs
 
-**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272), workflow checkpoint slice done (PR #273); remaining families pending.
+**Status: 🚧 IN PROGRESS** — Approval store slice done (PR #267), Approval continuation slice done (PR #269), suspended invocation slice done (PR #270), audit store slice done (PR #271), audit outbox slice done (PR #272), workflow checkpoint slice done (PR #273), workflow lease slice done (PR #274); memory family remaining.
 
 **Goal:** Ensure in-memory, file, and JDBC implementations share the same behavioural contract.
 
@@ -1203,7 +1203,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Audit store — ✅ PR #271 (shared `AuditStoreTck`, 43 cases × 3 implementations + enrollment guard)
 - Audit outbox store — ✅ PR #272 (shared `SovereignOpsAuditOutboxStoreTck`, 55 cases × 3 implementations + enrollment guard)
 - Workflow checkpoint store — ✅ PR #273 (shared `WorkflowCheckpointStoreTck`, 42 cases × 4 implementations + enrollment guard)
-- Workflow lease store — ⏳
+- Workflow lease store — ✅ PR #274 (shared `WorkflowLeaseStoreTck` 51 cases + `WorkflowLeaseCheckpointFenceTck` 14 cases, × 3 implementations + enrollment guards)
 - Step-attempt store — ✅ PR #218 (shared TCK + restart recovery tests for in-memory, file, and JDBC)
 - Memory store — ⏳
 
@@ -1225,7 +1225,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ### Acceptance criteria
 
-- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; audit outbox: 3/3 via #272; workflow checkpoint: 4/4 via #273; step-attempt: 3/3 via PR #218).
+- ✅ Every published store implementation passes the relevant TCK (Approval: 3/3 via #267; Approval continuation: 3/3 via #269; suspended invocation: 3/3 via #270; audit: 3/3 via #271; audit outbox: 3/3 via #272; workflow checkpoint: 4/4 via #273; workflow lease: 3/3 store + 3/3 fence via #274; step-attempt: 3/3 via PR #218).
 - ✅ Implementation-specific tests cover only storage technology and performance differences (encryption, permissions, corruption, record format for file; SQL schema, JSON mapping, connection cleanup for JDBC).
 - ✅ Contract failures use common typed exceptions or reason codes (`ApprovalStoreConflictException`, `ApprovalStoreNotFoundException`, `ApprovalStoreTokenRejectedException`, `ApprovalStoreNotConsumableException`, `IllegalApprovalTransitionException`; `ApprovalContinuationConflictException`, `ApprovalContinuationNotFoundException`, `ApprovalContinuationNotClaimableException`, `ApprovalContinuationNotCompletableException`; AuditStore: `audit-store-invalid-stream-id`, `audit-store-invalid-event-id`, `audit-stream-id-mismatch`, `audit-sequence-gap`, `audit-hash-chain-broken`, `audit-event-hash-mismatch`, `audit-schema-version-unsupported`, `audit-duplicate-event-id`).
 
@@ -1290,6 +1290,18 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Zero public API change to existing types; no persisted format or schema changes to existing records (legacy records readable + migratable); no existing tests deleted
 - Remaining families: workflow lease, memory
 - Reference: `docs/reference/persistence-store-compatibility-contract.md`; legacy path behavior documented in `docs/guides/orchestration-persistence.md`
+
+### Deliverables (PR #274)
+
+- `tramai-testing/src/testFixtures/.../persistence/lease/` — `WorkflowLeaseStoreTck` (51 cases), `WorkflowLeaseCheckpointFenceTck` (14 cases), `WorkflowLeaseFixtures`, `MutableMillisClock` (thread-safe AtomicLong clock; no system clock, no sleeps)
+- Runners: `InMemoryWorkflowLeaseStoreTckTest`, `FileWorkflowLeaseStoreTckTest`, `JdbcWorkflowLeaseStoreTckTest` (real H2) + the same three stores enrolled in the fence contract (`*WorkflowLeaseStoreCheckpointFenceTckTest`, JDBC lease + checkpoint stores sharing ONE DataSource for the atomic fence transaction); two enrollment guards (`WorkflowLeaseStoreTckEnrollmentArchitectureTest`, `WorkflowLeaseCheckpointFenceTckEnrollmentArchitectureTest`) reusing the #273 scanner
+- Contract: for one (workflowName, workflowId), at any instant at most one active lease token authorizes mutations, and storage technology cannot change that answer. Claim identity, exact expiry boundary (`expiresAt > now` active), renewal from durable state, release semantics (leaseId is the fencing capability — ownerId alone insufficient), stale predecessor can never renew/release/fence, input-domain hardening (IllegalArgumentException outside the boundary), 4 real races × 20 (initial claim, expired takeover, renew-vs-claim at exact expiry, colliding keys in parallel)
+- Companion fence contract: `StaleWorkflowLeaseException` (`"Workflow lease is no longer active"`) distinct from `WorkflowLeaseConflictException`; checkpoint unchanged on stale rejection; **new shared invariant: lease identity must equal checkpoint identity (IllegalArgumentException, fail before touching storage)**; the fence is NOT a renewal API and must not mutate lease metadata
+- Principal production fixes: **File lease identity** — `CollisionFreeWorkflowLeasePathStrategy` (safe segments keep their legacy path; unsafe → `~`+base64url, injective, never collides with legacy paths; legacy leases honored with identity verification, NOT migrated while live — lock namespace unchanged under an active lease); **JDBC renew returns the durable row** (caller's tampered snapshot no longer leaks); **JDBC fence uses SELECT ... FOR UPDATE** instead of the state-mutating UPDATE (checkpointRevision never rewritten as a side effect); shared caller-input validation in all three stores
+- Mutation evidence (17 mutations, each restored): active-claim guard, expiry boundary, fixed leaseId, renew leaseId/owner/expired/revision/expiry, release token, fence key-binding, fence forged-token, input validation, File lossy path, File foreign legacy identity, JDBC caller snapshot, JDBC mutating lock, File lock removal
+- Zero public API change to existing types; `api/` dump regenerated for the additive strategy class; no existing tests deleted
+- Remaining family: memory
+- Reference: `docs/reference/persistence-store-compatibility-contract.md`; lease layout documented in `docs/guides/orchestration-persistence.md`
 
 ---
 

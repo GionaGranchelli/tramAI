@@ -132,6 +132,30 @@ file — there are never two authoritative copies of one checkpoint.
 `DefaultWorkflowCheckpointPathStrategy` (the lossy layout) is still
 available for explicit injection and is unchanged for the lease store.
 
+## Lease File Layout
+
+`FileWorkflowLeaseStore` persists one `lease.properties` per workflow under
+the store root. Since version 0.6.0 the path is derived with the minimally
+disruptive `CollisionFreeWorkflowLeasePathStrategy`: identity segments
+already in the legacy-safe raw domain (`[A-Za-z0-9_-]`) keep their existing
+path unchanged (normal UUID/hyphenated workflow IDs do not move); any other
+segment is encoded as `~` + URL-safe Base64 (no padding). `~` is outside
+the legacy-safe domain, so a canonical path can never collide with a legacy
+sanitized path — two logically distinct workflows can never address the
+same lease file, and storage layout cannot redefine who owns a workflow:
+
+```
+<root>/<safe-name-or-~base64url(name)>/<safe-id-or-~base64url(id)>/lease.properties
+```
+
+Leases persisted before this strategy remain readable: a load/claim/renew/
+release first tries the canonical path, then the legacy sanitized path, and
+only accepts a legacy-path lease whose contents identify the requested
+`workflowName`/`workflowId` (a colliding key's lease is never returned as
+yours and never overwritten). A live legacy lease is NOT migrated — the
+filesystem lock namespace must not change under an active lease; after
+release or expiry the next claim uses the canonical path.
+
 ## Safe Failure Boundaries
 
 Built-in persistence stores expose fixed-text public failures. They do not copy filesystem paths, SQL, persisted payloads, or arbitrary storage exception messages into public exceptions, ordinary worker callbacks, or default logs. The original failure is available only through `PersistenceFailureDiagnosticObserver`.
