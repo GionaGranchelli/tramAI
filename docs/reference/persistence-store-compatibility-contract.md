@@ -10,22 +10,24 @@ files, Markdown, JDBC).
 
 ## Epic 8.1 matrix
 
-| Store family | In-memory | File | Markdown | JDBC | Shared TCK |
-|---|---|---|---|---|---|
-| Approval | ✅ | ✅ | — | ✅ | ✅ #267 |
-| Approval continuation | ✅ | ✅ | — | ✅ | ✅ #269 |
-| Suspended invocation | ✅ | ✅ | — | ✅ | ✅ #270 |
-| Audit | ✅ | ✅ | — | ✅ | ✅ #271 |
-| Audit outbox | ✅ | ✅ | — | ✅ | ✅ #272 |
-| Workflow checkpoint | ✅ | ✅ | ✅ | ✅ | ✅ #273 |
-| Workflow lease | ✅ | ✅ | — | ✅ | ✅ #274 |
-| Step attempt | ✅ | ✅ | — | ✅ | ✅ #218 |
-| Memory | … | … | — | … | ⏳ |
+| Store family | In-memory | File | Markdown | JDBC | Redis | Shared TCK |
+|---|---|---|---|---|---|---|
+| Approval | ✅ | ✅ | — | ✅ | — | ✅ #267 |
+| Approval continuation | ✅ | ✅ | — | ✅ | — | ✅ #269 |
+| Suspended invocation | ✅ | ✅ | — | ✅ | — | ✅ #270 |
+| Audit | ✅ | ✅ | — | ✅ | — | ✅ #271 |
+| Audit outbox | ✅ | ✅ | — | ✅ | — | ✅ #272 |
+| Workflow checkpoint | ✅ | ✅ | ✅ | ✅ | — | ✅ #273 |
+| Workflow lease | ✅ | ✅ | — | ✅ | — | ✅ #274 |
+| Step attempt | ✅ | ✅ | — | ✅ | — | ✅ #218 |
+| Memory | — | — | — | ✅ | ✅ | ✅ #275 |
 
 Markdown cells: the Markdown checkpoint store implements the
 `WorkflowCheckpointStore` SPI (enrolled in #273) but not the optional
 `WorkflowCheckpointCatalog`/step-attempt families; the remaining families
-have no Markdown implementation.
+have no Markdown implementation. The Memory family has exactly two concrete
+implementations — JDBC and Redis — and no in-memory/file variants; the
+shared TCK runs against both (real H2 and a real Redis Testcontainer).
 
 ## ApprovalStore TCK (PR #267)
 
@@ -901,3 +903,160 @@ behavior (`WorkflowLeaseStoreTest`, `LeaseCoordinatorTest`,
 example smoke suite re-verified (safe-segment lease paths are unchanged, so
 the example's persisted-layout assertions still hold). Lease path behavior
 is documented in `docs/guides/orchestration-persistence.md`.
+## ChatMemoryStore TCK (PR #275)
+
+`ChatMemoryStoreTck` (tramai-testing testFixtures) runs **50 shared
+behavioral cases** against every `ChatMemoryStore` implementation —
+`JdbcChatMemoryStore` (real H2) and `RedisChatMemoryStore` (real Redis 7.4
+Testcontainer, two independent JedisPools per case). The contract:
+
+> A conversation is one ordered logical message history. A successful
+> appendMessages() adds its complete batch exactly once and contiguously;
+> reads preserve the complete Message value; deletion removes the
+> conversation; listing reflects most-recent conversation activity
+> deterministically; and those answers cannot depend on whether the backend
+> is JDBC or Redis.
+
+Every test drives a `ChatMemoryStoreTckHarness` exposing TWO distinct store
+objects ([primary] and [peer]) over the same physical backend — a per-instance
+mutex inside one store object is not evidence for multi-node JDBC/Redis, so
+the concurrency cases prove coordination at the backend level. Deterministic
+throughout: `MutableMillisClock` (AtomicLong) drives both stores; no sleeps,
+no real clock.
+
+- **Read / append / identity (10):** unknown conversation → empty list;
+  single append round-trips; multi-message batch preserves exact order;
+  second append extends (never replaces); repeated append concatenates
+  exactly; empty append on missing/existing conversation does nothing;
+  conversations isolated; Unicode/punctuation/colon/space conversation IDs
+  work (conversationId is a LOGICAL ID — no SQL/Redis-key-safe subset is
+  imposed); caller-provided order is authoritative.
+- **Full Message fidelity (14):** SYSTEM/USER/ASSISTANT/TOOL roles;
+  multiline Unicode content; TextPart; ImagePart (exact mimeType + bytes);
+  ImageUrlContent with url AND mimeType (the discriminator that exposed the
+  serializer dropping `mimeType`); ImageUrlContent with null mimeType;
+  single/multiple ASSISTANT tool calls with JSON arguments; null vs empty
+  contentParts; null vs empty toolCalls; mixed roles round-trip as one
+  history.
+- **Snapshot semantics (2):** reads are snapshots — mutating the returned
+  list (legal: unmodifiable or independent copy) never changes the store;
+  a previously returned snapshot is not mutated by a later append.
+- **Delete (5):** existing deleted → empty; missing delete is a no-op;
+  deleting A never touches B; append after delete starts a fresh history;
+  deleted conversation disappears from listConversations (no tombstone
+  semantics in the shared contract).
+- **Input validation (4):** blank (`""`, `"   "`, `"\t"`) conversation IDs
+  rejected as `IllegalArgumentException` on getMessages/appendMessages/
+  deleteConversation; limit == 0, limit < 0, offset < 0 rejected on
+  listConversations. Raw backend failures stay implementation-specific.
+- **listConversations contract (10):** empty → []; single conversation;
+  multiple ordered by most recent activity descending; appending to an
+  older conversation moves it first; multiple messages → one ID; limit
+  caps; offset skips exactly N; final partial page; offset beyond end →
+  empty; delete + recreate gets NEW activity. Ties are NOT pinned (JDBC
+  breaks by conversation ID; Redis by its own deterministic ZSET tie
+  order). The SPI KDoc was corrected from "creation time descending" to
+  "most recent append/activity descending" — the chat-UX semantics the
+  JDBC store already implemented.
+- **Empty append is not activity (1):** appending an empty batch to an
+  older conversation does NOT move it up the listing.
+- **Concurrency — linearizable batch append (4 real races, start barrier,
+  20 iterations each, primary + peer):** (1) 8 concurrent single appends —
+  all succeed, 8 messages, each exactly once; (2) two concurrent 3-message
+  batches — legal outcomes are A1A2A3B1B2B3 or B1B2B3A1A2A3, NEVER
+  interleaved, neither append fails (turns both stores RED: Redis via
+  per-message RPUSH, JDBC via missing ordinal retry); (3) concurrent batch
+  append vs delete — final history is [] or the full batch, never partial,
+  and listConversations membership agrees with the final history; (4)
+  concurrent batches in independent conversations — both exact histories
+  survive (no global ordinal/list/index contamination).
+
+### Production changes (runtime-behaviour)
+
+- **Redis activity index (new).** Conversation lists keep the existing
+  `{keyPrefix}:{conversationId}` keys; a sorted-set index at the EXACT
+  `{keyPrefix}` key maps conversationId → last append epoch millis. The
+  index key is structurally disjoint from every conversation key (conversation
+  keys always contain the separator), so no conversation ID can collide with
+  the index. `listConversations` = `ZREVRANGE` (deterministic, paginated) —
+  the old SCAN-order collect/stop/drop-take could not satisfy ordered
+  pagination. Writes are fail-loud: a queued command that fails inside
+  MULTI (e.g. a wrong-type key at the index prefix) surfaces as a
+  `JedisDataException` instead of a silent partial transition. Reads are
+  per-command point-in-time snapshots — a conversation deleted between the
+  index read and the legacy SCAN can still appear on that one listing call,
+  but can never persist in the index.
+- **Redis append is ONE atomic transition:** `MULTI` → one `RPUSH` carrying
+  the whole batch (never one RPUSH per message — another writer must not
+  interleave between the messages of one logical append) + activity `ZADD`
+  → `EXEC`. Delete is `MULTI` → `DEL` + `ZREM` → `EXEC`, so
+  listConversations can never expose an ID whose history is gone. A
+  `MULTI`-atomicity race with the hook-free design is the M19 discriminator.
+- **Redis legacy backward compatibility.** Pre-index deployments
+  (conversation lists with no ZSET member) stay readable (getMessages
+  unchanged) and discoverable: listConversations falls back to SCAN for
+  unindexed keys and lists them deterministically (conversationId
+  ascending) AFTER indexed conversations. Reads never mutate the index. The
+  next append to a legacy conversation enrolls it via the same atomic
+  transaction (old history preserved). Direct regressions: legacy readable,
+  legacy discoverable, legacy append enrolls + orders, legacy delete leaves
+  no residue, legacy-only listing deterministic.
+- **Redis internal clock seam:** `internal var clockMillis` — the public
+  constructor ABI is unchanged; the runner wires `MutableMillisClock`.
+- **JDBC bounded optimistic whole-transaction retry.** `SELECT MAX(ordinal)
+  + 1` then INSERT inside one transaction can let two writers both compute
+  nextOrdinal = 4; one wins the (conversation_id, ordinal) PK, the other
+  must NOT fail merely because another valid append won ordinal allocation.
+  The whole batch transaction now retries on exactly SQLState 23505 (walked
+  through `JdbcBatchUpdateException.nextException`, since H2 wraps batch PK
+  violations) from a fresh durable MAX — never remaining messages, never a
+  partial commit, never arbitrary SQL errors, bounded (20 attempts). No
+  per-instance/static mutex — that does not fix multi-node persistence.
+- **JDBC transaction cleanup discipline (established #267/#269/#271
+  pattern preserved):** primary operation failure > rollback failure >
+  autoCommit-restore failure; later cleanup errors become suppressed — the
+  retry loop cannot swallow a rollback error, retry after an unknown
+  failure, or replace the primary exception with autoCommit restoration.
+- **StoredMessage `ImageUrlContent.mimeType` round-trip.** The serializer
+  stored `text = url` and reconstruction ignored the MIME type. Now
+  `StoredContentPart(type="image_url", text=url, mimeType=…)` and
+  reconstruction `ImageUrlContent(url, mimeType)` — backward compatible
+  with old JSON where `mimeType == null`. No public API change.
+- Core change: `ChatMemoryStore.listConversations` KDoc — "ordered by most
+  recent append/activity descending". KDoc only, no API dump change.
+
+### Mutation evidence (20 mutations, each restored)
+
+| Mutation | TCK outcome |
+|---|---|
+| ImageUrlContent.mimeType dropped in serializer | RED — url-image fidelity |
+| ImagePart mimeType flattened | RED — image round-trip |
+| TextPart content lost | RED — text-part round-trip |
+| TOOL toolCallId dropped | RED — tool round-trip |
+| ASSISTANT toolCalls dropped | RED — tool-call round-trip |
+| JDBC getMessages always returns empty | RED — single-append round-trip |
+| JDBC append resets ordinals (replaces history) | RED — second-append-extends |
+| JDBC batch reversed | RED — batch order |
+| JDBC batch drops first message | RED — single-append round-trip |
+| blank-ID validation removed | RED — blank getMessages |
+| conversation IDs share one key (JDBC WHERE / Redis key) | RED — isolation |
+| delete becomes no-op | RED — delete-removes |
+| Redis delete leaves index member | RED — delete/list consistency |
+| list ignores limit (JDBC LIMIT / Redis take) | RED — limit caps |
+| list ignores offset (JDBC OFFSET / Redis drop) | RED — offset skips |
+| activity update disabled (JDBC ASC / Redis const score) | RED — recency move |
+| Redis ZSET order replaced by SCAN | RED — recency listing |
+| Redis empty append registers activity | RED — empty-append no-op |
+| Redis batch back to per-message RPUSH | RED — concurrent-batch race |
+| JDBC ordinal retry removed | RED — concurrent-batch race |
+
+### Scope
+
+The TCK owns cross-technology chat-memory semantics. Direct suites continue
+owning implementation internals: `JdbcChatMemoryStoreTest` (schema SQL,
+custom table, raw behavior), `PersistentChatMemoryTest` (the consumer:
+simple delegation + optional cache), and the new `RedisChatMemoryStoreTest`
+(legacy unindexed data, key-prefix isolation, transaction data/index
+consistency) — none were deleted or replaced. The example smoke suite
+re-verified (the example does not depend on Redis or the memory store's
+list ordering).
