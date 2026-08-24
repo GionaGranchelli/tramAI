@@ -1,5 +1,9 @@
 package dev.tramai.orchestration
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.io.path.createTempDirectory
@@ -327,6 +331,186 @@ class WorkflowLeaseStoreTest {
         runBlocking { store.release(renewed) }
         assertThat(runBlocking { store.currentLease("jdbc-lease", "wf-1") }).isNull()
     }
+
+    @Test
+    fun `file store honors an exact legacy lease and never aliases a colliding identity`() {
+        var now = 1_000L
+        val directory = createTempDirectory("tramai-lease-legacy")
+        try {
+            // Pre-collision-free lease for "order/a" written at the legacy
+            // lossy path ("order_a").
+            val legacyLease = WorkflowLease(
+                workflowName = "order",
+                workflowId = "a/b",
+                leaseId = "legacy-token-1",
+                ownerId = "worker-old",
+                checkpointRevision = null,
+                acquiredAtEpochMillis = now,
+                expiresAtEpochMillis = now + 10_000,
+            )
+            val legacyPath = DefaultWorkflowCheckpointPathStrategy("lease.properties")
+                .resolve(directory, "order", "a/b")
+            Files.createDirectories(legacyPath.parent)
+            Files.writeString(legacyPath, encodeLease(legacyLease))
+
+            val store = FileWorkflowLeaseStore(directory, clockMillis = { now })
+            // The exact matching legacy lease is honored (no migration).
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(legacyLease)
+
+            // The colliding identity must never see A's lease as its own —
+            // even before it has any lease of its own.
+            assertThat(runBlocking { store.currentLease("order", "a?b") }).isNull()
+
+            // ...and can claim its canonical path independently.
+            val b = runBlocking {
+                store.claim("order", "a?b", "worker-new", checkpointRevision = null, leaseDurationMillis = 1_000)
+            }
+            assertThat(runBlocking { store.currentLease("order", "a?b") }).isEqualTo(b)
+            assertThat(runBlocking { store.currentLease("order", "a?b") })
+                .isNotEqualTo(legacyLease)
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(legacyLease)
+
+            // After expiry, the next claim for "a/b" uses the canonical path
+            // and the legacy file is not authoritative anymore.
+            now += 11_000
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isNull()
+            val again = runBlocking {
+                store.claim("order", "a/b", "worker-old", checkpointRevision = null, leaseDurationMillis = 1_000)
+            }
+            assertThat(runBlocking { store.currentLease("order", "a/b") }).isEqualTo(again)
+            assertThat(again.leaseId).isNotEqualTo("legacy-token-1")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `concurrent takeover of an expired legacy unsafe-key lease yields exactly one winner`() = runBlocking<Unit> {
+        var now = 2_000L
+        val directory = createTempDirectory("tramai-lease-legacy-race")
+        try {
+            // Expired pre-collision-free lease for "order/a" on the legacy
+            // lossy path ("order_a").
+            val legacyLease = WorkflowLease(
+                workflowName = "order",
+                workflowId = "a/b",
+                leaseId = "legacy-token-9",
+                ownerId = "worker-old",
+                checkpointRevision = null,
+                acquiredAtEpochMillis = 500,
+                expiresAtEpochMillis = 1_500,
+            )
+            val legacyPath = DefaultWorkflowCheckpointPathStrategy("lease.properties")
+                .resolve(directory, "order", "a/b")
+            Files.createDirectories(legacyPath.parent)
+            Files.writeString(legacyPath, encodeLease(legacyLease))
+
+            // Deterministically park claimant A INSIDE the migration window:
+            // the legacy file is already deleted, the canonical write is about
+            // to move. B then runs against exactly that transient state.
+            val inMigrationWindow = CompletableDeferred<Unit>()
+            val releaseA = CompletableDeferred<Unit>()
+            val writerA = AtomicFileWriter { _ ->
+                inMigrationWindow.complete(Unit)
+                runBlocking { releaseA.await() }
+            }
+            // B uses a SEPARATE store sharing the same directory with a plain
+            // writer: its outcome must depend only on the lock namespace, not
+            // on the shared hook (which would block B too and mask the race).
+            val strategy = CollisionFreeWorkflowLeasePathStrategy("lease.properties")
+            val storeA = FileWorkflowLeaseStore.forTest(directory, strategy, writerA) { now }
+            val storeB = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+
+            val a = async(Dispatchers.Default) {
+                runCatching { storeA.claim("order", "a/b", "worker-a", checkpointRevision = null, leaseDurationMillis = 1_000) }
+            }
+            inMigrationWindow.await()
+            val b = async(Dispatchers.Default) {
+                runCatching { storeB.claim("order", "a/b", "worker-b", checkpointRevision = null, leaseDurationMillis = 1_000) }
+            }
+            // A is provably parked mid-migration (legacy deleted, canonical
+            // not yet moved) while holding the legacy lock. If B completes
+            // NOW, it must have resolved the stale canonical path and
+            // succeeded — the pre-fix defect. With the stable lock namespace
+            // B blocks on the legacy lock instead and cannot complete.
+            val bCompletedWhileABlocked = withTimeoutOrNull(2_000) { b.await() }
+            releaseA.complete(Unit)
+            val outcomes = listOf(a.await(), bCompletedWhileABlocked ?: b.await())
+
+            assertThat(outcomes.count { it.isSuccess })
+                .withFailMessage("expected exactly one claimant to win the expired legacy takeover, got $outcomes")
+                .isEqualTo(1)
+            assertThat(outcomes.filter { it.isFailure }.map { it.exceptionOrNull()?.javaClass?.name })
+                .containsExactly(WorkflowLeaseConflictException::class.java.name)
+            assertThat(runBlocking { storeA.currentLease("order", "a/b") }).isNotNull
+            // The legacy file is gone; the single authoritative lease is the
+            // canonical one.
+            assertThat(Files.exists(legacyPath)).isFalse()
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+        Unit
+    }
+
+    @Test
+    fun `fenced checkpoint mutation cannot overlap a successor takeover on an unsafe key`() = runBlocking<Unit> {
+        var now = 1_000L
+        val directory = createTempDirectory("tramai-lease-fence-takeover")
+        try {
+            val strategy = CollisionFreeWorkflowLeasePathStrategy("lease.properties")
+            val storeA = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+            val storeB = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+
+            val leaseA = storeA.claim("order", "a/b", "worker-a", checkpointRevision = null, leaseDurationMillis = 10_000)
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            checkpointStore.save(
+                WorkflowCheckpoint("order", "a/b", nextStepIndex = 1, stepExecutions = 1, lastCompletedStepName = "step-1", statePayload = "s1", revision = 1),
+            )
+            val checkpointV2 = WorkflowCheckpoint("order", "a/b", nextStepIndex = 2, stepExecutions = 2, lastCompletedStepName = "step-2", statePayload = "s2", revision = 2)
+
+            // Hooked checkpoint store: blocks INSIDE the fenced mutation, after
+            // the fence validated worker A's lease and acquired the lease lock.
+            val inFencedMutation = CompletableDeferred<Unit>()
+            val releaseFence = CompletableDeferred<Unit>()
+            val hooked = object : WorkflowCheckpointStore by checkpointStore {
+                override suspend fun save(checkpoint: WorkflowCheckpoint, expectedRevision: Long?): WorkflowCheckpoint {
+                    inFencedMutation.complete(Unit)
+                    // Direct await (no nested runBlocking): this hook must stay
+                    // cancellable so a failing test cannot strand the fence.
+                    releaseFence.await()
+                    return checkpointStore.save(checkpoint, expectedRevision)
+                }
+            }
+            val fence = async(Dispatchers.Default) {
+                runCatching {
+                    storeA.saveCheckpointIfLeaseOwner(hooked, checkpointV2, expectedRevision = 1, expectedLease = leaseA)
+                }
+            }
+            inFencedMutation.await()
+            // Worker A's fence holds the lease lock mid-mutation. A's lease is
+            // still active; now let it expire and start B's takeover.
+            now = 20_000L
+            val b = async(Dispatchers.Default) {
+                runCatching { storeB.claim("order", "a/b", "worker-b", checkpointRevision = null, leaseDurationMillis = 10_000) }
+            }
+            val bCompletedWhileFenced = withTimeoutOrNull(2_000) { b.await() }
+            // B must NOT complete while A's fenced checkpoint mutation holds
+            // the lease lock — otherwise the stale worker A can still commit
+            // state after B has taken ownership (split brain).
+            assertThat(bCompletedWhileFenced)
+                .withFailMessage("claim B succeeded while worker A's fenced checkpoint mutation was in flight: $bCompletedWhileFenced")
+                .isNull()
+            releaseFence.complete(Unit)
+            assertThat(fence.await().isSuccess).isTrue()
+            assertThat(b.await().isSuccess).isTrue()
+            // B owns the lease afterward; A's fence completed before B's claim.
+            assertThat(runBlocking { storeA.currentLease("order", "a/b")!!.ownerId }).isEqualTo("worker-b")
+            assertThat(runBlocking { storeA.currentLease("order", "a/b")!!.leaseId })
+                .isNotEqualTo(leaseA.leaseId)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }
 private data class LeaseResumeState(
     val value: String,
@@ -545,4 +729,4 @@ private fun defaultLeaseValue(returnType: Class<*>): Any? = when {
     returnType == Float::class.javaPrimitiveType -> 0f
     returnType == Char::class.javaPrimitiveType -> '\u0000'
     else -> null
-}
+    }

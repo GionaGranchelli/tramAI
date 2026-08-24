@@ -306,6 +306,48 @@ val recoveryController = InMemoryWorkflowRecoveryController(
 )
 ```
 
+### Lease stores
+
+Active ownership for one (workflowName, workflowId) is a versioned lease
+token. At any instant at most one active lease can authorize checkpoint
+mutations, and storage technology cannot change that answer — a worker
+owns a workflow only via **logical workflow identity + current active
+leaseId + matching owner + not expired** (`expiresAt > now` is active,
+`expiresAt <= now` is expired). `leaseId` is the fencing capability;
+`ownerId` alone is insufficient — a stale predecessor (even the same
+owner) can never renew, release, or fence after a takeover. All three
+built-in stores (`InMemoryWorkflowLeaseStore`, `FileWorkflowLeaseStore`,
+`JdbcWorkflowLeaseStore`) pass the shared lease TCK (51 cases) and the
+companion fence TCK (14 cases) — the fence is the atomic
+"ownership check + checkpoint mutation" operation, is not a renewal API,
+and never mutates lease metadata.
+
+```kotlin
+val leaseStore = JdbcWorkflowLeaseStore(dataSource) // or InMemory/File
+leaseStore.createTableSql() // execute during application schema setup
+
+val lease = leaseStore.claim(
+    workflowName = "invoice-review",
+    workflowId = "run-001",
+    ownerId = "node-a",
+    checkpointRevision = 3,
+    leaseDurationMillis = 30_000,
+)
+// Fenced checkpoint mutation: lease + checkpoint in one atomic operation.
+leaseStore.saveCheckpointIfLeaseOwner(checkpointStore, checkpoint, 3, lease)
+```
+
+The file store's `CollisionFreeWorkflowLeasePathStrategy` keeps safe
+segments (`[A-Za-z0-9_-]`) on their legacy path and encodes everything else
+as `~`+base64url, so distinct identities can never alias on disk; legacy
+leases are honored on their legacy path and never migrated while live (see
+`docs/guides/orchestration-persistence.md`). Caller-input errors (blank
+identities, nonpositive duration, mismatched fence identity) are
+`IllegalArgumentException`; lease-contention failures are
+`WorkflowLeaseConflictException` (`"Workflow lease conflict"`) and stale
+fencing is `StaleWorkflowLeaseException`
+(`"Workflow lease is no longer active"`).
+
 ### Distributed workers
 
 `TramaiWorker` enables multi-node workflow execution. Workers poll a shared checkpoint catalog, claim workflows via lease fencing, and execute resumes. Each worker is completely determined by the bindings explicitly supplied to it — there is no process-global workflow registration.
