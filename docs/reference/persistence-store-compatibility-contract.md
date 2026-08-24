@@ -827,21 +827,30 @@ fencing operation.
   change under an active lease) — after release or expiry the next claim
   uses the canonical path. `DefaultWorkflowCheckpointPathStrategy` is
   unchanged.
-- **Stable lock namespace across the legacy→canonical migration (P1
-  review finding).** The lease file path is NOT the synchronization
-  identity when the path itself is migratable: locking whichever data path
-  happens to exist before locking let two concurrent claimants of an
-  expired legacy unsafe-key lease both succeed (A locks the legacy path,
-  deletes it, writes canonical; B — resolving after the delete, before the
-  move — locks the canonical path, sees no lease, succeeds). `claim()`
-  therefore locks a **stable `leaseLockPath`** — for the collision-free
-  strategy the immutable legacy-sanitized path (a/b and a?b share a lock:
-  harmless serialization, distinct lease files) — and **re-resolves the
-  effective storage path INSIDE the acquired lock**. A deterministic
-  regression parks claimant A mid-migration via the injectable
-  `AtomicFileWriter.beforeMove` hook while B claims: exactly 1 success, 1
-  conflict, single canonical lease. (M18 mutates this back to
-  lock-the-storage-path → the race turns RED.)
+- **One stable lock namespace for the whole lease state machine (P1,
+  second review finding).** The lease file path is NOT the synchronization
+  identity when the path itself is migratable — and the rule applies to
+  every operation, not just claim: once `claim()` moved to the stable
+  logical lock while `currentLease`/`renew`/`release`/fenced save/fenced
+  delete kept locking the current data path, an unsafe canonical identity
+  had TWO synchronization namespaces. Two concrete breaks: (P1-A) at exact
+  expiry a `currentLease` cleanup holding the canonical lock could delete
+  the successor a concurrent claim had just written under the legacy lock;
+  (P1-B, the serious one) an active fenced checkpoint mutation could
+  overlap a successor takeover — the stale worker's checkpoint save
+  completes after B has taken ownership, exactly the split-brain the fence
+  exists to prevent. The File store now centralizes the rule: every
+  operation that can observe, change, expire, replace, or fence a lease
+  serializes through `withLogicalLeaseLock` / `withLogicalLeaseLockSuspending`
+  — acquire `leaseLockPath` (the stable logical lock), then resolve
+  `effectiveLeasePath` INSIDE the lock. Re-resolution after acquisition is
+  mandatory: an operation that waited on the right lock must never act on
+  pre-lock path state. Deterministic regression: `AtomicFileWriter.beforeMove`
+  parks claimant A mid-migration while B claims → exactly 1 success, 1
+  conflict (M18). Stronger fence-vs-takeover regression: a hooked
+  checkpoint store parks worker A's fenced save after validation; the clock
+  passes expiry; B's claim must NOT complete while A's fenced mutation
+  holds the lease lock, then B takes over after A completes (M19).
 - **JDBC renew returns the durable row** instead of the caller-derived
   snapshot (`lease.copy(...)`): the caller's tampered acquiredAt/expiresAt
   can no longer leak into the returned lease.
@@ -855,7 +864,7 @@ fencing operation.
 - New public class `CollisionFreeWorkflowLeasePathStrategy` is additive;
   `api/` dump regenerated.
 
-### Mutation evidence (18 mutations, each restored)
+### Mutation evidence (19 mutations, each restored)
 
 | Mutation | TCK outcome |
 |---|---|
@@ -877,6 +886,7 @@ fencing operation.
 | JDBC fence mutates checkpoint revision | RED — fence non-mutation case |
 | File claim loses its file lock | RED — claim race |
 | File claim locks the storage path and resolves it before locking | RED — expired-legacy concurrent-takeover race |
+| File fence reverts to the data-path lock | RED — fence-vs-takeover race |
 
 ### Scope
 

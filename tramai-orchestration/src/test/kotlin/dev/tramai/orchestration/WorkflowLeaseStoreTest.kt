@@ -433,7 +433,7 @@ class WorkflowLeaseStoreTest {
             // NOW, it must have resolved the stale canonical path and
             // succeeded — the pre-fix defect. With the stable lock namespace
             // B blocks on the legacy lock instead and cannot complete.
-            val bCompletedWhileABlocked = withTimeoutOrNull(5_000) { b.await() }
+            val bCompletedWhileABlocked = withTimeoutOrNull(2_000) { b.await() }
             releaseA.complete(Unit)
             val outcomes = listOf(a.await(), bCompletedWhileABlocked ?: b.await())
 
@@ -450,6 +450,66 @@ class WorkflowLeaseStoreTest {
             directory.toFile().deleteRecursively()
         }
         Unit
+    }
+
+    @Test
+    fun `fenced checkpoint mutation cannot overlap a successor takeover on an unsafe key`() = runBlocking<Unit> {
+        var now = 1_000L
+        val directory = createTempDirectory("tramai-lease-fence-takeover")
+        try {
+            val strategy = CollisionFreeWorkflowLeasePathStrategy("lease.properties")
+            val storeA = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+            val storeB = FileWorkflowLeaseStore.forTest(directory, strategy, AtomicFileWriter()) { now }
+
+            val leaseA = storeA.claim("order", "a/b", "worker-a", checkpointRevision = null, leaseDurationMillis = 10_000)
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            checkpointStore.save(
+                WorkflowCheckpoint("order", "a/b", nextStepIndex = 1, stepExecutions = 1, lastCompletedStepName = "step-1", statePayload = "s1", revision = 1),
+            )
+            val checkpointV2 = WorkflowCheckpoint("order", "a/b", nextStepIndex = 2, stepExecutions = 2, lastCompletedStepName = "step-2", statePayload = "s2", revision = 2)
+
+            // Hooked checkpoint store: blocks INSIDE the fenced mutation, after
+            // the fence validated worker A's lease and acquired the lease lock.
+            val inFencedMutation = CompletableDeferred<Unit>()
+            val releaseFence = CompletableDeferred<Unit>()
+            val hooked = object : WorkflowCheckpointStore by checkpointStore {
+                override suspend fun save(checkpoint: WorkflowCheckpoint, expectedRevision: Long?): WorkflowCheckpoint {
+                    inFencedMutation.complete(Unit)
+                    // Direct await (no nested runBlocking): this hook must stay
+                    // cancellable so a failing test cannot strand the fence.
+                    releaseFence.await()
+                    return checkpointStore.save(checkpoint, expectedRevision)
+                }
+            }
+            val fence = async(Dispatchers.Default) {
+                runCatching {
+                    storeA.saveCheckpointIfLeaseOwner(hooked, checkpointV2, expectedRevision = 1, expectedLease = leaseA)
+                }
+            }
+            inFencedMutation.await()
+            // Worker A's fence holds the lease lock mid-mutation. A's lease is
+            // still active; now let it expire and start B's takeover.
+            now = 20_000L
+            val b = async(Dispatchers.Default) {
+                runCatching { storeB.claim("order", "a/b", "worker-b", checkpointRevision = null, leaseDurationMillis = 10_000) }
+            }
+            val bCompletedWhileFenced = withTimeoutOrNull(2_000) { b.await() }
+            // B must NOT complete while A's fenced checkpoint mutation holds
+            // the lease lock — otherwise the stale worker A can still commit
+            // state after B has taken ownership (split brain).
+            assertThat(bCompletedWhileFenced)
+                .withFailMessage("claim B succeeded while worker A's fenced checkpoint mutation was in flight: $bCompletedWhileFenced")
+                .isNull()
+            releaseFence.complete(Unit)
+            assertThat(fence.await().isSuccess).isTrue()
+            assertThat(b.await().isSuccess).isTrue()
+            // B owns the lease afterward; A's fence completed before B's claim.
+            assertThat(runBlocking { storeA.currentLease("order", "a/b")!!.ownerId }).isEqualTo("worker-b")
+            assertThat(runBlocking { storeA.currentLease("order", "a/b")!!.leaseId })
+                .isNotEqualTo(leaseA.leaseId)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
     }
 }
 private data class LeaseResumeState(

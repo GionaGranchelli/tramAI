@@ -128,11 +128,7 @@ class FileWorkflowLeaseStore private constructor(
     ): WorkflowLease? = persistenceBoundary(
         PersistenceResourceKind.LEASE, PersistenceOperation.LOAD, persistenceFailureDiagnosticObserver,
     ) {
-        val leasePath = effectiveLeasePath(workflowName, workflowId)
-        if (!Files.exists(leasePath)) {
-            return@persistenceBoundary null
-        }
-        withFileLockCancellable(leasePath) {
+        withLogicalLeaseLock(workflowName, workflowId) { leasePath ->
             val existing = readLeaseIfPresent(leasePath)
             when {
                 existing == null -> null
@@ -160,19 +156,7 @@ class FileWorkflowLeaseStore private constructor(
             PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, persistenceFailureDiagnosticObserver,
         ) {
             val canonical = leasePath(workflowName, workflowId)
-            // The lock namespace is the SYNCHRONIZATION identity and must stay
-            // stable across the legacy -> canonical migration: competing
-            // claimants of one logical workflow always pass through the same
-            // lock, even while the storage path itself moves. For the
-            // collision-free strategy this deliberately resolves to the
-            // legacy-sanitized path (a/b and a?b share a lock — harmless
-            // serialization — while their lease files remain distinct).
-            val lockPath = leaseLockPath(workflowName, workflowId)
-            withFileLockCancellable(lockPath) {
-                // Re-resolve the storage path NOW, inside the acquired lock:
-                // a claimant that resolved the legacy path before waiting must
-                // not act on stale path information after migration.
-                val target = effectiveLeasePath(workflowName, workflowId)
+            withLogicalLeaseLock(workflowName, workflowId) { target ->
                 val existing = readLeaseIfPresent(target)?.takeIf {
                     identityMatches(it, workflowName, workflowId)
                 }
@@ -210,8 +194,7 @@ class FileWorkflowLeaseStore private constructor(
         return persistenceBoundary(
             PersistenceResourceKind.LEASE, PersistenceOperation.RENEW, persistenceFailureDiagnosticObserver,
         ) {
-            val leasePath = effectiveLeasePath(lease.workflowName, lease.workflowId)
-            withFileLockCancellable(leasePath) {
+            withLogicalLeaseLock(lease.workflowName, lease.workflowId) { leasePath ->
                 val existing = readLeaseIfPresent(leasePath)?.takeIf {
                     identityMatches(it, lease.workflowName, lease.workflowId)
                 }
@@ -236,14 +219,13 @@ class FileWorkflowLeaseStore private constructor(
     override suspend fun release(lease: WorkflowLease) {
         validateLeaseToken(lease)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, persistenceFailureDiagnosticObserver) {
-            val leasePath = effectiveLeasePath(lease.workflowName, lease.workflowId)
-            withFileLockCancellable(leasePath) {
+            withLogicalLeaseLock(lease.workflowName, lease.workflowId) { leasePath ->
                 val existing = readLeaseIfPresent(leasePath)?.takeIf {
                     identityMatches(it, lease.workflowName, lease.workflowId)
-                } ?: return@withFileLockCancellable
+                } ?: return@withLogicalLeaseLock
                 if (isExpired(existing)) {
                     deleteLeaseIfPresent(leasePath)
-                    return@withFileLockCancellable
+                    return@withLogicalLeaseLock
                 }
                 if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.RELEASE, PersistenceFailureCode.CONFLICT)
@@ -263,8 +245,7 @@ class FileWorkflowLeaseStore private constructor(
         return persistenceBoundary(
             PersistenceResourceKind.LEASE, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver,
         ) {
-            val leasePath = effectiveLeasePath(expectedLease.workflowName, expectedLease.workflowId)
-            withFileLockCancellableSuspending(leasePath) {
+            withLogicalLeaseLockSuspending(expectedLease.workflowName, expectedLease.workflowId) { leasePath ->
                 val current = readLeaseIfPresent(leasePath)
                     ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
                     ?.takeUnless(::isExpired)
@@ -283,8 +264,7 @@ class FileWorkflowLeaseStore private constructor(
     ) {
         validateFenceIdentity(expectedLease, workflowName, workflowId)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) {
-            val leasePath = effectiveLeasePath(expectedLease.workflowName, expectedLease.workflowId)
-            withFileLockCancellableSuspending(leasePath) {
+            withLogicalLeaseLockSuspending(expectedLease.workflowName, expectedLease.workflowId) { leasePath ->
                 val current = readLeaseIfPresent(leasePath)
                     ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
                     ?.takeUnless(::isExpired)
@@ -304,9 +284,16 @@ class FileWorkflowLeaseStore private constructor(
      * lock file both the legacy and the canonical storage paths coordinate
      * through. For the collision-free strategy that is the legacy-sanitized
      * path — it is immutable across the migration boundary, so every
-     * concurrent claimant of the same logical workflow serializes on the
+     * concurrent operation on the same logical workflow serializes on the
      * same lock regardless of where the lease file currently lives. For any
      * other strategy the storage path is the lock path (no migration).
+     *
+     * This is the ONLY lock the File store uses: every operation that can
+     * observe, change, expire, replace, or fence a lease (currentLease,
+     * claim, renew, release, fenced save, fenced delete) acquires the
+     * logical lease lock and resolves the current data path INSIDE it. The
+     * lease's storage location may change (legacy → canonical migration);
+     * its synchronization identity never does.
      */
     private fun leaseLockPath(
         workflowName: String,
@@ -315,6 +302,36 @@ class FileWorkflowLeaseStore private constructor(
         is CollisionFreeWorkflowLeasePathStrategy ->
             strategy.legacyLeasePath(rootDirectory, workflowName, workflowId)
         else -> leasePath(workflowName, workflowId)
+    }
+
+    /**
+     * Acquires the stable logical lease lock, then resolves the current
+     * storage path INSIDE the lock and runs [block] with it. A caller that
+     * resolved the path before waiting must never act on stale path
+     * information after migration, so re-resolution after acquisition is
+     * mandatory, not an optimization.
+     */
+    private suspend inline fun <T> withLogicalLeaseLock(
+        workflowName: String,
+        workflowId: String,
+        crossinline block: (leasePath: Path) -> T,
+    ): T {
+        val lockPath = leaseLockPath(workflowName, workflowId)
+        return withFileLockCancellable(lockPath) {
+            block(effectiveLeasePath(workflowName, workflowId))
+        }
+    }
+
+    /** Suspending variant for the checkpoint-fence operations. */
+    private suspend inline fun <T> withLogicalLeaseLockSuspending(
+        workflowName: String,
+        workflowId: String,
+        crossinline block: suspend (leasePath: Path) -> T,
+    ): T {
+        val lockPath = leaseLockPath(workflowName, workflowId)
+        return withFileLockCancellableSuspending(lockPath) {
+            block(effectiveLeasePath(workflowName, workflowId))
+        }
     }
 
     /**
