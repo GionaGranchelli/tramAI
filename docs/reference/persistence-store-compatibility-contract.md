@@ -989,9 +989,10 @@ no real clock.
 - **Redis append is ONE atomic transition:** `MULTI` → one `RPUSH` carrying
   the whole batch (never one RPUSH per message — another writer must not
   interleave between the messages of one logical append) + activity `ZADD`
-  → `EXEC`. Delete is `MULTI` → `DEL` + `ZREM` → `EXEC`, so
-  listConversations can never expose an ID whose history is gone. A
-  `MULTI`-atomicity race with the hook-free design is the M19 discriminator.
+  → `EXEC`. Delete is `MULTI` → `DEL` + `ZREM` → `EXEC`, so successful
+  writes keep conversation history and activity-index membership mutually
+  consistent. A `MULTI`-atomicity race with the hook-free design is the M19
+  discriminator.
 - **Redis legacy backward compatibility.** Pre-index deployments
   (conversation lists with no ZSET member) stay readable (getMessages
   unchanged) and discoverable: listConversations falls back to SCAN for
