@@ -1028,6 +1028,43 @@ abstract class ApprovalContinuationStoreTck {
     }
 
     @Test
+    fun `failed late claim persists expired state before reporting`() = runBlocking<Unit> {
+        // A failed operation can legitimately mutate durable state: a late
+        // claim (PENDING, clock past expiry) must persist EXPIRED@v1 and
+        // discard arguments BEFORE throwing NotClaimable. The clock is
+        // rewound to t0 before the read so this assertion's own get() cannot
+        // lazily expire a still-PENDING record and mask the missing
+        // transition — the failed operation itself must have normalized.
+        val id = "late-claim-persists"
+        clock.set(t0)
+        createPending(id)
+        clock.set(expiry.plusSeconds(1))
+        assertThat(runCatching { store.claimForExecution(id, 0L, "worker-1") }.exceptionOrNull())
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+        clock.set(t0)
+        val durable = store.get(id)!!
+        assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+        assertThat(durable.version).isEqualTo(1L)
+    }
+
+    @Test
+    fun `failed late cancel persists expired state before reporting`() = runBlocking<Unit> {
+        // Same contract for cancel: a late cancel must persist EXPIRED@v1
+        // before throwing Conflict; the rewind makes the assertion read
+        // unable to repair a missing normalization via lazy expiry.
+        val id = "late-cancel-persists"
+        clock.set(t0)
+        createPending(id)
+        clock.set(expiry.plusSeconds(1))
+        assertThat(runCatching { store.cancel(id, 0L) }.exceptionOrNull())
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+        clock.set(t0)
+        val durable = store.get(id)!!
+        assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+        assertThat(durable.version).isEqualTo(1L)
+    }
+
+    @Test
     fun `wrong-version continuation operations always conflict without changing durable state`() = runBlocking<Unit> {
         // PENDING before expiry: every wrong-version probe conflicts
         // (version checked first on the non-expiry path) and leaves the
@@ -1220,9 +1257,10 @@ abstract class ApprovalContinuationStoreTck {
             clock.set(t0)
             val swept = ArrayList<String>()
             val livePending = ArrayList<String>()
-            // 24 deterministic records: 12 PENDING with expiry chosen by the
-            // seed from {past, exact-boundary, live}, plus CLAIMED/COMPLETED/
-            // CANCELLED/CANCELLED_UNCERTAIN/already-EXPIRED rows.
+            // 27 deterministic records: 12 PENDING with expiry chosen by the
+            // seed from {past, exact-boundary, live}, plus 3 each of CLAIMED,
+            // COMPLETED, CANCELLED, CANCELLED_UNCERTAIN and already-EXPIRED
+            // rows (12 + 15 = 27).
             val pendingExpiries = List(12) { i ->
                 when (rng.nextInt(3)) {
                     0 -> expiry.minusSeconds(120) // past
@@ -1235,29 +1273,45 @@ abstract class ApprovalContinuationStoreTck {
                 createPending(id, createdAt = t0, expiresAt = expiresAt)
                 if (expiresAt <= expiry) swept.add(id) else livePending.add(id)
             }
+            val claimedIds = ArrayList<String>()
             repeat(3) { i ->
                 val id = "sweep-$seed-c$i"
+                claimedIds.add(id)
                 setupClaimed(id)
             }
+            val completedIds = ArrayList<String>()
             repeat(3) { i ->
                 val id = "sweep-$seed-d$i"
+                completedIds.add(id)
                 setupCompleted(id)
             }
+            val cancelledIds = ArrayList<String>()
             repeat(3) { i ->
                 val id = "sweep-$seed-x$i"
+                cancelledIds.add(id)
                 setupCancelled(id)
             }
+            val uncertainIds = ArrayList<String>()
             repeat(3) { i ->
                 val id = "sweep-$seed-u$i"
+                uncertainIds.add(id)
                 setupCancelledUncertain(id)
             }
+            val expiredIds = ArrayList<String>()
             repeat(3) { i ->
                 val id = "sweep-$seed-e$i"
+                expiredIds.add(id)
                 clock.set(t0)
                 createPending(id)
                 clock.set(expiry.plusSeconds(1))
                 store.expire(id, 0L)
             }
+            // Capture every row the sweep must NOT touch (non-PENDING rows and
+            // live PENDING rows) before the sweep, then assert value-identity
+            // after: sweep must leave CLAIMED and terminal rows untouched.
+            clock.set(t0)
+            val untouchedIds = claimedIds + completedIds + cancelledIds + uncertainIds + expiredIds + livePending
+            val preSweep = untouchedIds.associateWith { store.get(it)!! }
             clock.set(expiry)
 
             val count = store.sweepExpired()
@@ -1270,10 +1324,10 @@ abstract class ApprovalContinuationStoreTck {
                 assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
                 assertThat(durable.version).isEqualTo(1L)
             }
-            livePending.forEach { id ->
-                val durable = store.get(id)!!
-                assertThat(durable.status).isEqualTo(ApprovalContinuationStatus.PENDING)
-                assertThat(durable.version).isEqualTo(0L)
+            untouchedIds.forEach { id ->
+                assertThat(store.get(id))
+                    .withFailMessage("seed $seed: sweep mutated untouched record $id")
+                    .isEqualTo(preSweep[id])
             }
             assertThat(store.sweepExpired()).isZero()
         }

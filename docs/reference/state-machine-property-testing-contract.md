@@ -287,34 +287,41 @@ asserts 25 semantic categories incl. `exact-expiry-boundary`,
 `get-lazy-expiry`, `expire-wrong-version-after-expiry`, the four
 terminal-stable categories, and exactly-once argument release per seed.
 
-### Properties (8 new shared cases, 50 → 58 × 3 implementations)
+### Properties (10 new shared cases, 50 → 60 × 3 implementations)
 
 1. **Generated lifecycle sequences** — every action's typed return/failure
    and durable state agrees with the model, including failure paths that
    perform lazy-expiry normalization; whole-record equality after every
    step; released raw arguments equal the original exactly once.
-2. **Wrong-version matrix** — PENDING-before-expiry (claim/cancel/expire
+2. **Failed late claim / late cancel persist EXPIRED before reporting** —
+   a late claim (NotClaimable) and late cancel (Conflict) must themselves
+   persist EXPIRED@v1: the clock is rewound to t0 before the read so the
+   assertion's own `get()` cannot lazily expire a still-PENDING record and
+   mask a missing normalization (the operation, not the read, must have
+   transitioned the row).
+3. **Wrong-version matrix** — PENDING-before-expiry (claim/cancel/expire
    with expectedVersion 1) and CLAIMED (complete/forceCancel/cancel with
    expectedVersion 0) → typed Conflict + value-identical record.
-3. **Eight concurrent claims** (×20) — exactly 1 fresh winner releasing the
+4. **Eight concurrent claims** (×20) — exactly 1 fresh winner releasing the
    raw arguments, 7 Conflict losers (whole-consume atomicity serializes
    each loser after the winner), durable CLAIMED@1 with the winner's
    identity; a follow-up claim → NotClaimable.
-4. **Mixed claim/cancel race** (×20, 4+4) — exactly one legal transition to
+5. **Mixed claim/cancel race** (×20, 4+4) — exactly one legal transition to
    CLAIMED (one release) or CANCELLED (zero releases); 7 Conflict losers.
-5. **Claimed resolution race** (×20, 4 complete + 4 forceCancel) — exactly
+6. **Claimed resolution race** (×20, 4 complete + 4 forceCancel) — exactly
    one winner to COMPLETED (completedAt set, recovery null) or
    CANCELLED_UNCERTAIN (completedAt null, recovery fields = winner); never
    COMPLETED+recovery, never version > 2.
-6. **Concurrent lazy expiry** (×20, 8 observers at exactly `expiresAt`) —
+7. **Concurrent lazy expiry** (×20, 8 observers at exactly `expiresAt`) —
    every observation EXPIRED@1, durable EXPIRED@1, never v2+.
-7. **Generated sweep model** (16 seeds × 24 records) — only elapsed PENDING
+8. **Generated sweep model** (16 seeds × 27 records) — only elapsed PENDING
    rows transition (each exactly once, v0 → v1 EXPIRED); live PENDING,
-   CLAIMED and terminal rows untouched; second sweep zero.
-8. **Generated stale-claim query model** (16 seeds, accumulated records) —
-   boundary-inclusive filter (`claimedAt <= claimedBefore`), claimedAt ASC
-   then approvalId ASC ordering, limit — compared against a pure collection
-   model.
+   CLAIMED and terminal rows are compared pre/post-sweep and must remain
+   value-identical; second sweep zero.
+9. **Generated stale-claim query model** (16 seeds, accumulated records) —
+   boundary-inclusive filter (`claimedAt <= claimedBefore`, incl. a record
+   claimed exactly at the boundary), claimedAt ASC then approvalId ASC
+   ordering, limit — compared against a pure collection model.
 
 ### Production changes (1, deliberate)
 
