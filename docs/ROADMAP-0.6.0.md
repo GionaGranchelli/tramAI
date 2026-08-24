@@ -1307,13 +1307,13 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.2: State-machine and property-based tests
 
-**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #277); remaining targets pending.
+**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); remaining targets pending.
 
 **Goal:** Test lifecycle logic through transitions rather than isolated examples.
 
 ### Targets
 
-- Approval lifecycle — ✅ PR #277 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 16-mutation evidence; zero production changes)
+- Approval lifecycle — ✅ PR #278 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 16-mutation evidence; zero production changes)
 - Continuation lifecycle
 - Worker lifecycle
 - Lease lifecycle
@@ -1330,7 +1330,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 4. Add concurrency tests for claims, versions, leases, duplicate decisions, and takeover.
 5. Add deterministic schedulers/clocks for timing-sensitive tests.
 
-### Deliverables (PR #277)
+### Deliverables (PR #278)
 
 - `tramai-testing/src/testFixtures/.../persistence/approval/` — `ApprovalLifecycleModel` (pure oracle + action alphabet + outcome kinds + invariants), `ApprovalLifecycleActionGenerator` (deterministic, state-aware)
 - `ApprovalStoreTck` augmented with 5 properties: generated lifecycle sequences (32 seeds × 32 actions, whole-record equality after every action, seed/step/prefix failure diagnostics), wrong-version decision matrix (Approve/Deny/Timeout × before/exact/after-expiry → CONFLICT + zero mutation), duplicate concurrent decisions (8 → 1 win/7 conflict), identical consumption (8 → 1 fresh + 7 replays, same durable record), competing consumers (8 → exactly one durable consumer identity)

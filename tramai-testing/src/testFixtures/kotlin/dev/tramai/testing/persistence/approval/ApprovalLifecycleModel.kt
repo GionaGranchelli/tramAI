@@ -151,11 +151,11 @@ internal data class ApprovalLifecycleModel(
 
     private fun applyConsumeWrongToken(worker: String, expiresAt: Instant): ApprovalLifecycleOutcome {
         if (status != ApprovalStatus.APPROVED) return notConsumable()
-        if (consumedAt != null && consumedBy != worker) return notConsumable()
-        // The token is checked before the expiry window on the wrong-token
-        // path (uniform across InMemory/File/JDBC; the SPI KDoc does not pin
-        // check order): an expired-but-unconsumed approval with a wrong token
-        // is TOKEN_REJECTED, not NOT_CONSUMABLE.
+        // Token check is unconditional on an APPROVED record (checked before
+        // the actor/replay logic and before the expiry window — uniform across
+        // InMemory/File/JDBC; the SPI KDoc does not pin check order): a wrong
+        // token is TOKEN_REJECTED even for a consumed-by-other record and even
+        // when expired.
         return ApprovalLifecycleOutcome.Failure(ApprovalLifecycleFailureKind.TOKEN_REJECTED)
     }
 
@@ -282,6 +282,8 @@ internal sealed interface ApprovalLifecycleAction {
 
     data object TimeoutCurrentVersion : ApprovalLifecycleAction
     data object TimeoutWrongVersion : ApprovalLifecycleAction
+    // NOTE: TimeoutWrongVersion is never emitted by the generator — it is
+    // exercised only by the wrong-version decision matrix in ApprovalStoreTck.
 
     data class ConsumeValid(val worker: String) : ApprovalLifecycleAction
     data class ConsumeWrongVersion(val worker: String) : ApprovalLifecycleAction

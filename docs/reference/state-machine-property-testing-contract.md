@@ -9,7 +9,7 @@ components of TramAI.
 
 | Target | Status |
 |---|---|
-| Approval lifecycle | ✅ #277 |
+| Approval lifecycle | ✅ #278 |
 | Continuation lifecycle | ⏳ |
 | Worker lifecycle | ⏳ |
 | Lease lifecycle | ⏳ |
@@ -71,7 +71,7 @@ already a useful minimal reproduction.
 
 ---
 
-## Approval lifecycle — #277 (Epic 8.2a)
+## Approval lifecycle — #278 (Epic 8.2a)
 
 `ApprovalStoreTck` (tramai-testing testFixtures) gained **5 model-based
 properties** on top of its 37 example-based cases — 42 shared cases × 3
