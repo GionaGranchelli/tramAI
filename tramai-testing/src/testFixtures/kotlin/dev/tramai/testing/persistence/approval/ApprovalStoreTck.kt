@@ -1,5 +1,7 @@
 package dev.tramai.testing.persistence.approval
 
+import dev.tramai.core.approval.ApprovalConsumptionReceipt
+import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
@@ -516,5 +518,338 @@ abstract class ApprovalStoreTck {
             assertThat(receipts[0].request.version).isEqualTo(2L)
             assertThat(store.get(id)?.version).isEqualTo(2L)
         }
+    }
+
+    // ── Epic 8.2a: model-based lifecycle properties ────────────────
+    //
+    // The four properties below replace "specific scenario → expected
+    // result" with "model state → generated action → predicted transition →
+    // execute real store → compare → assert all invariants → repeat". The
+    // oracle is ApprovalLifecycleModel — a PURE, independent encoding of the
+    // documented lifecycle, deliberately not derived from the production
+    // stores or their helpers.
+
+    @Test
+    fun `generated approval lifecycle sequences match the independent model after every action`() = runBlocking<Unit> {
+        for (seed in 0L until ApprovalLifecycleActionGenerator.SEED_COUNT) {
+            clock.set(t0)
+            val id = "state-machine-$seed"
+            val initial = ApprovalStoreFixtures.pending(id, t0, expiry)
+            store.create(initial)
+            var model = ApprovalLifecycleModel.from(initial, t0)
+            val actions = ApprovalLifecycleActionGenerator.generate(seed, initialNow = t0, expiresAt = expiry)
+
+            actions.forEachIndexed { step, action ->
+                clock.set(model.now)
+                val before = store.get(id)!!
+                val expected = model.apply(action, expiry)
+                val actual = executeLifecycleAction(action, model, store, id)
+
+                assertLifecycleOutcome(expected, actual, seed, step, action, actions, model)
+
+                model = when (expected) {
+                    is ApprovalLifecycleOutcome.Success -> expected.next
+                    is ApprovalLifecycleOutcome.Failure -> model
+                }
+                clock.set(model.now)
+
+                val modelViolations = model.invariants()
+                assertThat(modelViolations).withFailMessage {
+                    "seed=$seed step=$step action=${action.describe()}: model invariants violated: $modelViolations"
+                }.isEmpty()
+
+                val expectedRecord = model.toRequest(initial)
+                val persisted = store.get(id)!!
+                assertThat(persisted).withFailMessage {
+                    lifecycleFailureMessage(seed, step, action, actions, model, expected, actual)
+                }.isEqualTo(expectedRecord)
+
+                if (expected is ApprovalLifecycleOutcome.Failure) {
+                    assertThat(persisted).withFailMessage {
+                        "seed=$seed step=$step action=${action.describe()}: rejected action must not mutate the durable record"
+                    }.isEqualTo(before)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `wrong-version decisions always conflict without changing durable state`() = runBlocking<Unit> {
+        // Pins optimistic versioning on DECISION transitions, including
+        // failure precedence: version is checked before the expiry window,
+        // so a stale-version decision at/after expiry is a CONFLICT, not an
+        // IllegalApprovalTransition. Same model machinery as the generated
+        // property — nothing duplicated by hand.
+        val transitions = listOf(
+            ApprovalLifecycleAction.ApproveWrongVersion("approver"),
+            ApprovalLifecycleAction.DenyWrongVersion("denier"),
+            ApprovalLifecycleAction.TimeoutWrongVersion,
+        )
+        val times = listOf(t0, expiry, expiry.plusSeconds(1))
+        times.forEachIndexed { timeIndex, now ->
+            transitions.forEachIndexed { transitionIndex, action ->
+                val id = "wrong-version-decision-$timeIndex-$transitionIndex"
+                clock.set(t0)
+                val initial = ApprovalStoreFixtures.pending(id, t0, expiry)
+                store.create(initial)
+                val model = ApprovalLifecycleModel.from(initial, t0).copy(now = now)
+                clock.set(now)
+                val before = store.get(id)!!
+
+                val expected = model.apply(action, expiry)
+                val actual = executeLifecycleAction(action, model, store, id)
+
+                assertLifecycleOutcome(expected, actual, 0L, 0, action, listOf(action), model)
+                assertThat(store.get(id)).withFailMessage {
+                    "wrong-version $action at $now must not mutate the durable record"
+                }.isEqualTo(before)
+            }
+        }
+    }
+
+    @Test
+    fun `duplicate concurrent decisions - exactly one winner and seven conflicts`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "decision-race-$iteration"
+            val request = ApprovalStoreFixtures.pending(id, t0, expiry)
+            store.create(request)
+
+            val contenders = Array<suspend () -> Result<ApprovalRequest>>(8) { index ->
+                val approve = index % 2 == 0
+                {
+                    runCatching {
+                        if (approve) {
+                            store.transition(id, 0L, ApprovalTransition.Approve("approver-$index"))
+                        } else {
+                            store.transition(id, 0L, ApprovalTransition.Deny("denier-$index"))
+                        }
+                    }
+                }
+            }
+            val outcomes = runInParallel(*contenders)
+
+            assertThat(outcomes.count { it.isSuccess })
+                .withFailMessage("iteration $iteration: exactly one decision must win")
+                .isEqualTo(1)
+            assertThat(outcomes.count { it.exceptionOrNull() is ApprovalStoreConflictException })
+                .withFailMessage("iteration $iteration: the seven losers must all conflict")
+                .isEqualTo(7)
+
+            val winner = outcomes.indexOfFirst { it.isSuccess }
+            val persisted = store.get(id)!!
+            assertThat(persisted.version).isEqualTo(1L)
+            assertThat(persisted.status)
+                .isEqualTo(if (winner % 2 == 0) ApprovalStatus.APPROVED else ApprovalStatus.DENIED)
+            assertThat(persisted.decidedBy)
+                .isEqualTo(if (winner % 2 == 0) "approver-$winner" else "denier-$winner")
+        }
+    }
+
+    @Test
+    fun `eight identical consumers - one fresh receipt and seven exact replays of the same durable record`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "identical-consume-$iteration"
+            approveAndConsumeSetup(id)
+
+            val contenders = Array<suspend () -> ApprovalConsumptionReceipt>(8) {
+                { store.consumeApprovedOrReplay(id, 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-a") }
+            }
+            val receipts = runInParallel(*contenders)
+
+            assertThat(receipts.count { !it.replayed })
+                .withFailMessage("iteration $iteration: exactly one fresh receipt expected")
+                .isEqualTo(1)
+            assertThat(receipts.count { it.replayed })
+                .withFailMessage("iteration $iteration: exactly seven exact replays expected")
+                .isEqualTo(7)
+
+            val durable = store.get(id)!!
+            assertThat(durable.version).isEqualTo(2L)
+            assertThat(durable.consumedBy).isEqualTo("worker-a")
+            receipts.forEach { receipt ->
+                assertThat(receipt.request).isEqualTo(durable)
+            }
+        }
+    }
+
+    @Test
+    fun `eight competing consumers - exactly one durable consumer identity`() = runBlocking<Unit> {
+        repeat(20) { iteration ->
+            val id = "competing-consume-$iteration"
+            approveAndConsumeSetup(id)
+
+            val contenders = Array<suspend () -> Result<ApprovalConsumptionReceipt>>(8) { index ->
+                { runCatching { store.consumeApprovedOrReplay(id, 1L, ApprovalStoreFixtures.validTokenDigest(), "worker-$index") } }
+            }
+            val outcomes = runInParallel(*contenders)
+
+            val freshWinners = outcomes.filter { it.isSuccess && !it.getOrThrow().replayed }
+            assertThat(freshWinners.size)
+                .withFailMessage("iteration $iteration: exactly one fresh consumption winner expected")
+                .isEqualTo(1)
+            // No loser may ever obtain a successful receipt: replay requires
+            // the durable consumedBy to equal the caller, and the winner is a
+            // different actor than every loser.
+            assertThat(outcomes.filter { it.isSuccess && it.getOrThrow().replayed }).isEmpty()
+
+            val durable = store.get(id)!!
+            assertThat(durable.version).isEqualTo(2L)
+            val winnerIndex = outcomes.indexOfFirst { it.isSuccess && it.getOrThrow().replayed == false }
+            assertThat(durable.consumedBy).isEqualTo("worker-$winnerIndex")
+
+            // Losers fail with one of the typed non-success outcomes; which
+            // one depends on the store's check precedence after the winner
+            // committed — only the absence of a second success is pinned.
+            val loserFailures = outcomes.filter { it.isFailure }.map { it.exceptionOrNull() }
+            assertThat(loserFailures.size).isEqualTo(7)
+            assertThat(loserFailures.map { it?.javaClass }).allMatch { failureClass ->
+                failureClass == ApprovalStoreConflictException::class.java ||
+                    failureClass == ApprovalStoreNotConsumableException::class.java ||
+                    failureClass == ApprovalStoreTokenRejectedException::class.java
+            }
+        }
+    }
+
+    // ── Epic 8.2a helpers ───────────────────────────────────────────
+
+    private sealed interface LifecycleExecutionResult {
+        data class Success(
+            val replayed: Boolean,
+        ) : LifecycleExecutionResult
+
+        data class Failure(
+            val exceptionClass: Class<out Exception>,
+        ) : LifecycleExecutionResult
+
+        fun describe(): String = when (this) {
+            is Success -> "Success(replayed=$replayed)"
+            is Failure -> "Failure(${exceptionClass.simpleName})"
+        }
+    }
+
+    private suspend fun executeLifecycleAction(
+        action: ApprovalLifecycleAction,
+        model: ApprovalLifecycleModel,
+        store: ApprovalStore,
+        id: String,
+    ): LifecycleExecutionResult {
+        if (action.isAdvance) return LifecycleExecutionResult.Success(replayed = false)
+
+        val expectedVersion = when (action) {
+            is ApprovalLifecycleAction.ApproveCurrentVersion,
+            is ApprovalLifecycleAction.DenyCurrentVersion,
+            ApprovalLifecycleAction.TimeoutCurrentVersion,
+            -> model.version
+            is ApprovalLifecycleAction.ApproveWrongVersion,
+            is ApprovalLifecycleAction.DenyWrongVersion,
+            ApprovalLifecycleAction.TimeoutWrongVersion,
+            is ApprovalLifecycleAction.ConsumeWrongVersion,
+            -> model.version + 1
+            is ApprovalLifecycleAction.ConsumeValid,
+            is ApprovalLifecycleAction.ConsumeWrongToken,
+            -> if (model.consumedAt == null) model.version else model.version - 1
+            else -> model.version
+        }
+
+        return when (action) {
+            is ApprovalLifecycleAction.ApproveCurrentVersion -> runCatching {
+                store.transition(id, expectedVersion, ApprovalTransition.Approve(action.actor, action.comment))
+            }.toLifecycleResult()
+            is ApprovalLifecycleAction.ApproveWrongVersion -> runCatching {
+                store.transition(id, expectedVersion, ApprovalTransition.Approve(action.actor, null))
+            }.toLifecycleResult()
+            is ApprovalLifecycleAction.DenyCurrentVersion -> runCatching {
+                store.transition(id, expectedVersion, ApprovalTransition.Deny(action.actor, action.comment))
+            }.toLifecycleResult()
+            is ApprovalLifecycleAction.DenyWrongVersion -> runCatching {
+                store.transition(id, expectedVersion, ApprovalTransition.Deny(action.actor, null))
+            }.toLifecycleResult()
+            ApprovalLifecycleAction.TimeoutCurrentVersion,
+            ApprovalLifecycleAction.TimeoutWrongVersion,
+            -> runCatching {
+                store.transition(id, expectedVersion, ApprovalTransition.Timeout)
+            }.toLifecycleResult()
+            is ApprovalLifecycleAction.ConsumeValid -> runCatching {
+                store.consumeApprovedOrReplay(id, expectedVersion, ApprovalStoreFixtures.validTokenDigest(), action.worker)
+            }.let { result ->
+                result.fold(
+                    onSuccess = { LifecycleExecutionResult.Success(replayed = it.replayed) },
+                    onFailure = { LifecycleExecutionResult.Failure(it::class.java as Class<out Exception>) },
+                )
+            }
+            is ApprovalLifecycleAction.ConsumeWrongVersion -> runCatching {
+                store.consumeApprovedOrReplay(id, expectedVersion, ApprovalStoreFixtures.validTokenDigest(), action.worker)
+            }.let { result ->
+                result.fold(
+                    onSuccess = { LifecycleExecutionResult.Success(replayed = it.replayed) },
+                    onFailure = { LifecycleExecutionResult.Failure(it::class.java as Class<out Exception>) },
+                )
+            }
+            is ApprovalLifecycleAction.ConsumeWrongToken -> runCatching {
+                store.consumeApprovedOrReplay(id, expectedVersion, ApprovalStoreFixtures.wrongTokenDigest(), action.worker)
+            }.let { result ->
+                result.fold(
+                    onSuccess = { LifecycleExecutionResult.Success(replayed = it.replayed) },
+                    onFailure = { LifecycleExecutionResult.Failure(it::class.java as Class<out Exception>) },
+                )
+            }
+            else -> LifecycleExecutionResult.Success(replayed = false) // advances handled above
+        }
+    }
+
+    private fun Result<*>.toLifecycleResult(): LifecycleExecutionResult = fold(
+        onSuccess = { LifecycleExecutionResult.Success(replayed = false) },
+        onFailure = { LifecycleExecutionResult.Failure(it::class.java as Class<out Exception>) },
+    )
+
+    private fun assertLifecycleOutcome(
+        expected: ApprovalLifecycleOutcome,
+        actual: LifecycleExecutionResult,
+        seed: Long,
+        step: Int,
+        action: ApprovalLifecycleAction,
+        actions: List<ApprovalLifecycleAction>,
+        model: ApprovalLifecycleModel,
+    ) {
+        when (expected) {
+            is ApprovalLifecycleOutcome.Success -> {
+                assertThat(actual).withFailMessage {
+                    lifecycleFailureMessage(seed, step, action, actions, model, expected, actual)
+                }.isInstanceOf(LifecycleExecutionResult.Success::class.java)
+                val success = actual as LifecycleExecutionResult.Success
+                assertThat(success.replayed).withFailMessage {
+                    lifecycleFailureMessage(seed, step, action, actions, model, expected, actual)
+                }.isEqualTo(expected.replayed)
+            }
+            is ApprovalLifecycleOutcome.Failure -> {
+                assertThat(actual).withFailMessage {
+                    lifecycleFailureMessage(seed, step, action, actions, model, expected, actual)
+                }.isInstanceOf(LifecycleExecutionResult.Failure::class.java)
+                val failure = actual as LifecycleExecutionResult.Failure
+                assertThat(failure.exceptionClass).withFailMessage {
+                    lifecycleFailureMessage(seed, step, action, actions, model, expected, actual)
+                }.isEqualTo(expected.kind.exceptionClass())
+            }
+        }
+    }
+
+    private fun lifecycleFailureMessage(
+        seed: Long,
+        step: Int,
+        action: ApprovalLifecycleAction,
+        actions: List<ApprovalLifecycleAction>,
+        model: ApprovalLifecycleModel,
+        expected: ApprovalLifecycleOutcome,
+        actual: LifecycleExecutionResult,
+    ): String = buildString {
+        appendLine("Approval lifecycle property failed")
+        appendLine("seed=$seed")
+        appendLine("step=$step")
+        appendLine("action=${action.describe()}")
+        appendLine("prefix:")
+        actions.take(step).forEachIndexed { index, prior -> appendLine("  $index ${prior.describe()}") }
+        appendLine("modelBefore=${model.describe()}")
+        appendLine("expected=$expected")
+        appendLine("actual=${actual.describe()}")
     }
 }
