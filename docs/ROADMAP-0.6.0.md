@@ -1307,14 +1307,14 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.2: State-machine and property-based tests
 
-**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); remaining targets pending.
+**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); continuation lifecycle done (PR #279); remaining targets pending.
 
 **Goal:** Test lifecycle logic through transitions rather than isolated examples.
 
 ### Targets
 
 - Approval lifecycle — ✅ PR #278 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 18-mutation evidence; zero production changes)
-- Continuation lifecycle
+- Continuation lifecycle — ✅ PR #279 (10 model-based properties × 3 implementations added to `ApprovalContinuationStoreTck`: 60 shared cases total; pure `ApprovalContinuationLifecycleModel` oracle with post-failure state — failed ops can legitimately normalize to EXPIRED, with rewind-clock properties proving the failed claim/cancel itself persisted the EXPIRED transition before reporting; 32-seed × 32-action corpus with forced archetypes (claim→complete/uncertain, boundary, late claim/cancel, lazy get) + 25-category semantic coverage guard incl. exactly-once argument release; 10 properties: generated sequences, late claim/cancel persistence, wrong-version matrix, 8-way claim race, mixed claim/cancel race, claimed resolution race, concurrent lazy expiry, generated sweep model, generated stale-claim query model; 22-mutation evidence; 1 deliberate production fix — File `findStaleClaimed` truncated to limit before sorting)
 - Worker lifecycle
 - Lease lifecycle
 - Outbox lifecycle
