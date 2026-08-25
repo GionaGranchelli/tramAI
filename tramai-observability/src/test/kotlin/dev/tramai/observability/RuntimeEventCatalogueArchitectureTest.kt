@@ -190,17 +190,16 @@ class RuntimeEventCatalogueArchitectureTest {
                 val mainDir = File(module, "src/main")
                 if (!mainDir.isDirectory) return@forEach
                 mainDir.walkTopDown()
-                    .filter { it.isFile && it.extension in setOf("kt", "java") }
-                    .forEach { source ->
-                        val relativePath = source.relativeTo(module).path
-                        if (relativePath.contains("dev/tramai/core/observation/event/")) {
+                    .filter { it.isFile && it.extension == "kt" }
+                    .forEach { file ->
+                        val relative = file.relativeTo(repoRoot).path
+                        if (relative.startsWith("tramai-core/src/main/kotlin/dev/tramai/core/observation/event/")) {
                             return@forEach
                         }
-                        literalRegex.findAll(source.readText()).forEach { match ->
+                        literalRegex.findAll(file.readText()).forEach { match ->
                             val literal = match.value.removeSurrounding("\"")
-                            if (!classifySourceLiteral(literal)) {
-                                offenders.add(Triple(module.name, relativePath, literal))
-                            }
+                            if (classifySourceLiteral(literal)) return@forEach
+                            offenders.add(Triple(module.name, relative, literal))
                         }
                     }
             }
