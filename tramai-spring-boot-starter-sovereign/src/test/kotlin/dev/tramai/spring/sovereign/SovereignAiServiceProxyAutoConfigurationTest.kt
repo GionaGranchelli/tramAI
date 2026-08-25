@@ -20,6 +20,12 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 
 class SovereignAiServiceProxyAutoConfigurationTest {
 
+    private val standardProfileAutoConfiguration: Class<*> =
+        Class.forName("dev.tramai.spring.StandardTramaiProfileAutoConfiguration")
+
+    private val standardAiServiceProxyAutoConfiguration: Class<*> =
+        Class.forName("dev.tramai.spring.AiServiceProxyAutoConfiguration")
+
     private val sovereignProperties = arrayOf(
         "tramai.profile=sovereign",
         "tramai.sovereign.allowed-models[0]=local-model",
@@ -35,17 +41,23 @@ class SovereignAiServiceProxyAutoConfigurationTest {
                 SovereignAiServiceProxyAutoConfiguration::class.java,
             ),
         )
-        .withInitializer { context ->
-            AutoConfigurationPackages.register(
-                context.beanFactory as BeanDefinitionRegistry,
-                "dev.tramai.spring.sovereign.aiservicefixture",
-            )
-        }
+        .withInitializer(::registerAiServiceFixturePackage)
+
+    private val mixedProfileRunner = ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(
+                standardProfileAutoConfiguration,
+                standardAiServiceProxyAutoConfiguration,
+                SovereignTramaiProfileAutoConfiguration::class.java,
+                SovereignAiServiceProxyAutoConfiguration::class.java,
+            ),
+        )
+        .withInitializer(::registerAiServiceFixturePackage)
 
     @Test
     fun `scanned AiService is created and executed by the sovereign runtime`() {
         runner
-            .withBean(ModelProvider::class.java, { SovereignAiServiceProvider() })
+            .withBean(ModelProvider::class.java, { DeterministicAiServiceProvider("SOVEREIGN_OK") })
             .withPropertyValues(*sovereignProperties)
             .run { context ->
                 assertThat(context).hasSingleBean(SovereignTramai::class.java)
@@ -62,14 +74,25 @@ class SovereignAiServiceProxyAutoConfigurationTest {
     }
 
     @Test
-    fun `standard profile does not activate the sovereign AiService adapter`() {
-        runner
-            .withPropertyValues("tramai.profile=standard")
+    fun `standard profile keeps standard AiService wiring active on a mixed classpath`() {
+        mixedProfileRunner
+            .withBean(ModelProvider::class.java, { DeterministicAiServiceProvider("STANDARD_OK") })
+            .withPropertyValues(
+                "tramai.profile=standard",
+                "tramai.models.local-model=local-provider",
+                "tramai.default-provider=local-provider",
+            )
             .run { context ->
-                assertThat(context).doesNotHaveBean("tramaiAiServiceCreator")
-                assertThat(context).doesNotHaveBean(AiServiceBeanDefinitionRegistrar::class.java)
+                assertThat(context).hasSingleBean(Tramai::class.java)
                 assertThat(context).doesNotHaveBean(SovereignTramai::class.java)
-                assertThat(context).doesNotHaveBean(Tramai::class.java)
+                assertThat(context).doesNotHaveBean(SovereignTramaiRuntime::class.java)
+                assertThat(context).hasBean("tramaiAiServiceCreator")
+                assertThat(context).hasSingleBean(AiServiceBeanDefinitionRegistrar::class.java)
+
+                val service = context.getBean(SovereignScannedAiService::class.java)
+                val result = runBlocking { service.answer("hello") }
+
+                assertThat(result).isEqualTo("STANDARD_OK")
             }
     }
 
@@ -89,10 +112,19 @@ class SovereignAiServiceProxyAutoConfigurationTest {
             }
     }
 
-    private class SovereignAiServiceProvider : ModelProvider {
+    private fun registerAiServiceFixturePackage(context: org.springframework.context.ConfigurableApplicationContext) {
+        AutoConfigurationPackages.register(
+            context.beanFactory as BeanDefinitionRegistry,
+            "dev.tramai.spring.sovereign.aiservicefixture",
+        )
+    }
+
+    private class DeterministicAiServiceProvider(
+        private val response: String,
+    ) : ModelProvider {
         override fun providerId(): String = "local-provider"
 
         override suspend fun complete(request: ModelRequest): ModelResponse =
-            ModelResponse(content = "SOVEREIGN_OK")
+            ModelResponse(content = response)
     }
 }
