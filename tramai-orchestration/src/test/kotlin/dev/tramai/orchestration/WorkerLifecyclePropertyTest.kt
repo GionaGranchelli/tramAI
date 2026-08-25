@@ -1020,6 +1020,156 @@ class WorkerLifecyclePropertyTest {
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
     }
 
+    // ── Property 17: stale startup reset cannot clobber shutdown (M29) ────
+
+    @Test
+    fun `stale startup reset cannot clobber an in-flight shutdown`() = runBlocking<Unit> {
+        val harness = WorkerLifecyclePropertyHarness(workerId = "stale-startup-reset")
+        val claimedEntered = CompletableDeferred<Unit>()
+        val claimedGate = CompletableDeferred<Unit>()
+        val unregisterEntered = CompletableDeferred<Unit>()
+        val unregisterGate = CompletableDeferred<Unit>()
+
+        harness.onLifecycleStateClaimedForTest = {
+            claimedEntered.complete(Unit)
+            claimedGate.await()
+        }
+        harness.hooks.onUnregister = {
+            unregisterEntered.complete(Unit)
+            unregisterGate.await()
+        }
+
+        // B owns STARTING but pauses before verification + shutdown-state
+        // preparation. Its shutdown claims SHUTTING_DOWN and reaches the
+        // unregister gate before B resumes.
+        val starterB = launch { harness.worker.start() }
+        withTimeout(10_000) { claimedEntered.await() }
+        val shutdownB = launch { harness.worker.shutdown() }
+        withTimeout(10_000) { unregisterEntered.await() }
+
+        try {
+            claimedGate.complete(Unit)
+            withTimeout(10_000) { starterB.join() }
+
+            assertThat(harness.worker.isShuttingDownGracefullyForTest())
+                .withFailMessage("a stale startup must not reset graceful-shutdown state owned by SHUTTING_DOWN")
+                .isTrue()
+        } finally {
+            claimedGate.complete(Unit)
+            unregisterGate.complete(Unit)
+        }
+
+        withTimeout(10_000) { shutdownB.join() }
+        assertThat(harness.observer.shutdownComplete).hasSize(1)
+        assertThat(harness.observer.workerStopped).hasSize(1)
+    }
+
+    // ── Property 18: observer-reentrant shutdown cleans activation (M30) ─
+
+    @Test
+    fun `observer reentrant shutdown during activation leaves a clean stopped worker`() = runBlocking<Unit> {
+        val harness = WorkerLifecyclePropertyHarness(workerId = "reentrant-activation-shutdown")
+        harness.observer.onWorkerStartedHook = {
+            runBlocking {
+                harness.worker.shutdown()
+            }
+        }
+
+        harness.worker.start()
+
+        assertThat(harness.worker.currentLifecycleStateForTest())
+            .withFailMessage("reentrant shutdown must leave the lifecycle STOPPED")
+            .isEqualTo(WorkerLifecycleState.Stopped)
+        assertThat(harness.worker.isAcceptingWorkForTest())
+            .withFailMessage("activation must not re-enable work after reentrant shutdown")
+            .isFalse()
+        assertThat(harness.worker.hasShutdownHookForTest())
+            .withFailMessage("reentrant shutdown must remove the activation-owned JVM hook")
+            .isFalse()
+        assertThat(harness.isRegistered())
+            .withFailMessage("reentrant shutdown must remove the registry row")
+            .isFalse()
+        assertThat(harness.heartbeats.get())
+            .withFailMessage("lazy heartbeat must remain unstarted after reentrant shutdown")
+            .isZero()
+    }
+
+    // ── Property 19: SHUTTING_DOWN cleanup reserves ownership (M31) ───
+
+    @Test
+    fun `old-generation cleanup under SHUTTING_DOWN cannot delete a newer row`() = runBlocking<Unit> {
+        val harness = WorkerLifecyclePropertyHarness(workerId = "shutting-down-cleanup-race")
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        val stoppedEntered = CompletableDeferred<Unit>()
+        val stoppedGate = java.util.concurrent.CountDownLatch(1)
+        val cleanupEntered = CompletableDeferred<Unit>()
+        val cleanupGate = CompletableDeferred<Unit>()
+
+        // B parks in registration while its shutdown completes the
+        // coordinator-owned unregister, then pauses synchronously at the final
+        // observer callback before the controller can release SHUTTING_DOWN.
+        harness.hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        harness.observer.onWorkerStoppedHook = {
+            stoppedEntered.complete(Unit)
+            stoppedGate.await()
+        }
+        val starterB = launch(Dispatchers.Default) { harness.worker.start() }
+        withTimeout(10_000) { regEntered.await() }
+        val shutdownB = launch(Dispatchers.Default) { harness.worker.shutdown() }
+        withTimeout(10_000) { stoppedEntered.await() }
+
+        // Only B's late reconciliation sees this hook; the coordinator's own
+        // unregister has already completed before onWorkerStopped.
+        harness.hooks.onUnregister = {
+            cleanupEntered.complete(Unit)
+            cleanupGate.await()
+        }
+
+        try {
+            regGate.complete(Unit)
+            withTimeout(10_000) { cleanupEntered.await() }
+
+            // Let shutdown reach its release CAS while cleanup remains parked.
+            // The cleanup reservation must own RECONCILING, so the shutdown CAS
+            // fails without opening STOPPED to a new generation.
+            stoppedGate.countDown()
+            withTimeout(10_000) { shutdownB.join() }
+            assertThat(harness.worker.currentLifecycleStateForTest())
+                .withFailMessage("same-generation cleanup must reserve RECONCILING across unregister")
+                .isInstanceOf(WorkerLifecycleState.Reconciling::class.java)
+
+            val registrationsBeforeContender = harness.registrations.get()
+            harness.worker.start()
+            assertThat(harness.registrations.get())
+                .withFailMessage("a new generation must not register while SHUTTING_DOWN cleanup holds RECONCILING")
+                .isEqualTo(registrationsBeforeContender)
+        } finally {
+            regGate.complete(Unit)
+            stoppedGate.countDown()
+            cleanupGate.complete(Unit)
+        }
+
+        withTimeout(10_000) { starterB.join() }
+        assertThat(harness.worker.currentLifecycleStateForTest()).isEqualTo(WorkerLifecycleState.Stopped)
+
+        // C can claim only after B's cleanup releases its reservation. Its row
+        // must remain present; no old unregister is still able to delete it.
+        harness.worker.start()
+        assertThat(harness.observer.workerStarted).hasSize(1)
+        assertThat(harness.isRegistered())
+            .withFailMessage("old-generation cleanup must not delete generation C's registry row")
+            .isTrue()
+        assertThat(harness.registrations.get()).isEqualTo(2)
+
+        harness.worker.shutdown()
+        assertThat(harness.observer.shutdownComplete).hasSize(2)
+        assertThat(harness.isRegistered()).isFalse()
+    }
+
     @Test
     fun `generator corpus is deterministic and reaches every semantic category`() = runBlocking<Unit> {
         // Determinism: same seed -> identical action sequence.

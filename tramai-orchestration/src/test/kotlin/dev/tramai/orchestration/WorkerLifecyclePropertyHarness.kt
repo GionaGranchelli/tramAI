@@ -48,6 +48,12 @@ internal class WorkerLifecyclePropertyHarness(
         observability = observer,
     )
 
+    internal var onLifecycleStateClaimedForTest: (suspend () -> Unit)?
+        get() = worker.onLifecycleStateClaimedForTest
+        set(value) {
+            worker.onLifecycleStateClaimedForTest = value
+        }
+
     /** True when the registry currently holds an active row for the worker. */
     suspend fun isRegistered(): Boolean = leaseStore.listActiveWorkers().any { it.workerId == workerId }
 
@@ -143,6 +149,7 @@ internal class WorkerLifecyclePropertyHarness(
         val shutdownComplete = java.util.concurrent.CopyOnWriteArrayList<String>()
         val workerStopped = java.util.concurrent.CopyOnWriteArrayList<String>()
         val heartbeats = java.util.concurrent.CopyOnWriteArrayList<String>()
+        var onWorkerStartedHook: (() -> Unit)? = null
         var onWorkerStoppedHook: (() -> Unit)? = null
 
         /** Ordered lifecycle-event stream: STARTED / SHUTDOWN_STARTED /
@@ -153,6 +160,7 @@ internal class WorkerLifecyclePropertyHarness(
         override fun onWorkerStarted(workerId: String) {
             workerStarted += workerId
             order += "STARTED"
+            onWorkerStartedHook?.invoke()
         }
 
         override fun onShutdownStarted(workerId: String) {

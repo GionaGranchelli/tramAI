@@ -486,6 +486,28 @@ registry-retained-after-crash, generation monotonic.
     the unregister hook. A new start races while the reservation is held:
     it MUST NOT register yet. The old cleanup finishes → STOPPED; the new
     start retries → registers and remains registered.
+17. **Stale startup reset cannot clobber an in-flight shutdown** (review
+    round 4, M29) — B claims STARTING and pauses at the ownership seam; B's
+    shutdown claims SHUTTING_DOWN and begins draining (held at the
+    unregister hook). B resumes: the verification+reset is ONE atomic
+    operation under the activation lock, so the failed verify must prevent
+    `prepareLifecycleStart()` — the shutdown's graceful state
+    (shuttingDownGracefully/shutdownRoot) stays owned by the shutdown.
+18. **Observer reentrant shutdown during activation leaves a clean
+    stopped worker** (review round 4, M30) — an observer whose
+    `onWorkerStarted` synchronously calls `worker.shutdown()` (same thread,
+    reentrant monitor) must leave a fully stopped worker: lifecycle STOPPED,
+    no JVM hook, acceptingWork false, registry absent, lazy heartbeat/poll
+    never started. The reentrant callback is the FINAL activation step, so
+    every shutdown-owned resource already exists and the background jobs
+    start only if still RUNNING.
+19. **Old-generation cleanup under SHUTTING_DOWN cannot delete a newer
+    row** (review round 4, M31) — B's cleanup begins while state is
+    SHUTTING_DOWN(B) (still ours) and pauses the suspendable unregister;
+    the shutdown owner releases SHUTTING_DOWN→STOPPED; a new C claims and
+    tries to register. The reservation must span the suspendable unregister
+    from ANY still-ours state, so C's claim fails while the cleanup holds
+    RECONCILING — never STOPPED — and C's row survives B's unregister.
 
 ### Production changes (2, deliberate)
 
@@ -610,7 +632,42 @@ non-suspending lifecycle handoff and reserves STOPPED cleanup:
   lifecycle permanently in RECONCILING (found by the round-3 review
   subagent as the cause of the fresh-start-after-abort regression).
 
-### Mutation evidence (28 mutations, each restored; 0 weak)
+### Round-4 production changes (review round 4, M29/M30/M31)
+
+The round-4 review found three more ownership escapes — every one in the
+"the protected operation can call user code or suspend" family, which the
+Socratic rule now states as: *never call user code or cross a suspension
+point based solely on a prior ownership observation unless the protocol
+explicitly reserves that ownership for the full side effect.*
+
+- **Atomic verification + shutdown-state reset (M29).** The STARTING
+  re-check and `prepareLifecycleStart()` were two separate operations
+  outside the lock: a shutdown could claim STARTING→SHUTTING_DOWN between
+  them, and the stale starter's reset would clear the shutdown's
+  graceful state. Now the verify and the reset are ONE
+  `synchronized(activationLock)` block — a failed verify never reaches
+  the reset. Property 17 discriminates.
+- **Reentrancy-safe activation epilogue (M30).** `synchronized` is a
+  reentrant monitor, and the observer runs synchronously — so an
+  `onWorkerStarted` that calls `worker.shutdown()` re-enters the lock,
+  completes the shutdown, and then the old epilogue resumed installing a
+  zombie JVM hook / re-enabling acceptingWork / launching jobs on a
+  STOPPED worker. The epilogue now creates and hands off EVERY
+  shutdown-owned resource (hook, scope, acceptingWork, lazy heartbeat +
+  poll jobs) BEFORE the final `onWorkerStarted` callback, and starts the
+  lazy jobs only if the lifecycle is still RUNNING afterwards. Property
+  18 proves the reentrant shutdown leaves a clean STOPPED worker.
+- **Reservation spans ANY still-ours state (M31).** The round-3
+  reservation only engaged when the cleanup observed STOPPED. A cleanup
+  that observed SHUTTING_DOWN(B) unregistered naked — if that
+  suspendable unregister outlived the shutdown's release, a new
+  generation could register and be deleted by the old unregister.
+  `reconcileRegistration` now reserves `RECONCILING` from any still-ours
+  state (Starting/ShuttingDown/Stopped), and the shutdown's release CAS
+  treats a same-generation RECONCILING as "the cleanup will release".
+  Property 19 discriminates.
+
+### Mutation evidence (31 mutations, each restored; 0 weak)
 
 Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
 same property GREEN for every mutation: start claims ownership

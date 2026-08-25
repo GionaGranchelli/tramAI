@@ -161,6 +161,20 @@ class TramaiWorker(
         lifecycle.shutdown()
     }
 
+    internal var onLifecycleStateClaimedForTest: (suspend () -> Unit)?
+        get() = lifecycle.onLifecycleStateClaimed
+        set(value) {
+            lifecycle.onLifecycleStateClaimed = value
+        }
+
+    internal fun isShuttingDownGracefullyForTest(): Boolean = lifecycle.isShuttingDownGracefullyForTest()
+
+    internal fun isAcceptingWorkForTest(): Boolean = lifecycle.isAcceptingWorkForTest()
+
+    internal fun hasShutdownHookForTest(): Boolean = lifecycle.hasShutdownHookForTest()
+
+    internal fun currentLifecycleStateForTest(): WorkerLifecycleState = lifecycle.currentLifecycleStateForTest()
+
     override fun close() {
         runBlocking {
             shutdown()

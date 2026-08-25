@@ -55,6 +55,8 @@ internal class WorkerShutdownCoordinator(
 
     fun isShuttingDownGracefully(): Boolean = shuttingDownGracefully
 
+    internal fun hasShutdownHook(): Boolean = shutdownHook != null
+
     /**
      * Resets shutdown state for a new lifecycle. Must run at the very start
      * of start(), after the ownership claim, so a concurrent shutdown during

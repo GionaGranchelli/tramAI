@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,7 +27,8 @@ import java.util.concurrent.atomic.AtomicReference
  * STARTING(g) / RUNNING(g) --shutdown claim--> SHUTTING_DOWN(g) --drain done--> STOPPED
  * RUNNING(g) --crash--> CRASHED(g)
  * CRASHED(g) --shutdown claim--> SHUTTING_DOWN(g) --drain done--> STOPPED
- * STOPPED --cleanup reservation--> RECONCILING(g) --cleanup done--> STOPPED
+ * STOPPED / STARTING(g) / SHUTTING_DOWN(g) --cleanup reservation-->
+ * RECONCILING(g) --cleanup done--> STOPPED
  * ```
  * Suspend operations (register, drain, unregister) happen OUTSIDE the
  * transition primitive; the state itself never suspends. The RUNNING commit
@@ -51,10 +53,10 @@ internal sealed interface WorkerLifecycleState {
  * lifecycle. Components receive the scope (execution supervisor) or run as
  * scope children (poller, heartbeat); none invents its own lifecycle scope.
  *
- * Startup sequence preserved verbatim: reset shutdown state → create
- * SupervisorJob + scope → record start time → register worker → emit
- * onWorkerStarted → install JVM shutdown hook → accept work → start heartbeat
- * and poll loops.
+ * Startup sequence: create SupervisorJob + scope → claim ownership → record
+ * start time → reset shutdown state → register worker → install JVM
+ * shutdown hook → accept work → hand off heartbeat and poll jobs → emit
+ * onWorkerStarted → start the jobs if the lifecycle is still RUNNING.
  */
 internal class WorkerLifecycleController(
     private val config: WorkerConfig,
@@ -80,16 +82,13 @@ internal class WorkerLifecycleController(
     private val generationCounter = AtomicLong(0)
 
     /**
-     * Serializes the non-suspending lifecycle handoff: the RUNNING commit +
-     * the entire activation epilogue (workerStarted, JVM hook, scope attach,
-     * acceptingWork, heartbeat/poll handoff) in start(), the lifecycle claim
-     * (→SHUTTING_DOWN) in shutdown(), and the crash claim (→CRASHED). No
-     * coroutine suspension ever happens while this lock is held — it guards
-     * only the transition itself, never registration/drain/unregister. This
-     * is what makes the activation epilogue atomic against a concurrent
-     * shutdown: shutdown can never observe (or bisect) a half-activated
-     * worker, because claiming RUNNING→SHUTTING_DOWN requires the same lock
-     * the epilogue holds.
+     * Serializes lifecycle preparation, the RUNNING commit + activation
+     * epilogue, the lifecycle claim (→SHUTTING_DOWN) in shutdown(), and the
+     * crash claim (→CRASHED). No controller-owned suspension happens while
+     * this lock is held — it never spans registration/drain/unregister. The
+     * final observer callback may synchronously reenter shutdown(); all
+     * shutdown-owned resources are handed off before that callback so the
+     * reentrant drain can clean them completely.
      */
     private val activationLock = Any()
 
@@ -170,11 +169,11 @@ internal class WorkerLifecycleController(
 
     /**
      * Test seam for the activation-serialization property (M27): invoked
-     * synchronously INSIDE the activation critical section, immediately before
-     * onWorkerStarted, so a test can block the start thread while it holds
-     * the activation lock. While blocked, a concurrent shutdown must NOT be
-     * able to fire shutdownStarted — proof that the epilogue cannot be
-     * bisected. Production never sets it.
+     * synchronously INSIDE the activation critical section, before resource
+     * handoff and onWorkerStarted, so a test can block the start thread while
+     * it holds the activation lock. While blocked, a concurrent shutdown must
+     * NOT fire shutdownStarted — proof that the epilogue cannot be bisected.
+     * Production never sets it.
      */
     internal var onActivationStart: (() -> Unit)? = null
 
@@ -200,20 +199,23 @@ internal class WorkerLifecycleController(
         // shutdown-state reset (M24). A shutdown arriving here wins the
         // STARTING→SHUTTING_DOWN transition; we re-check below.
         onLifecycleStateClaimed?.invoke()
-        // Re-check after the seam: a shutdown may have claimed the generation
-        // while we were suspended. Abort WITHOUT touching the shutdown-state
-        // reset — the shutdown owner owns that state now.
-        if (lifecycleState.get() !== claimed) {
+        // Verification and reset are one serialized operation: a shutdown
+        // cannot claim STARTING→SHUTTING_DOWN between the ownership check and
+        // prepareLifecycleStart(), then have this stale startup clear its
+        // graceful-shutdown state.
+        var activationLost = false
+        synchronized(activationLock) {
+            if (lifecycleState.get() !== claimed) {
+                activationLost = true
+            } else {
+                shutdownCoordinator.prepareLifecycleStart()
+            }
+        }
+        if (activationLost) {
             supervisor.cancel()
             workerScope = null
             return
         }
-        // Reset shutdown state only after winning the ownership claim: a stale
-        // contender that observed STOPPED but lost the CAS must never reset the
-        // winning generation's shutdown state. The winner resets so a shutdown
-        // during STARTING/registration is accepted, never rejected by stale CAS
-        // from a previous completed lifecycle.
-        shutdownCoordinator.prepareLifecycleStart()
         try {
             heartbeatPublisher.registerWorker()
         } catch (cancel: CancellationException) {
@@ -236,16 +238,12 @@ internal class WorkerLifecycleController(
         onRunCommitBoundary?.invoke()
 
         // Activation critical section: the STARTING verification, the RUNNING
-        // commit, and the ENTIRE activation epilogue (workerStarted, JVM hook
-        // install + handoff, scope attach, acceptingWork, heartbeat + poll
-        // launch + handoff) are linearized against shutdown()'s and crash()'s
-        // lifecycle claims by the shared activation lock. A concurrent
-        // shutdown can therefore NEVER observe — let alone bisect — a
-        // half-activated worker: claiming RUNNING→SHUTTING_DOWN requires the
-        // same lock, so it either sees STARTING (its claim wins and we abort)
-        // or RUNNING with the full epilogue already emitted. No check AFTER
-        // the commit is needed, and none exists: the lock is the linearization.
-        var activationLost = false
+        // commit, and the ENTIRE activation epilogue (JVM hook handoff, scope
+        // attach, acceptingWork, lazy heartbeat/poll handoff, workerStarted,
+        // conditional job start) are linearized against external shutdown()
+        // and crash() claims by the shared activation lock. A reentrant
+        // shutdown from workerStarted is safe because every shutdown-owned
+        // resource already exists and the lazy jobs have not started yet.
         synchronized(activationLock) {
             if (lifecycleState.get() !== claimed) {
                 // A shutdown claimed our generation while we were outside the
@@ -255,10 +253,9 @@ internal class WorkerLifecycleController(
                 activationLost = true
             } else {
                 lifecycleState.compareAndSet(claimed, WorkerLifecycleState.Running(generation, supervisor))
-                // Test seam: block synchronously inside the critical section,
-                // before workerStarted (activation-bisect property).
+                // Test seam: block synchronously inside the critical section
+                // (activation-bisect property).
                 onActivationStart?.invoke()
-                observability.onWorkerStarted(config.workerId)
                 val hook = Thread {
                     runBlocking(Dispatchers.IO) {
                         shutdown()
@@ -268,22 +265,28 @@ internal class WorkerLifecycleController(
                 shutdownCoordinator.onShutdownHook(hook)
                 executionSupervisor.attachScope(scope)
                 shutdownCoordinator.beginAcceptingWork()
-                // Order preserved verbatim from the pre-decomposition worker:
-                // heartbeat launches before poll, and each resource is handed
-                // to the shutdown owner immediately inside the critical
-                // section so a concurrent shutdown never sees a null handle
-                // for something that already exists.
-                val heartbeatJob = scope.launch {
+                val heartbeatJob = scope.launch(start = CoroutineStart.LAZY) {
                     heartbeatPublisher.heartbeatLoop(
                         startedAtMillis = { startedAt },
                         claimedCount = { executionSupervisor.activeExecutionCount() },
                     )
                 }
                 shutdownCoordinator.onHeartbeatJob(heartbeatJob)
-                val pollJob = scope.launch {
+                val pollJob = scope.launch(start = CoroutineStart.LAZY) {
                     poller.pollLoop()
                 }
                 shutdownCoordinator.onPollJob(pollJob)
+                // FINAL external callback: everything shutdown-owned already
+                // exists, so a reentrant shutdown from the observer can clean
+                // it all.
+                observability.onWorkerStarted(config.workerId)
+                // Start the background jobs only if the lifecycle is still
+                // RUNNING — a reentrant shutdown during onWorkerStarted leaves
+                // them unstarted.
+                if (lifecycleState.get() is WorkerLifecycleState.Running) {
+                    heartbeatJob.start()
+                    pollJob.start()
+                }
             }
         }
         if (activationLost) {
@@ -307,7 +310,13 @@ internal class WorkerLifecycleController(
     private suspend fun rollbackStart(claimed: WorkerLifecycleState.Starting) {
         claimed.root.cancel()
         reconcileRegistration(claimed.root, claimed.generation)
-        if (lifecycleState.compareAndSet(claimed, WorkerLifecycleState.Stopped)) {
+        val current = lifecycleState.get()
+        val stillOurs = when (current) {
+            is WorkerLifecycleState.Starting -> current.root === claimed.root && current.generation == claimed.generation
+            is WorkerLifecycleState.ShuttingDown -> current.root === claimed.root && current.generation == claimed.generation
+            else -> false
+        }
+        if (current is WorkerLifecycleState.Stopped || stillOurs) {
             workerScope = null
         }
     }
@@ -315,73 +324,44 @@ internal class WorkerLifecycleController(
     /**
      * Removes a registry row only when it cannot belong to a newer generation.
      *
-     * - We still own STARTING(g)/SHUTTING_DOWN(g): no newer generation can
-     *   register while we hold the state, so the row (if any) is ours — safe.
+     * - We still own STARTING(g)/SHUTTING_DOWN(g): atomically reserve that
+     *   ownership as RECONCILING before the suspendable unregister.
      * - State is STOPPED: the shutdown owner already released; the row is a
      *   zombie committed by our own suspended registration after the
      *   shutdown's unregister. Cleanup is NOT allowed to unregister while
      *   naked STOPPED — a newer generation could claim STOPPED→STARTING and
      *   register between our check and the (suspendable) unregister, and the
-     *   workerId-keyed registry cannot tell the rows apart. Instead we reserve
-     *   the cleanup atomically (STOPPED→RECONCILING): while the reservation is
-     *   held, a new generation's claim fails and it retries, so the unregister
-     *   can only ever touch our own zombie row.
+     *   workerId-keyed registry cannot tell the rows apart. Reserve cleanup
+     *   atomically as RECONCILING for this path too.
      * - A NEWER generation owns STARTING/RUNNING/CRASHED (or another cleanup
      *   holds RECONCILING): never touch the row.
      *
-     * Suspending cleanup runs in [NonCancellable] so caller cancellation
-     * cannot skip it.
+     * Every eligible path therefore holds RECONCILING across unregister; a
+     * newer generation cannot claim STOPPED until cleanup releases it. Cleanup
+     * runs in [NonCancellable] so caller cancellation cannot skip it.
      */
     private suspend fun reconcileRegistration(root: Job, generation: Long) {
-        val current = lifecycleState.get()
-        val ours = when (current) {
-            is WorkerLifecycleState.Starting -> current.root === root && current.generation == generation
-            is WorkerLifecycleState.ShuttingDown -> current.root === root && current.generation == generation
-            WorkerLifecycleState.Stopped -> true
-            is WorkerLifecycleState.Reconciling,
-            is WorkerLifecycleState.Running,
-            is WorkerLifecycleState.Crashed,
-            -> false
-        }
-        if (!ours) {
-            return
-        }
         withContext(NonCancellable) {
             val now = lifecycleState.get()
-            if (now is WorkerLifecycleState.Stopped) {
-                val reservation = WorkerLifecycleState.Reconciling(generation, root)
-                // Reserve the STOPPED cleanup atomically. While we hold
-                // RECONCILING, a newer generation cannot claim STOPPED→STARTING
-                // and cannot register, so our unregister can never delete its
-                // row. The reservation is released (back to STOPPED) in a
-                // finally, so even a failed unregister cannot strand the
-                // lifecycle in RECONCILING.
-                if (!lifecycleState.compareAndSet(
-                        WorkerLifecycleState.Stopped,
-                        reservation,
-                    )
-                ) {
-                    return@withContext
-                }
-                try {
-                    workerRegistryStore?.unregisterWorker(config.workerId)
-                } catch (cleanupError: Throwable) {
-                    cleanupError.rethrowIfCancellation()
-                } finally {
-                    lifecycleState.compareAndSet(
-                        reservation,
-                        WorkerLifecycleState.Stopped,
-                    )
-                }
-            } else {
-                // Still ours (STARTING or SHUTTING_DOWN with this root): no
-                // newer generation can have registered, so the unregister is
-                // safe without a reservation.
-                try {
-                    workerRegistryStore?.unregisterWorker(config.workerId)
-                } catch (cleanupError: Throwable) {
-                    cleanupError.rethrowIfCancellation()
-                }
+            val stillOurs = when (now) {
+                is WorkerLifecycleState.Starting -> now.root === root && now.generation == generation
+                is WorkerLifecycleState.ShuttingDown -> now.root === root && now.generation == generation
+                WorkerLifecycleState.Stopped -> true
+                else -> false
+            }
+            if (!stillOurs) {
+                return@withContext
+            }
+            val reservation = WorkerLifecycleState.Reconciling(generation, root)
+            if (!lifecycleState.compareAndSet(now, reservation)) {
+                return@withContext
+            }
+            try {
+                workerRegistryStore?.unregisterWorker(config.workerId)
+            } catch (cleanupError: Throwable) {
+                cleanupError.rethrowIfCancellation()
+            } finally {
+                lifecycleState.compareAndSet(reservation, WorkerLifecycleState.Stopped)
             }
         }
     }
@@ -434,8 +414,24 @@ internal class WorkerLifecycleController(
         // owner is the one who captured the generation.
         if (lifecycleState.compareAndSet(target, WorkerLifecycleState.Stopped)) {
             workerScope = null
+        } else {
+            val current = lifecycleState.get()
+            val sameGenerationCleanup = current is WorkerLifecycleState.Reconciling &&
+                current.generation == target.generation &&
+                current.root === target.root
+            if (current is WorkerLifecycleState.Stopped || sameGenerationCleanup) {
+                workerScope = null
+            }
         }
     }
+
+    internal fun isShuttingDownGracefullyForTest(): Boolean = shutdownCoordinator.isShuttingDownGracefully()
+
+    internal fun isAcceptingWorkForTest(): Boolean = shutdownCoordinator.isAcceptingWork()
+
+    internal fun hasShutdownHookForTest(): Boolean = shutdownCoordinator.hasShutdownHook()
+
+    internal fun currentLifecycleStateForTest(): WorkerLifecycleState = lifecycleState.get()
 
     fun latestFailure(workflowId: String): Throwable? = executionSupervisor.latestFailure(workflowId)
 }
