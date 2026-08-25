@@ -1,3 +1,4 @@
 dev.tramai.spring.TramaiSecretResolutionAutoConfiguration
 dev.tramai.spring.TramaiAutoConfiguration
+dev.tramai.spring.AiServiceProxyAutoConfiguration
 dev.tramai.spring.SecurityClassificationAutoConfiguration
