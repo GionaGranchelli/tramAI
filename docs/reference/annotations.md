@@ -181,7 +181,7 @@ This should explain what the tool does, not how it is implemented.
 
 #### `idempotent`
 
-Whether the tool is safe to retry after transient failure.
+Whether repeating execution with the same logical input is safe. This describes repetition safety, not whether TramAI should retry the tool after a failure.
 
 Default: `false`
 
@@ -215,17 +215,19 @@ Default: `ApprovalMode.HUMAN_REQUIRED`
 
 #### `managedNetworkEgress`
 
-Managed network-egress policy used by secure policy profiles when `permission` is set.
+Managed network-egress metadata for TramAI-managed destinations when `permission` is set.
 
 Default: `ManagedNetworkEgress.DENY`
 
+This does not sandbox arbitrary networking performed inside the annotated method. Infrastructure controls remain required for code paths that bypass TramAI-managed transports.
+
 #### `audit`
 
-Audit detail requested for governed execution when `permission` is set.
+Audit detail metadata requested for governed execution when `permission` is set.
 
 Default: `AuditDetail.FULL`
 
-The governance defaults are deliberately conservative (high risk, human approval, denied egress, full audit) so that opting into governance never silently weakens policy.
+The governance defaults are deliberately conservative (high risk, human approval, denied managed egress, full audit metadata) so that opting into governance never silently weakens the declared policy posture.
 
 ## Structured Output Property Annotations
 
