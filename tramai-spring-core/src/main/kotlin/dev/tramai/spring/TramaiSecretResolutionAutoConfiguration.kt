@@ -37,7 +37,7 @@ import org.springframework.core.annotation.AnnotationAwareOrderComparator
  * the original behavior where the chain was only ever assembled inside the
  * auto-configuration tramai() bean.
  */
-@AutoConfiguration(before = [TramaiAutoConfiguration::class])
+@AutoConfiguration(before = [TramaiAutoConfiguration::class, StandardTramaiProfileAutoConfiguration::class])
 @EnableConfigurationProperties(TramaiProperties::class)
 class TramaiSecretResolutionAutoConfiguration {
 

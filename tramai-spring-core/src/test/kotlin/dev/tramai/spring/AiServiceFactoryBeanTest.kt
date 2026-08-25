@@ -38,7 +38,7 @@ class AiServiceFactoryBeanTest {
         val failure = assertFailsWith<IllegalStateException> {
             factory.getObject()
         }
-        assertEquals("tramai-ai-service-creator-invalid", failure.message)
+        assertEquals("AI service creator bean has invalid type", failure.message)
     }
 
     private class TestAiService

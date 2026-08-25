@@ -23,6 +23,7 @@ dependencies {
     api(project(":tramai-core"))
     api(project(":tramai-security"))
     api(project(":tramai-sovereign"))
+    api(project(":tramai-spring-core"))
 
     implementation(libs.spring.boot.autoconfigure)
 

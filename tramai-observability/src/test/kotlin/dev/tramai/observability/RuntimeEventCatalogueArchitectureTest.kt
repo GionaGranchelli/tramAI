@@ -46,6 +46,7 @@ class RuntimeEventCatalogueArchitectureTest {
         "tramai.dashboard.auth.required",
         "tramai.dashboard.auth.provider",
         "tramai.mcp",
+        "tramai.profile",
         "tramai.providers.anthropic",
         "tramai.providers.anthropic.apiKey",
         "tramai.providers.local-lab-provider",

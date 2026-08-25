@@ -20,7 +20,7 @@ internal typealias AiServiceCreator = (KClass<*>) -> Any
  * Sovereign and future runtime profiles provide the same named creator bean,
  * allowing `@AiService` discovery to stay independent of the active runtime.
  */
-@AutoConfiguration(after = [TramaiAutoConfiguration::class])
+@AutoConfiguration(after = [TramaiAutoConfiguration::class, StandardTramaiProfileAutoConfiguration::class])
 internal class AiServiceProxyAutoConfiguration {
 
     @Bean(name = [AI_SERVICE_CREATOR_BEAN_NAME])

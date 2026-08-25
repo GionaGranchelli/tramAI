@@ -1,5 +1,7 @@
 package dev.tramai.spring
 
+import dev.tramai.standalone.Tramai
+import kotlin.reflect.KClass
 import org.springframework.beans.factory.BeanFactory
 import org.springframework.beans.factory.BeanFactoryAware
 import org.springframework.beans.factory.FactoryBean
@@ -8,10 +10,14 @@ import org.springframework.beans.factory.FactoryBean
  * Spring [FactoryBean] that creates service proxies through the active TramAI
  * runtime profile.
  *
- * The concrete runtime is intentionally resolved through the shared named
- * [AiServiceCreator] bean rather than by looking up `Tramai` directly. This
- * keeps `@AiService` bean registration independent of standard vs sovereign
- * runtime selection.
+ * Profile-aware Spring Boot wiring provides the shared named [AiServiceCreator]
+ * bean. For compatibility with applications/tests that explicitly import
+ * [TramaiAutoConfiguration] instead of using starter auto-configuration, the
+ * factory falls back to the plain [Tramai] bean only when no named creator is
+ * present.
+ *
+ * Sovereign mode never creates a plain [Tramai] bean, so a missing sovereign
+ * creator fails loudly rather than silently downgrading to the standard runtime.
  */
 class AiServiceFactoryBean<T : Any>(
     private val serviceType: Class<T>,
@@ -23,16 +29,28 @@ class AiServiceFactoryBean<T : Any>(
     }
 
     override fun getObject(): T {
-        val creatorBean = beanFactory.getBean(AI_SERVICE_CREATOR_BEAN_NAME)
-        check(creatorBean is Function1<*, *>) {
-            "tramai-ai-service-creator-invalid"
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        val creator = creatorBean as AiServiceCreator
+        val creator = resolveCreator()
 
         @Suppress("UNCHECKED_CAST")
         return creator(serviceType.kotlin) as T
+    }
+
+    private fun resolveCreator(): AiServiceCreator {
+        if (beanFactory.containsBean(AI_SERVICE_CREATOR_BEAN_NAME)) {
+            val creatorBean = beanFactory.getBean(AI_SERVICE_CREATOR_BEAN_NAME)
+            check(creatorBean is Function1<*, *>) {
+                "AI service creator bean has invalid type"
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            return creatorBean as AiServiceCreator
+        }
+
+        val tramai = beanFactory.getBean(Tramai::class.java)
+        return { serviceType ->
+            @Suppress("UNCHECKED_CAST")
+            tramai.create(serviceType as KClass<Any>)
+        }
     }
 
     override fun getObjectType(): Class<*> = serviceType
