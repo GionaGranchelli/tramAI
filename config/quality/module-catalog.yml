@@ -217,7 +217,12 @@ modules:
     publishability: published
     apiStability: preview
 
-  - path: ":tramai-spring-boot-starter-sovereign"
+  - path: ":tramai-spring-sovereign"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter"
     layer: framework-integrations
     publishability: published
     apiStability: preview

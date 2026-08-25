@@ -210,38 +210,47 @@ knownAllowedEdges:
     reason: "tramai-bom includes tramai-memory-store"
 
   # Starter BOM relations — exact module pairs
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-core"
     reason: "Sovereign starter depends on core"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-security"
     reason: "Sovereign starter depends on security"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-sovereign"
     reason: "Sovereign starter depends on sovereign"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-spring"
     reason: "Sovereign starter depends on spring"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-engine"
     reason: "Sovereign starter depends on engine"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-observability"
     reason: "Sovereign starter depends on observability"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-orchestration"
     reason: "Sovereign starter depends on orchestration"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-structured"
     reason: "Sovereign starter depends on structured"
 
-  - fromModule: ":tramai-spring-boot-starter-sovereign"
+  - fromModule: ":tramai-spring-sovereign"
     toModule: ":tramai-standalone"
     reason: "Sovereign starter depends on standalone"
+
+  # Unified starter composition — exact module pairs
+  - fromModule: ":tramai-spring-boot-starter"
+    toModule: ":tramai-spring-core"
+    reason: "Unified starter composes standard Spring integration"
+
+  - fromModule: ":tramai-spring-boot-starter"
+    toModule: ":tramai-spring-sovereign"
+    reason: "Unified starter composes sovereign Spring integration"

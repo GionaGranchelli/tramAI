@@ -7,13 +7,9 @@ import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.standalone.Tramai
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import org.assertj.core.api.Assertions.assertThat
-import org.springframework.boot.SpringApplication
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
-import org.springframework.core.env.MapPropertySource
-import org.springframework.core.env.StandardEnvironment
 
 class SpringRuntimeProfileSelectionTest {
 
@@ -73,31 +69,6 @@ class SpringRuntimeProfileSelectionTest {
                 assertThat(context).doesNotHaveBean(SovereignTramai::class.java)
                 assertThat(context).doesNotHaveBean(SovereignTramaiRuntime::class.java)
             }
-    }
-
-    @Test
-    fun `sovereign starter defaults profile to sovereign when application did not choose one`() {
-        val environment = StandardEnvironment()
-        SovereignDefaultProfileEnvironmentPostProcessor()
-            .postProcessEnvironment(environment, SpringApplication())
-
-        assertEquals("sovereign", environment.getProperty("tramai.profile"))
-    }
-
-    @Test
-    fun `explicit application profile wins over sovereign starter default`() {
-        val environment = StandardEnvironment()
-        environment.propertySources.addFirst(
-            MapPropertySource(
-                "test",
-                mapOf("tramai.profile" to "standard"),
-            ),
-        )
-
-        SovereignDefaultProfileEnvironmentPostProcessor()
-            .postProcessEnvironment(environment, SpringApplication())
-
-        assertEquals("standard", environment.getProperty("tramai.profile"))
     }
 
     private class ProfileTestProvider : ModelProvider {

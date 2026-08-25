@@ -35,8 +35,8 @@ repositories {
 val kotlinxCoroutinesVersion = "1.10.2"
 
 dependencies {
-    // Sovereign runtime
-    implementation(project(":tramai-spring-boot-starter-sovereign"))
+    // Unified starter — sovereign is selected via tramai.profile
+    implementation(project(":tramai-spring-boot-starter"))
     implementation(project(":tramai-spring"))
 
     // JDBC sovereign persistence

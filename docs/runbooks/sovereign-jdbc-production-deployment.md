@@ -50,7 +50,7 @@ runtimeOnly("org.postgresql:postgresql")
 Also required (typically already present):
 
 ```kotlin
-implementation("dev.tramai:tramai-spring-boot-starter-sovereign:<version>")
+implementation("dev.tramai:tramai-spring-boot-starter:<version>")
 implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
 ```
 

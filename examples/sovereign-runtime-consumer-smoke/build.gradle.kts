@@ -66,7 +66,7 @@ dependencies {
     // Resolve sovereign runtime modules from the local verification repo to prove
     // the signed bundle artifacts are consumer-valid. These must NOT use project()
     // dependencies — the point is to verify consumer resolution.
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign:${tramaiVersion.get()}")
+    implementation("dev.tramai:tramai-spring-boot-starter:${tramaiVersion.get()}")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:${tramaiVersion.get()}")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:${tramaiVersion.get()}")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-observability:${tramaiVersion.get()}")

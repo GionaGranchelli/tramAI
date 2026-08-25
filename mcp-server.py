@@ -539,7 +539,7 @@ def _categorize_module(name: str, path: Path) -> str:
         return "example"
     if name == "tramai-spring":
         return "spring-boot"
-    if name.startswith("tramai-spring-boot-starter-sovereign"):
+    if name == "tramai-spring-sovereign" or name.startswith("tramai-spring-boot-starter-sovereign"):
         return "sovereign-spring-boot"
     if name.startswith("tramai-spring-boot-starter"):
         return "spring-boot"

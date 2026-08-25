@@ -110,6 +110,7 @@ class ApprovalResumeExampleTest {
                 TestGatewayConfig::class.java,
             )
             .withPropertyValues(
+                "tramai.profile=sovereign",
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.persistence.type=jdbc",
                 "tramai.sovereign.ops.mutations-enabled=true",

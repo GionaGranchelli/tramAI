@@ -153,7 +153,8 @@ This publishes the following to mavenLocal() and runs their test suites:
 - `tramai-security`
 - `tramai-sovereign`
 - `tramai-persistence-file`
-- `tramai-spring-boot-starter-sovereign`
+- `tramai-spring-sovereign`
+- `tramai-spring-boot-starter`
 - `tramai-spring-boot-starter-sovereign-persistence-file`
 - `tramai-spring-boot-starter-sovereign-ops`
 - `tramai-spring-boot-starter-sovereign-ops-actuator`
