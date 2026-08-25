@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Governed `@AiTool` parity for the sovereign runtime (Spring track S4).** `@AiTool` gains opt-in governance metadata (`permission`, `risk`, `approval`, `managedNetworkEgress`, `audit`) with conservative defaults (HIGH risk, HUMAN_REQUIRED approval, DENY egress, FULL audit). Empty `permission` preserves the legacy contract — no `ToolSecurityMetadata` is produced and standard Spring behavior is unchanged; the sovereign runtime continues to reject such legacy tools (`tool-metadata-missing`). `AiToolScanner` maps governed annotations to strict `ToolSecurityMetadata` and rejects blank/padded permissions. The sovereign starter now discovers `@AiTool` methods alongside explicit `TramaiTool` beans, with the engine remaining the single fail-loud authority for duplicate tool identities.
+
 - **ApprovalStore compatibility TCK (PR #267, Epic 8.1a).** One shared
   behavioral contract for every `ApprovalStore` implementation, in
   tramai-testing testFixtures: `ApprovalStoreTck` runs **37 cases** —

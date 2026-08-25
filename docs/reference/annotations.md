@@ -193,6 +193,40 @@ Default: `UNKNOWN`
 
 Use it to describe whether the tool reads data, writes data, or has stronger external effects.
 
+#### `permission`
+
+Permission required to expose and execute the tool under secure policy profiles.
+
+Default: empty string.
+
+Empty preserves the legacy annotation contract: no `ToolSecurityMetadata` is produced and the standard runtime exposes the tool as before. Secure profiles such as sovereign TramAI reject tools without security metadata (`tool-metadata-missing`). Setting a non-empty permission makes the annotation produce strict `ToolSecurityMetadata` using `risk`, `approval`, `managedNetworkEgress`, and `audit`.
+
+#### `risk`
+
+Risk classification used by secure policy profiles when `permission` is set.
+
+Default: `RiskLevel.HIGH`
+
+#### `approval`
+
+Approval mode used by secure policy profiles when `permission` is set.
+
+Default: `ApprovalMode.HUMAN_REQUIRED`
+
+#### `managedNetworkEgress`
+
+Managed network-egress policy used by secure policy profiles when `permission` is set.
+
+Default: `ManagedNetworkEgress.DENY`
+
+#### `audit`
+
+Audit detail requested for governed execution when `permission` is set.
+
+Default: `AuditDetail.FULL`
+
+The governance defaults are deliberately conservative (high risk, human approval, denied egress, full audit) so that opting into governance never silently weakens policy.
+
 ## Structured Output Property Annotations
 
 These annotations affect structured schema generation and validation for non-`String` return types.
