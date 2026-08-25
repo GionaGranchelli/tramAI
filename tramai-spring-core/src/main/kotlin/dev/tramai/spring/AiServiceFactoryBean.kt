@@ -39,7 +39,7 @@ class AiServiceFactoryBean<T : Any>(
         if (beanFactory.containsBean(AI_SERVICE_CREATOR_BEAN_NAME)) {
             val creatorBean = beanFactory.getBean(AI_SERVICE_CREATOR_BEAN_NAME)
             check(creatorBean is Function1<*, *>) {
-                "tramai-ai-service-creator-invalid"
+                "AI service creator bean has invalid type"
             }
 
             @Suppress("UNCHECKED_CAST")
