@@ -98,9 +98,18 @@ internal class WorkerLifecyclePropertyHarness(
             WorkerLifecycleAction.SHUTDOWN,
             WorkerLifecycleAction.SHUTDOWN_AGAIN,
             WorkerLifecycleAction.SHUTDOWN_AFTER_CRASH,
-            WorkerLifecycleAction.CLOSE,
             -> {
                 worker.shutdown()
+                if (observer.shutdownComplete.size > shutdownCompletedBefore) {
+                    observedPhase = WorkerLifecyclePhase.STOPPED
+                }
+            }
+
+            WorkerLifecycleAction.CLOSE -> {
+                // CLOSE genuinely exercises TramaiWorker.close() (blocking
+                // wrapper), not shutdown() — same observable events per the
+                // model, but the close path itself is under test.
+                worker.close()
                 if (observer.shutdownComplete.size > shutdownCompletedBefore) {
                     observedPhase = WorkerLifecyclePhase.STOPPED
                 }
@@ -119,6 +128,7 @@ internal class WorkerLifecyclePropertyHarness(
 
     internal class WorkerRegistryHooks {
         var onRegister: (suspend () -> Unit)? = null
+        var onUnregister: (suspend () -> Unit)? = null
         var onHeartbeat: (suspend () -> Unit)? = null
         var failNextRegistration: Boolean = false
     }
@@ -162,7 +172,7 @@ internal class WorkerLifecyclePropertyHarness(
 }
 
 /** Registry wrapper: injectable registration failure/blocking + counters. */
-private class ControllableWorkerRegistry(
+internal class ControllableWorkerRegistry(
     private val delegate: InMemoryWorkflowLeaseStore,
     private val hooks: WorkerLifecyclePropertyHarness.WorkerRegistryHooks,
     private val registrations: AtomicInteger,
@@ -186,6 +196,7 @@ private class ControllableWorkerRegistry(
 
     override suspend fun unregisterWorker(workerId: String) {
         unregistrations.incrementAndGet()
+        hooks.onUnregister?.invoke()
         delegate.unregisterWorker(workerId)
     }
 

@@ -369,7 +369,244 @@ class WorkerLifecyclePropertyTest {
         assertThat(harness.isRegistered()).isFalse()
     }
 
-    // ── Coverage guard ─────────────────────────────────────────────────────
+    // ── Property 9: stale start contender has zero authority (P1) ─────────
+
+    @Test
+    fun `stale start contender cannot reset the winning generation's shutdown state`() = runBlocking<Unit> {
+        // Idle-worker setup: NO workflow, NO lease claim, NO recovery. The
+        // stale-contender contract is about lifecycle ownership only, so the
+        // harness exercises nothing below the poll loop. The winning
+        // generation's shutdown is held at the unregister step (a registry
+        // hook) instead of a drain, keeping the discriminator inside the
+        // lifecycle state machine.
+        val hookGate = CompletableDeferred<Unit>()
+        val hookEntered = CompletableDeferred<Unit>()
+        val unregisterEntered = CompletableDeferred<Unit>()
+        val unregisterGate = CompletableDeferred<Unit>()
+        val blockFirstStart = java.util.concurrent.atomic.AtomicBoolean(true)
+
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("stale-contender"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+        // Gate the FIRST starter (A) at the claim boundary after it observed
+        // STOPPED; every later start passes straight through.
+        controller.onStartClaimBoundary = {
+            if (blockFirstStart.compareAndSet(true, false)) {
+                hookEntered.complete(Unit)
+                hookGate.await()
+            }
+        }
+
+        // Starter A observes STOPPED and pauses at the ownership-claim boundary.
+        val starterA = launch { controller.start() }
+        withTimeout(10_000) { hookEntered.await() }
+
+        // Starter B wins ownership and reaches RUNNING (idle: no checkpoints).
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(1)
+
+        // Shutdown B begins and is HELD at the unregister step: the shutdown
+        // owner has won the shutdown CAS but has NOT yet released ownership.
+        hooks.onUnregister = {
+            unregisterEntered.complete(Unit)
+            unregisterGate.await()
+        }
+        val shutdownB = launch { controller.shutdown() }
+        withTimeout(10_000) { unregisterEntered.await() }
+        assertThat(observer.shutdownStarted).hasSize(1)
+
+        // Resume stale A: it must lose the ownership CAS and — critically —
+        // must NOT reset the winning generation's shutdown state.
+        hookGate.complete(Unit)
+        withTimeout(10_000) { starterA.join() }
+        assertThat(observer.workerStarted)
+            .withFailMessage("stale contender must not become an owner")
+            .hasSize(1)
+        assertThat(registrations.get()).isEqualTo(1)
+
+        // A second shutdown caller must remain a loser: B's shutdown CAS was
+        // never reset, so this call returns immediately instead of starting a
+        // second (concurrent) shutdown sequence.
+        withTimeout(5_000) {
+            val secondShutdown = launch { controller.shutdown() }
+            secondShutdown.join()
+        }
+        assertThat(observer.shutdownStarted)
+            .withFailMessage("stale contender must not reset the shutdown CAS: exactly one shutdown owner")
+            .hasSize(1)
+
+        // Release the held unregister: exactly one shutdown sequence completes
+        // and the shutdown owner releases ownership.
+        unregisterGate.complete(Unit)
+        withTimeout(10_000) { shutdownB.join() }
+        assertThat(observer.shutdownComplete).hasSize(1)
+        assertThat(observer.workerStopped).hasSize(1)
+        assertThat(unregistrations.get()).isEqualTo(1)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+
+        // A fresh generation starts normally after the shutdown completed.
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(2)
+        controller.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(2)
+    }
+
+    // ── Property 10: aborted start keeps ownership while shutdown drains (P2a) ──
+
+    @Test
+    fun `aborted start cannot release ownership while shutdown is still draining`() = runBlocking<Unit> {
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val worker = TramaiWorker(
+            config = workerConfig("abort-mid-drain"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+        )
+
+        // Generation B's startup suspends inside registration.
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        val startedB = launch { worker.start() }
+        withTimeout(10_000) { regEntered.await() }
+
+        // Shutdown B begins. The drain is trivial (B never ran) but the
+        // shutdown is HELD at the unregister step — at that point the shutdown
+        // owner still owns this generation and has NOT released it.
+        val unregisterEntered = CompletableDeferred<Unit>()
+        val unregisterGate = CompletableDeferred<Unit>()
+        hooks.onUnregister = {
+            unregisterEntered.complete(Unit)
+            unregisterGate.await()
+        }
+        val shutdownB = launch { worker.shutdown() }
+        withTimeout(10_000) { unregisterEntered.await() }
+        assertThat(observer.shutdownStarted).hasSize(1)
+
+        // Resume B's startup: it must abort WITHOUT releasing ownership while
+        // the shutdown owner still drains this generation. B's zombie
+        // reconciliation also blocks on the held unregister until released.
+        regGate.complete(Unit)
+        assertThat(observer.workerStarted)
+            .withFailMessage("aborted startup must not emit onWorkerStarted")
+            .isEmpty()
+
+        // A new start while the shutdown is still draining must remain a
+        // guard-level no-op: ownership still belongs to the draining
+        // generation, so it must not even claim and register (a mid-drain
+        // claim is a second generation root created under the shutdown owner —
+        // the revalidation flag alone would mask that, which is why this
+        // property asserts the REGISTRATION side effect, not just the started
+        // event). The gate is completed in a finally so a RED failure cannot
+        // strand B/C in NonCancellable reconciliation and hang the test scope.
+        try {
+            val cStarter = launch { worker.start() }
+            var sawSecondRegistration = false
+            for (i in 0 until 400) {
+                if (registrations.get() >= 2) {
+                    sawSecondRegistration = true
+                    break
+                }
+                delay(5)
+            }
+            assertThat(sawSecondRegistration)
+                .withFailMessage("a new start must not claim/register while the previous shutdown is still draining")
+                .isFalse()
+            withTimeout(10_000) { cStarter.join() }
+            assertThat(observer.workerStarted)
+                .withFailMessage("new generation must not start while the previous shutdown is still draining")
+                .isEmpty()
+        } finally {
+            unregisterGate.complete(Unit)
+        }
+
+        // B's reconcile and the shutdown's unregister unblock via the finally
+        // above: exactly one shutdown sequence ran and released ownership.
+        withTimeout(10_000) { startedB.join() }
+        withTimeout(10_000) { shutdownB.join() }
+        assertThat(observer.shutdownComplete).hasSize(1)
+        assertThat(observer.workerStopped).hasSize(1)
+
+        // Ownership was released by the shutdown owner: a fresh generation runs.
+        worker.start()
+        assertThat(observer.workerStarted).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).hasSize(1)
+        worker.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(2)
+    }
+
+    // ── Property 11: cancelled startup rolls back (P2b) ───────────────────
+
+    @Test
+    fun `cancelled registration rolls the startup back to a retryable stopped state`() = runBlocking<Unit> {
+        val harness = WorkerLifecyclePropertyHarness()
+        val entered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        harness.hooks.onRegister = {
+            entered.complete(Unit)
+            regGate.await()
+        }
+
+        val cause = kotlinx.coroutines.CancellationException("test-cancel-start")
+        var caught: kotlinx.coroutines.CancellationException? = null
+        val starter = launch {
+            try {
+                harness.worker.start()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                caught = e
+            }
+        }
+        withTimeout(10_000) { entered.await() }
+
+        // Cancel the start coroutine while it is suspended in registration:
+        // the SAME cancellation must escape, after mandatory rollback.
+        starter.cancel(cause)
+        regGate.complete(Unit)
+        withTimeout(10_000) { starter.join() }
+
+        assertThat(caught).withFailMessage("cancellation must propagate, not be swallowed").isNotNull()
+        assertThat(caught?.cause)
+            .withFailMessage("the same cancellation instance must escape the cancelled start")
+            .isSameAs(cause)
+        assertThat(harness.observer.workerStarted).isEmpty()
+        assertThat(harness.observer.shutdownStarted).isEmpty()
+        assertThat(harness.isRegistered())
+            .withFailMessage("cancelled startup must not leave a registry row")
+            .isFalse()
+
+        // Ownership was rolled back: a subsequent start succeeds.
+        harness.worker.start()
+        assertThat(harness.observer.workerStarted).hasSize(1)
+        assertThat(harness.isRegistered()).isTrue()
+        harness.worker.shutdown()
+        assertThat(harness.observer.shutdownComplete).hasSize(1)
+    }
 
     @Test
     fun `generator corpus is deterministic and reaches every semantic category`() = runBlocking<Unit> {

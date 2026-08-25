@@ -78,5 +78,8 @@ internal object WorkerLifecycleActionGenerator {
 
     /** Applies the action to the model, keeping Failure results in place. */
     private fun applyLegal(action: WorkerLifecycleAction, model: WorkerLifecycleModel): WorkerLifecycleModel =
-        (model.apply(action) as? WorkerLifecycleOutcome.Success)?.next ?: model
+        when (val outcome = model.apply(action)) {
+            is WorkerLifecycleOutcome.Success -> outcome.next
+            is WorkerLifecycleOutcome.Failure -> outcome.next
+        }
 }

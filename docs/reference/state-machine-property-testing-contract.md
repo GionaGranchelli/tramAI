@@ -367,7 +367,7 @@ opening with a forced archetype (seed % 6: clean start/shutdown cycles,
 shutdown-before-start + duplicate starts, crash → shutdown → restart,
 multiple clean generations, duplicate starts + duplicate shutdowns,
 close-equivalence) then a state-aware random free-run. The generator guard
-asserts 24 semantic categories computed from model pre-state + action +
+asserts 23 semantic categories computed from model pre-state + action +
 predicted outcome (never enum presence): the five phase transitions plus
 crashed-start no-op, close from running/stopped, restart-after-shutdown,
 multi-generation, exactly-once per-generation registration / started /
@@ -375,7 +375,7 @@ shutdownStarted / shutdownComplete / workerStopped / unregister, registry
 present-while-running, registry absent-after-graceful-stop,
 registry-retained-after-crash, generation monotonic.
 
-### Properties (8)
+### Properties (11)
 
 1. **Generated worker lifecycle sequences** — after every action: event
    counters, registry presence, registration/unregistration counters,
@@ -410,10 +410,37 @@ registry-retained-after-crash, generation monotonic.
    onWorkerStopped event fires (deterministic order observation via a
    synchronous observer hook — root cancellation alone would kill the
    loops after the stopped event and is exactly what the property rejects).
+9. **Stale start contender has zero authority** (review round, P1) —
+   deterministic idle-worker gate: starter A observes STOPPED and pauses
+   at the ownership-claim boundary (test seam), starter B wins ownership
+   and reaches RUNNING, B's shutdown begins and is held at the unregister
+   step; A resumes and loses the ownership CAS. A must NOT reset the
+   winning generation's shutdown state (a second shutdown caller must
+   remain a loser and return immediately), must NOT become an owner, and
+   must NOT register. Exactly one shutdown sequence completes; a fresh
+   generation starts afterwards. No workflow / lease / recovery machinery
+   is exercised — the discriminator lives entirely in the lifecycle state
+   machine.
+10. **Aborted start cannot release ownership while shutdown still owns
+    the generation** (review round, P2a) — generation B's startup is
+    suspended in registration; shutdown B starts and is held at the
+    unregister step (shutdown owner won, ownership NOT yet released);
+    B's registration resumes. The aborted startup must reconcile its
+    registration side effect but must NOT clear root ownership: a new
+    start() while the shutdown is still in progress remains a no-op, the
+    shutdown completes exactly once, and only after completion can a fresh
+    generation start.
+11. **Cancelled registration rolls the startup back** (review round, P2b)
+    — the start coroutine is cancelled while registerWorker is suspended;
+    the SAME CancellationException instance escapes (asserted by
+    identity), ownership is rolled back (no started event, no zombie
+    row), and a subsequent start() succeeds. The cancellation path must
+    not skip mandatory ownership rollback just because cancellation is
+    preserved.
 
 ### Production changes (1, deliberate)
 
-The suite exposed two genuine defects, both in `WorkerLifecycleController`:
+The suite exposed three genuine defects, all in `WorkerLifecycleController`:
 
 - **Registration failure retained root ownership.** `workerJob` was
   assigned before the suspendable `registerWorker()`; on failure start()
@@ -430,17 +457,35 @@ The suite exposed two genuine defects, both in `WorkerLifecycleController`:
   could create two generations.
 
 Fix: `workerJob: Job?` → `AtomicReference<Job?>` lifecycle-ownership
-primitive — idempotency guard → `prepareLifecycleStart()` → CAS claim;
-registration-failure rollback (release claim, cancel root, unregister,
-rethrow); post-registration revalidation (if ownership was lost or a
-shutdown is in progress: release, cancel root, remove the zombie row,
-return with no events); shutdown clears ownership via CAS on the captured
-root only. No mutex is held across `registerWorker` / drain /
-`unregisterWorker` — ownership is claimed atomically, external work
-performed, then ownership revalidated, preserving the contract that
-shutdown during registration is accepted.
+primitive. The review round (first review of #280) closed three further
+holes around the same generation boundary:
 
-### Mutation evidence (20 mutations, each restored; 0 weak)
+- **Stale-contender reset (P1).** The per-generation shutdown-state reset
+  (`prepareLifecycleStart`) now runs only AFTER winning the ownership CAS,
+  so a contender that loses the race has zero authority over the winner's
+  shutdown state (previously it could reset `shutdownStarted` +
+  `shuttingDownGracefully` mid-shutdown, letting a second shutdown caller
+  win the shutdown CAS and run the sequence concurrently).
+- **Aborted startup keeps ownership during a drain (P2a).** The
+  post-registration revalidation is split: if ownership was lost while
+  suspended → reconcile a zombie row (only when nothing newer owns) and
+  cancel the root; if a shutdown currently owns and drains this generation
+  → reconcile the row but NEVER release ownership (the shutdown owner
+  releases it on completion), so a new generation cannot start mid-drain.
+- **Cancellation rollback (P2b).** A dedicated `catch (CancellationException)`
+  performs the mandatory ownership rollback (release only when this
+  generation still owns and no shutdown owns it) in `NonCancellable`,
+  then rethrows the SAME cancellation instance — cancellation is never
+  classified as a failure, but it also never leaves a stuck half-owned
+  lifecycle. A CAS-losing start additionally cancels its provisional
+  `SupervisorJob` (P3).
+
+No mutex is held across `registerWorker` / drain / `unregisterWorker` —
+ownership is claimed atomically, external work performed, then ownership
+revalidated, preserving the contract that shutdown during registration is
+accepted.
+
+### Mutation evidence (23 mutations, each restored; 0 weak)
 
 Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
 same property GREEN for every mutation: start claims ownership
@@ -456,4 +501,31 @@ unregister skipped (GEN), onShutdownComplete / onWorkerStopped /
 onShutdownStarted dropped (GEN), crash does not cancel the root (crash),
 crash emits graceful events (crash), crash clears ownership (GEN), poll /
 heartbeat cancellation skipped (background-loop ownership), started event
-fires before the abort check (registration-race).
+fires before the abort check (registration-race), shutdown-state reset
+runs before the ownership claim (stale-contender, review-round M21),
+aborted startup releases ownership while the shutdown still owns/drains it
+(abort-mid-drain, review-round M22), cancelled registration skips rollback
+(cancelled-start, review-round M23). A CAS-loser provisional-supervisor
+leak mutation (M24) is intentionally NOT added: the orphan `SupervisorJob`
+is not observable from the harness without a production test hook, so such
+a mutation would be weak — the fix itself is asserted structurally by
+property 9's ownership assertions.
+
+### Known anomaly (NOT fixed in #280 — tracked for follow-up)
+
+Observed while developing #280: the original property-9 draft exercised the
+real execution engine (poll → lease claim → resume), and the worker
+repeatedly acquired and released the same workflow lease without ever
+starting the step. Observed: repeated `onLeaseAcquired`, no
+StepAttempt(STARTED), `latestFailure == null`, no poll failure, checkpoint
+remained available, cycle repeated every lease duration. The symptom
+reproduces only in a lifecycle-heavy integration harness; root cause NOT
+isolated. The initial `LeaseFencedCheckpointStore.load` revision-fence
+hypothesis is DISPROVED — `load()` is not fenced on master (the fence
+applies to save/delete/requireRecovery only). Property 9 was rewritten to
+the idle-worker harness (no workflow execution), so #280 no longer depends
+on the engine. Follow-up: build a minimal reproducer (one worker, one
+checkpoint, one trivial step, worker.start()) and bisect the contributing
+factor; if it reproduces outside the lifecycle harness it is a material
+orchestration liveness defect and should be fixed in a dedicated PR before
+Epic 8.2d.
