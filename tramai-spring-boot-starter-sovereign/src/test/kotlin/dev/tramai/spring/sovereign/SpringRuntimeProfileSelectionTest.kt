@@ -27,7 +27,7 @@ class SpringRuntimeProfileSelectionTest {
                 SovereignTramaiProfileAutoConfiguration::class.java,
             ),
         )
-        .withBean(ModelProvider::class.java) { ProfileTestProvider() }
+        .withBean(ModelProvider::class.java, { ProfileTestProvider() })
 
     @Test
     fun `sovereign profile activates only sovereign runtime`() {
