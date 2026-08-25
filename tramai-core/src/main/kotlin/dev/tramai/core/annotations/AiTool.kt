@@ -22,7 +22,10 @@ annotation class AiTool(
     val name: String = "",
     /** Tool description injected into model tool definitions. */
     val description: String,
-    /** Whether the tool is safe to retry on transient failure. */
+    /**
+     * Whether repeating execution with the same logical input is safe.
+     * This describes repetition/idempotency semantics, not whether TramAI should retry the tool after a failure.
+     */
     val idempotent: Boolean = false,
     /** Side-effect classification for the tool. */
     val sideEffectLevel: SideEffectLevel = SideEffectLevel.UNKNOWN,
@@ -38,8 +41,11 @@ annotation class AiTool(
     val risk: RiskLevel = RiskLevel.HIGH,
     /** Approval mode used by secure policy profiles when [permission] is set. */
     val approval: ApprovalMode = ApprovalMode.HUMAN_REQUIRED,
-    /** Managed network-egress policy when [permission] is set. */
+    /**
+     * Managed network-egress policy metadata when [permission] is set.
+     * This applies only to TramAI-managed egress and does not sandbox arbitrary networking performed inside the method.
+     */
     val managedNetworkEgress: ManagedNetworkEgress = ManagedNetworkEgress.DENY,
-    /** Audit detail requested for governed execution when [permission] is set. */
+    /** Audit detail metadata requested for governed execution when [permission] is set. */
     val audit: AuditDetail = AuditDetail.FULL,
 )
