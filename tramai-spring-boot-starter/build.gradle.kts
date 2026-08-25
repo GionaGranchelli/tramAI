@@ -20,27 +20,21 @@ kotlin {
 }
 
 dependencies {
-    api(project(":tramai-core"))
-    api(project(":tramai-security"))
-    api(project(":tramai-sovereign"))
+    // Canonical starter: dependency composition only. The standard runtime
+    // integration lives in tramai-spring-core, the sovereign runtime
+    // integration in tramai-spring-sovereign; this artifact makes both
+    // available to a Spring Boot application and nothing more.
+    api(project(":tramai-spring-core"))
     api(project(":tramai-spring-sovereign"))
 
-    implementation(project(":tramai-engine"))
-    implementation(libs.coroutines.core)
     implementation(libs.spring.boot.autoconfigure)
-    // spring-boot-starter-web is NOT added here.
-    // REST control plane lives in tramai-spring-boot-starter-sovereign-ops-rest
-
-    annotationProcessor(libs.spring.boot.configuration.processor)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
-    testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.coroutines.core)
+    testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation(libs.jackson.databind)
-    testImplementation(testFixtures(project(":tramai-testing")))
 }
 
 tasks.test {

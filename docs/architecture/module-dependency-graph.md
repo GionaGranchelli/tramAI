@@ -44,8 +44,10 @@ Dependency edges require Gradle resolution and are captured by the resolved depe
 | `tramai-server` | `:tramai-server` | operations-observability | no |
 | `tramai-sovereign` | `:tramai-sovereign` | governance-security | yes |
 | `tramai-spring` | `:tramai-spring` | framework-integrations | yes |
+| `tramai-spring-core` | `:tramai-spring-core` | framework-integrations | yes |
+| `tramai-spring-sovereign` | `:tramai-spring-sovereign` | framework-integrations | yes |
+| `tramai-spring-boot-starter` | `:tramai-spring-boot-starter` | framework-integrations | yes |
 | `tramai-spring-boot-starter-local-provider-openai` | `:tramai-spring-boot-starter-local-provider-openai` | framework-integrations | yes |
-| `tramai-spring-boot-starter-sovereign` | `:tramai-spring-boot-starter-sovereign` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign-ops` | `:tramai-spring-boot-starter-sovereign-ops` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign-ops-actuator` | `:tramai-spring-boot-starter-sovereign-ops-actuator` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign-ops-micrometer` | `:tramai-spring-boot-starter-sovereign-ops-micrometer` | framework-integrations | yes |

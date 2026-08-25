@@ -1,2 +1,0 @@
-org.springframework.boot.env.EnvironmentPostProcessor=\
-dev.tramai.spring.sovereign.SovereignDefaultProfileEnvironmentPostProcessor

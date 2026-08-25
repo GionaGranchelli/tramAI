@@ -7,8 +7,9 @@ import org.springframework.context.annotation.Import
 /**
  * Selects the sovereign TramAI runtime when `tramai.profile=sovereign`.
  *
- * The sovereign starter supplies that value as a low-precedence default for
- * backward compatibility. An explicit application property always wins.
+ * Sovereign mode is deliberately explicit — there is no starter-specific
+ * default profile. With no `tramai.profile` configured, the standard runtime
+ * remains the default.
  */
 @AutoConfiguration
 @ConditionalOnProperty(

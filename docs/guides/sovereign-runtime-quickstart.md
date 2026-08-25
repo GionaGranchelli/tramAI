@@ -38,7 +38,7 @@ dependencies {
     implementation("dev.tramai:tramai-sovereign:<version>")
     implementation("dev.tramai:tramai-security:<version>")
     implementation("dev.tramai:tramai-persistence-file:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign:<version>")
+    implementation("dev.tramai:tramai-spring-boot-starter:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-actuator:<version>")
@@ -66,6 +66,7 @@ Enable the Sovereign Runtime and its subsystems in `application.yml`:
 
 ```yaml
 tramai:
+  profile: sovereign
   sovereign:
     enabled: true
     persistence:

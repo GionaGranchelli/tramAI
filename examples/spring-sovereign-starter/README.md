@@ -111,7 +111,7 @@ For restart-safe workflows, add the file persistence starter:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(project(":tramai-spring-boot-starter-sovereign"))
+    implementation(project(":tramai-spring-boot-starter"))
     implementation(project(":tramai-spring-boot-starter-sovereign-persistence-file"))
 }
 ```

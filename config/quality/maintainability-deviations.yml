@@ -206,6 +206,26 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0020
+    metric: globalMutableState
+    scope: ":tramai-spring-sovereign"
+    baseline: 0
+    allowed: 1
+    reason: "Spring track S6 unified the Spring Boot starters: tramai-spring-boot-starter-sovereign was renamed to tramai-spring-sovereign (same packages/classes, no behavior change) and the single pre-existing SovereignTramaiAutoConfiguration global-state finding moved verbatim with the code. Canonical baseline records 0 for this module name (did not exist at v0.5.0); the finding is pure module-identity churn. Resolves when the scanner tracks module moves or the Spring decomposition settles."
+    acceptedAt: "2026-08-25"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0021
+    metric: nondeterminismSources
+    scope: ":tramai-spring-sovereign"
+    baseline: 0
+    allowed: 1
+    reason: "Spring track S6 unified the Spring Boot starters: tramai-spring-boot-starter-sovereign was renamed to tramai-spring-sovereign (same packages/classes, no behavior change) and the single pre-existing SovereignTramaiAutoConfiguration nondeterminism finding moved verbatim with the code. Canonical baseline records 0 for this module name (did not exist at v0.5.0); the finding is pure module-identity churn. Resolves when the scanner tracks module moves or the Spring decomposition settles."
+    acceptedAt: "2026-08-25"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

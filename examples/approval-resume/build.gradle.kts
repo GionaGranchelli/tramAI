@@ -25,7 +25,7 @@ repositories {
 val kotlinxCoroutinesVersion = "1.10.2"
 
 dependencies {
-    implementation(project(":tramai-spring-boot-starter-sovereign"))
+    implementation(project(":tramai-spring-boot-starter"))
     implementation(project(":tramai-spring"))
     implementation(project(":tramai-spring-boot-starter-sovereign-persistence-jdbc"))
     implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
