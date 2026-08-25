@@ -2,7 +2,9 @@ package dev.tramai.spring
 
 import org.springframework.beans.factory.BeanClassLoaderAware
 import org.springframework.boot.context.annotation.ImportCandidates
+import org.springframework.context.EnvironmentAware
 import org.springframework.context.annotation.ImportSelector
+import org.springframework.core.env.Environment
 import org.springframework.core.type.AnnotationMetadata
 
 /**
@@ -16,17 +18,30 @@ import org.springframework.core.type.AnnotationMetadata
  * profile configuration without creating a compile-time dependency back into
  * spring-core.
  */
-internal class TramaiEnableImportSelector : ImportSelector, BeanClassLoaderAware {
+internal class TramaiEnableImportSelector :
+    ImportSelector,
+    BeanClassLoaderAware,
+    EnvironmentAware {
 
     private lateinit var beanClassLoader: ClassLoader
+    private lateinit var environment: Environment
 
     override fun setBeanClassLoader(classLoader: ClassLoader) {
         beanClassLoader = classLoader
     }
 
-    override fun selectImports(importingClassMetadata: AnnotationMetadata): Array<String> =
-        ImportCandidates.load(EnableTramai::class.java, beanClassLoader)
+    override fun setEnvironment(environment: Environment) {
+        this.environment = environment
+    }
+
+    override fun selectImports(importingClassMetadata: AnnotationMetadata): Array<String> {
+        TramaiRuntimeProfileSupport.validate(
+            environment.getProperty(TramaiRuntimeProfileSupport.PROPERTY_NAME),
+        )
+
+        return ImportCandidates.load(EnableTramai::class.java, beanClassLoader)
             .candidates
             .distinct()
             .toTypedArray()
+    }
 }
