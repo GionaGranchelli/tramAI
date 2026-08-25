@@ -2,7 +2,12 @@ package dev.tramai.spring
 
 import dev.tramai.core.annotations.AiTool
 import dev.tramai.core.model.SideEffectLevel
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.springframework.aop.framework.ProxyFactory
@@ -22,6 +27,54 @@ class AiToolScannerTest {
         val toolNames = AiToolScanner.fromApplicationContext(context).map { it.name }.distinct()
 
         assertEquals(listOf("lookupInvoice"), toolNames)
+    }
+
+    @Test
+    fun `legacy ai tool annotation keeps security metadata absent`() {
+        val context = GenericApplicationContext().apply {
+            beanFactory.registerSingleton("toolBean", ToolBean())
+            refresh()
+        }
+
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+
+        assertNull(tool.security)
+    }
+
+    @Test
+    fun `governed ai tool annotation maps strict security metadata`() {
+        val context = GenericApplicationContext().apply {
+            beanFactory.registerSingleton("governedToolBean", GovernedToolBean())
+            refresh()
+        }
+
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        val security = requireNotNull(tool.security)
+
+        assertEquals("invoice.read", security.permission)
+        assertEquals(RiskLevel.LOW, security.risk)
+        assertEquals(ApprovalMode.AUTO, security.approval)
+        assertEquals(ManagedNetworkEgress.DENY, security.managedNetworkEgress)
+        assertEquals(AuditDetail.FULL, security.audit)
+    }
+
+    @Test
+    fun `declared permission must not be blank or padded`() {
+        val blankContext = GenericApplicationContext().apply {
+            beanFactory.registerSingleton("blankPermissionToolBean", BlankPermissionToolBean())
+            refresh()
+        }
+        val paddedContext = GenericApplicationContext().apply {
+            beanFactory.registerSingleton("paddedPermissionToolBean", PaddedPermissionToolBean())
+            refresh()
+        }
+
+        assertThrows(IllegalStateException::class.java) {
+            AiToolScanner.fromApplicationContext(blankContext)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            AiToolScanner.fromApplicationContext(paddedContext)
+        }
     }
 
     @Test
@@ -130,6 +183,29 @@ class AiToolScannerTest {
 
     open class ToolBean {
         @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
+        open fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    open class GovernedToolBean {
+        @AiTool(
+            description = "Looks up a governed invoice",
+            sideEffectLevel = SideEffectLevel.READ_ONLY,
+            permission = "invoice.read",
+            risk = RiskLevel.LOW,
+            approval = ApprovalMode.AUTO,
+            managedNetworkEgress = ManagedNetworkEgress.DENY,
+            audit = AuditDetail.FULL,
+        )
+        open fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    open class BlankPermissionToolBean {
+        @AiTool(description = "Invalid blank permission", permission = "   ")
+        open fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    open class PaddedPermissionToolBean {
+        @AiTool(description = "Invalid padded permission", permission = " invoice.read ")
         open fun lookupInvoice(input: ToolInput): String = input.invoiceId
     }
 
