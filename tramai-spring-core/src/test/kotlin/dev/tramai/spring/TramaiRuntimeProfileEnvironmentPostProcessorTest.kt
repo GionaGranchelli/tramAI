@@ -16,8 +16,8 @@ class TramaiRuntimeProfileEnvironmentPostProcessorTest {
     }
 
     @Test
-    fun `supported profiles remain valid`() {
-        listOf("standard", "sovereign").forEach { profile ->
+    fun `supported profiles remain valid with Boot case insensitive semantics`() {
+        listOf("standard", "sovereign", "STANDARD", "SOVEREIGN").forEach { profile ->
             val environment = StandardEnvironment().apply {
                 propertySources.addFirst(
                     MapPropertySource("test", mapOf("tramai.profile" to profile)),
