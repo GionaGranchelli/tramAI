@@ -9,6 +9,7 @@ import dev.tramai.core.policy.RiskLevel
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.aop.framework.ProxyFactory
 import org.springframework.beans.factory.config.BeanPostProcessor
@@ -72,9 +73,10 @@ class AiToolScannerTest {
         assertThrows(IllegalStateException::class.java) {
             AiToolScanner.fromApplicationContext(blankContext)
         }
-        assertThrows(IllegalStateException::class.java) {
+        val paddedFailure = assertThrows(IllegalStateException::class.java) {
             AiToolScanner.fromApplicationContext(paddedContext)
         }
+        assertTrue(paddedFailure.message.orEmpty().contains("customPaddedTool"))
     }
 
     @Test
@@ -205,7 +207,11 @@ class AiToolScannerTest {
     }
 
     open class PaddedPermissionToolBean {
-        @AiTool(description = "Invalid padded permission", permission = " invoice.read ")
+        @AiTool(
+            name = "customPaddedTool",
+            description = "Invalid padded permission",
+            permission = " invoice.read ",
+        )
         open fun lookupInvoice(input: ToolInput): String = input.invoiceId
     }
 
