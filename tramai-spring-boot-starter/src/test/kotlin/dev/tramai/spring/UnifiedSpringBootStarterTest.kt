@@ -51,8 +51,7 @@ class UnifiedSpringBootStarterTest {
         "tramai.default-provider=local-provider",
     )
 
-    private val sovereignProperties = arrayOf(
-        "tramai.profile=sovereign",
+    private val sovereignRuntimeProperties = arrayOf(
         "tramai.sovereign.allowed-models[0]=local-model",
         "tramai.sovereign.allowed-providers[0]=local-provider",
         "tramai.sovereign.provider-zones.local-provider=LOCAL",
@@ -99,7 +98,7 @@ class UnifiedSpringBootStarterTest {
             .withConfiguration(unifiedAutoConfigurations)
             .withUserConfiguration(UnifiedStarterFixture::class.java)
             .withInitializer(::registerFixturePackage)
-            .withPropertyValues(*sovereignProperties)
+            .withPropertyValues("tramai.profile=sovereign", *sovereignRuntimeProperties)
             .run { context ->
                 assertThat(context).hasNotFailed()
                 assertThat(context).doesNotHaveBean(Tramai::class.java)
@@ -127,7 +126,7 @@ class UnifiedSpringBootStarterTest {
             .withConfiguration(unifiedAutoConfigurations)
             .withUserConfiguration(UnifiedStarterFixture::class.java)
             .withInitializer(::registerFixturePackage)
-            .withPropertyValues("tramai.profile=SOVEREIGN", *sovereignProperties)
+            .withPropertyValues("tramai.profile=SOVEREIGN", *sovereignRuntimeProperties)
             .run { context ->
                 assertThat(context).hasNotFailed()
                 assertThat(context).doesNotHaveBean(Tramai::class.java)
@@ -170,7 +169,7 @@ class UnifiedSpringBootStarterTest {
             .withConfiguration(unifiedAutoConfigurations)
             .withUserConfiguration(UnifiedStarterFixture::class.java)
             .withInitializer(::registerFixturePackage)
-            .withPropertyValues("tramai.profile=sovereign", *sovereignProperties)
+            .withPropertyValues("tramai.profile=sovereign", *sovereignRuntimeProperties)
             .run { context ->
                 assertThat(context).hasNotFailed()
                 assertThat(context).doesNotHaveBean(Tramai::class.java)
@@ -198,7 +197,7 @@ class UnifiedSpringBootStarterTest {
         ApplicationContextRunner()
             .withConfiguration(unifiedAutoConfigurations)
             .withUserConfiguration(UnifiedStarterEnableTramaiFixture::class.java)
-            .withPropertyValues(*sovereignProperties)
+            .withPropertyValues("tramai.profile=sovereign", *sovereignRuntimeProperties)
             .run { context ->
                 assertThat(context).hasNotFailed()
                 assertThat(context).doesNotHaveBean(Tramai::class.java)
