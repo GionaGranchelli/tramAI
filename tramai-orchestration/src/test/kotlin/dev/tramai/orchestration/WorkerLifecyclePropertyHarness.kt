@@ -145,20 +145,29 @@ internal class WorkerLifecyclePropertyHarness(
         val heartbeats = java.util.concurrent.CopyOnWriteArrayList<String>()
         var onWorkerStoppedHook: (() -> Unit)? = null
 
+        /** Ordered lifecycle-event stream: STARTED / SHUTDOWN_STARTED /
+         *  SHUTDOWN_COMPLETE / STOPPED. Used to prove event ordering under
+         *  concurrent activation + shutdown. */
+        val order = java.util.concurrent.CopyOnWriteArrayList<String>()
+
         override fun onWorkerStarted(workerId: String) {
             workerStarted += workerId
+            order += "STARTED"
         }
 
         override fun onShutdownStarted(workerId: String) {
             shutdownStarted += workerId
+            order += "SHUTDOWN_STARTED"
         }
 
         override fun onShutdownComplete(workerId: String) {
             shutdownComplete += workerId
+            order += "SHUTDOWN_COMPLETE"
         }
 
         override fun onWorkerStopped(workerId: String) {
             workerStopped += workerId
+            order += "STOPPED"
             // Synchronous hook: fires inside the shutdown sequence at the exact
             // instant the stopped event is dispatched — the deterministic
             // observation point for loop-cancellation ownership.

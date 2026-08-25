@@ -2,10 +2,12 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -834,22 +836,29 @@ class WorkerLifecyclePropertyTest {
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
     }
 
-    // ── Property 15: no epilogue (hook/acceptingWork/started) after shutdown
-    //    lands post-commit (M27) ─────────────────────────────────────────
+    // ── Property 15: shutdown cannot bisect the activation epilogue (M27) ──
+    // The RUNNING commit, workerStarted, hook install, scope attach,
+    // acceptingWork and heartbeat/poll handoff form ONE non-suspending
+    // activation critical section, linearized against shutdown()'s lifecycle
+    // claim. A shutdown that starts while the epilogue is mid-flight must NOT
+    // be able to emit shutdownStarted/complete/stopped before workerStarted:
+    // the event order shutdownComplete(B) → workerStarted(B) stays impossible
+    // even when the shutdown tries to claim RUNNING between the commit and the
+    // epilogue. This is tested deterministically by blocking synchronously
+    // inside onWorkerStarted (the first epilogue emission) and racing a
+    // concurrent shutdown against the block.
 
     @Test
-    fun `startup cannot emit workerStarted or accept work after shutdown at the post-commit epilogue`() = runBlocking<Unit> {
-        // Idle-worker setup. B COMMITS RUNNING (the atomic STARTING→RUNNING
-        // CAS succeeds), then pauses immediately AFTER the commit but BEFORE
-        // the epilogue emits workerStarted / installs the hook / accepts work.
-        // A shutdown completes fully in that window. The post-commit re-check
-        // must abort the epilogue: no workerStarted after workerStopped, no
-        // heartbeat loop, no accepting work — the event order
-        // shutdownComplete(B) → workerStarted(B) stays impossible.
+    fun `shutdown cannot bisect the activation epilogue`() = runBlocking<Unit> {
+        // Idle-worker setup. B's registration completes, the RUNNING commit
+        // succeeds, and then the activation seam BLOCKS the start thread
+        // synchronously inside the critical section — before workerStarted.
+        // A concurrent shutdown launched while B is blocked must not be able
+        // to fire shutdownStarted/complete/stopped before workerStarted.
         val regEntered = CompletableDeferred<Unit>()
         val regGate = CompletableDeferred<Unit>()
-        val commitEntered = CompletableDeferred<Unit>()
-        val commitGate = CompletableDeferred<Unit>()
+        val startedBlocking = CompletableDeferred<Unit>()
+        val blockGate = java.util.concurrent.CountDownLatch(1)
         val leaseStore = InMemoryWorkflowLeaseStore()
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val registrations = java.util.concurrent.atomic.AtomicInteger(0)
@@ -858,7 +867,7 @@ class WorkerLifecyclePropertyTest {
         val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
         val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
         val controller = WorkerLifecycleController(
-            config = workerConfig("post-commit-epilogue"),
+            config = workerConfig("activation-bisect"),
             leaseStore = registry,
             checkpointStore = checkpointStore,
             checkpointCatalog = checkpointStore,
@@ -869,46 +878,143 @@ class WorkerLifecyclePropertyTest {
         )
 
         // Generation B: registration completes, the RUNNING commit SUCCEEDS,
-        // then pause at the post-commit epilogue boundary.
+        // then the activation seam blocks synchronously before workerStarted.
         hooks.onRegister = {
             regEntered.complete(Unit)
             regGate.await()
         }
-        controller.onRunCommitted = {
-            commitEntered.complete(Unit)
-            commitGate.await()
+        controller.onActivationStart = {
+            startedBlocking.complete(Unit)
+            blockGate.await()
         }
-        val starterB = launch { controller.start() }
+        val starterB = launch(Dispatchers.Default) { controller.start() }
         withTimeout(10_000) { regEntered.await() }
         regGate.complete(Unit)
-        withTimeout(10_000) { commitEntered.await() }
+        withTimeout(10_000) { startedBlocking.await() }
         assertThat(observer.workerStarted).isEmpty()
 
-        // Shutdown B completes fully while B is parked at the post-commit
-        // epilogue boundary: shutdownStarted/Complete, unregister,
-        // workerStopped. The epilogue gate is completed in a finally so a RED
-        // failure (M27) returns fast instead of stranding B.
+        // B is now blocked INSIDE the activation critical section, holding the
+        // lock. Start a concurrent shutdown: it must NOT be able to claim
+        // RUNNING→SHUTTING_DOWN or emit any shutdown event while B is blocked.
+        // The block latch is released in a finally so a RED failure (epilogue
+        // bisected) returns fast instead of stranding B on a non-cancellable
+        // CountDownLatch wait inside the critical section.
+        val shutdownJob = launch(Dispatchers.Default) { controller.shutdown() }
         try {
-            withTimeout(10_000) { controller.shutdown() }
-            assertThat(observer.shutdownComplete).hasSize(1)
-            assertThat(observer.workerStopped).hasSize(1)
+            // Deterministic discriminator: while B holds the activation lock a
+            // shutdown CANNOT emit any event, so a bounded poll either times out
+            // (fixed design — the lock held) or observes events (mutation — the
+            // epilogue was bisected). The window is a safety net, not the proof:
+            // under the fixed design no amount of time lets shutdown past the lock.
+            val bisected = try {
+                withTimeout(2_000) {
+                    while (observer.order.isEmpty()) {
+                        yield()
+                    }
+                }
+                true
+            } catch (e: TimeoutCancellationException) {
+                false
+            }
+            assertThat(bisected)
+                .withFailMessage("shutdown must not bisect the activation epilogue: no shutdown events before workerStarted")
+                .isFalse()
         } finally {
-            commitGate.complete(Unit)
+            blockGate.countDown()
+        }
+        withTimeout(10_000) { starterB.join() }
+        withTimeout(10_000) { shutdownJob.join() }
+        assertThat(observer.order)
+            .withFailMessage("workerStarted must precede all shutdown events")
+            .containsExactly("STARTED", "SHUTDOWN_STARTED", "SHUTDOWN_COMPLETE", "STOPPED")
+        assertThat(observer.workerStarted).hasSize(1)
+        assertThat(observer.shutdownComplete).hasSize(1)
+        assertThat(observer.workerStopped).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
+
+    // ── Property 16: old-generation STOPPED cleanup must reserve the row
+    //    before unregistering (M28) ──────────────────────────────────────
+    // A's registration lands AFTER shutdown completed (zombie row); A's
+    // commit fails at STOPPED; A's cleanup parks at the unregister hook. A
+    // new generation B that starts while A is parked must NOT register yet —
+    // A holds an atomic STOPPED→RECONCILING reservation. After A finishes,
+    // B retries and registers and remains registered.
+
+    @Test
+    fun `old-generation STOPPED cleanup cannot delete a newer generation's registry row`() = runBlocking<Unit> {
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        val cleanupEntered = CompletableDeferred<Unit>()
+        val cleanupGate = CompletableDeferred<Unit>()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("stopped-cleanup-race"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+
+        // A: suspend in registration. Shutdown completes fully (unregister
+        // runs BEFORE A's row exists). Only THEN is the cleanup hook armed —
+        // it must not park the shutdown's own unregister.
+        hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        val aCompleted = CompletableDeferred<Unit>()
+        val starterA = launch {
+            runCatching { controller.start() }
+            aCompleted.complete(Unit)
+        }
+        withTimeout(10_000) { regEntered.await() }
+        withTimeout(10_000) { controller.shutdown() }
+        assertThat(observer.shutdownComplete).hasSize(1)
+
+        // Arm the cleanup hook now: A's reconcile parks at the unregister
+        // delegate (STOPPED→RECONCILING held while parked).
+        hooks.onUnregister = {
+            cleanupEntered.complete(Unit)
+            cleanupGate.await()
         }
 
-        // Resume B: the post-commit re-check must abort the epilogue — no
-        // workerStarted, no heartbeat loop, no accepting work.
-        withTimeout(10_000) { starterB.join() }
-        assertThat(observer.workerStarted)
-            .withFailMessage("post-commit shutdown must abort the epilogue: no workerStarted after workerStopped")
-            .isEmpty()
-        assertThat(observer.heartbeats).isEmpty()
-        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+        // Release A's registration: the zombie row is committed and A's
+        // cleanup parks at the unregister hook (STOPPED→RECONCILING held).
+        regGate.complete(Unit)
+        withTimeout(10_000) { cleanupEntered.await() }
 
-        // A fresh generation C can still start normally afterwards.
+        // B starts while A is parked in cleanup: must NOT register — A holds
+        // the STOPPED reservation, so B's claim fails and B is a no-op. The
+        // cleanup gate completes in a finally so a RED failure (no reservation)
+        // returns fast instead of stranding A in NonCancellable.
+        try {
+            controller.start()
+            assertThat(registrations.get())
+                .withFailMessage("new generation must not register while old cleanup holds the STOPPED reservation")
+                .isEqualTo(1)
+        } finally {
+            cleanupGate.complete(Unit)
+        }
+        withTimeout(10_000) { aCompleted.await() }
         controller.start()
         assertThat(observer.workerStarted).hasSize(1)
-        assertThat(leaseStore.listActiveWorkers()).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers())
+            .withFailMessage("old-generation STOPPED cleanup must not delete the new generation's registry row")
+            .hasSize(1)
+        assertThat(registrations.get()).isEqualTo(2)
+        assertThat(unregistrations.get()).isEqualTo(2)
+
+        // B shuts down cleanly; A's abort left nothing behind.
         controller.shutdown()
         assertThat(observer.shutdownComplete).hasSize(2)
         assertThat(leaseStore.listActiveWorkers()).isEmpty()

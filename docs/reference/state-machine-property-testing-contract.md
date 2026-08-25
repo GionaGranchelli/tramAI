@@ -375,7 +375,7 @@ shutdownStarted / shutdownComplete / workerStopped / unregister, registry
 present-while-running, registry absent-after-graceful-stop,
 registry-retained-after-crash, generation monotonic.
 
-### Properties (15)
+### Properties (16)
 
 1. **Generated worker lifecycle sequences** — after every action: event
    counters, registry presence, registration/unregistration counters,
@@ -422,14 +422,18 @@ registry-retained-after-crash, generation monotonic.
    is exercised — the discriminator lives entirely in the lifecycle state
    machine.
 10. **Aborted start cannot release ownership while shutdown still owns
-    the generation** (review round, P2a) — generation B's startup is
-    suspended in registration; shutdown B starts and is held at the
-    unregister step (shutdown owner won, ownership NOT yet released);
-    B's registration resumes. The aborted startup must reconcile its
-    registration side effect but must NOT clear root ownership: a new
-    start() while the shutdown is still in progress remains a no-op, the
-    shutdown completes exactly once, and only after completion can a fresh
-    generation start.
+    the generation** (review round, P2a; round 3 re-shape) — generation
+    B's startup is suspended in registration; shutdown B starts and is
+    held at the unregister step (shutdown owner won, ownership NOT yet
+    released); B's registration resumes. The aborted startup must
+    reconcile its registration side effect but must NOT clear root
+    ownership: a new start() while the shutdown is still in progress
+    remains a no-op, the shutdown completes exactly once, and only after
+    completion can a fresh generation start. Round 3: the RECONCILING
+    reservation masks a plain release (reconcile re-reserves before
+    unregistering), so the discriminator is release WITH the
+    reconciliation skipped — a fresh start must not claim/register while
+    the previous shutdown is still draining.
 11. **Cancelled registration rolls the startup back** (review round, P2b)
     — the start coroutine is cancelled while registerWorker is suspended;
     the SAME CancellationException instance escapes (the property asserts
@@ -456,19 +460,32 @@ registry-retained-after-crash, generation monotonic.
     STARTING→RUNNING transition must be atomic, so the shutdown owner's
     decision can never be overridden by a startup commit.
 14. **Failed-startup cleanup cannot delete a newer generation's row**
-    (review round 2, M26) — A's registration fails; A's rollback cleanup
-    pauses (registry hook) before the delegate unregister. B starts. A's
-    cleanup must never delete B's registry row (workerId-keyed registry
-    cannot tell generations apart), so cleanup is ordered BEFORE ownership
-    release: while A still owns STARTING, B's start is a guard-level
-    no-op and cannot register in the cleanup window.
-15. **Post-commit epilogue cannot run after a completed shutdown**
-    (review round 2, M27) — B's RUNNING commit SUCCEEDS, then B pauses
-    (test seam) immediately after the commit but before the epilogue emits
-    workerStarted / installs the hook / accepts work; a shutdown completes
-    fully in that window. Resuming must NOT emit workerStarted, launch a
-    heartbeat loop, or accept work — the `shutdownComplete(B) →
-    workerStarted(B)` order stays impossible even after the commit.
+    (review round 2, M26; round 3 re-shape) — A's registration fails; A's
+    rollback cleanup pauses (registry hook) before the delegate
+    unregister. B starts. A's cleanup must never delete B's registry row
+    (workerId-keyed registry cannot tell generations apart), so cleanup
+    is ordered BEFORE ownership release: while A still owns STARTING, B's
+    start is a guard-level no-op and cannot register in the cleanup
+    window. Round 3: the RECONCILING reservation alone masks a naive
+    release-first reorder (reconcile re-reserves before unregistering),
+    so the discriminator is the combined defect — release ownership
+    first AND unregister naked, skipping the reservation entirely.
+15. **Shutdown cannot bisect the activation epilogue** (review round 3,
+    M27) — B's RUNNING commit SUCCEEDS and B enters the activation
+    critical section, then B blocks synchronously inside the seam
+    (immediately before workerStarted). A concurrent shutdown begins
+    while B is blocked: it must NOT emit shutdownStarted/shutdownComplete
+    — claiming RUNNING→SHUTTING_DOWN requires the same lock the epilogue
+    holds. Release the block: B finishes hook/job handoff, THEN the
+    shutdown proceeds. The `shutdownComplete(B) → workerStarted(B)` order
+    stays impossible even after the commit.
+16. **Old-generation STOPPED cleanup cannot delete a newer generation's
+    row** (review round 3, M28) — shutdown completes → STOPPED; the old
+    registration lands after shutdown's unregister (zombie row); the old
+    cleanup reserves reconciliation (STOPPED → RECONCILING) and pauses at
+    the unregister hook. A new start races while the reservation is held:
+    it MUST NOT register yet. The old cleanup finishes → STOPPED; the new
+    start retries → registers and remains registered.
 
 ### Production changes (2, deliberate)
 
@@ -512,10 +529,9 @@ holes around the same generation boundary:
   lifecycle. A CAS-losing start additionally cancels its provisional
   `SupervisorJob` (P3).
 
-No mutex is held across `registerWorker` / drain / `unregisterWorker` —
-ownership is claimed atomically, external work performed, then ownership
-revalidated, preserving the contract that shutdown during registration is
-accepted.
+No lock spans `registerWorker` / drain / `unregisterWorker` — the
+activation lock covers only the non-suspending lifecycle handoff, so
+shutdown during registration is still accepted (round 3, Property 15).
 
 The second review round (properties 12–14) showed that adding more
 revalidation checks around a `lifecycleOwner: AtomicReference<Job?>`
@@ -547,11 +563,11 @@ machine (review round 2, P1a/P1b/P2 — the three new races):
   no newer generation can claim — so the workerId-keyed unregister can
   never delete a newer generation's row. Property 14. A stale
   registration that lands after the shutdown owner released to `STOPPED`
-  is still cleaned (state is `STOPPED`, so no newer generation is
-  registered at the moment of the check); the narrow check-to-unregister
-  window where a fresh claim could slip in is acknowledged here — closing
-  it fully would require generation fencing inside the registry row,
-  which the workerId-keyed `WorkerRegistryStore` does not support.
+  is still cleaned: it is no longer a naked-STOPPED unregister — the
+  cleanup first reserves `STOPPED → RECONCILING(g)` so a fresh claim
+  cannot slip into the check-to-unregister window at all (round 3, M28,
+  Property 16). No registry-schema generation fencing is needed; the
+  state machine reserves the cleanup itself.
 - **Shutdown / crash as transitions.** `shutdown()` CAS-loops
   `STARTING/RUNNING/CRASHED → SHUTTING_DOWN` and releases to `STOPPED`
   only after the drain completes; `crash()` CASes `RUNNING → CRASHED`
@@ -559,14 +575,42 @@ machine (review round 2, P1a/P1b/P2 — the three new races):
   shutdown idempotency guard is per-root (`compareAndSet`), so two
   concurrent direct coordinator calls cannot run the drain twice for the
   same root.
-- **Post-commit epilogue re-check (M27).** The RUNNING commit is atomic,
-  but the epilogue (workerStarted, JVM hook, acceptingWork, heartbeat/poll
-  launches) runs after it. A shutdown that wins `RUNNING → SHUTTING_DOWN`
-  in the commit→epilogue window must abort the epilogue: a re-check right
-  after the commit prevents `workerStarted`/hook/acceptingWork from firing
-  for a generation whose shutdown already completed. Property 15.
 
-### Mutation evidence (27 mutations, each restored; 0 weak)
+The third review round showed the state machine is atomic but the
+startup activation side effects were not: `check → side effect` around
+the commit was still a two-step protocol. The fix linearizes the
+non-suspending lifecycle handoff and reserves STOPPED cleanup:
+
+- **Activation critical section (M27).** The RUNNING commit and the ENTIRE
+  activation epilogue (workerStarted, JVM hook install + handoff, scope
+  attach, acceptingWork, heartbeat + poll launch + handoff) run inside a
+  non-suspending critical section (`activationLock`) shared with the
+  shutdown and crash lifecycle claims. A concurrent shutdown can never
+  observe — let alone bisect — a half-activated worker: claiming
+  `RUNNING → SHUTTING_DOWN` requires the same lock, so it either sees
+  STARTING (its claim wins, the startup verifies and aborts) or RUNNING
+  with the full epilogue already emitted. No check after the commit
+  exists and none is needed — the lock IS the linearization. Property 15
+  proves it by blocking synchronously inside the critical section and
+  asserting shutdown events cannot fire until it is released.
+- **RECONCILING reservation (M28).** When a zombie cleanup observes
+  STOPPED it no longer unregisters while naked STOPPED. It first CASes
+  `STOPPED → RECONCILING(generation, root)`, unregisters, and releases
+  back to STOPPED in a `finally`. While the reservation is held, a newer
+  generation's claim fails and it retries — so the old cleanup can never
+  delete a newer generation's row. Property 16 proves the full sequence:
+  shutdown completed → old registration lands → old cleanup reserves →
+  new start MUST NOT register yet → cleanup finishes → new start retries
+  and remains registered.
+- **Identity-CAS discipline.** `AtomicReference.compareAndSet` compares
+  by identity, not `equals()`. The RECONCILING reservation therefore
+  captures ONE `Reconciling(g, root)` instance and reuses it at both the
+  install and the release CAS — constructing a second, merely-equal
+  instance for the release would never match and would strand the
+  lifecycle permanently in RECONCILING (found by the round-3 review
+  subagent as the cause of the fresh-start-after-abort regression).
+
+### Mutation evidence (28 mutations, each restored; 0 weak)
 
 Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
 same property GREEN for every mutation: start claims ownership
@@ -582,21 +626,24 @@ unregister skipped (GEN), onShutdownComplete / onWorkerStopped /
 onShutdownStarted dropped (GEN), crash does not cancel the root (crash),
 crash emits graceful events (crash), crash clears ownership (GEN), poll /
 heartbeat cancellation skipped (background-loop ownership), started event
-fires before the atomic commit (registration-race / commit-boundary),
-shutdown-state reset runs before the ownership claim (stale-contender,
-review-round M21), aborted startup releases ownership while the shutdown
-still owns/drains it (abort-mid-drain, review-round M22), cancelled
-registration skips rollback (cancelled-start, review-round M23), shutdown
-idempotency reverts to a lifecycle-global boolean (claim-gap, review-round
-2 M24), RUNNING commit reverts to a check-then-set TOCTOU
-(commit-boundary resurrection, review-round 2 M25), cleanup
-releases ownership before reconciling the registry row (cleanup-race,
-review-round 2 M26), post-commit epilogue re-check removed
-(epilogue, review-round 2 M27). A CAS-loser provisional-supervisor leak
-mutation is intentionally NOT added: the orphan `SupervisorJob` is not
-observable from the harness without a production test hook, so such a
-mutation would be weak — the fix itself is asserted structurally by
-property 9's ownership assertions.
+fires before the activation verify (registration-race / commit-boundary,
+review-round M20), stale contender proceeds past a lost claim
+(stale-contender, review-round M21), aborted startup releases ownership
+while the shutdown still owns/drains it (abort-mid-drain, review-round
+M22), cancelled registration skips rollback (cancelled-start, review-round
+M23), shutdown idempotency reverts to a lifecycle-global boolean
+(claim-gap, review-round M24), RUNNING commit skips the in-lock STARTING
+verification (registration-race / commit-boundary resurrection,
+review-round M25), cleanup releases ownership before reconciling the
+registry row (cleanup-race, review-round M26), activation critical section
+is not serialized against shutdown/crash — epilogue can be bisected
+(epilogue, review-round 3 M27), STOPPED cleanup skips the RECONCILING
+reservation — old cleanup can delete a newer row (STOPPED-cleanup race,
+review-round 3 M28). A CAS-loser provisional-supervisor leak mutation is
+intentionally NOT added: the orphan `SupervisorJob` is not observable from
+the harness without a production test hook, so such a mutation would be
+weak — the fix itself is asserted structurally by property 9's ownership
+assertions.
 
 ### Known anomaly (NOT fixed in #280 — tracked for follow-up)
 
