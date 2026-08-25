@@ -66,8 +66,8 @@ class EnableTramaiProfileNeutralTest {
                 context.refresh()
             }
         }
-            .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
-            .hasRootCauseMessage(
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage(
                 "Unsupported tramai.profile 'soveriegn'. Supported values: standard, sovereign.",
             )
     }
