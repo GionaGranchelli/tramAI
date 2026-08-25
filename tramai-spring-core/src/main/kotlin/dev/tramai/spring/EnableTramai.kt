@@ -12,9 +12,9 @@ import org.springframework.context.annotation.Import
  * the TramAI profile configurations contributed by modules on the classpath.
  *
  * The annotation does not select a runtime profile. `tramai.profile` remains the
- * authority: standard is the compatibility default, while the sovereign starter
- * supplies its own Boot default and can also participate in annotation-driven
- * contexts when `tramai.profile=sovereign` is set explicitly.
+ * authority: missing or `standard` yields the standard runtime, `sovereign`
+ * yields the sovereign runtime. There is no implicit sovereign default — the
+ * unified starter behaves identically under both profiles.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
