@@ -10,6 +10,33 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * Generation-aware lifecycle state of a worker. A single atomic reference
+ * holds the complete lifecycle decision — root ownership, startup phase,
+ * shutdown ownership, and generation identity together — so no two operations
+ * can independently decide a transition and race each other through separate
+ * atomics/booleans.
+ *
+ * Transitions (all CAS on the one reference, none suspending):
+ * ```
+ * STOPPED --start claim--> STARTING(g) --commit--> RUNNING(g)
+ * STARTING(g) / RUNNING(g) --shutdown claim--> SHUTTING_DOWN(g) --drain done--> STOPPED
+ * RUNNING(g) --crash--> CRASHED(g)
+ * CRASHED(g) --shutdown claim--> SHUTTING_DOWN(g) --drain done--> STOPPED
+ * ```
+ * Suspend operations (register, drain, unregister) happen OUTSIDE the
+ * transition primitive; the state itself never suspends.
+ */
+internal sealed interface WorkerLifecycleState {
+    data object Stopped : WorkerLifecycleState
+    data class Starting(val generation: Long, val root: Job) : WorkerLifecycleState
+    data class Running(val generation: Long, val root: Job) : WorkerLifecycleState
+    data class ShuttingDown(val generation: Long, val root: Job) : WorkerLifecycleState
+    data class Crashed(val generation: Long, val root: Job) : WorkerLifecycleState
+}
 
 /**
  * Owns the worker lifecycle: the single root [SupervisorJob]/[CoroutineScope],
@@ -35,14 +62,18 @@ internal class WorkerLifecycleController(
     partitionStrategy: PartitionAssignmentStrategy,
 ) {
     private val workerRegistryStore = leaseStore as? WorkerRegistryStore
+
     /**
-     * Atomic lifecycle-ownership primitive: exactly one generation owns the
-     * root at a time. The claim is a CAS so eight racing starts cannot both
-     * pass a plain null-guard; shutdown clears ownership only when the root
-     * is still the one it captured, so a completed shutdown never erases a
-     * root created by a start that ran mid-drain.
+     * The single atomic lifecycle state. Every transition is a CAS on this
+     * reference; generation identity is carried inside the state, so a stale
+     * shutdown state from a previous generation can never reject (or accept)
+     * a decision for the current generation.
      */
-    private val lifecycleOwner = java.util.concurrent.atomic.AtomicReference<Job?>(null)
+    private val lifecycleState = AtomicReference<WorkerLifecycleState>(WorkerLifecycleState.Stopped)
+
+    /** Monotonic generation counter; each successful claim consumes one. */
+    private val generationCounter = AtomicLong(0)
+
     private var workerScope: CoroutineScope? = null
     private var startedAt: Long = 0L
 
@@ -99,31 +130,68 @@ internal class WorkerLifecycleController(
      */
     internal var onStartClaimBoundary: (suspend () -> Unit)? = null
 
+    /**
+     * Test seam for the claim-to-prepare gap (M24): invoked immediately after
+     * the ownership claim and BEFORE the shutdown-state reset, so a test can
+     * deterministically suspend the winner between "owns the root" and
+     * "shutdown state initialized". A shutdown arriving in this window must
+     * still be accepted — the claim itself is a state transition, not a
+     * separate boolean that a stale previous generation can block.
+     */
+    internal var onLifecycleStateClaimed: (suspend () -> Unit)? = null
+
+    /**
+     * Test seam for the RUNNING commit boundary (M25): invoked immediately
+     * before the atomic STARTING→RUNNING commit, so a test can deterministically
+     * suspend the startup after every revalidation has passed but before the
+     * generation is committed as running. A shutdown completing in this window
+     * must prevent the commit — no workerStarted/hook/acceptingWork afterwards.
+     */
+    internal var onRunCommitBoundary: (suspend () -> Unit)? = null
+
+    /**
+     * Test seam for the post-commit epilogue (M27): invoked immediately after
+     * the atomic STARTING→RUNNING commit and BEFORE the post-commit re-check,
+     * so a test can deterministically suspend the winner between "committed
+     * RUNNING" and "emitted workerStarted/installed hook/accepted work". A
+     * shutdown completing in this window must abort the epilogue — no
+     * workerStarted after workerStopped, no hook, no acceptingWork.
+     */
+    internal var onRunCommitted: (suspend () -> Unit)? = null
+
     suspend fun start() {
-        // Idempotency guard first (master parity): while a generation owns the
-        // lifecycle, start is a no-op — and a duplicate start must NEVER reset
-        // the shutdown state of a generation that is mid-shutdown.
-        if (lifecycleOwner.get() != null) {
-            return
-        }
+        // Test seam: suspend a contender that already observed STOPPED before
+        // it attempts the claim (stale-contender property).
         onStartClaimBoundary?.invoke()
         val supervisor = SupervisorJob()
         val scope = CoroutineScope(supervisor + Dispatchers.Default)
+        val generation = generationCounter.incrementAndGet()
+        val claimed = WorkerLifecycleState.Starting(generation, supervisor)
         // Atomic ownership claim: exactly one concurrent start wins; the rest
-        // observe the existing generation (RUNNING/STARTING/CRASHED
-        // idempotent) and return. A lost contender has ZERO authority: it must
-        // not mutate any generation-level state, so the per-generation
-        // shutdown-state reset happens only after the claim (below).
-        if (!lifecycleOwner.compareAndSet(null, supervisor)) {
+        // cancel their provisional root and return. A lost contender has ZERO
+        // authority — it cannot reach the shutdown-state reset, the
+        // registration, or the RUNNING commit.
+        if (!lifecycleState.compareAndSet(WorkerLifecycleState.Stopped, claimed)) {
             supervisor.cancel()
             return
         }
         workerScope = scope
         startedAt = System.currentTimeMillis()
+        // Test seam: suspend the winner between the ownership claim and the
+        // shutdown-state reset (M24). A shutdown arriving here wins the
+        // STARTING→SHUTTING_DOWN transition; we re-check below.
+        onLifecycleStateClaimed?.invoke()
+        // Re-check after the seam: a shutdown may have claimed the generation
+        // while we were suspended. Abort WITHOUT touching the shutdown-state
+        // reset — the shutdown owner owns that state now.
+        if (lifecycleState.get() !== claimed) {
+            supervisor.cancel()
+            workerScope = null
+            return
+        }
         // Reset shutdown state only after winning the ownership claim: a stale
         // contender that observed STOPPED but lost the CAS must never reset the
-        // winning generation's shutdown state (that would let a second shutdown
-        // become owner of an active shutdown). The winner resets so a shutdown
+        // winning generation's shutdown state. The winner resets so a shutdown
         // during STARTING/registration is accepted, never rejected by stale CAS
         // from a previous completed lifecycle.
         shutdownCoordinator.prepareLifecycleStart()
@@ -134,38 +202,45 @@ internal class WorkerLifecycleController(
             // not leave a half-owned STARTING generation (the root is
             // independent of the caller's coroutine, so cancellation does not
             // clean it up for us). Preserve the SAME cancellation instance.
-            rollbackOwnership(supervisor)
+            rollbackStart(claimed)
             throw cancel
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             // Registration failed after the ownership claim: roll the lifecycle
             // back to STOPPED so a later start() can retry normally — no
             // started event, no hook, no accepting work, root discarded.
-            rollbackOwnership(supervisor)
+            rollbackStart(claimed)
             throw error
         }
-        // Revalidate the ownership claim: a concurrent shutdown may have owned
-        // (or be owning) this generation while registration was suspended. An
-        // aborted startup must never emit onWorkerStarted, install a JVM hook,
-        // accept work, or launch heartbeat/poll loops for a generation that has
-        // already been — or is being — shut down.
-        if (lifecycleOwner.get() !== supervisor) {
-            // Ownership was released while we were suspended (the shutdown
-            // owner completed and cleared it, or a newer generation claimed).
-            // Remove a zombie registry row only when nothing newer owns the
-            // lifecycle; the shutdown owner already cancelled our root.
-            reconcileRegistration(supervisor)
+        // Test seam: suspend immediately before the RUNNING commit (M25). A
+        // shutdown completing in this window must prevent the commit.
+        onRunCommitBoundary?.invoke()
+        // Atomic RUNNING commit: the final revalidation and the commit are the
+        // SAME CAS. If a shutdown already transitioned to SHUTTING_DOWN (or a
+        // rollback released to STOPPED), this fails and the startup aborts —
+        // it can never resurrect after a completed shutdown.
+        if (!lifecycleState.compareAndSet(claimed, WorkerLifecycleState.Running(generation, supervisor))) {
             supervisor.cancel()
+            reconcileRegistration(supervisor, generation)
+            workerScope = null
             return
         }
-        if (shutdownCoordinator.isShuttingDownGracefully()) {
-            // A shutdown currently OWNS this generation and is still draining
-            // it. The shutdown owner remains responsible for releasing
-            // ownership and cancelling the root; the aborted startup must not
-            // release ownership out from under the drain, or a new generation
-            // could start mid-drain. Only remove a zombie row committed after
-            // the shutdown's unregister.
-            reconcileRegistration(supervisor)
+        // Test seam: suspend the winner between the RUNNING commit and the
+        // epilogue (M27). A shutdown completing here must abort the epilogue.
+        onRunCommitted?.invoke()
+        // Post-commit re-check: a shutdown may have transitioned us out of
+        // RUNNING between the commit and here. The epilogue must never emit
+        // workerStarted, install a JVM hook, or begin accepting work for a
+        // generation whose shutdown already completed — that would violate the
+        // shutdownComplete(B) → workerStarted(B) event-order invariant.
+        val committed = lifecycleState.get()
+        if (committed !is WorkerLifecycleState.Running ||
+            committed.generation != generation ||
+            committed.root !== supervisor
+        ) {
+            supervisor.cancel()
+            reconcileRegistration(supervisor, generation)
+            workerScope = null
             return
         }
         observability.onWorkerStarted(config.workerId)
@@ -196,33 +271,72 @@ internal class WorkerLifecycleController(
     }
 
     /**
-     * Rolls a failed/cancelled startup back to STOPPED. Releases lifecycle
-     * ownership ONLY if this generation still owns it and no shutdown owns it —
-     * an in-progress shutdown keeps ownership (and root cancellation) for
-     * itself, since it is still draining this root. Best-effort zombie-row
-     * reconciliation follows.
+     * Rolls a failed/cancelled startup back to STOPPED.
+     *
+     * Order matters (P2/M26): cancel the root, reconcile the registry row in
+     * [NonCancellable], and ONLY THEN release the ownership claim. Releasing
+     * first opens the window where a newer generation claims and registers
+     * between the release and the unregister — and the workerId-keyed registry
+     * cannot tell the rows apart, so the old cleanup would delete the new
+     * generation's row. While we still own STARTING, no newer generation can
+     * register, so the unregister can only ever touch our own row.
      */
-    private suspend fun rollbackOwnership(supervisor: Job) {
-        if (lifecycleOwner.get() === supervisor && !shutdownCoordinator.isShuttingDownGracefully()) {
-            lifecycleOwner.compareAndSet(supervisor, null)
+    private suspend fun rollbackStart(claimed: WorkerLifecycleState.Starting) {
+        claimed.root.cancel()
+        reconcileRegistration(claimed.root, claimed.generation)
+        if (lifecycleState.compareAndSet(claimed, WorkerLifecycleState.Stopped)) {
             workerScope = null
-            supervisor.cancel()
         }
-        reconcileRegistration(supervisor)
     }
 
     /**
-     * Removes a registry row this startup may have committed after the shutdown
-     * owner's unregister. Never touches the registry when a NEWER generation
-     * owns the lifecycle (its own startup registers). Suspending cleanup runs
-     * in [NonCancellable] so caller cancellation cannot skip it.
+     * Removes a registry row only when it cannot belong to a newer generation.
+     *
+     * - We still own STARTING(g)/SHUTTING_DOWN(g): no newer generation can
+     *   register while we hold the state, so the row (if any) is ours — safe.
+     * - State is STOPPED: the shutdown owner already released; the row is a
+     *   zombie committed by our own suspended registration after the
+     *   shutdown's unregister. We remove it so a failed startup never leaks a
+     *   registry row. A newer generation can only register by claiming
+     *   STOPPED→STARTING, and once it does the state below no longer matches;
+     *   the narrow check-to-unregister window is acknowledged in the docs.
+     * - A NEWER generation owns STARTING/RUNNING/CRASHED: never touch the row.
+     *
+     * Suspending cleanup runs in [NonCancellable] so caller cancellation
+     * cannot skip it.
      */
-    private suspend fun reconcileRegistration(supervisor: Job) {
-        val owner = lifecycleOwner.get()
-        if (owner != null && owner !== supervisor) {
+    private suspend fun reconcileRegistration(root: Job, generation: Long) {
+        val current = lifecycleState.get()
+        val ours = when (current) {
+            is WorkerLifecycleState.Starting -> current.root === root && current.generation == generation
+            is WorkerLifecycleState.ShuttingDown -> current.root === root && current.generation == generation
+            WorkerLifecycleState.Stopped -> true
+            is WorkerLifecycleState.Running,
+            is WorkerLifecycleState.Crashed,
+            -> false
+        }
+        if (!ours) {
             return
         }
         withContext(NonCancellable) {
+            // Re-verify immediately before the unregister: in the STOPPED
+            // branch a newer generation may have claimed (STOPPED→STARTING)
+            // and registered between the snapshot above and here. If it did,
+            // never touch its row — the workerId-keyed registry cannot tell
+            // the rows apart. While we still hold STARTING/SHUTTING_DOWN no
+            // newer generation can register, so this only guards STOPPED.
+            val now = lifecycleState.get()
+            val stillOurs = when (now) {
+                is WorkerLifecycleState.Starting -> now.root === root && now.generation == generation
+                is WorkerLifecycleState.ShuttingDown -> now.root === root && now.generation == generation
+                WorkerLifecycleState.Stopped -> true
+                is WorkerLifecycleState.Running,
+                is WorkerLifecycleState.Crashed,
+                -> false
+            }
+            if (!stillOurs) {
+                return@withContext
+            }
             try {
                 workerRegistryStore?.unregisterWorker(config.workerId)
             } catch (cleanupError: Throwable) {
@@ -232,21 +346,39 @@ internal class WorkerLifecycleController(
     }
 
     fun crash(cause: CancellationException = CancellationException("Worker '${config.workerId}' crashed")) {
-        lifecycleOwner.get()?.cancel(cause)
+        val current = lifecycleState.get()
+        if (current is WorkerLifecycleState.Running) {
+            // Transition FIRST, then cancel: if a concurrent shutdown wins
+            // RUNNING→SHUTTING_DOWN between the read and the CAS, the CAS
+            // fails and we do not cancel the root — the shutdown owner's
+            // drain owns root cancellation and still emits graceful events.
+            // Cancelling first would abort that drain under a graceful report.
+            if (lifecycleState.compareAndSet(current, WorkerLifecycleState.Crashed(current.generation, current.root))) {
+                current.root.cancel(cause)
+            }
+        }
     }
 
     suspend fun shutdown() {
-        val supervisor = lifecycleOwner.get() ?: return
-        // Clear lifecycle ownership only when THIS call owned the shutdown
-        // (CAS winner) and only if the root is still the one we captured. A
-        // concurrent shutdown that loses the CAS must not null the owner
-        // while the winner is still draining, and a completed shutdown must
-        // not erase a root created by a start() that ran mid-drain.
-        if (shutdownCoordinator.shutdown(supervisor)) {
-            if (lifecycleOwner.get() === supervisor) {
-                lifecycleOwner.compareAndSet(supervisor, null)
-                workerScope = null
-            }
+        val current = lifecycleState.get()
+        val target = when (current) {
+            is WorkerLifecycleState.Starting -> WorkerLifecycleState.ShuttingDown(current.generation, current.root)
+            is WorkerLifecycleState.Running -> WorkerLifecycleState.ShuttingDown(current.generation, current.root)
+            is WorkerLifecycleState.Crashed -> WorkerLifecycleState.ShuttingDown(current.generation, current.root)
+            WorkerLifecycleState.Stopped,
+            is WorkerLifecycleState.ShuttingDown,
+            -> return
+        }
+        if (!lifecycleState.compareAndSet(current, target)) {
+            // Lost the transition to a concurrent caller; it owns the
+            // shutdown. Observers return without acting.
+            return
+        }
+        shutdownCoordinator.shutdown(target.root)
+        // Release to STOPPED only after the drain completes; the shutdown
+        // owner is the one who captured the generation.
+        if (lifecycleState.compareAndSet(target, WorkerLifecycleState.Stopped)) {
+            workerScope = null
         }
     }
 

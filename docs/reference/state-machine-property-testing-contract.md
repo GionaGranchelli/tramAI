@@ -375,7 +375,7 @@ shutdownStarted / shutdownComplete / workerStopped / unregister, registry
 present-while-running, registry absent-after-graceful-stop,
 registry-retained-after-crash, generation monotonic.
 
-### Properties (11)
+### Properties (15)
 
 1. **Generated worker lifecycle sequences** — after every action: event
    counters, registry presence, registration/unregistration counters,
@@ -432,13 +432,45 @@ registry-retained-after-crash, generation monotonic.
     generation start.
 11. **Cancelled registration rolls the startup back** (review round, P2b)
     — the start coroutine is cancelled while registerWorker is suspended;
-    the SAME CancellationException instance escapes (asserted by
-    identity), ownership is rolled back (no started event, no zombie
+    the SAME CancellationException instance escapes (the property asserts
+    `caught?.cause isSameAs cause` — the framework may surface a wrapping
+    cancellation whose cause is the supplied instance; production rethrows
+    the exception it itself caught, so the escaped instance's cause is the
+    supplied one), ownership is rolled back (no started event, no zombie
     row), and a subsequent start() succeeds. The cancellation path must
     not skip mandatory ownership rollback just because cancellation is
     preserved.
+12. **Shutdown in the claim→prepare gap is accepted, never lost**
+    (review round 2, M24) — generation A completes a full lifecycle; B
+    wins the ownership claim and pauses (test seam) BEFORE the
+    shutdown-state reset. A shutdown of B in that gap must be accepted and
+    complete (shutdownStarted/shutdownComplete/workerStopped fire), and B
+    must not reach RUNNING afterwards. This rejects a lifecycle-global
+    shutdown-idempotency boolean whose stale value from generation A
+    rejects generation B's shutdown.
+13. **Startup cannot commit RUNNING after a completed shutdown**
+    (review round 2, M25) — B's registration completes, every revalidation
+    passes, then B pauses (test seam) immediately before the RUNNING
+    commit; a shutdown completes fully in that window. Resuming must NOT
+    emit workerStarted, install a hook, or accept work — the
+    STARTING→RUNNING transition must be atomic, so the shutdown owner's
+    decision can never be overridden by a startup commit.
+14. **Failed-startup cleanup cannot delete a newer generation's row**
+    (review round 2, M26) — A's registration fails; A's rollback cleanup
+    pauses (registry hook) before the delegate unregister. B starts. A's
+    cleanup must never delete B's registry row (workerId-keyed registry
+    cannot tell generations apart), so cleanup is ordered BEFORE ownership
+    release: while A still owns STARTING, B's start is a guard-level
+    no-op and cannot register in the cleanup window.
+15. **Post-commit epilogue cannot run after a completed shutdown**
+    (review round 2, M27) — B's RUNNING commit SUCCEEDS, then B pauses
+    (test seam) immediately after the commit but before the epilogue emits
+    workerStarted / installs the hook / accepts work; a shutdown completes
+    fully in that window. Resuming must NOT emit workerStarted, launch a
+    heartbeat loop, or accept work — the `shutdownComplete(B) →
+    workerStarted(B)` order stays impossible even after the commit.
 
-### Production changes (1, deliberate)
+### Production changes (2, deliberate)
 
 The suite exposed three genuine defects, all in `WorkerLifecycleController`:
 
@@ -485,30 +517,85 @@ ownership is claimed atomically, external work performed, then ownership
 revalidated, preserving the contract that shutdown during registration is
 accepted.
 
-### Mutation evidence (23 mutations, each restored; 0 weak)
+The second review round (properties 12–14) showed that adding more
+revalidation checks around a `lifecycleOwner: AtomicReference<Job?>`
+plus separate coordinator booleans kept moving the race window. The
+fix replaces that split state with ONE generation-aware atomic state
+machine (review round 2, P1a/P1b/P2 — the three new races):
+
+- **A single `WorkerLifecycleState` atomic.** `Stopped / Starting(gen,
+  root) / Running(gen, root) / ShuttingDown(gen, root) / Crashed(gen,
+  root)` in one `AtomicReference`; every transition is a CAS on that one
+  reference and carries the generation identity. A stale shutdown state
+  from a previous generation can no longer reject (or accept) a decision
+  for the current generation — the shutdown claim is the state
+  transition itself, not a lifecycle-global boolean.
+- **Claim-to-prepare gap closed (P1a).** `prepareLifecycleStart` still
+  runs only after the claim, but the coordinator's shutdown idempotency
+  is now per-root (`shutdownRoot: AtomicReference<Job?>`) instead of a
+  global boolean. A shutdown arriving between the claim and the reset is
+  accepted — it wins `STARTING → SHUTTING_DOWN` regardless of what the
+  previous completed lifecycle left behind. Property 12.
+- **Atomic RUNNING commit (P1b).** The final revalidation and the commit
+  are the SAME CAS (`STARTING → RUNNING`). A shutdown that transitioned
+  to `SHUTTING_DOWN`, or a rollback that released to `STOPPED`, makes the
+  commit fail — startup can never resurrect after a completed shutdown.
+  Property 13.
+- **Cleanup ordered before release (P2).** `rollbackStart` cancels the
+  root, reconciles the registry row in `NonCancellable`, and only THEN
+  releases ownership. While the failed generation still owns `STARTING`,
+  no newer generation can claim — so the workerId-keyed unregister can
+  never delete a newer generation's row. Property 14. A stale
+  registration that lands after the shutdown owner released to `STOPPED`
+  is still cleaned (state is `STOPPED`, so no newer generation is
+  registered at the moment of the check); the narrow check-to-unregister
+  window where a fresh claim could slip in is acknowledged here — closing
+  it fully would require generation fencing inside the registry row,
+  which the workerId-keyed `WorkerRegistryStore` does not support.
+- **Shutdown / crash as transitions.** `shutdown()` CAS-loops
+  `STARTING/RUNNING/CRASHED → SHUTTING_DOWN` and releases to `STOPPED`
+  only after the drain completes; `crash()` CASes `RUNNING → CRASHED`
+  (root cancelled, registry retained — not a graceful departure). The
+  shutdown idempotency guard is per-root (`compareAndSet`), so two
+  concurrent direct coordinator calls cannot run the drain twice for the
+  same root.
+- **Post-commit epilogue re-check (M27).** The RUNNING commit is atomic,
+  but the epilogue (workerStarted, JVM hook, acceptingWork, heartbeat/poll
+  launches) runs after it. A shutdown that wins `RUNNING → SHUTTING_DOWN`
+  in the commit→epilogue window must abort the epilogue: a re-check right
+  after the commit prevents `workerStarted`/hook/acceptingWork from firing
+  for a generation whose shutdown already completed. Property 15.
+
+### Mutation evidence (27 mutations, each restored; 0 weak)
 
 Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
 same property GREEN for every mutation: start claims ownership
-unconditionally (GEN / concurrent-start), ownership assigned only after
-registration (registration-race), `prepareLifecycleStart` removed (GEN /
-registration-race), shutdown reset moved after registration
-(registration-race), startup continues after its generation lost ownership
-(registration-race), registration failure retains root ownership
-(startup-failure/retry), registration twice per generation (GEN),
-onWorkerStarted dropped (GEN), aborted startup keeps the zombie registry
-row (registration-race), shutdown CAS removed (concurrent-shutdown),
+unconditionally (GEN / concurrent-start), start never commits RUNNING
+(GEN), shutdown never releases lifecycle ownership after the drain (GEN),
+`prepareLifecycleStart` removed (GEN / claim-gap), rollback cleanup runs
+in a cancellable context (cancelled-start), registration failure retains
+root ownership (startup-failure/retry), registration twice per generation
+(GEN), onWorkerStarted dropped (GEN), aborted startup keeps the zombie
+registry row (registration-race), shutdown transition not atomic
+(concurrent-shutdown, controller + coordinator guards removed together),
 unregister skipped (GEN), onShutdownComplete / onWorkerStopped /
 onShutdownStarted dropped (GEN), crash does not cancel the root (crash),
 crash emits graceful events (crash), crash clears ownership (GEN), poll /
 heartbeat cancellation skipped (background-loop ownership), started event
-fires before the abort check (registration-race), shutdown-state reset
-runs before the ownership claim (stale-contender, review-round M21),
-aborted startup releases ownership while the shutdown still owns/drains it
-(abort-mid-drain, review-round M22), cancelled registration skips rollback
-(cancelled-start, review-round M23). A CAS-loser provisional-supervisor
-leak mutation (M24) is intentionally NOT added: the orphan `SupervisorJob`
-is not observable from the harness without a production test hook, so such
-a mutation would be weak — the fix itself is asserted structurally by
+fires before the atomic commit (registration-race / commit-boundary),
+shutdown-state reset runs before the ownership claim (stale-contender,
+review-round M21), aborted startup releases ownership while the shutdown
+still owns/drains it (abort-mid-drain, review-round M22), cancelled
+registration skips rollback (cancelled-start, review-round M23), shutdown
+idempotency reverts to a lifecycle-global boolean (claim-gap, review-round
+2 M24), RUNNING commit reverts to a check-then-set TOCTOU
+(registration-race / commit-boundary, review-round 2 M25), cleanup
+releases ownership before reconciling the registry row (cleanup-race,
+review-round 2 M26), post-commit epilogue re-check removed
+(epilogue, review-round 2 M27). A CAS-loser provisional-supervisor leak
+mutation is intentionally NOT added: the orphan `SupervisorJob` is not
+observable from the harness without a production test hook, so such a
+mutation would be weak — the fix itself is asserted structurally by
 property 9's ownership assertions.
 
 ### Known anomaly (NOT fixed in #280 — tracked for follow-up)

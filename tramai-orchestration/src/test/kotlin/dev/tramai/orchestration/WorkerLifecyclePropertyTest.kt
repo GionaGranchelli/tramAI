@@ -430,28 +430,32 @@ class WorkerLifecyclePropertyTest {
         assertThat(observer.shutdownStarted).hasSize(1)
 
         // Resume stale A: it must lose the ownership CAS and — critically —
-        // must NOT reset the winning generation's shutdown state.
-        hookGate.complete(Unit)
-        withTimeout(10_000) { starterA.join() }
-        assertThat(observer.workerStarted)
-            .withFailMessage("stale contender must not become an owner")
-            .hasSize(1)
-        assertThat(registrations.get()).isEqualTo(1)
+        // must NOT reset the winning generation's shutdown state. Gates are
+        // completed in a finally so a RED failure (e.g. stale reset, M21)
+        // returns fast instead of stranding B in the held unregister.
+        try {
+            hookGate.complete(Unit)
+            withTimeout(10_000) { starterA.join() }
+            assertThat(observer.workerStarted)
+                .withFailMessage("stale contender must not become an owner")
+                .hasSize(1)
+            assertThat(registrations.get()).isEqualTo(1)
 
-        // A second shutdown caller must remain a loser: B's shutdown CAS was
-        // never reset, so this call returns immediately instead of starting a
-        // second (concurrent) shutdown sequence.
-        withTimeout(5_000) {
-            val secondShutdown = launch { controller.shutdown() }
-            secondShutdown.join()
+            // A second shutdown caller must remain a loser: B's shutdown CAS was
+            // never reset, so this call returns immediately instead of starting a
+            // second (concurrent) shutdown sequence.
+            withTimeout(5_000) {
+                val secondShutdown = launch { controller.shutdown() }
+                secondShutdown.join()
+            }
+            assertThat(observer.shutdownStarted)
+                .withFailMessage("stale contender must not reset the shutdown CAS: exactly one shutdown owner")
+                .hasSize(1)
+        } finally {
+            // Release the held unregister: exactly one shutdown sequence completes
+            // and the shutdown owner releases ownership.
+            unregisterGate.complete(Unit)
         }
-        assertThat(observer.shutdownStarted)
-            .withFailMessage("stale contender must not reset the shutdown CAS: exactly one shutdown owner")
-            .hasSize(1)
-
-        // Release the held unregister: exactly one shutdown sequence completes
-        // and the shutdown owner releases ownership.
-        unregisterGate.complete(Unit)
         withTimeout(10_000) { shutdownB.join() }
         assertThat(observer.shutdownComplete).hasSize(1)
         assertThat(observer.workerStopped).hasSize(1)
@@ -606,6 +610,308 @@ class WorkerLifecyclePropertyTest {
         assertThat(harness.isRegistered()).isTrue()
         harness.worker.shutdown()
         assertThat(harness.observer.shutdownComplete).hasSize(1)
+    }
+
+    // ── Property 12: shutdown in the claim→prepare gap is not lost (M24) ──
+
+    @Test
+    fun `shutdown between ownership claim and shutdown-state reset is accepted, never lost`() = runBlocking<Unit> {
+        // Idle-worker setup: NO workflow, NO lease claim, NO recovery. The
+        // discriminator is purely the lifecycle state machine: generation A
+        // completes a full lifecycle (leaving the coordinator's shutdown state
+        // "used"), then generation B wins the root but is suspended before the
+        // shutdown-state reset. A shutdown of B in that gap must be ACCEPTED —
+        // not rejected by a stale shutdown CAS from generation A.
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("claim-gap-shutdown"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+
+        // Generation A: complete start + shutdown. Coordinator shutdown state
+        // is now "used" (shutdownStarted=true, shuttingDownGracefully=true)
+        // and is only reset by the NEXT start's prepareLifecycleStart().
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(1)
+        controller.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(1)
+        assertThat(observer.workerStopped).hasSize(1)
+
+        // Generation B: wins the root, pauses BEFORE the shutdown-state reset.
+        controller.onLifecycleStateClaimed = {
+            entered.complete(Unit)
+            gate.await()
+        }
+        val starterB = launch { controller.start() }
+        withTimeout(10_000) { entered.await() }
+
+        // Shutdown B in the gap: must be accepted and must complete the full
+        // shutdown sequence — it must NOT be lost to the stale shutdown CAS
+        // left by generation A. The gate is completed in a finally so a RED
+        // failure (shutdown lost, M24) returns fast instead of stranding B.
+        try {
+            withTimeout(10_000) { controller.shutdown() }
+            assertThat(observer.shutdownStarted)
+                .withFailMessage("shutdown in the claim→prepare gap must be accepted, not lost")
+                .hasSize(2)
+            assertThat(observer.shutdownComplete)
+                .withFailMessage("shutdown in the claim→prepare gap must complete")
+                .hasSize(2)
+            assertThat(observer.workerStopped).hasSize(2)
+        } finally {
+            gate.complete(Unit)
+        }
+
+        // Resume B: it must NOT reach RUNNING (the shutdown already owns the
+        // generation) and must not emit onWorkerStarted.
+        withTimeout(10_000) { starterB.join() }
+        assertThat(observer.workerStarted)
+            .withFailMessage("generation B must not reach RUNNING after its shutdown was accepted")
+            .hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
+
+    // ── Property 13: no RUNNING commit after a completed shutdown (M25) ──
+
+    @Test
+    fun `startup cannot commit RUNNING after shutdown completed at the commit boundary`() = runBlocking<Unit> {
+        // Idle-worker setup. The startup passes every revalidation, then pauses
+        // IMMEDIATELY before the RUNNING commit. A shutdown completes fully in
+        // that window. Resuming must not emit workerStarted, must not install a
+        // hook, must not begin accepting work — the shutdown owns the
+        // generation, and the STARTING→RUNNING transition must be atomic.
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        val commitEntered = CompletableDeferred<Unit>()
+        val commitGate = CompletableDeferred<Unit>()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("commit-boundary"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+
+        // Generation B: registration completes, revalidation passes, then pause
+        // at the RUNNING commit boundary.
+        hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        controller.onRunCommitBoundary = {
+            commitEntered.complete(Unit)
+            commitGate.await()
+        }
+        val starterB = launch { controller.start() }
+        withTimeout(10_000) { regEntered.await() }
+        regGate.complete(Unit)
+        withTimeout(10_000) { commitEntered.await() }
+        assertThat(observer.workerStarted).isEmpty()
+
+        // Shutdown B completes fully while the startup is parked at the commit
+        // boundary: shutdownStarted/Complete, unregister, workerStopped. The
+        // commit gate is completed in a finally so a RED failure returns fast
+        // instead of stranding B.
+        try {
+            withTimeout(10_000) { controller.shutdown() }
+            assertThat(observer.shutdownComplete).hasSize(1)
+            assertThat(observer.workerStopped).hasSize(1)
+        } finally {
+            commitGate.complete(Unit)
+        }
+
+        // Resume B: the commit must FAIL — the generation was shut down.
+        withTimeout(10_000) { starterB.join() }
+        assertThat(observer.workerStarted)
+            .withFailMessage("startup must not commit RUNNING after a completed shutdown")
+            .isEmpty()
+        assertThat(observer.heartbeats).isEmpty()
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+
+        // A fresh generation C can still start normally afterwards.
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).hasSize(1)
+        controller.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(2)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
+
+    // ── Property 14: cleanup never deletes a newer generation's row (M26) ──
+
+    @Test
+    fun `failed startup cleanup cannot unregister a newer generation's registry row`() = runBlocking<Unit> {
+        // A's registration fails; A's rollback reaches its registry cleanup and
+        // pauses BEFORE the delegate unregister. Generation B starts and
+        // registers successfully. When A's cleanup resumes it must NOT delete
+        // B's row — registry identity is workerId-only, so the cleanup must be
+        // ordered (or reserved) so it can never hit a row it did not create.
+        val cleanupEntered = CompletableDeferred<Unit>()
+        val cleanupGate = CompletableDeferred<Unit>()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("cleanup-race"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+
+        // A's registration fails; A's rollback cleanup pauses at the unregister
+        // delegate (the registry hook fires inside the cleanup path). A runs in
+        // its own coroutine so the test can drive the gate while A is parked.
+        hooks.failNextRegistration = true
+        hooks.onUnregister = {
+            cleanupEntered.complete(Unit)
+            cleanupGate.await()
+        }
+        val aCompleted = CompletableDeferred<Unit>()
+        val starterA = launch {
+            runCatching { controller.start() }
+            aCompleted.complete(Unit)
+        }
+        withTimeout(10_000) { cleanupEntered.await() }
+
+        // B attempts to start while A is parked in cleanup. Correct design: A
+        // still owns the lifecycle during its cleanup, so B's start is a
+        // guard-level no-op and B does NOT register while A is parked. Broken
+        // design (cleanup-after-release): B claims, registers and runs while A
+        // is parked, and A's late unregister deletes B's row.
+        controller.start()
+
+        // Release A's cleanup. A's unregister must never delete a row that a
+        // newer generation registered.
+        cleanupGate.complete(Unit)
+        withTimeout(10_000) { aCompleted.await() }
+
+        // B starts again after A fully released. In the fixed design this is
+        // B's real start (the earlier one was a no-op); in the broken design B
+        // is already running and this is a no-op. Either way B must be the one
+        // generation that is registered and running, with its row intact.
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers())
+            .withFailMessage("old-generation cleanup must not delete the new generation's registry row")
+            .hasSize(1)
+        assertThat(registrations.get()).isEqualTo(1)
+
+        // B shuts down cleanly; A's abort left nothing behind.
+        controller.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
+
+    // ── Property 15: no epilogue (hook/acceptingWork/started) after shutdown
+    //    lands post-commit (M27) ─────────────────────────────────────────
+
+    @Test
+    fun `startup cannot emit workerStarted or accept work after shutdown at the post-commit epilogue`() = runBlocking<Unit> {
+        // Idle-worker setup. B COMMITS RUNNING (the atomic STARTING→RUNNING
+        // CAS succeeds), then pauses immediately AFTER the commit but BEFORE
+        // the epilogue emits workerStarted / installs the hook / accepts work.
+        // A shutdown completes fully in that window. The post-commit re-check
+        // must abort the epilogue: no workerStarted after workerStopped, no
+        // heartbeat loop, no accepting work — the event order
+        // shutdownComplete(B) → workerStarted(B) stays impossible.
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        val commitEntered = CompletableDeferred<Unit>()
+        val commitGate = CompletableDeferred<Unit>()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val registrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val unregistrations = java.util.concurrent.atomic.AtomicInteger(0)
+        val hooks = WorkerLifecyclePropertyHarness.WorkerRegistryHooks()
+        val registry = ControllableWorkerRegistry(leaseStore, hooks, registrations, unregistrations)
+        val observer = WorkerLifecyclePropertyHarness.RecordingWorkerObserver()
+        val controller = WorkerLifecycleController(
+            config = workerConfig("post-commit-epilogue"),
+            leaseStore = registry,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointStore,
+            stepAttemptStore = checkpointStore,
+            workflowBindings = WorkflowBindingRegistry { },
+            observability = observer,
+            partitionStrategy = ModHashPartitionStrategy(),
+        )
+
+        // Generation B: registration completes, the RUNNING commit SUCCEEDS,
+        // then pause at the post-commit epilogue boundary.
+        hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        controller.onRunCommitted = {
+            commitEntered.complete(Unit)
+            commitGate.await()
+        }
+        val starterB = launch { controller.start() }
+        withTimeout(10_000) { regEntered.await() }
+        regGate.complete(Unit)
+        withTimeout(10_000) { commitEntered.await() }
+        assertThat(observer.workerStarted).isEmpty()
+
+        // Shutdown B completes fully while B is parked at the post-commit
+        // epilogue boundary: shutdownStarted/Complete, unregister,
+        // workerStopped. The epilogue gate is completed in a finally so a RED
+        // failure (M27) returns fast instead of stranding B.
+        try {
+            withTimeout(10_000) { controller.shutdown() }
+            assertThat(observer.shutdownComplete).hasSize(1)
+            assertThat(observer.workerStopped).hasSize(1)
+        } finally {
+            commitGate.complete(Unit)
+        }
+
+        // Resume B: the post-commit re-check must abort the epilogue — no
+        // workerStarted, no heartbeat loop, no accepting work.
+        withTimeout(10_000) { starterB.join() }
+        assertThat(observer.workerStarted)
+            .withFailMessage("post-commit shutdown must abort the epilogue: no workerStarted after workerStopped")
+            .isEmpty()
+        assertThat(observer.heartbeats).isEmpty()
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+
+        // A fresh generation C can still start normally afterwards.
+        controller.start()
+        assertThat(observer.workerStarted).hasSize(1)
+        assertThat(leaseStore.listActiveWorkers()).hasSize(1)
+        controller.shutdown()
+        assertThat(observer.shutdownComplete).hasSize(2)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
     }
 
     @Test

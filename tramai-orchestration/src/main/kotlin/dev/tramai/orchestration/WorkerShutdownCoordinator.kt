@@ -5,7 +5,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Owns the graceful-shutdown state and sequence for the worker.
@@ -28,7 +28,17 @@ internal class WorkerShutdownCoordinator(
     private val executionSupervisor: WorkflowExecutionSupervisor,
     private val workerRegistryStore: WorkerRegistryStore?,
 ) {
-    private val shutdownStarted = AtomicBoolean(false)
+    /**
+     * Per-root shutdown idempotency. The CONTROLLER's atomic lifecycle state
+     * is the authority for "who owns a shutdown" (STARTING/RUNNING/CRASHED →
+     * SHUTTING_DOWN CAS); this reference only prevents the frozen sequence
+     * from running twice for the SAME generation root. It is keyed by root
+     * identity — not a lifecycle-global boolean — so a new generation's
+     * shutdown can never be rejected by stale state from a previous completed
+     * lifecycle (P1a: a shutdown arriving in the claim→prepare gap must be
+     * accepted, not lost).
+     */
+    private val shutdownRoot = AtomicReference<Job?>(null)
     private var pollJob: Job? = null
     private var heartbeatJob: Job? = null
 
@@ -47,13 +57,14 @@ internal class WorkerShutdownCoordinator(
 
     /**
      * Resets shutdown state for a new lifecycle. Must run at the very start
-     * of start(), before the root is created or registration can suspend, so
-     * a concurrent shutdown during registration is never rejected by stale
-     * state from a previous completed lifecycle.
+     * of start(), after the ownership claim, so a concurrent shutdown during
+     * registration is never rejected by stale state from a previous completed
+     * lifecycle. The per-root [shutdownRoot] is cleared so the new
+     * generation's root can be recorded.
      */
     fun prepareLifecycleStart() {
         shuttingDownGracefully = false
-        shutdownStarted.set(false)
+        shutdownRoot.set(null)
     }
 
     /**
@@ -82,15 +93,20 @@ internal class WorkerShutdownCoordinator(
     /**
      * Performs the frozen graceful-shutdown sequence.
      *
-     * @return true if this invocation owned and completed the shutdown
-     *   (i.e. its CAS won); false if another shutdown was already in
-     *   progress and this call only observed it. Callers must clear
-     *   lifecycle state only when true and only for the same root they
-     *   captured, so a concurrent shutdown can never erase ownership of a
-     *   newer root.
+     * @return true if this invocation ran the sequence for [rootSupervisor];
+     *   false if the same root was already shut down (idempotent repeat —
+     *   direct coordinator callers, never the controller, which owns the
+     *   transition authority). Callers must clear lifecycle state only when
+     *   true and only for the same root they captured.
      */
     suspend fun shutdown(rootSupervisor: Job): Boolean {
-        if (!shutdownStarted.compareAndSet(false, true)) {
+        val current = shutdownRoot.get()
+        if (current === rootSupervisor) {
+            return false
+        }
+        if (!shutdownRoot.compareAndSet(current, rootSupervisor)) {
+            // Lost a concurrent claim for a different root; the winner owns
+            // the sequence for its generation.
             return false
         }
         shuttingDownGracefully = true
