@@ -247,6 +247,25 @@ class JdbcWorkflowLeaseStore(
                     if (current != null && !isExpired(current)) {
                         throw activeLeaseConflict()
                     }
+                    if (current == null) {
+                        // The expired predecessor row was removed concurrently
+                        // (e.g. a no-op release of the already-expired lease).
+                        // The key is now free: the claim legally wins by
+                        // inserting the new lease, not by reporting conflict.
+                        try {
+                            conn.prepareStatement(insertSql()).use { insert ->
+                                insert.bindLease(lease)
+                                insert.executeUpdate()
+                            }
+                        } catch (error: SQLException) {
+                            val raced = loadLease(conn, lease.workflowName, lease.workflowId)
+                            if (raced != null && !isExpired(raced)) {
+                                throw activeLeaseConflict()
+                            }
+                            throw error
+                        }
+                        return@executeJdbcCancellable
+                    }
                     throw safePersistenceFailure(PersistenceResourceKind.LEASE, PersistenceOperation.CLAIM, PersistenceFailureCode.CONFLICT)
                 }
             }

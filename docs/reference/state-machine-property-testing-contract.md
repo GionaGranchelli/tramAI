@@ -757,3 +757,124 @@ checkpoint, one trivial step, worker.start()) and bisect the contributing
 factor; if it reproduces outside the lifecycle harness it is a material
 orchestration liveness defect and should be fixed in a dedicated PR before
 Epic 8.2d.
+
+## Lease lifecycle — Epic 8.2d (PR number assigned by GitHub)
+
+The second lifecycle slice targets the durable lease ownership state machine
+— NOT the worker renewal loop (delay/renew/conflict/retry is a separate
+machine, explicitly out of scope). The slice proves the central lease
+invariant:
+
+> Exactly one lease generation is authoritative; once a token loses
+> authority it can never regain it — even when the same owner returns, the
+> old snapshot carries the same workflow identity, or the caller supplies
+> newer-looking metadata.
+
+### Model states
+
+`WorkflowLeaseLifecycleModel(now, generation, current, predecessors, hasOlderSnapshot)` —
+a pure oracle independent of store-generated UUIDs. Tokens are symbolic
+(T1/T2/T3...); the harness binds each symbolic token to the real `leaseId`
+returned by the store and asserts the actual IDs differ across generations.
+`generation` counts successful claims; a takeover (claim over an expired
+lease) increments it exactly once; renewal never increments it.
+`ModeledLease(generation, symbolicToken, ownerId, checkpointRevision,
+acquiredAtEpochMillis, expiresAtEpochMillis)`.
+
+### Snapshot vs generation (explicit distinction)
+
+An older metadata snapshot of the CURRENT token (same `leaseId`, stale
+revision/expiry/acquiredAt) is still a legal capability — the store checks
+only `leaseId` + `ownerId`. A predecessor token (different generation) is
+permanently fenced. The model distinguishes these: renew/release via an old
+snapshot of the current token succeeds; via any predecessor/wrong/forked
+token it conflicts.
+
+### Expiry boundary (pinned)
+
+`expiresAt > now` → active; `expiresAt <= now` → expired (lazily removed).
+Time is monotonic (no rewinding — unlike the approval slice, expiry
+legitimately normalizes durable state).
+
+### Generated corpus
+
+32 seeds × 32 actions, deterministic (`Random(seed)`), state-aware picking
+with a forced 22-step discriminator spine guaranteeing: fresh claim, active
+competing claim, same-owner competing claim, renew current, multiple
+renewals, release current, claim after release, before-expiry active,
+exact-expiry transition, past-expiry transition, different-owner takeover,
+same-owner takeover, stale predecessor renew, stale predecessor release, old
+same-token snapshot renew, old same-token snapshot release, wrong owner
+renew/release, forged token renew/release, checkpointRevision null→non-null
+and non-null→null, and 3+ generations in one history. The coverage guard
+(`WorkflowLeaseLifecycleActionGeneratorTest`) asserts the 23 categories are
+semantically reached (not just present as enum constants) and that the same
+seed yields the same trace.
+
+### Properties (8 new shared cases, 51 → 57 × 3 implementations)
+
+1. **Generated histories match the independent model** — every seed/step:
+   outcome category (success/no-op/conflict), durable `currentLease` vs the
+   model, fresh-token-per-generation assertion (actual `leaseId` not in the
+   set of all prior bound IDs), conflict non-mutation, per-step invariants.
+2. **Every predecessor stays fenced after multiple generations** — T1→T2→T3→T4;
+   renew/release of T1/T2/T3 all conflict; T4 unchanged.
+3. **Same-owner reincarnation is a new generation** — A/T1 → expiry → A/T2;
+   `leaseId` differs; renew(T1)/release(T1) conflict; T2 current.
+4. **Renewal does not create a new generation** — leaseId/owner/acquiredAt
+   preserved across renew×3; only checkpointRevision and expiresAt change.
+5. **Concurrent renew vs release has one legal serialization** (×20, start
+   barrier): release succeeds, renew ∈ {success, conflict}, final ABSENT —
+   never a post-release resurrection.
+6. **Exact-expiry takeover vs old release cannot destroy the successor**
+   (×20): at `now == expiresAt`, claim(new) vs release(old); both legal
+   serializations end with current = T2.
+
+### Fence-lineage properties (2 new shared cases, 14 → 16 × 3 implementations)
+
+7. **Fence authority follows token lineage** — T1→T2→T3; fence(T3) succeeds;
+   fence(T1)/fence(T2) stale; failed predecessor fences leave the checkpoint
+   unchanged.
+8. **Exact-expiry takeover atomically invalidates the predecessor fence** —
+   old expires at exact boundary, successor claims; old token can neither
+   save nor delete a checkpoint (STALE, checkpoint unchanged); the successor
+   is the only active fencing capability.
+
+### Mutation evidence (21 mutations, each restored; 0 weak)
+
+M1 active claim overwrites the current lease, M2 exact expiry treated as
+still active, M3 takeover reuses the predecessor leaseId (covers both owner
+kinds — the same-owner and different-owner paths share one code line in
+InMemory), M5 renew generates a new token, M6 renew changes acquiredAt, M7
+renew expiry based on old expiry instead of now, M8 renew trusts
+caller-provided expiresAt, M9 renew trusts caller checkpointRevision as
+durable source, M10 wrong-owner renew accepted, M11 wrong-token renew
+accepted, M12 stale predecessor renew changes the successor, M13 wrong-owner
+release accepted, M14 wrong-token release accepted, M15 stale predecessor
+release deletes the successor, M16 release requires the latest metadata
+snapshot rather than token capability, M17 renew-vs-release race resurrects
+the lease (missing-row guard removed), M18 expired release removes a
+concurrently installed successor (caller expiry trusted), M19 fence accepts
+a predecessor token, M20 fence extends the lease expiry, M21 fence mutates
+the durable lease revision, M22 JDBC claim reports conflict when the expired
+predecessor row vanished concurrently (0-row insert revert). M4 is folded
+into M3 (identical InMemory code line); every mutation made at least one NEW
+Epic 8.2d property red and the property suite went green again after each
+restore.
+
+### Production change discovered
+
+The generated-history property and the P6 concurrency property exposed a
+genuine JDBC linearizability defect: `JdbcWorkflowLeaseStore.claim` could
+lose a legitimate exact-expiry takeover. `claim` loaded the expired
+predecessor row, then a concurrent no-op `release` of that already-expired
+lease deleted the row before `replaceExpiredLease`'s conditional UPDATE —
+the UPDATE matched 0 rows and claim reported CONFLICT even though the key
+was now free. That outcome has no legal serialization (both serializations
+end with the new lease installed). Fix: when the UPDATE affects 0 rows and
+re-reading shows the key is gone, the claim legally wins by inserting the
+new lease on the same connection (a concurrent claim racing the insert is
+still detected via the active-lease re-check + SQLException path). The
+InMemory and File stores never exhibited the race (both serialize the
+check-then-act); the property runs against all three implementations and
+only JDBC went red pre-fix.
