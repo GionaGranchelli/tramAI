@@ -1,21 +1,24 @@
 package dev.tramai.spring
 
+import org.springframework.boot.autoconfigure.AutoConfigurationPackage
 import org.springframework.context.annotation.Import
 
 /**
- * Enables TramAI Spring integration for the standard runtime profile.
+ * Enables TramAI's Spring programming model for the active runtime profile.
  *
- * In Spring Boot applications the starter auto-configuration is normally
- * sufficient; this annotation remains an explicit opt-in for applications that
- * prefer annotation-driven configuration. It routes through the standard
- * profile gate only — sovereign `@AiService` registration requires the
- * sovereign starter's auto-configuration.
+ * In Spring Boot applications TramAI auto-configuration is normally sufficient,
+ * so this annotation is optional. In an annotation-driven Spring context it
+ * establishes the application package used for `@AiService` discovery and loads
+ * the TramAI profile configurations contributed by modules on the classpath.
+ *
+ * The annotation does not select a runtime profile. `tramai.profile` remains the
+ * authority: standard is the compatibility default, while the sovereign starter
+ * supplies its own Boot default and can also participate in annotation-driven
+ * contexts when `tramai.profile=sovereign` is set explicitly.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
-@Import(
-    StandardTramaiProfileAutoConfiguration::class,
-    AiServiceProxyAutoConfiguration::class,
-)
+@AutoConfigurationPackage
+@Import(TramaiEnableImportSelector::class)
 annotation class EnableTramai
