@@ -589,7 +589,7 @@ still owns/drains it (abort-mid-drain, review-round M22), cancelled
 registration skips rollback (cancelled-start, review-round M23), shutdown
 idempotency reverts to a lifecycle-global boolean (claim-gap, review-round
 2 M24), RUNNING commit reverts to a check-then-set TOCTOU
-(registration-race / commit-boundary, review-round 2 M25), cleanup
+(commit-boundary resurrection, review-round 2 M25), cleanup
 releases ownership before reconciling the registry row (cleanup-race,
 review-round 2 M26), post-commit epilogue re-check removed
 (epilogue, review-round 2 M27). A CAS-loser provisional-supervisor leak
