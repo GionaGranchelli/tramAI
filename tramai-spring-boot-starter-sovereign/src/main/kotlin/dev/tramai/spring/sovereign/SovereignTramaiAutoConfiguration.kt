@@ -23,13 +23,16 @@ import dev.tramai.security.model.InMemoryModelRegistry
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
+import dev.tramai.spring.AiToolScanner
 import java.time.Clock
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
 
 /**
@@ -54,6 +57,9 @@ import org.springframework.context.annotation.Bean
     matchIfMissing = true,
 )
 class SovereignTramaiAutoConfiguration {
+
+    @field:Autowired
+    private lateinit var applicationContext: ApplicationContext
 
     companion object {
         private const val DEFAULT_REVISION = "0.0.1"
@@ -209,12 +215,13 @@ class SovereignTramaiAutoConfiguration {
             builder.provider(provider, name = provider.providerId())
         }
 
-        // Register TramaiTool beans from the application context.
-        // Users provide TramaiTool Spring beans and the starter wires
-        // them into the governed runtime. Duplicate tool names are rejected
-        // by the engine at build time — collection keeps that fail-loud
-        // behavior instead of silently deduplicating.
-        builder.tools(toolProviders.orderedStream().toList())
+        // Preserve explicit TramaiTool beans and add the same @AiTool method
+        // discovery used by the standard Spring runtime. Duplicate names are
+        // intentionally passed through so the engine remains the single
+        // fail-loud authority for tool identity collisions.
+        val explicitTools = toolProviders.orderedStream().toList()
+        val annotatedTools = AiToolScanner.fromApplicationContext(applicationContext)
+        builder.tools(explicitTools + annotatedTools)
 
         // Register model routes from properties.
         for ((modelName, providerName) in properties.models) {

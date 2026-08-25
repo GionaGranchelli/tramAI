@@ -181,7 +181,7 @@ This should explain what the tool does, not how it is implemented.
 
 #### `idempotent`
 
-Whether the tool is safe to retry after transient failure.
+Whether repeating execution with the same logical input is safe. This describes repetition safety, not whether TramAI should retry the tool after a failure.
 
 Default: `false`
 
@@ -192,6 +192,42 @@ Side-effect classification for the tool.
 Default: `UNKNOWN`
 
 Use it to describe whether the tool reads data, writes data, or has stronger external effects.
+
+#### `permission`
+
+Permission required to expose and execute the tool under secure policy profiles.
+
+Default: empty string.
+
+Empty preserves the legacy annotation contract: no `ToolSecurityMetadata` is produced and the standard runtime exposes the tool as before. Secure profiles such as sovereign TramAI reject tools without security metadata (`tool-metadata-missing`). Setting a non-empty permission makes the annotation produce strict `ToolSecurityMetadata` using `risk`, `approval`, `managedNetworkEgress`, and `audit`.
+
+#### `risk`
+
+Risk classification used by secure policy profiles when `permission` is set.
+
+Default: `RiskLevel.HIGH`
+
+#### `approval`
+
+Approval mode used by secure policy profiles when `permission` is set.
+
+Default: `ApprovalMode.HUMAN_REQUIRED`
+
+#### `managedNetworkEgress`
+
+Managed network-egress metadata for TramAI-managed destinations when `permission` is set.
+
+Default: `ManagedNetworkEgress.DENY`
+
+This does not sandbox arbitrary networking performed inside the annotated method. Infrastructure controls remain required for code paths that bypass TramAI-managed transports.
+
+#### `audit`
+
+Audit detail metadata requested for governed execution when `permission` is set.
+
+Default: `AuditDetail.FULL`
+
+The governance defaults are deliberately conservative (high risk, human approval, denied managed egress, full audit metadata) so that opting into governance never silently weakens the declared policy posture.
 
 ## Structured Output Property Annotations
 
