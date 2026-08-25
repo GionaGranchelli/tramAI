@@ -7,7 +7,10 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.test.context.support.TestPropertySourceUtils
 
@@ -28,6 +31,27 @@ class EnableTramaiProfileNeutralTest {
             val service = context.getBean(StandardEnableTramaiService::class.java)
             assertEquals("STANDARD_ENABLE_OK", runBlocking { service.analyze("invoice") })
         }
+    }
+
+    @Test
+    fun `explicit annotation coexists with boot auto configuration`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(
+                    StandardTramaiProfileAutoConfiguration::class.java,
+                    AiServiceProxyAutoConfiguration::class.java,
+                ),
+            )
+            .withUserConfiguration(StandardEnableTramaiFixture::class.java)
+            .withPropertyValues(
+                "tramai.models.local-model=local-provider",
+                "tramai.default-provider=local-provider",
+            )
+            .run { context ->
+                assertThat(context).hasNotFailed()
+                assertThat(context).hasSingleBean(Tramai::class.java)
+                assertThat(context).hasSingleBean(StandardEnableTramaiService::class.java)
+            }
     }
 
     @Test
