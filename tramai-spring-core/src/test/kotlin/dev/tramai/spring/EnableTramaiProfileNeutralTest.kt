@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.test.context.support.TestPropertySourceUtils
 
@@ -27,5 +28,23 @@ class EnableTramaiProfileNeutralTest {
             val service = context.getBean(StandardEnableTramaiService::class.java)
             assertEquals("STANDARD_ENABLE_OK", runBlocking { service.analyze("invoice") })
         }
+    }
+
+    @Test
+    fun `annotation driven context rejects unsupported runtime profile`() {
+        assertThatThrownBy {
+            AnnotationConfigApplicationContext().use { context ->
+                TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
+                    context,
+                    "tramai.profile=soveriegn",
+                )
+                context.register(StandardEnableTramaiFixture::class.java)
+                context.refresh()
+            }
+        }
+            .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+            .hasRootCauseMessage(
+                "Unsupported tramai.profile 'soveriegn'. Supported values: standard, sovereign.",
+            )
     }
 }
