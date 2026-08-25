@@ -106,7 +106,7 @@ object AiToolScanner {
         }
 
         val toolName = annotation.name.takeIf { it.isNotBlank() } ?: function.name
-        val security = resolveSecurityMetadata(beanName, function.name, annotation)
+        val security = resolveSecurityMetadata(beanName, function.name, toolName, annotation)
 
         return MethodBackedTramaiTool(
             bean = bean,
@@ -123,6 +123,7 @@ object AiToolScanner {
     private fun resolveSecurityMetadata(
         beanName: String,
         functionName: String,
+        toolName: String,
         annotation: AiTool,
     ): ToolSecurityMetadata? {
         val permission = annotation.permission
@@ -131,10 +132,10 @@ object AiToolScanner {
         }
 
         check(permission.isNotBlank()) {
-            "Tool method $functionName in bean $beanName declares a blank permission"
+            "Tool '$toolName' (method $functionName in bean $beanName) declares a blank permission"
         }
         check(permission == permission.trim()) {
-            "Tool method $functionName in bean $beanName permission must not have surrounding whitespace"
+            "Tool '$toolName' (method $functionName in bean $beanName) permission must not have surrounding whitespace"
         }
 
         return ToolSecurityMetadata(
