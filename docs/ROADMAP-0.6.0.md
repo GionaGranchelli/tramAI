@@ -1307,7 +1307,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.2: State-machine and property-based tests
 
-**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); continuation lifecycle done (PR #279); remaining targets pending.
+**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); continuation lifecycle done (PR #279); worker lifecycle done (PR #280); remaining targets pending.
 
 **Goal:** Test lifecycle logic through transitions rather than isolated examples.
 
@@ -1315,7 +1315,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 - Approval lifecycle — ✅ PR #278 (5 model-based properties × 3 implementations added to `ApprovalStoreTck`: 42 shared cases total; pure `ApprovalLifecycleModel` oracle, 32-seed × 32-action deterministic corpus with guaranteed wrong-version-while-pending coverage, per-step invariants, wrong-version decision matrix + 3 concurrency properties ×20, coverage guard, 18-mutation evidence; zero production changes)
 - Continuation lifecycle — ✅ PR #279 (10 model-based properties × 3 implementations added to `ApprovalContinuationStoreTck`: 60 shared cases total; pure `ApprovalContinuationLifecycleModel` oracle with post-failure state — failed ops can legitimately normalize to EXPIRED, with rewind-clock properties proving the failed claim/cancel itself persisted the EXPIRED transition before reporting; 32-seed × 32-action corpus with forced archetypes (claim→complete/uncertain, boundary, late claim/cancel, lazy get) + 25-category semantic coverage guard incl. exactly-once argument release; 10 properties: generated sequences, late claim/cancel persistence, wrong-version matrix, 8-way claim race, mixed claim/cancel race, claimed resolution race, concurrent lazy expiry, generated sweep model, generated stale-claim query model; 22-mutation evidence; 1 deliberate production fix — File `findStaleClaimed` truncated to limit before sorting)
-- Worker lifecycle
+- Worker lifecycle — ✅ PR #280 (8 model-based properties in `tramai-orchestration` test sources — single implementation, no backend matrix; pure `WorkerLifecycleModel` oracle with phase/generation/exactly-once event counters and `Failure(kind, next)` rollback on failed startup; 32-seed × 32-action corpus with forced archetypes (clean cycles, shutdown-before-start, crash→shutdown→restart, duplicates, close-equivalence) + 24-category semantic coverage guard; 8 properties: generated sequences, registration-failure rollback, shutdown-during-registration cannot resurrect, 8 concurrent starts → one generation, 8 concurrent shutdowns → one owner, start-during-drain no-op, crash ≠ graceful shutdown, shutdown stops heartbeat/poll ownership before the stopped event; 20-mutation evidence, 0 weak; 1 deliberate production fix — `WorkerLifecycleController` ownership primitive (`AtomicReference<Job?>`) closing three defects: registration failure retained root ownership, suspended registration resurrected a dead generation after shutdown, and a non-atomic start guard let racing starts create two generations)
 - Lease lifecycle
 - Outbox lifecycle
 - Workflow checkpoint/resume lifecycle

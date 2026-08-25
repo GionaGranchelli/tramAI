@@ -332,3 +332,128 @@ more stale rows than the limit it returned the wrong subset (the #269
 record count). Fixed to filter → sort → take, matching the documented
 contract and the InMemory/JDBC implementations. No other production,
 public-API, schema, or persisted-format changes.
+
+## Epic 8.2c — Worker lifecycle state-machine properties (PR #280)
+
+Unlike the approval slices, the worker lifecycle has a single
+implementation (`TramaiWorker` → `WorkerLifecycleController` +
+`WorkerShutdownCoordinator`) — no backend matrix, so the oracle lives in
+`tramai-orchestration` test sources, not `tramai-testing` testFixtures.
+The question: *after arbitrary start/shutdown/crash/restart histories and
+adversarial interleavings, can the worker have two lifecycle owners,
+resurrect an old generation, continue accepting work after shutdown, leak
+registration, or emit lifecycle events for a generation that has already
+died?*
+
+### Model
+
+`WorkerLifecycleModel` (pure oracle) tracks phase (STOPPED / STARTING /
+RUNNING / SHUTTING_DOWN / CRASHED), generation, registered /
+acceptingWork / rootOwned flags, and exactly-once event counters
+(workerStarted, shutdownStarted, shutdownComplete, workerStopped,
+registrations, unregistrations). `WorkerLifecycleOutcome` again carries
+`Failure(kind, next)` — a failed startup rolls the model back to STOPPED
+(retryable), never leaves a half-owned STARTING generation. State graph:
+`STOPPED → STARTING → RUNNING → SHUTTING_DOWN → STOPPED`;
+`RUNNING → CRASHED` (crash is NOT graceful: registry record retained so it
+can go stale); `CRASHED --start/crash--> no-op`; `CRASHED --shutdown-->
+STOPPED`. The enum is test-only; production keeps its own simpler ownership
+primitive.
+
+### Generated corpus
+
+32 seeds × 32 actions = 1,024 synchronous lifecycle operations, every seed
+opening with a forced archetype (seed % 6: clean start/shutdown cycles,
+shutdown-before-start + duplicate starts, crash → shutdown → restart,
+multiple clean generations, duplicate starts + duplicate shutdowns,
+close-equivalence) then a state-aware random free-run. The generator guard
+asserts 24 semantic categories computed from model pre-state + action +
+predicted outcome (never enum presence): the five phase transitions plus
+crashed-start no-op, close from running/stopped, restart-after-shutdown,
+multi-generation, exactly-once per-generation registration / started /
+shutdownStarted / shutdownComplete / workerStopped / unregister, registry
+present-while-running, registry absent-after-graceful-stop,
+registry-retained-after-crash, generation monotonic.
+
+### Properties (8)
+
+1. **Generated worker lifecycle sequences** — after every action: event
+   counters, registry presence, registration/unregistration counters,
+   phase, generation, and per-step invariants agree with the model
+   (idempotent start, no-op shutdown before start, crash semantics, no
+   generation after its shutdown).
+2. **Failed registration rolls startup back** — registerWorker throws →
+   no started event, empty registry, and a subsequent start() retries
+   normally (STOPPED, not a stuck half-owned generation).
+3. **Shutdown during registration cannot resurrect the startup** — the
+   suspended start of generation B must abort when B is shut down while
+   registration is in flight: no workerStarted after shutdownComplete, no
+   zombie registry row, no new heartbeats, and a fresh generation C starts
+   cleanly. The event order `shutdownComplete(B) → workerStarted(B)` is
+   rejected.
+4. **Eight concurrent starts create one generation** (×20, start barrier)
+   — exactly 1 registration, 1 workerStarted, 1 active identity; graceful
+   shutdown afterwards.
+5. **Eight concurrent shutdowns have one owner** (×20) — exactly 1
+   shutdownStarted / shutdownComplete / workerStopped / unregister / owner
+   release, 7 no-op observers, fresh start afterwards.
+6. **Start while shutdown is in progress cannot transfer ownership** —
+   shutdown A held in drain; 8 start() calls while draining are no-ops (no
+   generation B); after drain release a single new start → generation B.
+7. **Crash is not graceful shutdown** — crash cancels the root execution
+   scope (observed via a blocking heartbeat fake) but emits NO shutdown
+   events and retains the registry record (stale/takeover semantics); a
+   later explicit shutdown performs the real cleanup.
+8. **Shutdown stops heartbeat/poll ownership completely** — blocking
+   fakes (registry heartbeat and checkpoint catalog that signal entry then
+   suspend forever); shutdown() must cancelAndJoin both loops BEFORE the
+   onWorkerStopped event fires (deterministic order observation via a
+   synchronous observer hook — root cancellation alone would kill the
+   loops after the stopped event and is exactly what the property rejects).
+
+### Production changes (1, deliberate)
+
+The suite exposed two genuine defects, both in `WorkerLifecycleController`:
+
+- **Registration failure retained root ownership.** `workerJob` was
+  assigned before the suspendable `registerWorker()`; on failure start()
+  threw but the root stayed owned, so the next start() silently no-oped.
+- **Shutdown during suspended registration resurrected the startup.** The
+  existing example test proved shutdown was *accepted* during registration
+  but never asserted the suspended start couldn't continue: it emitted
+  onWorkerStarted after shutdownComplete, installed a JVM hook for a dead
+  generation, set acceptingWork, and launched heartbeat/poll loops on the
+  cancelled root — and a registration committed after the shutdown's
+  unregister left a zombie registry row.
+- A third defect was exposed by the concurrent-start property: the plain
+  null-guard + mutable assignment was not atomic, so eight racing starts
+  could create two generations.
+
+Fix: `workerJob: Job?` → `AtomicReference<Job?>` lifecycle-ownership
+primitive — idempotency guard → `prepareLifecycleStart()` → CAS claim;
+registration-failure rollback (release claim, cancel root, unregister,
+rethrow); post-registration revalidation (if ownership was lost or a
+shutdown is in progress: release, cancel root, remove the zombie row,
+return with no events); shutdown clears ownership via CAS on the captured
+root only. No mutex is held across `registerWorker` / drain /
+`unregisterWorker` — ownership is claimed atomically, external work
+performed, then ownership revalidated, preserving the contract that
+shutdown during registration is accepted.
+
+### Mutation evidence (20 mutations, each restored; 0 weak)
+
+Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
+same property GREEN for every mutation: start claims ownership
+unconditionally (GEN / concurrent-start), ownership assigned only after
+registration (registration-race), `prepareLifecycleStart` removed (GEN /
+registration-race), shutdown reset moved after registration
+(registration-race), startup continues after its generation lost ownership
+(registration-race), registration failure retains root ownership
+(startup-failure/retry), registration twice per generation (GEN),
+onWorkerStarted dropped (GEN), aborted startup keeps the zombie registry
+row (registration-race), shutdown CAS removed (concurrent-shutdown),
+unregister skipped (GEN), onShutdownComplete / onWorkerStopped /
+onShutdownStarted dropped (GEN), crash does not cancel the root (crash),
+crash emits graceful events (crash), crash clears ownership (GEN), poll /
+heartbeat cancellation skipped (background-loop ownership), started event
+fires before the abort check (registration-race).

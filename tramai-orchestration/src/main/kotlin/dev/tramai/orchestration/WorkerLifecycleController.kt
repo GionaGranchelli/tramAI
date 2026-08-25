@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +33,14 @@ internal class WorkerLifecycleController(
     partitionStrategy: PartitionAssignmentStrategy,
 ) {
     private val workerRegistryStore = leaseStore as? WorkerRegistryStore
-    private var workerJob: Job? = null
+    /**
+     * Atomic lifecycle-ownership primitive: exactly one generation owns the
+     * root at a time. The claim is a CAS so eight racing starts cannot both
+     * pass a plain null-guard; shutdown clears ownership only when the root
+     * is still the one it captured, so a completed shutdown never erases a
+     * root created by a start that ran mid-drain.
+     */
+    private val lifecycleOwner = java.util.concurrent.atomic.AtomicReference<Job?>(null)
     private var workerScope: CoroutineScope? = null
     private var startedAt: Long = 0L
 
@@ -83,20 +91,61 @@ internal class WorkerLifecycleController(
     }
 
     suspend fun start() {
-        if (workerJob != null) {
+        // Idempotency guard first (master parity): while a generation owns the
+        // lifecycle, start is a no-op — and a duplicate start must NEVER reset
+        // the shutdown state of a generation that is mid-shutdown.
+        if (lifecycleOwner.get() != null) {
             return
         }
-        // Reset shutdown state BEFORE creating/exposing the new root or
-        // suspending in registration (verbatim master ordering): a concurrent
-        // shutdown during registration must be accepted, never rejected by
-        // stale state from a previous completed lifecycle.
+        // Reset shutdown state before claiming ownership, so a concurrent
+        // shutdown during STARTING/registration is accepted, never rejected
+        // by stale CAS from a previous completed lifecycle.
         shutdownCoordinator.prepareLifecycleStart()
         val supervisor = SupervisorJob()
         val scope = CoroutineScope(supervisor + Dispatchers.Default)
+        // Atomic ownership claim: exactly one concurrent start wins; the rest
+        // observe the existing generation (RUNNING/STARTING/CRASHED
+        // idempotent) and return.
+        if (!lifecycleOwner.compareAndSet(null, supervisor)) {
+            return
+        }
         workerScope = scope
-        workerJob = supervisor
         startedAt = System.currentTimeMillis()
-        heartbeatPublisher.registerWorker()
+        try {
+            heartbeatPublisher.registerWorker()
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            // Registration failed after the ownership claim: roll the lifecycle
+            // back to STOPPED so a later start() can retry normally — no
+            // started event, no hook, no accepting work, root discarded.
+            lifecycleOwner.compareAndSet(supervisor, null)
+            workerScope = null
+            supervisor.cancel()
+            try {
+                workerRegistryStore?.unregisterWorker(config.workerId)
+            } catch (cleanupError: Throwable) {
+                cleanupError.rethrowIfCancellation()
+            }
+            throw error
+        }
+        // Revalidate the ownership claim: a concurrent shutdown may have owned
+        // (or be owning) this generation while registration was suspended. An
+        // aborted startup must never emit onWorkerStarted, install a JVM hook,
+        // accept work, or launch heartbeat/poll loops for a generation that has
+        // already been — or is being — shut down.
+        if (lifecycleOwner.get() !== supervisor || shutdownCoordinator.isShuttingDownGracefully()) {
+            lifecycleOwner.compareAndSet(supervisor, null)
+            workerScope = null
+            supervisor.cancel()
+            // If the registration committed after the shutdown's unregister,
+            // remove the zombie row.
+            try {
+                workerRegistryStore?.unregisterWorker(config.workerId)
+            } catch (cleanupError: Throwable) {
+                cleanupError.rethrowIfCancellation()
+            }
+            return
+        }
         observability.onWorkerStarted(config.workerId)
         val hook = Thread {
             runBlocking(Dispatchers.IO) {
@@ -125,19 +174,19 @@ internal class WorkerLifecycleController(
     }
 
     fun crash(cause: CancellationException = CancellationException("Worker '${config.workerId}' crashed")) {
-        workerJob?.cancel(cause)
+        lifecycleOwner.get()?.cancel(cause)
     }
 
     suspend fun shutdown() {
-        val supervisor = workerJob ?: return
+        val supervisor = lifecycleOwner.get() ?: return
         // Clear lifecycle ownership only when THIS call owned the shutdown
         // (CAS winner) and only if the root is still the one we captured. A
-        // concurrent shutdown that loses the CAS must not null workerJob
+        // concurrent shutdown that loses the CAS must not null the owner
         // while the winner is still draining, and a completed shutdown must
         // not erase a root created by a start() that ran mid-drain.
         if (shutdownCoordinator.shutdown(supervisor)) {
-            if (workerJob === supervisor) {
-                workerJob = null
+            if (lifecycleOwner.get() === supervisor) {
+                lifecycleOwner.compareAndSet(supervisor, null)
                 workerScope = null
             }
         }
