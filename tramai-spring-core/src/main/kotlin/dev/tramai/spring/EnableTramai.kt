@@ -8,5 +8,8 @@ import org.springframework.context.annotation.Import
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
-@Import(TramaiAutoConfiguration::class)
+@Import(
+    TramaiAutoConfiguration::class,
+    AiServiceProxyAutoConfiguration::class,
+)
 annotation class EnableTramai
