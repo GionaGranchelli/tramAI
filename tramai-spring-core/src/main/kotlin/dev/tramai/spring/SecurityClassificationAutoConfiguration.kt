@@ -15,7 +15,7 @@ import java.util.Locale
 /**
  * Optional auto-configuration for rule-based document classification.
  */
-@AutoConfiguration(after = [TramaiAutoConfiguration::class])
+@AutoConfiguration(after = [TramaiAutoConfiguration::class, StandardTramaiProfileAutoConfiguration::class])
 @ConditionalOnClass(
     name = [
         "dev.tramai.security.classification.DocumentClassifier",

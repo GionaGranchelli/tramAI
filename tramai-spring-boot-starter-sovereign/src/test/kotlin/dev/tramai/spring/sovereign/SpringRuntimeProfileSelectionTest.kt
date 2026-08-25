@@ -62,6 +62,20 @@ class SpringRuntimeProfileSelectionTest {
     }
 
     @Test
+    fun `missing profile defaults to standard runtime and never activates sovereign`() {
+        runner
+            .withPropertyValues(
+                "tramai.models.local-model=local-provider",
+                "tramai.default-provider=local-provider",
+            )
+            .run { context ->
+                assertThat(context).hasSingleBean(Tramai::class.java)
+                assertThat(context).doesNotHaveBean(SovereignTramai::class.java)
+                assertThat(context).doesNotHaveBean(SovereignTramaiRuntime::class.java)
+            }
+    }
+
+    @Test
     fun `sovereign starter defaults profile to sovereign when application did not choose one`() {
         val environment = StandardEnvironment()
         SovereignDefaultProfileEnvironmentPostProcessor()

@@ -412,6 +412,10 @@
 
 - **Outbound HTTP network boundary correctness (PR #227).** `httpStep` targets are governed by an explicit `OutboundNetworkPolicy` set per workflow and frozen at build (`outboundNetworkPolicy`, default `OutboundNetworkPolicies.defenceInDepth()`). The default policy allows public destinations and denies restricted IP space; governed policies additionally require an explicit hostname allowlist. Admission is two-phase: scheme and hostname decisions occur before DNS, then resolution and restricted-address filtering occur; DNS failure fails closed as a policy rejection. Redirect-following supplied clients are rejected before any request is sent. A transport that can prove its connected address re-validates it after connection but before request bytes are written and fails closed if it does not prove validation. JDK connect-time DNS resolution means application pre-resolution remains defence-in-depth, with firewall, proxy, service mesh, or Kubernetes NetworkPolicy as the authoritative egress boundary. `HttpStepConfig` and `httpStep` signatures are unchanged; the builder policy property is an additive public API.
 
+### Fixed
+
+- **Sovereign runtime closure includes `tramai-spring-core` (PR #283).** The sovereign starter declares `tramai-spring-core` as an API dependency for the profile-gated shared Spring integration; the sovereign release closure (bundle module set, release artifacts, and the consumer-resolution smoke verification repo) now includes it so a standalone sovereign consumer resolves the full `dev.tramai` closure. The consumer smoke (`verifySovereignRuntimeConsumerSmoke`) is the regression gate: any closure module that gains a `dev.tramai` dependency without the closure being updated fails resolution.
+
 ## 0.5.0 - 2026-07-16
 
 ### Added
