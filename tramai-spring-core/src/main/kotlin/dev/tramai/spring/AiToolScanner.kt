@@ -1,9 +1,10 @@
 package dev.tramai.spring
 
 import dev.tramai.core.annotations.AiTool
-import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.policy.ToolSecurityMetadata
 import org.springframework.aop.support.AopUtils
 import org.springframework.beans.factory.ListableBeanFactory
 import org.springframework.context.ApplicationContext
@@ -105,6 +106,7 @@ object AiToolScanner {
         }
 
         val toolName = annotation.name.takeIf { it.isNotBlank() } ?: function.name
+        val security = resolveSecurityMetadata(beanName, function.name, annotation)
 
         return MethodBackedTramaiTool(
             bean = bean,
@@ -113,7 +115,34 @@ object AiToolScanner {
             description = annotation.description,
             inputType = inputType,
             idempotent = annotation.idempotent,
-            sideEffectLevel = annotation.sideEffectLevel
+            sideEffectLevel = annotation.sideEffectLevel,
+            security = security,
+        )
+    }
+
+    private fun resolveSecurityMetadata(
+        beanName: String,
+        functionName: String,
+        annotation: AiTool,
+    ): ToolSecurityMetadata? {
+        val permission = annotation.permission
+        if (permission.isEmpty()) {
+            return null
+        }
+
+        check(permission.isNotBlank()) {
+            "Tool method $functionName in bean $beanName declares a blank permission"
+        }
+        check(permission == permission.trim()) {
+            "Tool method $functionName in bean $beanName permission must not have surrounding whitespace"
+        }
+
+        return ToolSecurityMetadata(
+            permission = permission,
+            risk = annotation.risk,
+            approval = annotation.approval,
+            managedNetworkEgress = annotation.managedNetworkEgress,
+            audit = annotation.audit,
         )
     }
 
@@ -124,7 +153,8 @@ object AiToolScanner {
         override val description: String,
         override val inputType: KClass<I>,
         override val idempotent: Boolean,
-        override val sideEffectLevel: SideEffectLevel
+        override val sideEffectLevel: SideEffectLevel,
+        override val security: ToolSecurityMetadata?,
     ) : TramaiTool<I, Any> {
 
         override suspend fun execute(input: I, context: ToolExecutionContext): Any {
