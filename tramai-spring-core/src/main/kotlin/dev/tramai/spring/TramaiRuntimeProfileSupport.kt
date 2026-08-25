@@ -9,7 +9,7 @@ internal object TramaiRuntimeProfileSupport {
         if (configuredProfile == null) {
             return
         }
-        require(configuredProfile in supportedProfiles) {
+        require(configuredProfile.lowercase() in supportedProfiles) {
             "Unsupported tramai.profile '$configuredProfile'. Supported values: ${supportedProfiles.joinToString(", ")}."
         }
     }
