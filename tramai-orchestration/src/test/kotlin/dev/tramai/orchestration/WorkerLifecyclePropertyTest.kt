@@ -1135,9 +1135,11 @@ class WorkerLifecyclePropertyTest {
 
             // Let shutdown reach its release CAS while cleanup remains parked.
             // The cleanup reservation must own RECONCILING, so the shutdown CAS
-            // fails without opening STOPPED to a new generation.
+            // waits without opening STOPPED to a new generation.
             stoppedGate.countDown()
-            withTimeout(10_000) { shutdownB.join() }
+            yield()
+            assertThat(harness.observer.shutdownComplete).hasSize(1)
+            assertThat(harness.observer.workerStopped).hasSize(1)
             assertThat(harness.worker.currentLifecycleStateForTest())
                 .withFailMessage("same-generation cleanup must reserve RECONCILING across unregister")
                 .isInstanceOf(WorkerLifecycleState.Reconciling::class.java)
@@ -1153,6 +1155,7 @@ class WorkerLifecyclePropertyTest {
             cleanupGate.complete(Unit)
         }
 
+        withTimeout(10_000) { shutdownB.join() }
         withTimeout(10_000) { starterB.join() }
         assertThat(harness.worker.currentLifecycleStateForTest()).isEqualTo(WorkerLifecycleState.Stopped)
 
@@ -1165,6 +1168,71 @@ class WorkerLifecyclePropertyTest {
             .isTrue()
         assertThat(harness.registrations.get()).isEqualTo(2)
 
+        harness.worker.shutdown()
+        assertThat(harness.observer.shutdownComplete).hasSize(2)
+        assertThat(harness.isRegistered()).isFalse()
+    }
+
+    // ── Property 20: cleanup finishing before shutdown cannot release STOPPED (M32) ─
+
+    @Test
+    fun `cleanup finishing before shutdown cannot release lifecycle ownership`() = runBlocking<Unit> {
+        val harness = WorkerLifecyclePropertyHarness(workerId = "cleanup-before-shutdown-race")
+        val regEntered = CompletableDeferred<Unit>()
+        val regGate = CompletableDeferred<Unit>()
+        val startedEntered = CompletableDeferred<Unit>()
+        val startedGate = java.util.concurrent.CountDownLatch(1)
+
+        // B parks in registration; shutdown claims SHUTTING_DOWN and parks
+        // synchronously at onShutdownStarted (before ANY drain work).
+        harness.hooks.onRegister = {
+            regEntered.complete(Unit)
+            regGate.await()
+        }
+        harness.observer.onShutdownStartedHook = {
+            startedEntered.complete(Unit)
+            startedGate.await()
+        }
+        val starterB = launch(Dispatchers.Default) { harness.worker.start() }
+        withTimeout(10_000) { regEntered.await() }
+        val shutdownB = launch(Dispatchers.Default) { harness.worker.shutdown() }
+        withTimeout(10_000) { startedEntered.await() }
+
+        try {
+            // B's registration resumes; startup aborts; reconciliation runs to
+            // completion (unregister NOT blocked) while shutdown is still parked.
+            regGate.complete(Unit)
+            withTimeout(10_000) { starterB.join() }
+
+            // Cleanup finished first. It must have RESTORED SHUTTING_DOWN, never
+            // released STOPPED: C cannot claim yet.
+            assertThat(harness.worker.currentLifecycleStateForTest())
+                .withFailMessage("SHUTTING_DOWN-origin cleanup must restore SHUTTING_DOWN, not release STOPPED")
+                .isInstanceOf(WorkerLifecycleState.ShuttingDown::class.java)
+
+            harness.worker.start() // C contender
+            assertThat(harness.observer.workerStarted)
+                .withFailMessage("C must not start while B's shutdown is still draining")
+                .isEmpty()
+            assertThat(harness.registrations.get())
+                .withFailMessage("C must not register while B's shutdown is still draining")
+                .isEqualTo(1)
+        } finally {
+            regGate.complete(Unit)
+            startedGate.countDown()
+        }
+
+        withTimeout(10_000) { shutdownB.join() }
+        assertThat(harness.worker.currentLifecycleStateForTest()).isEqualTo(WorkerLifecycleState.Stopped)
+        assertThat(harness.observer.shutdownComplete).hasSize(1)
+        assertThat(harness.isRegistered()).isFalse()
+
+        // After B's shutdown completes, C starts normally.
+        harness.worker.start()
+        assertThat(harness.observer.workerStarted).hasSize(1)
+        assertThat(harness.isRegistered())
+            .withFailMessage("C's row must survive after B's shutdown completed")
+            .isTrue()
         harness.worker.shutdown()
         assertThat(harness.observer.shutdownComplete).hasSize(2)
         assertThat(harness.isRegistered()).isFalse()

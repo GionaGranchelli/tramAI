@@ -150,6 +150,7 @@ internal class WorkerLifecyclePropertyHarness(
         val workerStopped = java.util.concurrent.CopyOnWriteArrayList<String>()
         val heartbeats = java.util.concurrent.CopyOnWriteArrayList<String>()
         var onWorkerStartedHook: (() -> Unit)? = null
+        var onShutdownStartedHook: (() -> Unit)? = null
         var onWorkerStoppedHook: (() -> Unit)? = null
 
         /** Ordered lifecycle-event stream: STARTED / SHUTDOWN_STARTED /
@@ -166,6 +167,7 @@ internal class WorkerLifecyclePropertyHarness(
         override fun onShutdownStarted(workerId: String) {
             shutdownStarted += workerId
             order += "SHUTDOWN_STARTED"
+            onShutdownStartedHook?.invoke()
         }
 
         override fun onShutdownComplete(workerId: String) {

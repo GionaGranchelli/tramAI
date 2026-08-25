@@ -375,7 +375,7 @@ shutdownStarted / shutdownComplete / workerStopped / unregister, registry
 present-while-running, registry absent-after-graceful-stop,
 registry-retained-after-crash, generation monotonic.
 
-### Properties (16)
+### Properties (20)
 
 1. **Generated worker lifecycle sequences** — after every action: event
    counters, registry presence, registration/unregistration counters,
@@ -508,6 +508,16 @@ registry-retained-after-crash, generation monotonic.
     tries to register. The reservation must span the suspendable unregister
     from ANY still-ours state, so C's claim fails while the cleanup holds
     RECONCILING — never STOPPED — and C's row survives B's unregister.
+20. **Cleanup finishing before shutdown cannot release lifecycle
+    ownership** (review round 5, M32) — the reverse ordering: B's cleanup
+    runs to completion while the shutdown owner is still blocked early in
+    its drain (parked synchronously at `onShutdownStarted`). STOPPED must
+    NOT become visible until BOTH the graceful drain and the same-
+    generation late-registration cleanup have finished. A SHUTTING_DOWN-
+    origin cleanup therefore restores the captured SHUTTING_DOWN state and
+    signals completion; the shutdown owner waits for that signal and CASes
+    SHUTTING_DOWN→STOPPED only after its own drain. Property 20 pins the
+    ordering Property 19 does not cover: cleanup-first, drain-second.
 
 ### Production changes (2, deliberate)
 
@@ -667,7 +677,28 @@ explicitly reserves that ownership for the full side effect.*
   treats a same-generation RECONCILING as "the cleanup will release".
   Property 19 discriminates.
 
-### Mutation evidence (31 mutations, each restored; 0 weak)
+### Round-5 production changes (review round 5, M32)
+
+- **Cleanup does not own the final STOPPED release (M32).** The round-4
+  reservation fixed *cleanup-begins-while-shutdown-drains* but not
+  *cleanup-finishes-before-shutdown-drains*: `reconcileRegistration` still
+  released `RECONCILING → STOPPED` unconditionally in its `finally`, so a
+  SHUTTING_DOWN-origin cleanup that completed quickly could expose STOPPED
+  while the graceful shutdown owner was still executing observer
+  callbacks / job cancels / unregister — and a new generation C could
+  claim STOPPED and install its hook, jobs, and registry row while B's old
+  drain was still running (which could then remove C's hook, cancel C's
+  jobs, unregister C's row under a lifecycle claiming RUNNING(C)).
+  `Reconciling` now carries `returnTo` (the captured SHUTTING_DOWN state
+  for SHUTTING_DOWN-origin cleanups, STOPPED otherwise) and a
+  `completion` signal. The cleanup restores `returnTo` and completes the
+  signal; the shutdown's release loop waits for a same-generation
+  `completion` before CASing the restored SHUTTING_DOWN → STOPPED.
+  STOPPED is therefore visible only after BOTH obligations finish.
+  Property 20 discriminates; M32 (release directly to STOPPED) is the
+  mutation that reverts this exact ordering.
+
+### Mutation evidence (32 mutations, each restored; 0 weak)
 
 Baseline GREEN → exactly-one-replacement → NEW property RED → restore →
 same property GREEN for every mutation: start claims ownership
@@ -696,11 +727,17 @@ registry row (cleanup-race, review-round M26), activation critical section
 is not serialized against shutdown/crash — epilogue can be bisected
 (epilogue, review-round 3 M27), STOPPED cleanup skips the RECONCILING
 reservation — old cleanup can delete a newer row (STOPPED-cleanup race,
-review-round 3 M28). A CAS-loser provisional-supervisor leak mutation is
-intentionally NOT added: the orphan `SupervisorJob` is not observable from
-the harness without a production test hook, so such a mutation would be
-weak — the fix itself is asserted structurally by property 9's ownership
-assertions.
+review-round 3 M28), stale startup reset runs even when shutdown already
+claimed (stale-reset, review-round 4 M29), onWorkerStarted executes user
+code before the activation resources exist (reentrant-activation,
+review-round 4 M30), old cleanup unregisters naked under
+STARTING/SHUTTING_DOWN (cleanup-in-flight, review-round 4 M31),
+SHUTTING_DOWN reconciliation releases directly to STOPPED (cleanup-before-
+shutdown, review-round 5 M32). A CAS-loser provisional-supervisor leak
+mutation is intentionally NOT added: the orphan `SupervisorJob` is not
+observable from the harness without a production test hook, so such a
+mutation would be weak — the fix itself is asserted structurally by
+property 9's ownership assertions.
 
 ### Known anomaly (NOT fixed in #280 — tracked for follow-up)
 

@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference
  * RUNNING(g) --crash--> CRASHED(g)
  * CRASHED(g) --shutdown claim--> SHUTTING_DOWN(g) --drain done--> STOPPED
  * STOPPED / STARTING(g) / SHUTTING_DOWN(g) --cleanup reservation-->
- * RECONCILING(g) --cleanup done--> STOPPED
+ * RECONCILING(g, returnTo) --cleanup done--> returnTo
  * ```
  * Suspend operations (register, drain, unregister) happen OUTSIDE the
  * transition primitive; the state itself never suspends. The RUNNING commit
@@ -42,7 +43,12 @@ internal sealed interface WorkerLifecycleState {
     data class Running(val generation: Long, val root: Job) : WorkerLifecycleState
     data class ShuttingDown(val generation: Long, val root: Job) : WorkerLifecycleState
     data class Crashed(val generation: Long, val root: Job) : WorkerLifecycleState
-    data class Reconciling(val generation: Long, val root: Job) : WorkerLifecycleState
+    data class Reconciling(
+        val generation: Long,
+        val root: Job,
+        val returnTo: WorkerLifecycleState,
+        val completion: CompletableDeferred<Unit> = CompletableDeferred(),
+    ) : WorkerLifecycleState
 }
 
 /**
@@ -336,9 +342,12 @@ internal class WorkerLifecycleController(
      * - A NEWER generation owns STARTING/RUNNING/CRASHED (or another cleanup
      *   holds RECONCILING): never touch the row.
      *
-     * Every eligible path therefore holds RECONCILING across unregister; a
-     * newer generation cannot claim STOPPED until cleanup releases it. Cleanup
-     * runs in [NonCancellable] so caller cancellation cannot skip it.
+     * Every eligible path therefore holds RECONCILING across unregister. A
+     * reservation from STARTING or STOPPED returns to STOPPED and owns that
+     * release. A reservation from SHUTTING_DOWN restores its captured shutdown
+     * state and signals completion; the graceful shutdown owner waits for that
+     * signal and exposes STOPPED only after both cleanup and drain finish.
+     * Cleanup runs in [NonCancellable] so caller cancellation cannot skip it.
      */
     private suspend fun reconcileRegistration(root: Job, generation: Long) {
         withContext(NonCancellable) {
@@ -352,7 +361,15 @@ internal class WorkerLifecycleController(
             if (!stillOurs) {
                 return@withContext
             }
-            val reservation = WorkerLifecycleState.Reconciling(generation, root)
+            // Cleanup from SHUTTING_DOWN must NOT release to STOPPED: the graceful
+            // shutdown owner is still draining and performs the final STOPPED once
+            // BOTH its drain and this cleanup complete. Cleanup from STARTING or
+            // STOPPED owns the release (no shutdown in flight).
+            val returnTo = when (now) {
+                is WorkerLifecycleState.ShuttingDown -> now
+                else -> WorkerLifecycleState.Stopped
+            }
+            val reservation = WorkerLifecycleState.Reconciling(generation, root, returnTo)
             if (!lifecycleState.compareAndSet(now, reservation)) {
                 return@withContext
             }
@@ -361,7 +378,8 @@ internal class WorkerLifecycleController(
             } catch (cleanupError: Throwable) {
                 cleanupError.rethrowIfCancellation()
             } finally {
-                lifecycleState.compareAndSet(reservation, WorkerLifecycleState.Stopped)
+                lifecycleState.compareAndSet(reservation, returnTo)
+                reservation.completion.complete(Unit)
             }
         }
     }
@@ -410,17 +428,32 @@ internal class WorkerLifecycleController(
         } ?: return
 
         shutdownCoordinator.shutdown(target.root)
-        // Release to STOPPED only after the drain completes; the shutdown
-        // owner is the one who captured the generation.
-        if (lifecycleState.compareAndSet(target, WorkerLifecycleState.Stopped)) {
-            workerScope = null
-        } else {
+        // STOPPED is legal only after BOTH the graceful drain and any
+        // same-generation late-registration cleanup have completed. If a cleanup
+        // reserved RECONCILING while we drained, it restored SHUTTING_DOWN (it
+        // never releases to STOPPED itself) and signaled completion — we wait,
+        // then CAS the restored SHUTTING_DOWN → STOPPED.
+        while (true) {
             val current = lifecycleState.get()
-            val sameGenerationCleanup = current is WorkerLifecycleState.Reconciling &&
-                current.generation == target.generation &&
-                current.root === target.root
-            if (current is WorkerLifecycleState.Stopped || sameGenerationCleanup) {
-                workerScope = null
+            when {
+                current is WorkerLifecycleState.ShuttingDown &&
+                    current.generation == target.generation &&
+                    current.root === target.root -> {
+                    if (lifecycleState.compareAndSet(current, WorkerLifecycleState.Stopped)) {
+                        workerScope = null
+                    }
+                    return
+                }
+                current is WorkerLifecycleState.Reconciling &&
+                    current.generation == target.generation &&
+                    current.root === target.root -> {
+                    current.completion.await()
+                }
+                current is WorkerLifecycleState.Stopped -> {
+                    workerScope = null
+                    return
+                }
+                else -> return // a newer generation owns the lifecycle; never touch it
             }
         }
     }
