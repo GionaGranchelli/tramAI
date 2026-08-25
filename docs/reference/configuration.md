@@ -18,6 +18,7 @@ tramai:
 
 Top-level keys:
 
+- `profile`
 - `default-provider`
 - `models`
 - `fallbacks`
@@ -26,6 +27,20 @@ Top-level keys:
 - `cache`
 - `secrets`
 - `providers`
+
+### `tramai.profile`
+
+Selects the active runtime profile.
+
+| Value | Runtime |
+|---|---|
+| *(missing)* | standard (default) |
+| `standard` / `STANDARD` | standard |
+| `sovereign` / `SOVEREIGN` | sovereign |
+
+- Values are case-insensitive.
+- Any other value fails loudly at startup — there is never a silent fallback to a runtime.
+- Exactly one runtime authority is active; `standard` and `sovereign` never coexist.
 
 Runtime and platform modules add their own namespaces:
 

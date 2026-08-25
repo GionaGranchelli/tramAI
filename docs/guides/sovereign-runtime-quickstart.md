@@ -62,6 +62,8 @@ dependencies {
 
 ## Minimal configuration
 
+Sovereignty is **configuration, not code**: use the same unified starter as standard applications, then select the sovereign runtime with `tramai.profile: sovereign`. The application code (`@AiService` interfaces, constructor injection, `@AiTool` methods) does not change between profiles.
+
 Enable the Sovereign Runtime and its subsystems in `application.yml`:
 
 ```yaml

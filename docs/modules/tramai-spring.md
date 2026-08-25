@@ -13,7 +13,9 @@
 
 ### What
 
-`tramai-spring` is a thin Spring Boot `@AutoConfiguration` that takes the same `Tramai` runtime you'd build manually with `tramai-standalone` and makes it available through Spring's DI container. Add the dependency, annotate your application class with `@EnableTramai`, define an `@AiService` interface, and it becomes an injectable bean — no `@Bean` factory methods, no manual `Tramai.builder()` chains.
+`tramai-spring` is the 0.6.0 compatibility facade over `tramai-spring-core`. New applications should depend on the canonical [`tramai-spring-boot-starter`](sovereign-runtime-module-matrix.md) instead — one starter for both runtime profiles, profile selected via `tramai.profile`.
+
+`tramai-spring` is a thin Spring Boot `@AutoConfiguration` that takes the same `Tramai` runtime you'd build manually with `tramai-standalone` and makes it available through Spring's DI container. Add the dependency, define an `@AiService` interface, and it becomes an injectable bean — no `@Bean` factory methods, no manual `Tramai.builder()` chains. Under Spring Boot, `@EnableTramai` is normally unnecessary; in annotation-driven/non-Boot Spring contexts it is the explicit opt-in.
 
 ### Why
 
@@ -109,7 +111,6 @@ dependencies {
 
 ```kotlin
 @SpringBootApplication
-@EnableTramai
 class InvoiceApplication
 
 fun main() = runApplication<InvoiceApplication>()
@@ -284,7 +285,7 @@ The module is activated by either:
 1. `@EnableTramai` — a meta-annotation that `@Import(TramaiAutoConfiguration::class)`, allowing explicit opt-in
 2. Spring Boot's automatic `@AutoConfiguration` discovery via `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
 
-`@EnableTramai` exists as an explicit signal — even though Spring Boot would auto-discover the configuration class — to make the dependency visible in code, matching the principle of explicitness over magic.
+`@EnableTramai` selects the Spring programming model, **not** the runtime profile. The runtime profile is always selected via `tramai.profile` (missing → standard, `sovereign` → sovereign). Under Spring Boot the annotation is normally unnecessary — auto-discovery already activates the module; it remains useful in annotation-driven/non-Boot Spring contexts as an explicit signal, matching the principle of explicitness over magic.
 
 ### Bean registration flow
 
