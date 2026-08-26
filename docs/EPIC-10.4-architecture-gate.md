@@ -124,21 +124,30 @@ Diagnostic JSON shape (mirror `BaselineVerifier.writeVerificationReport`):
 Register in `MaintainabilityBaselinePlugin.kt`:
 
 1. **`verify060Architecture`** (group `verification`, description as PR title):
-   - does NOT `dependsOn` the throwing baseline task — it orchestrates
-     in-process so the report is always written:
+   - `dependsOn("generateResolvedDependencyBaseline")` — the baseline verifier
+     requires `build/reports/maintainability/resolved-dependencies.json`; the
+     gate must run standalone on a clean workspace, not only after
+     `verifyPr`/`verifyMaintainabilityBaseline` have created the artifact.
+   - `dependsOn` the enrollment Test task below.
+   - Orchestrates **fail-closed** evidence collection so the report is ALWAYS
+     written before any terminal exception:
      1. Run `BaselineVerifier(...).verify()` (same construction as
         `verifyMaintainabilityBaseline`), catch exceptions → convert to a
         failure diagnostic for the affected checks.
      2. Read the typed diagnostics from the `verification-report.json` the
         verifier wrote (`build/reports/maintainability/verification-report.json`).
      3. Call `ModuleManifestVerifier.verify(...)` directly (parse catalog +
-        project model + published extra + BOM constraints) → typed diagnostics.
-     4. Read the JUnit XML produced by the enrollment Test tasks (see 2) →
-        provider-contracts / store-contracts outcomes.
+        project model + published extra + BOM constraints) → typed diagnostics;
+        catch exceptions → failure diagnostics for module-manifest +
+        publishing-topology.
+     4. Read the JUnit XML produced by the enrollment Test task (see 2) →
+        provider-contracts / store-contracts outcomes; catch exceptions →
+        failure diagnostics for both enrollment checks.
      5. Partition by check id (§3), call `ArchitectureReportAggregator.aggregate`.
-     6. Write `build/reports/tramai/architecture/architecture-report.json`.
-     7. If `status == FAIL`, throw `GradleException` listing failed checks.
-   - `dependsOn` the enrollment Test tasks below.
+     6. Write `build/reports/tramai/architecture/architecture-report.json` —
+        BEFORE the terminal exception, so a failing run leaves evidence.
+     7. If `status == FAIL`, throw `GradleException` listing failed checks and
+        the report path.
    - Do NOT wire into `verifyPr`/`check` in this PR (CI lane redesign is a
      non-goal, Epic 10.5); keep it standalone. Running it in the PR's
      verification is the evidence.
@@ -154,7 +163,14 @@ Register in `MaintainabilityBaselinePlugin.kt`:
    XML by test class name (`ProviderTckEnrollmentArchitectureTest` →
    provider-contracts; any other enrollment test → store-contracts).
 
-## 7. Discriminator / mutation proof (A1–A8)
+   **Enrollment guard identities are pinned** (review round 1, P1): the gate
+   holds the exact set of the 10 expected enrollment architecture test classes
+   (`enrollmentArchitectureTestClasses`). The façade compares discovered XML
+   classes against the pinned set — deleting or renaming ANY guard class fails
+   `store-contracts`/`provider-contracts` even when the other guards still run.
+   Discovery is by identity, not by count.
+
+## 7. Discriminator / mutation proof (A1–A11)
 
 New build-logic test file `ArchitectureReportAggregatorTest.kt`. Each test
 feeds the aggregator a real failure diagnostic (constructed with the EXACT
@@ -170,16 +186,22 @@ diagnostic via the real verifier on a fixture instead of constructing it:
 - **A6 global mutable state**: `VerificationDiagnostic.failure(NEW_GLOBAL_STATE_FINDING, ...)` → `global-state` FAIL
 - **A7 cancellation**: `VerificationDiagnostic.failure(NEW_CANCELLATION_FINDING, ...)` → `cancellation-safety` FAIL
 - **A8 all valid**: empty diagnostics for every check → PASS, zero failed, summary counts correct
+- **A9 evidence-source exception (review round 1, P1)**: `collectEvidence` with a throwing evidence lambda → affected checks FAIL with `EMPTY_SECTION`, and `ArchitectureReportJson.write` still produces a file with `status: FAIL` — proves the report survives evidence-source failures
+- **A10 enrollment identity pinning (review round 1, P1)**: deleting one pinned store class from the discovered set → `store-contracts` FAIL naming that class; renaming → FAIL in both directions (missing + unexpected); deleting the provider class → `provider-contracts` FAIL
+- **A11 aggregator rejects unexpected id set (review round 1, P2)**: `aggregate` with a map missing one of the 10 stable ids throws `IllegalArgumentException` — no 9/11-check reports
 
 The essential property: **an underlying verifier failing means
 `verify060Architecture` must fail and record that exact failure** — the
-aggregator maps every code the real verifiers emit to a FAIL bucket.
+aggregator maps every code the real verifiers emit to a FAIL bucket, and the
+exhaustive `when (code)` classification in `baselineCheckFor` has NO else
+branch, so a new `DiagnosticCode` forces an explicit in-gate/out-of-gate
+decision at compile time.
 
 ## 8. Files
 
 ### Create
-- `build-logic/src/main/kotlin/dev/tramai/build/quality/ArchitectureReport.kt` — model + `ArchitectureReportAggregator` (pure)
-- `build-logic/src/test/kotlin/dev/tramai/build/quality/ArchitectureReportAggregatorTest.kt` — A1–A8
+- `build-logic/src/main/kotlin/dev/tramai/build/quality/ArchitectureReport.kt` — model + `ArchitectureReportAggregator` (pure) + `collectEvidence` (fail-closed) + pinned `enrollmentArchitectureTestClasses` + `enrollmentGuardDiagnostics`
+- `build-logic/src/test/kotlin/dev/tramai/build/quality/ArchitectureReportAggregatorTest.kt` — A1–A11
 - `docs/EPIC-10.4-architecture-gate.md` — this spec (committed first)
 
 ### Modify

@@ -906,58 +906,58 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verify060Architecture") {
             group = "verification"
             description = "build(quality): add unified 0.6.0 architecture gate"
+            dependsOn("generateResolvedDependencyBaseline")
             dependsOn(enrollmentTest)
             doLast {
                 val architectureDiagnostics = ArchitectureReportAggregator.checkIds
                     .associateWith { mutableListOf<VerificationDiagnostic>() }
+                val context = MeasurementContext.fromProject(project)
                 val verificationReport = File(reportDir, "verification-report.json")
-                try {
-                    BaselineVerifier(BaselineGenerator(MeasurementContext.fromProject(project)),
-                        MeasurementContext.fromProject(project), reportDir).verify()
+
+                collectEvidence("baseline verification", baselineCheckIds, architectureDiagnostics) {
+                    BaselineVerifier(BaselineGenerator(context), context, reportDir).verify()
                     addBaselineDiagnostics(readBaselineDiagnostics(verificationReport), architectureDiagnostics)
-                } catch (exception: Exception) {
-                    baselineCheckIds.forEach { checkId ->
-                        architectureDiagnostics.getValue(checkId) += VerificationDiagnostic.failure(
-                            DiagnosticCode.EMPTY_SECTION,
-                            "Baseline verification could not complete: ${exception.message ?: exception.javaClass.name}",
-                        )
-                    }
                 }
 
-                val catalog = ModuleManifest.catalog(project.rootDir)
-                val actualProjects = project.allprojects
-                    .filter { it != project && it.buildFile.exists() }
-                    .map { it.path }
-                    .toSet()
-                val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                    ?.map { it.toString() }?.toSet().orEmpty()
-                val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
-                val actualBom = bomProject
-                    ?.configurations
-                    ?.findByName("api")
-                    ?.dependencyConstraints
-                    .orEmpty()
-                    .mapNotNull { constraint ->
-                        constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
-                    }
-                    .toSet()
-                addManifestDiagnostics(
-                    ModuleManifestVerifier.verify(catalog.modules, actualProjects, actualPublished, actualBom),
-                    architectureDiagnostics,
-                )
-                addEnrollmentDiagnostics(
-                    File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest"),
-                    architectureDiagnostics,
-                )
+                collectEvidence("module manifest verification", setOf("module-manifest", "publishing-topology"), architectureDiagnostics) {
+                    val catalog = ModuleManifest.catalog(project.rootDir)
+                    val actualProjects = project.allprojects
+                        .filter { it != project && it.buildFile.exists() }
+                        .map { it.path }
+                        .toSet()
+                    val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                        ?.map { it.toString() }?.toSet().orEmpty()
+                    val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
+                    val actualBom = bomProject
+                        ?.configurations
+                        ?.findByName("api")
+                        ?.dependencyConstraints
+                        .orEmpty()
+                        .mapNotNull { constraint ->
+                            constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
+                        }
+                        .toSet()
+                    addManifestDiagnostics(
+                        ModuleManifestVerifier.verify(catalog.modules, actualProjects, actualPublished, actualBom),
+                        architectureDiagnostics,
+                    )
+                }
+
+                collectEvidence("enrollment contract verification", setOf("provider-contracts", "store-contracts"), architectureDiagnostics) {
+                    addEnrollmentDiagnostics(
+                        File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest"),
+                        architectureDiagnostics,
+                    )
+                }
 
                 val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
-                ArchitectureReportJson.write(
-                    report,
-                    File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json"),
-                )
+                val reportFile = File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json")
+                // Report is written BEFORE the terminal exception — failure must produce evidence.
+                ArchitectureReportJson.write(report, reportFile)
                 if (report.status == ArchitectureCheckStatus.FAIL) {
                     throw GradleException("0.6.0 architecture verification FAILED: " +
-                        report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id })
+                        report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id } +
+                        " — see ${reportFile.path}")
                 }
             }
         }
@@ -1210,15 +1210,110 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         }
     }
 
-    private fun baselineCheckFor(code: DiagnosticCode): String? = when {
-        code.name.startsWith("MODULE_CATALOG_") && code !in publishingTopologyCodes -> "module-manifest"
-        code in setOf(DiagnosticCode.FORBIDDEN_LAYER_EDGE, DiagnosticCode.SELF_DEPENDENCY) -> "dependency-boundaries"
-        code == DiagnosticCode.NEW_DEPENDENCY_CYCLE -> "dependency-cycles"
-        code == DiagnosticCode.NEW_GLOBAL_STATE_FINDING -> "global-state"
-        code.name.startsWith("API_") -> "api-architecture"
-        code == DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED -> "protocol-catalog"
-        code in setOf(DiagnosticCode.NEW_CANCELLATION_FINDING, DiagnosticCode.CANCELLATION_RISK_WORSENED) -> "cancellation-safety"
-        else -> null
+    /**
+     * Exhaustive classification of every DiagnosticCode. No else branch: adding a
+     * new DiagnosticCode forces a decision at compile time — either it belongs to
+     * an architecture check here, or it is explicitly excluded.
+     */
+    private fun baselineCheckFor(code: DiagnosticCode): String? = when (code) {
+        // Module catalogue (all codes except BOM/publishing drift, which are publishing-topology)
+        DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+        DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY,
+        DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH,
+        DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
+        DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
+        DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
+        DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
+        DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA,
+        DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY,
+        DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY,
+        DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY,
+        DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION,
+        DiagnosticCode.MODULE_CATALOG_INVALID_POLICY,
+        DiagnosticCode.MODULE_CATALOG_BLANK_OWNER,
+        DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE,
+        DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION,
+        -> "module-manifest"
+
+        DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
+        DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
+        -> "publishing-topology"
+
+        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+        DiagnosticCode.SELF_DEPENDENCY,
+        -> "dependency-boundaries"
+
+        DiagnosticCode.NEW_DEPENDENCY_CYCLE,
+        -> "dependency-cycles"
+
+        DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
+        -> "global-state"
+
+        DiagnosticCode.API_BASELINE_EMPTY,
+        DiagnosticCode.API_DUMP_MISSING,
+        DiagnosticCode.API_DUMP_DUPLICATE,
+        DiagnosticCode.API_MODULE_UNCLASSIFIED,
+        DiagnosticCode.API_VALIDATION_NOT_CONFIGURED,
+        DiagnosticCode.API_COMPATIBILITY_FAILED,
+        DiagnosticCode.API_HASH_CHANGED,
+        DiagnosticCode.API_DUMP_NONDETERMINISTIC,
+        -> "api-architecture"
+
+        DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED,
+        -> "protocol-catalog"
+
+        DiagnosticCode.NEW_CANCELLATION_FINDING,
+        DiagnosticCode.CANCELLATION_RISK_WORSENED,
+        -> "cancellation-safety"
+
+        // Explicitly outside the 0.6.0 architecture gate.
+        DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
+        DiagnosticCode.ANALYZER_COMMIT_NOT_ANCESTOR,
+        DiagnosticCode.MEASURED_TREE_MISMATCH,
+        DiagnosticCode.TAG_COMMIT_MISMATCH,
+        DiagnosticCode.TAG_TREE_MISMATCH,
+        DiagnosticCode.DIRTY_WORKTREE,
+        DiagnosticCode.DEPENDENCY_BASELINE_EMPTY,
+        DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+        DiagnosticCode.DYNAMIC_DEPENDENCY_VERSION,
+        DiagnosticCode.SNAPSHOT_DEPENDENCY,
+        DiagnosticCode.DEPENDENCY_CONVERGENCE_FAILURE,
+        DiagnosticCode.DEPENDENCY_ADDED,
+        DiagnosticCode.DEPENDENCY_REMOVED,
+        DiagnosticCode.DEPENDENCY_VERSION_CHANGED,
+        DiagnosticCode.TEST_QUALITY_CONFIGURATION_INVALID,
+        DiagnosticCode.COVERAGE_REPORT_MISSING,
+        DiagnosticCode.COVERAGE_REPORT_MALFORMED,
+        DiagnosticCode.COVERAGE_COUNTER_MISSING,
+        DiagnosticCode.COVERAGE_PATH_LEAK,
+        DiagnosticCode.COVERAGE_REGRESSION,
+        DiagnosticCode.COVERAGE_FAMILY_EMPTY,
+        DiagnosticCode.COVERAGE_EXCLUSION_UNDOCUMENTED,
+        DiagnosticCode.MUTATION_REPORT_MISSING,
+        DiagnosticCode.MUTATION_REPORT_MALFORMED,
+        DiagnosticCode.MUTATION_TARGET_EMPTY,
+        DiagnosticCode.MUTATION_REGRESSION,
+        DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED,
+        DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
+        DiagnosticCode.TEST_REPORT_MISSING,
+        DiagnosticCode.TEST_PERFORMANCE_REGRESSION,
+        DiagnosticCode.CRITICAL_TEST_REGRESSION,
+        DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
+        DiagnosticCode.TEST_QUALITY_STATUS_PENDING,
+        DiagnosticCode.NEW_NONDETERMINISM_FINDING,
+        DiagnosticCode.HOTSPOT_REGRESSION,
+        DiagnosticCode.NEW_TOP_FIVE_HOTSPOT,
+        DiagnosticCode.FILE_GROWTH_EXCEEDED,
+        DiagnosticCode.INVALID_DEVIATION_SCOPE,
+        DiagnosticCode.ORPHANED_DEVIATION,
+        DiagnosticCode.EXPIRED_DEVIATION,
+        DiagnosticCode.DUPLICATE_DEVIATION,
+        DiagnosticCode.MALFORMED_DEVIATION,
+        DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
+        DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
+        DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
+        DiagnosticCode.EMPTY_SECTION,
+        -> null
     }
 
     private fun addManifestDiagnostics(
@@ -1248,10 +1343,22 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             return
         }
 
-        val foundChecks = mutableSetOf<String>()
+        val discoveredClasses = mutableSetOf<String>()
         reports.forEach { report ->
+            val className = report.name.removePrefix("TEST-").removeSuffix(".xml")
+            discoveredClasses += className
+            val check = when {
+                className == "dev.tramai.testing.ProviderTckEnrollmentArchitectureTest" -> "provider-contracts"
+                className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
+                else -> null
+            } ?: return@forEach
             val factory = DocumentBuilderFactory.newInstance().apply {
                 setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
                 isXIncludeAware = false
                 isExpandEntityReferences = false
             }
@@ -1259,13 +1366,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             val cases = document.getElementsByTagName("testcase")
             for (index in 0 until cases.length) {
                 val testCase = cases.item(index) as org.w3c.dom.Element
-                val className = testCase.getAttribute("classname")
-                val check = when {
-                    className.contains("ProviderTckEnrollmentArchitectureTest") -> "provider-contracts"
-                    className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
-                    else -> null
-                } ?: continue
-                foundChecks += check
                 for (childIndex in 0 until testCase.childNodes.length) {
                     val child = testCase.childNodes.item(childIndex)
                     if (child.nodeName !in setOf("failure", "error")) continue
@@ -1278,11 +1378,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 }
             }
         }
-        (setOf("provider-contracts", "store-contracts") - foundChecks).forEach { check ->
-            checks.getValue(check) += VerificationDiagnostic.failure(
-                DiagnosticCode.EMPTY_SECTION,
-                "No $check enrollment architecture test result was found in ${resultsDir.path}",
-            )
+
+        // Pin guard identities: deleting/renaming one enrollment class must FAIL
+        // even if the others still run. Discovery by identity, not by count.
+        enrollmentGuardDiagnostics(discoveredClasses).forEach { (check, diagnostics) ->
+            checks.getValue(check) += diagnostics
         }
     }
 
