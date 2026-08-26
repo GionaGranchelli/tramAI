@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ListableBeanFactory
 import org.springframework.context.ApplicationContext
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
+import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.functions
@@ -130,6 +131,31 @@ object AiToolScanner {
     }
 
     /**
+     * Exact overload-safe signature match. Name + arity alone is not enough:
+     * `fun lookup(InvoiceInput)` and `fun lookup(CustomerInput)` share both.
+     * Compare name, suspend-ness, and the full parameter type shapes.
+     */
+    private fun KFunction<*>.sameSignatureAs(other: KFunction<*>): Boolean =
+        name == other.name &&
+            isSuspend == other.isSuspend &&
+            valueParameters.size == other.valueParameters.size &&
+            valueParameters.zip(other.valueParameters).all { (a, b) -> a.type.sameShape(b.type) }
+
+    /** Structural type comparison: classifier + nullability + type arguments. */
+    private fun KType.sameShape(other: KType): Boolean {
+        if (classifier != other.classifier || isMarkedNullable != other.isMarkedNullable) return false
+        if (arguments.size != other.arguments.size) return false
+        return arguments.zip(other.arguments).all { (a, b) ->
+            a.variance == b.variance &&
+                when {
+                    a.type == null && b.type == null -> true
+                    a.type != null && b.type != null -> a.type!!.sameShape(b.type!!)
+                    else -> false
+                }
+        }
+    }
+
+    /**
      * Falls back to an interface-declared [AiTool] when the implementation
      * method carries no annotation (annotations on overrides are not inherited).
      * The interface's Kotlin function also preserves suspend metadata, which is
@@ -140,10 +166,7 @@ object AiToolScanner {
         if (declaredInterfaces.isEmpty()) return null
         return declaredInterfaces.asSequence()
             .flatMap { it.kotlin.functions.asSequence() }
-            .firstOrNull { candidate ->
-                candidate.name == function.name &&
-                    candidate.valueParameters.size == function.valueParameters.size
-            }
+            .firstOrNull { candidate -> candidate.sameSignatureAs(function) }
             ?.findAnnotation<AiTool>()
     }
 
@@ -185,37 +208,37 @@ object AiToolScanner {
         override val security: ToolSecurityMetadata?,
     ) : TramaiTool<I, Any> {
 
+        /**
+         * The discovered [function] belongs to the tool's target class. For a
+         * JDK interface proxy the bean is NOT an instance of that target class,
+         * so invoking the target-class function on the proxy receiver throws a
+         * receiver-type mismatch. Resolve the same signature against an
+         * interface the bean actually implements (Kotlin metadata is preserved
+         * there, so suspend functions stay suspend) — invocation then
+         * dispatches through the proxy and Spring AOP advice runs. Plain
+         * objects and CGLIB proxies fall back to the discovered target-class
+         * function. The proxy/function relationship is immutable for the
+         * lifetime of the tool, so the resolution is done once.
+         */
+        private val invocable: KFunction<*> = run {
+            val declaredInterfaces = bean::class.java.interfaces
+            if (declaredInterfaces.isNotEmpty()) {
+                for (interfaceType in declaredInterfaces) {
+                    val match = interfaceType.kotlin.functions.firstOrNull { candidate ->
+                        candidate.sameSignatureAs(function)
+                    }
+                    if (match != null) return@run match
+                }
+            }
+            function
+        }
+
         override suspend fun execute(input: I, context: ToolExecutionContext): Any {
-            val invocable = resolveInvocableFunction()
             return if (invocable.isSuspend) {
                 invocable.callSuspend(bean, input) ?: Unit
             } else {
                 invocable.call(bean, input) ?: Unit
             }
-        }
-
-        /**
-         * The discovered [function] belongs to the tool's target class. For a
-         * JDK interface proxy the bean is NOT an instance of that target class,
-         * so invoking the target-class function on the proxy receiver throws a
-         * receiver-type mismatch. Resolve the same method against an interface
-         * the bean actually implements (Kotlin metadata is preserved there, so
-         * suspend functions stay suspend) — invocation then dispatches through
-         * the proxy and Spring AOP advice runs. Plain objects and CGLIB proxies
-         * fall back to the discovered target-class function.
-         */
-        private fun resolveInvocableFunction(): KFunction<*> {
-            val declaredInterfaces = bean::class.java.interfaces
-            if (declaredInterfaces.isNotEmpty()) {
-                for (interfaceType in declaredInterfaces) {
-                    val match = interfaceType.kotlin.functions.firstOrNull { candidate ->
-                        candidate.name == function.name &&
-                            candidate.valueParameters.size == function.valueParameters.size
-                    }
-                    if (match != null) return match
-                }
-            }
-            return function
         }
     }
 }

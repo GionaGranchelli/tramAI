@@ -268,6 +268,59 @@ class AiToolScannerTest {
         assertEquals(listOf("lookupInvoice"), advice.invocations)
     }
 
+    @Test
+    fun `jdk proxied overloaded tools select the exact signature and metadata`() {
+        val advice = RecordingMethodInterceptor()
+        val context = GenericApplicationContext().apply {
+            registerBeanDefinition("jdkOverloadedToolBean", RootBeanDefinition(OverloadedToolServiceImpl::class.java))
+            beanFactory.addBeanPostProcessor(
+                object : BeanPostProcessor {
+                    override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                        if (beanName != "jdkOverloadedToolBean") {
+                            return bean
+                        }
+
+                        return ProxyFactory(bean).apply {
+                            setInterfaces(OverloadedToolService::class.java)
+                            isProxyTargetClass = false
+                            addAdvice(advice)
+                        }.proxy
+                    }
+                },
+            )
+            refresh()
+        }
+
+        val tools = AiToolScanner.fromApplicationContext(context)
+            .sortedBy { it.name }
+            .map { tool ->
+                tool to requireNotNull(tool.security).permission
+            }
+
+        // 1 + 2: both overloads discovered with their OWN interface annotation
+        // (name + permission come from the exact signature, not name/arity).
+        assertEquals(
+            listOf("lookupCustomer" to "customer.read", "lookupInvoice" to "invoice.read"),
+            tools.map { it.first.name to it.second },
+        )
+
+        // 3 + 4: each dispatches through the proxy to the correct impl overload,
+        // with Spring AOP advice running for both.
+        val byName = tools.associate { it.first.name to it.first }
+        val customerResult = runBlocking {
+            (byName.getValue("lookupCustomer") as TramaiTool<CustomerInput, Any>)
+                .execute(CustomerInput("c-1"), toolExecutionContext())
+        }
+        val invoiceResult = runBlocking {
+            (byName.getValue("lookupInvoice") as TramaiTool<InvoiceInput, Any>)
+                .execute(InvoiceInput("inv-1"), toolExecutionContext())
+        }
+
+        assertEquals("customer:c-1", customerResult)
+        assertEquals("invoice:inv-1", invoiceResult)
+        assertEquals(listOf("lookup", "lookup"), advice.invocations)
+    }
+
     private fun toolExecutionContext() = ToolExecutionContext(
         operationName = "test",
         modelName = "local-model",
@@ -276,6 +329,10 @@ class AiToolScannerTest {
     )
 
     data class ToolInput(val invoiceId: String)
+
+    data class InvoiceInput(val invoiceId: String)
+
+    data class CustomerInput(val customerId: String)
 
     open class ToolBean {
         @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
@@ -355,6 +412,35 @@ class AiToolScannerTest {
     open class SuspendToolServiceImpl : SuspendToolService {
         @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
         override suspend fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    interface OverloadedToolService {
+        @AiTool(
+            name = "lookupInvoice",
+            description = "Looks up an invoice",
+            sideEffectLevel = SideEffectLevel.READ_ONLY,
+            permission = "invoice.read",
+        )
+        fun lookup(input: InvoiceInput): String
+
+        @AiTool(
+            name = "lookupCustomer",
+            description = "Looks up a customer",
+            sideEffectLevel = SideEffectLevel.READ_ONLY,
+            permission = "customer.read",
+        )
+        fun lookup(input: CustomerInput): String
+    }
+
+    /**
+     * Same-name, same-arity overloads with NO annotations on the impl methods
+     * (annotations on overrides are not inherited) — this forces the interface
+     * fallback to resolve by exact signature, not name/arity.
+     */
+    open class OverloadedToolServiceImpl : OverloadedToolService {
+        override fun lookup(input: InvoiceInput): String = "invoice:${input.invoiceId}"
+
+        override fun lookup(input: CustomerInput): String = "customer:${input.customerId}"
     }
 
     class RecordingMethodInterceptor : org.aopalliance.intercept.MethodInterceptor {
