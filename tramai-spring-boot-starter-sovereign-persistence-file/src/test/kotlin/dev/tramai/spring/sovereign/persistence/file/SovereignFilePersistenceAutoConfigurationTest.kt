@@ -311,12 +311,13 @@ class SovereignFilePersistenceAutoConfigurationTest {
                     dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
                 ),
             )
+            .withUserConfiguration(MinimalProviderConfig::class.java)
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-model",
-                "tramai.sovereign.allowed-providers[0]=local-provider",
-                "tramai.sovereign.provider-zones.local-provider=LOCAL",
-                "tramai.sovereign.models.local-model=local-provider",
+                "tramai.sovereign.allowed-providers[0]=test-provider",
+                "tramai.sovereign.provider-zones.test-provider=LOCAL",
+                "tramai.sovereign.models.local-model=test-provider",
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
                 "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
