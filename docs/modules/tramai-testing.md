@@ -8,6 +8,56 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Testing support: mock providers, recording observers, simulated failures, fluent assertions, and TCK fixtures for deterministic TramAI tests and consumer-facing compatibility verification.
+
+### Public entry points
+
+- `MockAiProvider`, `SimulatedFailureProvider`, `RecordedRequestProvider` — provider fakes
+- `RecordingOperationObserver` — observation capture
+- `TramaiAssertions` — fluent assertions
+- `MockTool` — tool fake
+- TCK fixtures: provider (`ProviderTck`, `ProviderTckHarness`), store TCKs (`ApprovalStoreTck`, `ApprovalContinuationStoreTck`, lifecycle models), Spring consumer tests
+
+### Internal extension points
+
+- TCK harnesses for provider/store behavior; testFixtures surface for consumers
+
+### Significant dependencies
+
+- `api(tramai-core)`; testFixtures surface across engine/security/orchestration/Spring starters (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Test-scoped; no production runtime ownership
+
+### Thread-safety and concurrency
+
+- Fakes are test-scoped; TCK execution is per-implementation
+
+### Failure semantics
+
+- Assertion failures surface with diagnostic context; TCKs fail on behavioral contract violations
+
+### Contract tests / TCKs
+
+- The TCKs themselves are the contract; enrolled implementations run them in their own modules
+
+### Do not
+
+- Do not put production behavior in test fixtures
+- Do not treat consumer-boundary tests as a substitute for store/provider TCKs
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — testing-support layer
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

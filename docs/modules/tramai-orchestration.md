@@ -8,6 +8,59 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Multi-step workflow execution: workflow definitions, execution supervision, worker lifecycle, checkpoints/leases/fencing, step execution (HTTP, shell, Codex, Hermes, MCP), replay policy and recovery.
+
+### Public entry points
+
+- `WorkflowExecutionSupervisor` — workflow execution ownership
+- `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown
+- `TramaiWorker` — worker entry point; observers (`FailureIsolatingTramaiWorkerObserver`, `LoggingTramaiWorkerObserver`)
+- `WorkflowRecoveryCoordinator` / `WorkflowRecoveryController` — recovery
+- `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing
+- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
+- Persistence: `WorkflowPersistenceSession`, `FileWorkflowCheckpointStore`, `JdbcWorkflowCheckpointStore`, `FileWorkflowLeaseStore`, `JdbcWorkflowLeaseStore`, step-attempt record stores
+
+### Internal extension points
+
+- Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI, partition strategy (`PartitionAssignmentStrategy`)
+
+### Significant dependencies
+
+- `api(tramai-core)`; engine/testing in test scope (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Owns workflow/worker lifecycle, lease renewal, checkpoint and step-attempt persistence
+
+### Thread-safety and concurrency
+
+- Lease-based fencing prevents concurrent execution of the same lease; worker observers are failure-isolated
+
+### Failure semantics
+
+- Typed persistence failures (`PersistenceFailures`), step failures (`WorkflowStepFailures`, `WorkflowErrors`); replay decision policy governs resume
+
+### Contract tests / TCKs
+
+- Workflow/worker tests in `tramai-orchestration/src/test`; store TCKs via `tramai-testing` (checkpoint/lease/step-attempt)
+
+### Do not
+
+- Do not add new concrete-step dispatch to a central orchestrator god object — extend the step abstraction
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- [execution-sequence.md](../architecture/execution-sequence.md) — workflow/worker flow
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

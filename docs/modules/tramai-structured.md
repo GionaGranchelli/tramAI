@@ -6,6 +6,55 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Structured output: compiles Kotlin/Java types into JSON schema descriptors, extracts and validates structured objects, renders schemas, and produces failure diagnostics with retry feedback.
+
+### Public entry points
+
+- `JacksonStructuredOutputHandler` — `StructuredOutputHandler` implementation (engine integration point)
+- Descriptor compilers: `KotlinStructuredTypeCompiler`, `JacksonJavaBeanStructuredTypeCompiler`
+- Contracts: `StructuredTypeDescriptor`, `StructuredContractFingerprint`, `StructuredJsonShapeValidator`, `StructuredValueValidator`, `StructuredSchemaRenderer`, `StructuredDescriptorCache`
+
+### Internal extension points
+
+- `StructuredTypeCompiler` — pluggable compiler per type kind
+
+### Significant dependencies
+
+- `api(tramai-core)` only (see [module-catalog.yml](../../config/quality/module-catalog.yml)); Jackson for JSON codec
+
+### Lifecycle ownership
+
+- Stateless compilers; descriptor cache owns compiled-descriptor lifecycle
+
+### Thread-safety and concurrency
+
+- Compilers/handlers are immutable and safe for concurrent use; descriptor cache is synchronized
+
+### Failure semantics
+
+- Parse/validation failures produce `StructuredOutputResult.Failure` with `feedbackMessage` for retry; terminal failure as `StructuredOutputException`
+
+### Contract tests / TCKs
+
+- Descriptor + handler tests in `tramai-structured/src/test`; structured contract TCK in `tramai-testing`
+
+### Do not
+
+- Do not change schema generation and post-parse validation independently — the compiled descriptor is authoritative
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- `docs/adr/` — structured-output decisions
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

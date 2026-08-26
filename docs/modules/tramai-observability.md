@@ -7,6 +7,54 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Optional, opt-in OpenTelemetry integration: spans, metrics and events for operations, workers and workflows.
+
+### Public entry points
+
+- `OpenTelemetryOperationObserver` — operation/engine observation (implements core observation SPI)
+- `OpenTelemetryTramaiWorkerObserver` — worker observation
+- `OpenTelemetryWorkflowObserver` — workflow observation
+- `OpenTelemetryAttributes` — semantic attribute constants
+
+### Internal extension points
+
+- Operation/worker/workflow observer implementations over the core observation SPI
+
+### Significant dependencies
+
+- `api(tramai-core)`; orchestration in implementation scope (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Observer lifecycle follows the OpenTelemetry SDK; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Observers must be safe for concurrent callbacks from the engine
+
+### Failure semantics
+
+- Observability must not break the happy path (failure-isolated observers); OTel absence degrades gracefully
+
+### Contract tests / TCKs
+
+- Span/attribute tests in `tramai-observability/src/test`
+
+### Do not
+
+- Do not make observability a hard dependency of core/runtime modules
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

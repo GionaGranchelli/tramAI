@@ -7,6 +7,61 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Zero- to near-zero-dependency contracts and SPI surface: `@AiService`/`@Operation`/tool annotations, request/response models, provider SPI (`ModelProvider`, `ProviderRegistry`, `ProviderTransport`), structured-output contracts, policy contracts (`PolicyEngine`, `EnforcementPoint`), approval contracts (`ApprovalStore`, `ApprovalContinuationStore`, `ApprovalGateway`), memory contracts, observation contracts and the authoritative runtime event catalogue.
+
+### Public entry points
+
+- Annotations: `AiService`, `Operation`, `System`, `User`, `SystemPrompt`, `ConversationId`, `AiTool`, `AiDescription`, `AiRange`, `AiMinItems`
+- Provider SPI: `ModelProvider`, `ProviderRegistry`, `ProviderTransport`, `StreamCapable`
+- Structured output contracts: `StructuredOutputHandler`, `StructuredOutputResult`, `StructuredOutputContract`
+- Policy: `PolicyEngine`, `EnforcementPoint`, `PolicyDecision`
+- Approval: `ApprovalStore`, `ApprovalContinuationStore`, `ApprovalGateway`, `ApprovalToken`
+- Events: `RuntimeEventCatalogue` (authoritative event/reason-code catalogue)
+- Exceptions: `TramaiException` hierarchy
+
+### Internal extension points
+
+- `OperationInterceptor` / `OperationObserver` (observation SPI)
+- `DlpInterceptor` (security), `SecretValueResolver` (secrets), `ConversationIdProvider` (memory)
+- `StructuredOutputHandler` implementation slot (implemented by `tramai-structured`)
+
+### Significant dependencies
+
+- None beyond the JDK — `tramai-core` is the dependency root of the repository (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- No runtime state of its own; lifecycle is owned by `tramai-engine` / `tramai-standalone` / framework adapters
+
+### Thread-safety and concurrency
+
+- Contracts are immutable value types; thread-safety of implementations is owned by the implementing module
+
+### Failure semantics
+
+- Typed exception hierarchy rooted at `TramaiException`; policy violations as `PolicyViolationException`; approval gating as `ApprovalRequiredException`/`ApprovalSuspendedException`
+
+### Contract tests / TCKs
+
+- Core contract tests in `tramai-core/src/test`; TCK fixtures under `tramai-testing` (provider, store, lifecycle models)
+
+### Do not
+
+- Do not add provider/vendor, Spring, or framework dependencies here
+- Do not add new runtime event/reason-code string literals outside `RuntimeEventCatalogue`
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — core-contracts layer
+- `docs/adr/` — core design decisions
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

@@ -5,6 +5,56 @@
 > **Dependencies:** `tramai-core`, `tramai-engine`, `tramai-security`
 > **Source files:** 15 files + new files
 
+
+## Architecture
+
+### Responsibility
+
+Encrypted-at-rest, single-node file persistence for sovereign stores: `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
+
+### Public entry points
+
+- `FileBackedSovereignStores.open(...)` — composition root
+- `FileBackedStoreConfiguration`, `FileStoreEncryptionConfiguration`, `FileStoreEncryptionKeyProvider`
+- `FileApprovalStore`, `FileApprovalContinuationStore`, `FileAuditStore`, suspended-invocation store
+- `FileStoreException` hierarchy (configuration, lock-unavailable, permission, corruption, unsupported-format)
+
+### Internal extension points
+
+- Store SPI implementations (approval / continuation / audit / suspended invocation)
+
+### Significant dependencies
+
+- `tramai-core`, `tramai-engine`, `tramai-security` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Store open/close with exclusive POSIX file lock; exactly-once continuation claim semantics
+
+### Thread-safety and concurrency
+
+- Per-record and per-stream `ReentrantLock`; exclusive cross-process lock on the store root. Do not invent guarantees beyond the store documentation.
+
+### Failure semantics
+
+- Atomic writes with `ATOMIC_MOVE` (CREATE_NEW for immutable audit events); corruption/tampering detected via GCM tags and hash chains; safe reason-code-only exception messages
+
+### Contract tests / TCKs
+
+- `FileApprovalStoreTckTest`, `FileApprovalContinuationStoreTckTest`, `FileAuditStoreTckTest` — enrolled in the shared TCKs
+
+### Do not
+
+- Do not copy another store's behavior as the spec — the TCKs are authoritative
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — persistence layer
+- `docs/adr/` — file persistence decisions
+
+---
+
 ## Purpose
 
 `tramai-persistence-file` provides durable, encrypted-at-rest storage for the three sovereign store SPIs — `ApprovalStore`, `ApprovalContinuationStore`, and `AuditStore` — using the local filesystem. It is designed for single-node sovereign TramAI deployments that need persistent state without a database or cloud service dependency.

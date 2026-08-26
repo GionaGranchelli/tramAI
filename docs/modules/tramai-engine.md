@@ -5,6 +5,63 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Runtime execution core: turns `@AiService` interfaces into provider-backed proxies and owns the full invocation pipeline — operation planning, governance enforcement, provider routing/retry/fallback, structured-output processing, streaming, tool-call orchestration, approval suspension/resume, caching, token budgets and observation.
+
+### Public entry points
+
+- `TramaiEngine` — engine entry point; `create<T>()` proxy factory
+- `InvocationExecutionCoordinator` — governed invocation pipeline
+- `TramaiInvocationHandler` — JDK proxy dispatch for `@AiService`
+- `ProviderExecutionCoordinator` / `ProviderAttemptExecutor` — provider routing and admitted-attempt execution
+- `StreamingExecutionCoordinator` — streaming flow
+- `StructuredResponseCoordinator` — structured-output integration
+- `ToolExposureCoordinator` / `ToolAuthorizationCoordinator` / `ToolInvocationExecutor` — tool flow
+- `ApprovalSuspensionCoordinator` / `ApprovalResumeCoordinator` / `DefaultApprovalGateway` — approval flow
+- `EngineEventObserver` / `FailureIsolatingEngineEventObserver` — observation
+
+### Internal extension points
+
+- `OperationInterceptor` / `OperationObserver` (cross-cutting request/response hooks)
+- `OperationResponseCache` (cache SPI), `ChatMemory` (memory injection), `StructuredOutputHandler` (consumed from `tramai-structured`)
+
+### Significant dependencies
+
+- `api(tramai-core)`; optional integration with `tramai-structured`, `tramai-security`, `tramai-observability` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Engine owns proxy lifecycle, provider route state, circuit/retry state, cache lifecycle, approval coordination; `close()` semantics per `AutoCloseable`
+
+### Thread-safety and concurrency
+
+- Concurrent invocation-safe; per-operation coroutine scopes; cancellation propagation via kotlinx.coroutines (`Cancellation` contracts in core)
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException`; retry/fallback driven by typed failure codes; structured failures as `StructuredOutputException`; approval gating as `ApprovalRequiredException`/`ApprovalSuspendedException`
+
+### Contract tests / TCKs
+
+- Engine behavioral tests in `tramai-engine/src/test`; provider TCK via `tramai-testing` (`ProviderTck`)
+
+### Do not
+
+- Do not implement provider-specific logic in the engine
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- [execution-sequence.md](../architecture/execution-sequence.md) — flow ownership
+- `docs/adr/` — engine design decisions
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What

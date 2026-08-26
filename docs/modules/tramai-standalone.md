@@ -7,6 +7,52 @@
 
 ---
 
+
+## Architecture
+
+### Responsibility
+
+Framework-free entry point composing core, engine and structured output into a minimal runtime (`Tramai`, `TramaiRuntime`).
+
+### Public entry points
+
+- `Tramai` — builder-style entry point for framework-free usage
+- `TramaiRuntime` — assembled runtime with lifecycle
+
+### Internal extension points
+
+- Engine/structured/provider wiring knobs exposed through the `Tramai` builder
+
+### Significant dependencies
+
+- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-structured)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Owns the assembled runtime lifecycle (`close()`)
+
+### Thread-safety and concurrency
+
+- Runtime is concurrent-safe; delegates to engine coroutine scopes
+
+### Failure semantics
+
+- Surfaces engine/structured failures directly to callers
+
+### Contract tests / TCKs
+
+- `tramai-standalone/src/test`; consumed by framework adapters (e.g. `tramai-spring-core` depends on it)
+
+### Do not
+
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+
+---
+
 ## L1: Quick Start (30-second read)
 
 ### What
