@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #<N>).** The provider
+- **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #302).** The provider
   circuit breaker now tracks the ownership of every admitted attempt instead
   of only the breaker state:
   - **No stampede at recovery expiry.** When the open window expires, exactly

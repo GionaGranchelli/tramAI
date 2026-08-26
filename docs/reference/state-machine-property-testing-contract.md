@@ -15,7 +15,7 @@ components of TramAI.
 | Lease lifecycle | ✅ #290 |
 | Outbox lifecycle | ✅ #291 |
 | Workflow checkpoint/resume lifecycle | ✅ #295 |
-| Circuit breaker states | ✅ #<N> |
+| Circuit breaker states | ✅ #302 |
 | Provider retry/fallback | ⏳ |
 
 ## Method
@@ -1065,7 +1065,7 @@ With `WorkflowLeaseCheckpointFenceTck` runners added, M21 went STRONG (7 red cas
 
 ---
 
-## Circuit breaker lifecycle — #<N> (Epic 8.2g)
+## Circuit breaker lifecycle — #302 (Epic 8.2g)
 
 **Status: ✅ complete.** The provider circuit breaker previously tracked state but
 not the ownership of an admitted attempt: `beforeCall` returned only a deadline,
