@@ -144,6 +144,43 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         }
     }
 
+    // ------------------------------------------------------------ Section H-5
+
+    @Test
+    fun `H5 sync coordinator HALF_OPEN probe failure reopens with fresh deadline`() {
+        runBlocking {
+            var now = 0L
+            var calls = 0
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val coordinator = coordinator(
+                plan = plan(FakeProvider {
+                    calls++
+                    throw ProviderException("always down", retryable = true)
+                }),
+                breaker = breaker,
+            )
+
+            // First call fails retryably -> OPEN until t=100.
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // At exact expiry the sync coordinator is admitted as the HALF_OPEN
+            // probe; its qualifying failure must immediately reopen with a fresh
+            // deadline (now + openDuration), NOT get stuck in HALF_OPEN.
+            now = 100
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
+
+            // A call at the new deadline is again admitted (probe cycles continue).
+            now = 200
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
+        }
+    }
+
     // ------------------------------------------------------------ Section H-4
 
     @Test
