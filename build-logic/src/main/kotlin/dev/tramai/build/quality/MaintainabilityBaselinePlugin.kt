@@ -4,9 +4,11 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.GradleException
 import org.gradle.api.Action
+import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.testing.Test
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
 
 /**
  * Gradle plugin that registers all maintainability baseline generation and verification tasks.
@@ -876,6 +878,90 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        val enrollmentTest = project.tasks.register("architectureContractEnrollmentTest", Test::class.java) {
+            group = "verification"
+            description = "Runs provider and store enrollment architecture contracts"
+            val testingProject = project.project(":tramai-testing")
+            val testSourceSet = testingProject.extensions
+                .getByType(JavaPluginExtension::class.java)
+                .sourceSets
+                .getByName("test")
+            dependsOn(testingProject.tasks.named("testClasses"))
+            testClassesDirs = testSourceSet.output.classesDirs
+            classpath = testSourceSet.runtimeClasspath
+            useJUnitPlatform()
+            filter.includeTestsMatching("dev.tramai.testing.*EnrollmentArchitectureTest")
+            ignoreFailures = true
+            binaryResultsDirectory.set(
+                testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest/binary")
+            )
+            reports.junitXml.outputLocation.set(
+                testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest")
+            )
+            reports.html.outputLocation.set(
+                testingProject.layout.buildDirectory.dir("reports/tests/architectureContractEnrollmentTest")
+            )
+        }
+
+        project.tasks.register("verify060Architecture") {
+            group = "verification"
+            description = "build(quality): add unified 0.6.0 architecture gate"
+            dependsOn(enrollmentTest)
+            doLast {
+                val architectureDiagnostics = ArchitectureReportAggregator.checkIds
+                    .associateWith { mutableListOf<VerificationDiagnostic>() }
+                val verificationReport = File(reportDir, "verification-report.json")
+                try {
+                    BaselineVerifier(BaselineGenerator(MeasurementContext.fromProject(project)),
+                        MeasurementContext.fromProject(project), reportDir).verify()
+                    addBaselineDiagnostics(readBaselineDiagnostics(verificationReport), architectureDiagnostics)
+                } catch (exception: Exception) {
+                    baselineCheckIds.forEach { checkId ->
+                        architectureDiagnostics.getValue(checkId) += VerificationDiagnostic.failure(
+                            DiagnosticCode.EMPTY_SECTION,
+                            "Baseline verification could not complete: ${exception.message ?: exception.javaClass.name}",
+                        )
+                    }
+                }
+
+                val catalog = ModuleManifest.catalog(project.rootDir)
+                val actualProjects = project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .map { it.path }
+                    .toSet()
+                val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                    ?.map { it.toString() }?.toSet().orEmpty()
+                val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
+                val actualBom = bomProject
+                    ?.configurations
+                    ?.findByName("api")
+                    ?.dependencyConstraints
+                    .orEmpty()
+                    .mapNotNull { constraint ->
+                        constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
+                    }
+                    .toSet()
+                addManifestDiagnostics(
+                    ModuleManifestVerifier.verify(catalog.modules, actualProjects, actualPublished, actualBom),
+                    architectureDiagnostics,
+                )
+                addEnrollmentDiagnostics(
+                    File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest"),
+                    architectureDiagnostics,
+                )
+
+                val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
+                ArchitectureReportJson.write(
+                    report,
+                    File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json"),
+                )
+                if (report.status == ArchitectureCheckStatus.FAIL) {
+                    throw GradleException("0.6.0 architecture verification FAILED: " +
+                        report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id })
+                }
+            }
+        }
+
         // ---- PR Verification (primary local check gate) ----
 
         val verifyPr = project.tasks.register("verifyPr") {
@@ -1092,4 +1178,127 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
     private fun groovyString(value: String): String =
         value.replace("\\", "\\\\").replace("'", "\\'")
+
+    private fun readBaselineDiagnostics(reportFile: File): List<VerificationDiagnostic> {
+        if (!reportFile.isFile) {
+            throw GradleException("Baseline verifier did not produce ${reportFile.path}")
+        }
+        val report = ReportNormalizer.readJson(reportFile, Map::class.java)
+        val diagnostics = report["diagnostics"] as? List<*>
+            ?: throw GradleException("Baseline verification report has no diagnostics array")
+        return diagnostics.map { raw ->
+            val entry = raw as? Map<*, *> ?: throw GradleException("Malformed baseline diagnostic")
+            VerificationDiagnostic(
+                code = DiagnosticCode.valueOf(entry["code"]?.toString() ?: error("Baseline diagnostic code missing")),
+                severity = DiagnosticSeverity.valueOf(entry["severity"]?.toString() ?: error("Baseline diagnostic severity missing")),
+                message = entry["message"]?.toString() ?: error("Baseline diagnostic message missing"),
+                modulePath = entry["modulePath"]?.toString(),
+                findingId = entry["findingId"]?.toString(),
+                deviationId = entry["deviationId"]?.toString(),
+                baselineValue = entry["baselineValue"]?.toString(),
+                currentValue = entry["currentValue"]?.toString(),
+            )
+        }
+    }
+
+    private fun addBaselineDiagnostics(
+        diagnostics: List<VerificationDiagnostic>,
+        checks: Map<String, MutableList<VerificationDiagnostic>>,
+    ) {
+        diagnostics.forEach { diagnostic ->
+            baselineCheckFor(diagnostic.code)?.let { checks.getValue(it) += diagnostic }
+        }
+    }
+
+    private fun baselineCheckFor(code: DiagnosticCode): String? = when {
+        code.name.startsWith("MODULE_CATALOG_") && code !in publishingTopologyCodes -> "module-manifest"
+        code in setOf(DiagnosticCode.FORBIDDEN_LAYER_EDGE, DiagnosticCode.SELF_DEPENDENCY) -> "dependency-boundaries"
+        code == DiagnosticCode.NEW_DEPENDENCY_CYCLE -> "dependency-cycles"
+        code == DiagnosticCode.NEW_GLOBAL_STATE_FINDING -> "global-state"
+        code.name.startsWith("API_") -> "api-architecture"
+        code == DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED -> "protocol-catalog"
+        code in setOf(DiagnosticCode.NEW_CANCELLATION_FINDING, DiagnosticCode.CANCELLATION_RISK_WORSENED) -> "cancellation-safety"
+        else -> null
+    }
+
+    private fun addManifestDiagnostics(
+        diagnostics: List<VerificationDiagnostic>,
+        checks: Map<String, MutableList<VerificationDiagnostic>>,
+    ) {
+        diagnostics.forEach { diagnostic ->
+            val check = if (diagnostic.code in publishingTopologyCodes) "publishing-topology" else "module-manifest"
+            checks.getValue(check) += diagnostic
+        }
+    }
+
+    private fun addEnrollmentDiagnostics(
+        resultsDir: File,
+        checks: Map<String, MutableList<VerificationDiagnostic>>,
+    ) {
+        val reports = resultsDir.listFiles { file -> file.isFile && file.name.startsWith("TEST-") && file.extension == "xml" }
+            ?.sortedBy { it.name }
+            .orEmpty()
+        if (reports.isEmpty()) {
+            listOf("provider-contracts", "store-contracts").forEach { check ->
+                checks.getValue(check) += VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Enrollment architecture test results are missing from ${resultsDir.path}",
+                )
+            }
+            return
+        }
+
+        val foundChecks = mutableSetOf<String>()
+        reports.forEach { report ->
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                isXIncludeAware = false
+                isExpandEntityReferences = false
+            }
+            val document = factory.newDocumentBuilder().parse(report)
+            val cases = document.getElementsByTagName("testcase")
+            for (index in 0 until cases.length) {
+                val testCase = cases.item(index) as org.w3c.dom.Element
+                val className = testCase.getAttribute("classname")
+                val check = when {
+                    className.contains("ProviderTckEnrollmentArchitectureTest") -> "provider-contracts"
+                    className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
+                    else -> null
+                } ?: continue
+                foundChecks += check
+                for (childIndex in 0 until testCase.childNodes.length) {
+                    val child = testCase.childNodes.item(childIndex)
+                    if (child.nodeName !in setOf("failure", "error")) continue
+                    val failure = child as org.w3c.dom.Element
+                    val message = failure.getAttribute("message").ifBlank { failure.textContent.trim() }
+                    checks.getValue(check) += VerificationDiagnostic.failure(
+                        DiagnosticCode.EMPTY_SECTION,
+                        "$className failed: $message",
+                    )
+                }
+            }
+        }
+        (setOf("provider-contracts", "store-contracts") - foundChecks).forEach { check ->
+            checks.getValue(check) += VerificationDiagnostic.failure(
+                DiagnosticCode.EMPTY_SECTION,
+                "No $check enrollment architecture test result was found in ${resultsDir.path}",
+            )
+        }
+    }
+
+    private companion object {
+        val publishingTopologyCodes = setOf(
+            DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
+            DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
+        )
+        val baselineCheckIds = setOf(
+            "module-manifest",
+            "dependency-boundaries",
+            "dependency-cycles",
+            "global-state",
+            "api-architecture",
+            "protocol-catalog",
+            "cancellation-safety",
+        )
+    }
 }
