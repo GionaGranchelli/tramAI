@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Machine-readable reason why a workflow entered recovery-required state.
@@ -54,6 +55,7 @@ data class WorkflowCheckpoint(
     val metadata: Map<String, String> = emptyMap(),
     val savedAtEpochMillis: Long = System.currentTimeMillis(),
     val recoveryState: WorkflowRecoveryState = WorkflowRecoveryState.Normal,
+    val checkpointGeneration: String? = null,
 )
 /**
  * SPI used to encode and decode typed workflow state for checkpoint storage.
@@ -80,6 +82,7 @@ interface WorkflowCheckpointStore {
         workflowName: String,
         workflowId: String,
         expectedRevision: Long? = null,
+        expectedGeneration: String? = null,
     )
 
     /**
@@ -95,6 +98,7 @@ interface WorkflowCheckpointStore {
         workflowId: String,
         expectedRevision: Long,
         record: WorkflowRecoveryRecord,
+        expectedGeneration: String? = null,
     ): WorkflowCheckpoint {
         // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
         // is WRITE_FAILED — the outer operation (SAVE) must not mislabel the
@@ -115,7 +119,10 @@ interface WorkflowCheckpointStore {
             checkpointDiagnosticObserver(this),
         ) {
             save(
-                checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Required(record)),
+                checkpoint = current.copy(
+                    recoveryState = WorkflowRecoveryState.Required(record),
+                    checkpointGeneration = expectedGeneration,
+                ),
                 expectedRevision = expectedRevision,
             )
         }
@@ -133,6 +140,7 @@ interface WorkflowCheckpointStore {
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String? = null,
     ): WorkflowCheckpoint {
         // Phase-aware boundaries: a load failure is READ_FAILED, a save failure
         // is WRITE_FAILED (same split as requireRecovery).
@@ -152,7 +160,10 @@ interface WorkflowCheckpointStore {
             checkpointDiagnosticObserver(this),
         ) {
             save(
-                checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
+                checkpoint = current.copy(
+                    recoveryState = WorkflowRecoveryState.Normal,
+                    checkpointGeneration = expectedGeneration,
+                ),
                 expectedRevision = expectedRevision,
             )
         }
@@ -327,8 +338,12 @@ class InMemoryWorkflowCheckpointStore :
         if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
             throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
         }
+        if (expectedRevision != null && existing != null && existing.checkpointGeneration != checkpoint.checkpointGeneration) {
+            throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
+        }
         val persisted = checkpoint.copy(
             revision = (existing?.revision ?: 0) + 1,
+            checkpointGeneration = existing?.checkpointGeneration ?: newCheckpointGeneration(),
         )
         checkpoints[key] = persisted
         persisted
@@ -337,6 +352,7 @@ class InMemoryWorkflowCheckpointStore :
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
         persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { synchronized(monitor) {
             val key = CheckpointKey(workflowName, workflowId)
@@ -345,6 +361,9 @@ class InMemoryWorkflowCheckpointStore :
                 throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
             }
             if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
+                throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
+            }
+            if (expectedRevision != null && existing != null && existing.checkpointGeneration != expectedGeneration) {
                 throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
             }
             checkpoints.remove(key)
@@ -425,3 +444,5 @@ private data class AttemptKey(
     val stepName: String,
     val attemptId: String,
 )
+
+internal fun newCheckpointGeneration(): String = UUID.randomUUID().toString()

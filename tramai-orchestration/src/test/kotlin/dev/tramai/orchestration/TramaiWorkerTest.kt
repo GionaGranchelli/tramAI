@@ -1569,8 +1569,11 @@ private class FlakyRenewLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 }
 
@@ -1615,8 +1618,11 @@ private class CountingWorkerRegistryLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 
     override suspend fun registerWorker(
@@ -1692,8 +1698,11 @@ private class LeaseStealingLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 }
 
@@ -1771,7 +1780,10 @@ private class ApprovalLeaseLossStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ) = delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        expectedGeneration: String?,
+    ) = delegate.deleteCheckpointIfLeaseOwner(
+        checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+    )
 }
 
 private class WorkerTestHttpServer(

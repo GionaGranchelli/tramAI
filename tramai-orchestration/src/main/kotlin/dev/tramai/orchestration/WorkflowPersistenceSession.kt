@@ -20,8 +20,10 @@ internal class WorkflowPersistenceSession<S>(
     private val workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
     private var lease: WorkflowLease?,
     initialRevision: Long?,
+    initialGeneration: String?,
 ) {
     private var currentRevision: Long? = initialRevision
+    private var currentGeneration: String? = initialGeneration
 
     suspend fun saveCheckpoint(
         state: S,
@@ -39,10 +41,12 @@ internal class WorkflowPersistenceSession<S>(
                 lastCompletedStepName = lastCompletedStepName,
                 statePayload = persistence.stateCodec.encode(state),
                 metadata = workflowDefinitionCompatibility.toCheckpointMetadata() + extraMetadata,
+                checkpointGeneration = currentGeneration,
             ),
             expectedRevision = currentRevision,
         )
         currentRevision = persisted.revision
+        currentGeneration = persisted.checkpointGeneration
         observer.emitWorkflowEvent(
             workflowName = workflowName,
             context = context,
@@ -79,6 +83,7 @@ internal class WorkflowPersistenceSession<S>(
                 workflowName = workflowName,
                 workflowId = context.workflowId,
                 expectedRevision = currentRevision,
+                expectedGeneration = currentGeneration,
             )
         }
         releaseLeaseIfPresent()
@@ -137,6 +142,7 @@ internal suspend fun <S> WorkflowPersistence<S>.session(
     observer: WorkflowObserver,
     workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
     initialRevision: Long? = null,
+    initialGeneration: String? = null,
 ): WorkflowPersistenceSession<S> = WorkflowPersistenceSession(
     persistence = this,
     workflowName = workflowName,
@@ -151,6 +157,7 @@ internal suspend fun <S> WorkflowPersistence<S>.session(
         checkpointRevision = initialRevision,
     ),
     initialRevision = initialRevision,
+    initialGeneration = initialGeneration,
 )
 
 internal suspend fun <S> WorkflowPersistence<S>.acquireLeaseIfConfigured(

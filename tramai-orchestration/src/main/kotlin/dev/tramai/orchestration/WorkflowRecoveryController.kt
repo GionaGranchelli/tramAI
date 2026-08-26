@@ -150,13 +150,18 @@ class InMemoryWorkflowRecoveryController(
         reason: String,
         approvedIdempotencyKey: String?,
     ): WorkflowCheckpoint {
-        val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
+        val (checkpoint, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
         if (record.reason == WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING ||
             record.reason == WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH
         ) {
             if (!approvedIdempotencyKey.isNullOrBlank()) {
                 approveAttemptForRetry(workflowName, workflowId, record, reason, approvedIdempotencyKey)
-                return checkpointStore.clearRecovery(workflowName, workflowId, expectedRevision)
+                return checkpointStore.clearRecovery(
+                    workflowName,
+                    workflowId,
+                    expectedRevision,
+                    checkpoint.checkpointGeneration,
+                )
             }
             throw WorkflowRecoveryStateException(
                 "Cannot retry workflow '$workflowName'/'$workflowId': recovery reason ${record.reason} " +
@@ -168,6 +173,7 @@ class InMemoryWorkflowRecoveryController(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = checkpoint.checkpointGeneration,
         )
     }
 
@@ -177,13 +183,14 @@ class InMemoryWorkflowRecoveryController(
         expectedRevision: Long,
         reason: String,
     ) {
-        val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
+        val (checkpoint, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
         // Delete directly with the ORIGINAL revision. If this fails, the checkpoint
         // stays in Required and the workflow stays blocked — the safe behavior.
         checkpointStore.delete(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = checkpoint.checkpointGeneration,
         )
         // Best-effort evidence only AFTER a successful delete — never write
         // "resolved: failed" for a workflow that is still in Required state.

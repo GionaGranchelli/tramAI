@@ -10,11 +10,11 @@ components of TramAI.
 | Target | Status |
 |---|---|
 | Approval lifecycle | ✅ #278 |
-| Continuation lifecycle | ⏳ |
-| Worker lifecycle | ⏳ |
-| Lease lifecycle | ⏳ |
-| Outbox lifecycle | ⏳ |
-| Workflow checkpoint/resume lifecycle | ⏳ |
+| Continuation lifecycle | ✅ #279 |
+| Worker lifecycle | ✅ #280 |
+| Lease lifecycle | ✅ #290 |
+| Outbox lifecycle | ✅ #291 |
+| Workflow checkpoint/resume lifecycle | ✅ #<N> |
 | Circuit breaker states | ⏳ |
 | Provider retry/fallback | ⏳ |
 
@@ -1007,3 +1007,55 @@ Every mutation made at least one NEW Epic 8.2e property red; suite green again a
 - `SovereignOpsAuditOutboxStoreTck` (P0–P8; 55 → 64 shared cases)
 - `SovereignOpsAuditOutboxStore` + `InMemory`/`File`/`Jdbc` stores + `SovereignOpsAuditOutboxDispatcher`
   + `DefaultSovereignOpsAuditOutboxOperations` + `api/` dump
+
+## Workflow checkpoint/resume lifecycle — #<N> (Epic 8.2f)
+
+**One checkpoint capability = one incarnation + one revision. Deletion permanently kills the incarnation; revision reuse after recreation can never revive stale authority. Recovery-required checkpoints are non-runnable through every execution entry point, including direct resume.**
+
+### Proven defects (P0 discriminators, RED ×4 stores before the fix)
+
+- **P0-A (ABA).** Delete incarnation G1 @ r1, recreate successor @ r1. A stale G1 capability (loaded before the delete) saved/deleted/requireRecovered/cleared against the successor. Pre-fix, revision-only fencing could not distinguish G1/r1 from G2/r1 — the stale save **mutated the recreated successor**.
+- **P0-B (Required bypass).** `workflow.resume()` on a checkpoint in `WorkflowRecoveryState.Required` executed it directly, skipping operator resolution.
+
+### Production changes (2)
+
+1. **Store-owned incarnation token.** `WorkflowCheckpoint.checkpointGeneration: String?` is minted by the store (`newCheckpointGeneration()`), never accepted from callers. Authority becomes identity + generation + revision: `save` carries the generation inside the checkpoint; `delete`/`requireRecovery`/`clearRecovery` gained `expectedGeneration`. Legacy pre-8.2f records (generation absent/null) remain **readable**; the first legitimate fenced mutation installs the token (migration). JDBC adds `checkpoint_generation TEXT NULL` + `checkpointGenerationMigrationSql()` ALTER; File/Markdown persist a `checkpointGeneration` key.
+2. **Resume fails closed on Required.** `WorkflowRunner.resume()` throws `WorkflowRecoveryStateException` before decode/execution for a Required checkpoint. The session carries + updates the generation from persisted state; the completion-delete is generation-fenced.
+
+### Evidence categories
+
+| Category | Count |
+|---|---|
+| Store compatibility | **51 shared cases × 4 implementations** (InMemory/File/Markdown/JDBC) |
+| Lifecycle properties | **P0–P6** (7 properties in TCK section E) |
+| Resume lifecycle | **R1–R6** (6 tests, `WorkflowCheckpointResumeDiscriminatorTest`) |
+| Legacy migration | **5 cases × 3 persistent implementations** (`WorkflowCheckpointLegacyMigrationContractTest`) |
+| Generated histories | **32 seeds × 32 actions × 4 stores = 4,096 model-checked actions** |
+| Mutation evidence | **24/24 STRONG, 0 WEAK** |
+
+**TCK accounting (42 → 51):** 42 existing shared cases + 7 lifecycle properties (P0–P6, section E) + 2 generation/migration contract cases (`caller-supplied generation on create is ignored and the store token is authoritative`, `every recreate mints a genuinely distinct generation`) = **51**.
+
+### Discriminator-suite lesson (M21)
+
+M21 (`lease-fence drops generation propagation` in `WorkflowLease`) was initially classified WEAK because the discriminator set contained only the checkpoint TCK. It was **not** weak — the base checkpoint TCK asks "does the store obey the store contract?", not "does the lease/checkpoint adapter propagate the capability?". A mutation in a composition/fencing adapter is not adequately classified by the base store TCK alone.
+
+**Rule for future campaigns:** the discriminator set must include every contract runner that owns the affected semantic boundary:
+- checkpoint store mutation → checkpoint TCK
+- lease/checkpoint composition mutation → checkpoint TCK + lease-fence TCK
+- resume/session mutation → resume lifecycle suite
+
+With `WorkflowLeaseCheckpointFenceTck` runners added, M21 went STRONG (7 red cases in the File fence runner).
+
+### Mutation highlights
+
+- **M05/M06** (drop generation fence in File save/delete) → all four stores' ABA path red.
+- **M13** (JDBC update drops generation predicate) → 23 TCK red cases; the generation predicate is load-bearing for cross-store authority.
+- **M21** (lease-fence generation propagation) → fence TCK red; exposed the discriminator-suite gap above.
+
+### Files
+
+- `tramai-testing/src/testFixtures/.../persistence/checkpoint/WorkflowCheckpointStoreTck.kt` (section E; 42 → 51 shared cases)
+- `tramai-testing/src/testFixtures/.../persistence/checkpoint/WorkflowCheckpointLifecycleModel.kt` + `WorkflowCheckpointLifecycleActionGenerator.kt` + `WorkflowCheckpointLifecycleActionGeneratorTest.kt`
+- `tramai-orchestration/src/test/.../WorkflowCheckpointResumeDiscriminatorTest.kt` (R1–R6)
+- `tramai-orchestration/src/test/.../WorkflowCheckpointLegacyMigrationContractTest.kt` (5 cases × 3 stores)
+- Production: `WorkflowPersistence.kt`, `WorkflowRunner.kt`, `WorkflowPersistenceSession.kt`, `WorkflowLease.kt`, `FileWorkflowCheckpointStore.kt`, `MarkdownWorkflowCheckpointStore.kt`, `JdbcWorkflowCheckpointStore.kt`, `WorkflowRecoveryController.kt` + `api/` dump (+47/−33)

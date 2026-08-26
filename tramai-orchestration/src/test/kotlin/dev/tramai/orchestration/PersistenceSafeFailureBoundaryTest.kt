@@ -574,8 +574,12 @@ class PersistenceSafeFailureBoundaryTest {
         override suspend fun load(workflowName: String, workflowId: String): WorkflowCheckpoint? = throw failure
         override suspend fun save(checkpoint: WorkflowCheckpoint, expectedRevision: Long?): WorkflowCheckpoint =
             delegate.save(checkpoint, expectedRevision)
-        override suspend fun delete(workflowName: String, workflowId: String, expectedRevision: Long?) =
-            delegate.delete(workflowName, workflowId, expectedRevision)
+        override suspend fun delete(
+            workflowName: String,
+            workflowId: String,
+            expectedRevision: Long?,
+            expectedGeneration: String?,
+        ) = delegate.delete(workflowName, workflowId, expectedRevision, expectedGeneration)
     }
 
     @Test

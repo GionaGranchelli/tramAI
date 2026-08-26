@@ -313,6 +313,7 @@ private class FailingClearCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
     ): WorkflowCheckpoint = throw IllegalStateException("clear failed")
 }
 

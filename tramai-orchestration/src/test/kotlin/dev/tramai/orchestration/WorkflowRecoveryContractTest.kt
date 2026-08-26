@@ -68,6 +68,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "process-payment",
@@ -96,6 +97,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                     stepName = "send-email",
@@ -156,6 +158,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -185,6 +188,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -213,6 +217,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -321,6 +326,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -410,6 +416,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                     stepName = "step",
@@ -476,6 +483,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -513,6 +521,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -564,6 +573,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                     stepName = "step",
@@ -616,6 +626,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
                     stepName = "step",
@@ -668,6 +679,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                 record = WorkflowRecoveryRecord(
                     reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                     stepName = "step",
@@ -711,6 +723,7 @@ class WorkflowRecoveryContractTest {
                     saved.workflowId,
                     saved.revision,
                     recoveryRecord(recoveryReason),
+                    saved.checkpointGeneration,
                 )
 
                 InMemoryWorkflowRecoveryController(store, store).retryStep(
@@ -737,7 +750,7 @@ class WorkflowRecoveryContractTest {
             store.recordStepAttempt(unresolvedAttempt(saved.workflowId, ReplayPolicy.EXTERNALLY_IDEMPOTENT))
             val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(
                 WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
-            ))
+            ), saved.checkpointGeneration)
 
             assertThatThrownBy {
                 runBlocking {
@@ -761,6 +774,7 @@ class WorkflowRecoveryContractTest {
                 store.recordStepAttempt(unresolvedAttempt(saved.workflowId).copy(status = status))
                 val required = store.requireRecovery(
                     saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(),
+                    saved.checkpointGeneration,
                 )
                 val result = runCatching {
                     InMemoryWorkflowRecoveryController(store, store).retryStep(
@@ -782,7 +796,7 @@ class WorkflowRecoveryContractTest {
             val checkpointStore = FailingClearOnceStore(delegate)
             val saved = delegate.save(sampleCheckpoint())
             delegate.recordStepAttempt(unresolvedAttempt(saved.workflowId))
-            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
             val controller = InMemoryWorkflowRecoveryController(checkpointStore, delegate)
 
             assertThat(runCatching {
@@ -810,7 +824,7 @@ class WorkflowRecoveryContractTest {
             store.recordStepAttempt(
                 unresolvedAttempt(saved.workflowId).copy(approvedIdempotencyKey = "must-be-cleared"),
             )
-            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
 
             InMemoryWorkflowRecoveryController(store, store).failWorkflow(
                 saved.workflowName, saved.workflowId, required.revision, "operator failed workflow",
@@ -830,7 +844,7 @@ class WorkflowRecoveryContractTest {
             val delegate = InMemoryWorkflowCheckpointStore()
             val saved = delegate.save(sampleCheckpoint())
             delegate.recordStepAttempt(unresolvedAttempt(saved.workflowId))
-            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
 
             assertThat(runCatching {
                 InMemoryWorkflowRecoveryController(FailingDeleteStore(delegate), delegate).failWorkflow(
@@ -849,7 +863,7 @@ class WorkflowRecoveryContractTest {
             val store = InMemoryWorkflowCheckpointStore()
             val saved = store.save(sampleCheckpoint())
             store.recordStepAttempt(unresolvedAttempt(saved.workflowId))
-            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
 
             InMemoryWorkflowRecoveryController(store, FailingAttemptUpdateStore(store)).failWorkflow(
                 saved.workflowName, saved.workflowId, required.revision, "fail",
@@ -898,6 +912,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                             stepName = "step-A",
@@ -912,6 +927,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                             stepName = "step-B",
@@ -954,6 +970,7 @@ class WorkflowRecoveryContractTest {
                     workflowName = saved.workflowName,
                     workflowId = saved.workflowId,
                     expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                     record = record,
                 )
                 val reloaded = store.load(saved.workflowName, saved.workflowId)!!
@@ -978,6 +995,7 @@ class WorkflowRecoveryContractTest {
                     workflowName = saved.workflowName,
                     workflowId = saved.workflowId,
                     expectedRevision = saved.revision,
+                expectedGeneration = saved.checkpointGeneration,
                     record = record,
                 )
                 val reloaded = store.load(saved.workflowName, saved.workflowId)!!
@@ -1152,12 +1170,13 @@ private class FailingClearOnceStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
     ): WorkflowCheckpoint {
         if (fail) {
             fail = false
             throw IllegalStateException("simulated clear failure")
         }
-        return delegate.clearRecovery(workflowName, workflowId, expectedRevision)
+        return delegate.clearRecovery(workflowName, workflowId, expectedRevision, expectedGeneration)
     }
 }
 
@@ -1168,6 +1187,7 @@ private class FailingDeleteStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
         throw IllegalStateException("simulated delete failure")
     }

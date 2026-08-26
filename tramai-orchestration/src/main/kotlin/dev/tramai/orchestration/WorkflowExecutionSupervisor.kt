@@ -566,6 +566,7 @@ private class LeaseFencedCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
         val expectedLease = expectedLease(workflowName, workflowId)
         leaseFence.deleteCheckpointIfLeaseOwner(
@@ -573,6 +574,7 @@ private class LeaseFencedCheckpointStore(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = expectedGeneration,
             expectedLease = expectedLease,
         )
     }
@@ -582,13 +584,17 @@ private class LeaseFencedCheckpointStore(
         workflowId: String,
         expectedRevision: Long,
         record: WorkflowRecoveryRecord,
+        expectedGeneration: String?,
     ): WorkflowCheckpoint {
         val expectedLease = expectedLease(workflowName, workflowId)
         val current = delegate.load(workflowName, workflowId)
             ?: throw WorkflowCheckpointConflictException("Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist")
         return leaseFence.saveCheckpointIfLeaseOwner(
             checkpointStore = delegate,
-            checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Required(record)),
+            checkpoint = current.copy(
+                recoveryState = WorkflowRecoveryState.Required(record),
+                checkpointGeneration = expectedGeneration,
+            ),
             expectedRevision = expectedRevision,
             expectedLease = expectedLease,
         ).also { revisionSink(it.revision) }

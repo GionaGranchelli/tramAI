@@ -290,9 +290,13 @@ class FileWorkflowPersistenceCancellationContractTest {
             assertThat(pathLockRegistrySize()).isEqualTo(registryBefore)
 
             // Path must be usable after both coroutines release.
+            val persisted = store.load(checkpoint.workflowName, checkpoint.workflowId)!!
             val reloaded = store.save(
-                checkpoint.copy(statePayload = "after-release"),
-                expectedRevision = 1,
+                checkpoint.copy(
+                    statePayload = "after-release",
+                    checkpointGeneration = persisted.checkpointGeneration,
+                ),
+                expectedRevision = persisted.revision,
             )
             assertThat(reloaded.statePayload).isEqualTo("after-release")
         }
@@ -329,7 +333,10 @@ class FileWorkflowPersistenceCancellationContractTest {
             // Start an update (writeCount == 2, hook fires and blocks).
             val update = launch(Dispatchers.IO) {
                 store.save(
-                    checkpoint.copy(statePayload = "in-flight"),
+                    checkpoint.copy(
+                        statePayload = "in-flight",
+                        checkpointGeneration = persisted.checkpointGeneration,
+                    ),
                     expectedRevision = persisted.revision,
                 )
             }
@@ -353,7 +360,10 @@ class FileWorkflowPersistenceCancellationContractTest {
 
             // Path remains usable after cancellation.
             val redo = store.save(
-                checkpoint.copy(statePayload = "redo-after-cancel"),
+                checkpoint.copy(
+                    statePayload = "redo-after-cancel",
+                    checkpointGeneration = persisted.checkpointGeneration,
+                ),
                 expectedRevision = persisted.revision,
             )
             assertThat(
@@ -444,7 +454,7 @@ class FileWorkflowPersistenceCancellationContractTest {
             val leaseStore = FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter)
 
             val checkpoint = testCheckpoint()
-            checkpointStore.save(checkpoint, expectedRevision = null)
+            val persisted = checkpointStore.save(checkpoint, expectedRevision = null)
             val lease = leaseStore.claim(
                 checkpoint.workflowName, checkpoint.workflowId, "owner", null, 60_000,
             )
@@ -452,8 +462,11 @@ class FileWorkflowPersistenceCancellationContractTest {
             withTimeout(5_000) {
                 leaseStore.saveCheckpointIfLeaseOwner(
                     checkpointStore,
-                    checkpoint.copy(statePayload = "updated-under-fence"),
-                    expectedRevision = 1,
+                    checkpoint.copy(
+                        statePayload = "updated-under-fence",
+                        checkpointGeneration = persisted.checkpointGeneration,
+                    ),
+                    expectedRevision = persisted.revision,
                     expectedLease = lease,
                 )
             }
