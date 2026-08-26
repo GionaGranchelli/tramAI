@@ -7,7 +7,7 @@
 - Module classification / ownership / maturity / publishability: [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml)
 - Forbidden / allowed dependency edges: [`config/quality/module-boundaries.yml`](../../config/quality/module-boundaries.yml)
 - Generated module matrix (all 58 modules with layer/maturity/api/published/owner/release): [`docs/reference/module-matrix.md`](../reference/module-matrix.md)
-- Dependency topology graph (v0.5.0 baseline snapshot): [`docs/architecture/module-dependency-graph.md`](./module-dependency-graph.md) — current topology derives from the manifest + module-boundaries
+- Dependency topology graph (v0.5.0 baseline snapshot): [`docs/architecture/module-dependency-graph.md`](./module-dependency-graph.md). Current dependency policy is defined by `module-catalog.yml` and `module-boundaries.yml`; current resolved dependency edges are verified by `./gradlew verify060Architecture`
 
 ## Layer Philosophy
 
@@ -69,4 +69,4 @@ The same core operation semantics apply everywhere:
 
 That same rule extends upward: the operational modules compose the core runtime, they do not fork it.
 
-For per-module navigation cards (responsibility, entry points, extension points, lifecycle, thread-safety, failure semantics, contract tests), see `docs/modules/` (per-module cards, completed in Epic 11.2b).
+For existing per-module documentation, see `docs/modules/`. Epic 11.2b normalizes and completes these cards against the authoritative 58-module manifest.

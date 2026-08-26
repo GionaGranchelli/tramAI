@@ -11,7 +11,7 @@ This is the authoritative navigation map for the TramAI repository. It tells you
 | Module classification / ownership / maturity / publishability / API stability / release inclusion | [`config/quality/module-catalog.yml`](./config/quality/module-catalog.yml) |
 | Module dependency exceptions / forbidden layer edges | [`config/quality/module-boundaries.yml`](./config/quality/module-boundaries.yml) |
 | Generated module overview (matrix) | [`docs/reference/module-matrix.md`](./docs/reference/module-matrix.md) — generated from the catalog, do not edit |
-| Dependency topology (graph) | [`docs/architecture/module-dependency-graph.md`](./docs/architecture/module-dependency-graph.md) — **v0.5.0 baseline snapshot** (48 modules); current topology derives from the manifest + module-boundaries |
+| Dependency topology (graph) | [`docs/architecture/module-dependency-graph.md`](./docs/architecture/module-dependency-graph.md) — **v0.5.0 baseline snapshot** (48 modules). Current dependency policy is defined by `module-catalog.yml` and `module-boundaries.yml`; current resolved dependency edges are verified by `./gradlew verify060Architecture` |
 | Public API compatibility | `api/*.api` dumps per module (binary-compatibility-validator) |
 | Runtime events / reason codes | [`RuntimeEventCatalogue.kt`](./tramai-core/src/main/kotlin/dev/tramai/core/observation/event/RuntimeEventCatalogue.kt) (authoritative); [`docs/reference/runtime-event-catalogue.md`](./docs/reference/runtime-event-catalogue.md) is its generated view |
 | Provider routing | [`ProviderRegistry`](./tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderRegistry.kt) + provider routing contracts in `tramai-engine` |
