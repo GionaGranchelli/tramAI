@@ -335,13 +335,15 @@ class StreamingExecutionCoordinatorTest {
     @Test fun `H7 streaming HALF_OPEN probe failure reopens and the next expiry admits again`() {
         runBlocking {
         var now = 0L
+        val sink = OrderedSink()
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
         val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
-        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), circuitEnabled = true, circuitBreaker = breaker)
 
         // First call fails retryably -> OPEN until t=100.
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(1)
 
         // At exact expiry the probe is admitted; its qualifying failure must
         // immediately reopen with a fresh deadline (now + openDuration) — NOT
@@ -349,12 +351,17 @@ class StreamingExecutionCoordinatorTest {
         now = 100
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+        // A qualifying probe failure is a breaker TRIP: one more CIRCUIT_OPENED
+        // event. (An abandoned/neutral probe would reopen WITHOUT the event —
+        // this discriminates the two paths.)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(2)
 
         // At the new expiry a call is again admitted as the next probe.
         now = 200
         coordinator.execute(request()).toList()
         assertThat(provider.streamRequests).hasSize(3)
         assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(3)
         }
     }
 
