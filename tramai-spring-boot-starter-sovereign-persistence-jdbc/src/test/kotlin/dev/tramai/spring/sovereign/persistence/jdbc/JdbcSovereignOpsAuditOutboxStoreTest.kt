@@ -273,6 +273,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val result = store.markEmitted(
                 "emit-me",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                1,
                 emittedAt,
             )
             assertThat(result.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
@@ -286,7 +287,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("wrong-emit"))
             assertThatThrownBy {
                 runBlocking {
-                    store.markEmitted("wrong-emit", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW)
+                    store.markEmitted("wrong-emit", SovereignOpsAuditOutboxStatus.EMITTING, 0, BASE_NOW)
                 }
             }.isInstanceOf(IllegalArgumentException::class.java)
                 .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
@@ -302,6 +303,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val result = store.markFailed(
                 "fail-retry",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "NETWORK_ERROR",
                 retryable = true,
             )
@@ -319,6 +321,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val result = store.markFailed(
                 "fail-perm",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "INVALID_PAYLOAD",
                 retryable = false,
             )
@@ -334,6 +337,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val result = store.markFailed(
                 "orphan-recovery",
                 SovereignOpsAuditOutboxStatus.PREPARED,
+                expectedAttemptCount = 0,
                 errorCode = "TRANSITION_FAILED",
                 retryable = false,
             )
@@ -378,6 +382,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markFailed(
                 "retry-claim",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "TIMEOUT",
                 retryable = true,
             )
@@ -420,7 +425,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("attempts"))
             store.markReadyForDispatch("attempts", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("worker-1", 10, BASE_NOW)
-            store.markFailed("attempts", SovereignOpsAuditOutboxStatus.EMITTING, "ERR", retryable = true)
+            store.markFailed("attempts", SovereignOpsAuditOutboxStatus.EMITTING, 1, "ERR", retryable = true)
             val afterLease = BASE_NOW.plus(Duration.ofMinutes(6))
             val claimed = store.claimPending("worker-2", 10, afterLease)
             assertThat(claimed[0].attemptCount).isEqualTo(2)
@@ -510,7 +515,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             coroutineScope {
                 val emitAttempt = async {
                     runCatching {
-                        store.markEmitted("race-emit-fail", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW)
+                        store.markEmitted("race-emit-fail", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW)
                     }
                 }
                 val failAttempt = async {
@@ -518,6 +523,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
                         store.markFailed(
                             "race-emit-fail",
                             SovereignOpsAuditOutboxStatus.EMITTING,
+                            expectedAttemptCount = 1,
                             errorCode = "ERR",
                             retryable = false,
                         )
@@ -553,7 +559,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("completed-once"))
             store.markReadyForDispatch("completed-once", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("worker-1", 10, BASE_NOW)
-            store.markEmitted("completed-once", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW)
+            store.markEmitted("completed-once", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW)
             val afterLease = BASE_NOW.plus(Duration.ofMinutes(10))
             val claimed = store.claimPending("worker-2", 10, afterLease)
             assertThat(claimed).isEmpty()
@@ -738,12 +744,13 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.append(record("version-check"))
             store.markReadyForDispatch("version-check", SovereignOpsAuditOutboxStatus.PREPARED)
             store.claimPending("worker-1", 10, BASE_NOW)
-            store.markEmitted("version-check", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW)
+            store.markEmitted("version-check", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW)
             assertThatThrownBy {
                 runBlocking {
                     store.markFailed(
                         "version-check",
                         SovereignOpsAuditOutboxStatus.EMITTING,
+                        expectedAttemptCount = 1,
                         errorCode = "TOO_LATE",
                         retryable = false,
                     )
@@ -850,6 +857,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markFailed(
                 "fail-perm-guard",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "FATAL",
                 retryable = false,
             )
@@ -869,7 +877,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markReadyForDispatch("emit-guard", SovereignOpsAuditOutboxStatus.PREPARED)
             assertThatThrownBy {
                 runBlocking {
-                    store.markEmitted("emit-guard", SovereignOpsAuditOutboxStatus.PENDING, BASE_NOW)
+                    store.markEmitted("emit-guard", SovereignOpsAuditOutboxStatus.PENDING, 0, BASE_NOW)
                 }
             }.isInstanceOf(IllegalArgumentException::class.java)
                 .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
@@ -885,6 +893,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
                     store.markFailed(
                         "fail-retry-guard",
                         SovereignOpsAuditOutboxStatus.PREPARED,
+                        expectedAttemptCount = 0,
                         errorCode = "ERR",
                         retryable = true,
                     )
@@ -903,6 +912,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
                     store.markFailed(
                         "fail-emitted-guard",
                         SovereignOpsAuditOutboxStatus.EMITTED,
+                        expectedAttemptCount = 0,
                         errorCode = "ERR",
                         retryable = true,
                     )
@@ -925,6 +935,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markFailed(
                 "claim-clear-error",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "TIMEOUT",
                 retryable = true,
             )
@@ -947,6 +958,7 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             store.markFailed(
                 "tamper-last-fail",
                 SovereignOpsAuditOutboxStatus.EMITTING,
+                expectedAttemptCount = 1,
                 errorCode = "NET_ERR",
                 retryable = true,
             )

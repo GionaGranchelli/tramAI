@@ -7,6 +7,7 @@ import dev.tramai.spring.sovereign.ops.MinimalStoreConfig
 import dev.tramai.spring.sovereign.ops.SovereignApprovalOperations
 import dev.tramai.spring.sovereign.ops.SovereignOpsAuditEmitter
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
+import dev.tramai.testing.persistence.outbox.SovereignOpsAuditOutboxFixtures
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -16,7 +17,9 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import java.security.MessageDigest
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 
 class SovereignOpsAuditOutboxTest {
 
@@ -220,6 +223,50 @@ class SovereignOpsAuditOutboxTest {
     // ── P1: Retryability ──────────────────────────────────────────
 
     @Test
+    fun `dispatcher stale completion cannot demote the successor attempt`() = runBlocking<Unit> {
+        val store = InMemorySovereignOpsAuditOutboxStore()
+        val initial = SovereignOpsAuditOutboxFixtures.record("dispatcher-generation-fence")
+        store.append(initial)
+        store.markReadyForDispatch(initial.outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+        val reclaimAt = SovereignOpsAuditOutboxFixtures.T0
+            .plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY)
+            .plusMillis(1)
+        val emitter = object : SovereignOpsAuditEmitter {
+            override suspend fun approvalDenied(
+                approvalId: String,
+                actor: String,
+                reason: String,
+                approvalStatus: String,
+                approvalVersion: Long?,
+                workflowRunId: String?,
+                correlationId: String?,
+            ) = Unit
+
+            override suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
+                val successor = store.claimPending("worker-B", 1, reclaimAt).single()
+                assertThat(successor.attemptCount).isEqualTo(2)
+            }
+        }
+        val dispatcher = SovereignOpsAuditOutboxDispatcher(
+            outboxStore = store,
+            auditEmitter = emitter,
+            claimedBy = "worker-A",
+            clock = Clock.fixed(SovereignOpsAuditOutboxFixtures.T0, ZoneOffset.UTC),
+        )
+
+        val thrown = runCatching { dispatcher.dispatchPending(1) }.exceptionOrNull()
+        assertThat(thrown)
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("tramai-sovereign-ops-outbox-concurrent-update")
+        val final = store.get(initial.outboxId)!!
+        assertThat(final.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
+        assertThat(final.attemptCount).isEqualTo(2)
+        assertThat(final.claimedBy).isEqualTo("worker-B")
+        assertThat(final.lastErrorCode).isNull()
+        assertThat(final.emittedAt).isNull()
+    }
+
+    @Test
     fun `dispatcher can retry FAILED_RETRYABLE outbox records`() {
         contextRunner
             .withUserConfiguration(
@@ -273,6 +320,7 @@ class SovereignOpsAuditOutboxTest {
                     outboxStore.markFailed(
                         record.outboxId,
                         SovereignOpsAuditOutboxStatus.EMITTING,
+                        1,
                         "RetryableError",
                         retryable = true,
                     )
@@ -610,6 +658,7 @@ class SovereignOpsAuditOutboxTest {
                         outboxStore.markEmitted(
                             record.outboxId,
                             SovereignOpsAuditOutboxStatus.PENDING,  // stale!
+                            1,
                             Instant.now(),
                         )
                     }
@@ -655,6 +704,7 @@ class SovereignOpsAuditOutboxTest {
                         outboxStore.markFailed(
                             record.outboxId,
                             SovereignOpsAuditOutboxStatus.PREPARED,  // stale!
+                            0,
                             "TestError",
                             retryable = true,
                         )
@@ -797,10 +847,12 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
     }
 
     override suspend fun markEmitted(
-        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus, emittedAt: Instant,
+        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int, emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         val r = store[outboxId] ?: throw IllegalStateException("not found")
         require(r.status == expectedStatus) { "status mismatch" }
+        check(r.attemptCount == expectedAttemptCount) { "concurrent update" }
         val u = r.copy(status = SovereignOpsAuditOutboxStatus.EMITTED, emittedAt = emittedAt)
         require(store.replace(outboxId, r, u)) { "concurrent update" }
         return u
@@ -808,10 +860,11 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun markFailed(
         outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
-        errorCode: String, retryable: Boolean,
+        expectedAttemptCount: Int, errorCode: String, retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
         val r = store[outboxId] ?: throw IllegalStateException("not found")
         require(r.status == expectedStatus) { "status mismatch" }
+        check(r.attemptCount == expectedAttemptCount) { "concurrent update" }
         val s = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         val u = r.copy(status = s, lastErrorCode = errorCode)
@@ -887,7 +940,8 @@ class CancellationEmittingOutboxStore : SovereignOpsAuditOutboxStore {
         delegate.claimPending(claimedBy, limit, now)
 
     override suspend fun markEmitted(
-        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus, emittedAt: Instant,
+        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int, emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         // Throw CancellationException instead of emitting
         throw CancellationException("Simulated cancellation during dispatch")
@@ -895,9 +949,9 @@ class CancellationEmittingOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun markFailed(
         outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
-        errorCode: String, retryable: Boolean,
+        expectedAttemptCount: Int, errorCode: String, retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord =
-        delegate.markFailed(outboxId, expectedStatus, errorCode, retryable)
+        delegate.markFailed(outboxId, expectedStatus, expectedAttemptCount, errorCode, retryable)
 
     override suspend fun markReadyForDispatch(
         outboxId: String,
@@ -964,10 +1018,12 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
     }
 
     override suspend fun markEmitted(
-        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus, emittedAt: Instant,
+        outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int, emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         val r = records[outboxId] ?: throw IllegalStateException("not found")
         require(r.status == expectedStatus) { "status mismatch" }
+        check(r.attemptCount == expectedAttemptCount) { "concurrent update" }
         val u = r.copy(status = SovereignOpsAuditOutboxStatus.EMITTED, emittedAt = emittedAt)
         records[outboxId] = u
         return u
@@ -975,10 +1031,11 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun markFailed(
         outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus,
-        errorCode: String, retryable: Boolean,
+        expectedAttemptCount: Int, errorCode: String, retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
         val r = records[outboxId] ?: throw IllegalStateException("not found")
         require(r.status == expectedStatus) { "status mismatch" }
+        check(r.attemptCount == expectedAttemptCount) { "concurrent update" }
         val s = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         val u = r.copy(status = s, lastErrorCode = errorCode)

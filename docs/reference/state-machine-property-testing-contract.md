@@ -840,7 +840,7 @@ seed yields the same trace.
    save nor delete a checkpoint (STALE, checkpoint unchanged); the successor
    is the only active fencing capability.
 
-### Mutation evidence (21 mutations, each restored; 0 weak)
+### Mutation evidence (19 mutations, each restored; 0 weak)
 
 M1 active claim overwrites the current lease, M2 exact expiry treated as
 still active, M3 takeover reuses the predecessor leaseId (covers both owner
@@ -878,3 +878,122 @@ still detected via the active-lease re-check + SQLException path). The
 InMemory and File stores never exhibited the race (both serialize the
 check-then-act); the property runs against all three implementations and
 only JDBC went red pre-fix.
+## Outbox lifecycle — Epic 8.2e (PR number assigned by GitHub)
+
+### Thesis
+
+`EMITTING` is a state. A dispatch attempt is an authority generation. They are not the same thing.
+The target invariant: **one durable outbox state, one authoritative dispatch generation — a
+successful claim increments the generation, and once an attempt is superseded it can never resolve
+a later attempt** (including same-worker reincarnation; `claimedBy` cannot fence, `attemptCount`
+can).
+
+### The defect the slice exposed
+
+The terminal mutation API took only `expectedStatus`, so a stale dispatcher from attempt-1 could
+complete attempt-2: both generations are `EMITTING`, and the store could not distinguish the
+caller's authority. P0 discriminator (stale attempt-1 `markEmitted`/`markFailed` against
+attempt-2) was RED on all three implementations (56 tests, 1 failed — the existing 55 stayed
+green).
+
+### Production changes (2, deliberate)
+
+1. **Attempt-count fencing (public SPI change).** `markEmitted`/`markFailed` gained a required
+   `expectedAttemptCount: Int` — the optimistic dispatch-generation fence, monotonic and durable
+   across all implementations. `PREPARED → FAILED_PERMANENT` uses generation 0. A mismatch throws
+   `tramai-sovereign-ops-outbox-concurrent-update`. `api/` dump regenerated.
+2. **JDBC claim linearization.** `claimPending` re-runs the non-blocking `SKIP LOCKED` pass (up to
+   5 times) when the first pass finds nothing, so a claim racing a concurrent terminal mutation
+   linearizes after it instead of reporting a false empty from the transient lock window. Retries
+   stay non-blocking — concurrent claimants can never deadlock (a blocking `FOR UPDATE` recheck
+   variant deadlocked the pool-claim race and was rejected).
+3. **Dispatcher companion.** The dispatcher passes `expectedAttemptCount = record.attemptCount`
+   (the generation it owns) on both `markEmitted` and `markFailed`, so a stale completion can no
+   longer be converted into a retryable failure against the newer attempt; it propagates as claim
+   loss.
+
+### Model
+
+`SovereignOpsAuditOutboxLifecycleModel` — pure oracle (no stores, no coroutines, deterministic):
+`current: ModeledOutbox?` + `predecessorClaims: List<ModeledClaim>`; tracks status, attemptCount,
+lastErrorCode, claimedBy/claimedAt/claimExpiresAt, emittedAt; static audit fields held once and
+asserted immutable. Expiry boundary deliberately OPPOSITE to the workflow-lease contract:
+`claimExpiresAt < now` → reclaimable, `== now` → NOT reclaimable.
+
+### Action alphabet
+
+`AppendPrepared`, `MarkReady`, `MarkPreparedPermanentFailure`, `ClaimWorkerA/B`,
+`MarkEmittedCurrent`, `MarkRetryableFailureCurrent`, `MarkPermanentFailureCurrent`,
+`MarkEmittedStaleAttempt`, `MarkRetryableFailureStaleAttempt`, `MarkPermanentFailureStaleAttempt`,
+`AdvanceBeforeClaimExpiry`, `AdvanceToExactClaimExpiry`, `AdvancePastClaimExpiry`, `ObserveCurrent`.
+No separate RetryClaim/ExpiredReclaim — both are ordinary `Claim(worker)` whose legality depends on
+model state (PENDING/FAILED_RETRYABLE/expired EMITTING claimable; fresh EMITTING/terminal not).
+
+### Generated corpus
+
+32 seeds × 32 actions × 3 implementations = 3,072 model-checked lifecycle actions. 8 seed lanes
+force every discriminator (fresh PREPARED, PREPARED→PENDING, PREPARED→FAILED_PERMANENT, PENDING
+first claim, EMITTING→EMITTED/FAILED_RETRYABLE/FAILED_PERMANENT, FAILED_RETRYABLE re-claim,
+before/exact/past-expiry reclaim, different-worker + same-worker reclaim, attempts 1/2/3+,
+retry clears lastErrorCode, stale predecessor emit/retryable/permanent, terminal emit/failure/
+claim rejection, EMITTED + FAILED_PERMANENT absorbing) then state-aware random picking.
+Coverage guard: 25 semantic pre-state categories + determinism.
+
+### Properties (9 new shared cases, 55 → 64 × 3 implementations)
+
+P0. **Stale attempt-1 completion cannot mutate attempt-2** — the P0 discriminator, now GREEN.
+P1. **Generated lifecycle histories match the independent model** — 32×32×3; after every action
+    compare outcome class, durable status, attemptCount, claim fields, failure/emission metadata;
+    immutable audit fields; failed mutations leave the record value-identical.
+P2. **Attempt generation advances only on successful claim** — PENDING→claim=1→retryable
+    failure→claim=2→expiry→reclaim=3; attemptCount == successful claims, never on failure/
+    emission/readiness/rejected claim/observations.
+P3. **Same-worker reclaim is still a new authority generation** — worker-A/1 → expiry →
+    worker-A/2; attempt 1 stale (outbox analogue of the same-owner lease reincarnation from #290).
+P4. **Every predecessor attempt stays fenced** — 1→2→3; attempts 1/2 completion or failure never
+    affects 3.
+P5. **Exact claim-expiry boundary stays authoritative** — `now < expiry` no reclaim,
+    `== expiry` no reclaim, `> expiry` reclaim (opposite of lease exact-expiry semantics).
+P6. **Concurrent current-attempt completion vs failure linearizes** (×12, retryable +
+    permanent): exactly one winner; final EMITTED or FAILED_RETRYABLE/FAILED_PERMANENT with the
+    winner's metadata only.
+P7. **Expired reclaim vs old completion cannot destroy the successor** (×20): old completion
+    first → EMITTED → reclaim sees terminal → no claim; reclaim first → EMITTING attempt-2 →
+    old completion rejected stale. Illegal: attempt-2 installed then marked EMITTED by attempt-1.
+P8. **Expired reclaim vs old failure cannot demote the successor** (×20): final EMITTING
+    attempt-2 in both serializations; never FAILED_RETRYABLE carrying attempt-2 metadata.
+Plus the dispatcher discriminator: `dispatcher stale completion cannot demote the successor
+attempt` — a stale completion propagates as claim loss; the successor record is untouched.
+
+### Per-step invariants
+
+attemptCount monotonic, +1 exactly per successful claim; PREPARED/PENDING attemptCount 0;
+EMITTING attemptCount ≥ 1 with non-null claimedBy/claimedAt/claimExpiresAt; claimExpiresAt >
+claimedAt; successful claim sets claimedAt = now, claimExpiresAt = now + duration, clears
+lastErrorCode; retryable/permanent failure sets code + target status; EMITTED carries exact
+emittedAt, null before; terminal never reopens; current generation never decreases; same worker
+can own different generations; stale generation never authoritative again, cannot complete or fail
+successor; failed mutation leaves durable state value-identical; audit identity/payload immutable.
+
+### Mutation evidence (19 mutations, each restored; 0 weak)
+
+M1 terminal status becomes claimable, M2 PREPARED becomes claimable, M3 FAILED_RETRYABLE cannot
+re-claim, M4 fresh EMITTING can re-claim, M5 exact expiry becomes reclaimable, M6 past expiry
+remains non-reclaimable, M7 attemptCount does not increment, M8 reclaim resets attemptCount to 1,
+M9 claim keeps old claimedBy, M10 claim keeps old claimedAt, M11 claim expiry based on previous
+expiry, M12 claim keeps lastErrorCode, M13 stale attempt may markEmitted (covers M20
+reclaim-vs-old-completion — identical InMemory code line), M14 stale attempt may mark failure
+(covers M15/M16/M21 — identical line: same-worker stale and reclaim-vs-old-failure demotion),
+M17 EMITTED can be modified, M18 FAILED_PERMANENT can be modified, M19 completion-vs-failure
+allows two winners (CAS enforcement removed), M22 dispatcher converts stale completion into a
+successor failure (expectedAttemptCount + 1), M23 JDBC claim recheck reverted (first-pass only).
+Every mutation made at least one NEW Epic 8.2e property red; suite green again after each restore.
+
+### Files
+
+- `tramai-testing/src/testFixtures/.../persistence/outbox/SovereignOpsAuditOutboxLifecycleModel.kt`
+- `tramai-testing/src/testFixtures/.../persistence/outbox/SovereignOpsAuditOutboxLifecycleActionGenerator.kt`
+- `tramai-testing/src/test/.../persistence/outbox/SovereignOpsAuditOutboxLifecycleActionGeneratorTest.kt`
+- `SovereignOpsAuditOutboxStoreTck` (P0–P8; 55 → 64 shared cases)
+- `SovereignOpsAuditOutboxStore` + `InMemory`/`File`/`Jdbc` stores + `SovereignOpsAuditOutboxDispatcher`
+  + `DefaultSovereignOpsAuditOutboxOperations` + `api/` dump

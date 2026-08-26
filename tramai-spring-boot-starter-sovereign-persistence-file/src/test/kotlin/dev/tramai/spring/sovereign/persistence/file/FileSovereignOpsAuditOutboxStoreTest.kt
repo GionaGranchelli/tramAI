@@ -208,6 +208,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         store.markFailed(
             "retryable-claim",
             SovereignOpsAuditOutboxStatus.EMITTING,
+            1,
             "transient-error",
             retryable = true,
         )
@@ -249,7 +250,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         store.append(record("emitted"))
         store.markReadyForDispatch("emitted", SovereignOpsAuditOutboxStatus.PREPARED)
         store.claimPending("dispatcher", 1, BASE_NOW)
-        store.markEmitted("emitted", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW.plusSeconds(1))
+        store.markEmitted("emitted", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW.plusSeconds(1))
 
         assertThat(store.claimPending("dispatcher", 10, BASE_NOW.plus(Duration.ofMinutes(10)))).isEmpty()
     }
@@ -262,6 +263,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         store.markFailed(
             "permanent",
             SovereignOpsAuditOutboxStatus.PREPARED,
+            0,
             "permanent-error",
             retryable = false,
         )
@@ -277,7 +279,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         store.markReadyForDispatch("emit", SovereignOpsAuditOutboxStatus.PREPARED)
         store.claimPending("dispatcher", 1, BASE_NOW)
 
-        val emitted = store.markEmitted("emit", SovereignOpsAuditOutboxStatus.EMITTING, BASE_NOW.plusSeconds(1))
+        val emitted = store.markEmitted("emit", SovereignOpsAuditOutboxStatus.EMITTING, 1, BASE_NOW.plusSeconds(1))
 
         assertThat(emitted.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
         assertThat(emitted.emittedAt).isEqualTo(BASE_NOW.plusSeconds(1))
@@ -294,6 +296,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         val failed = store.markFailed(
             "retryable-failure",
             SovereignOpsAuditOutboxStatus.EMITTING,
+            1,
             "retryable-error",
             retryable = true,
         )
@@ -311,6 +314,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
         val failed = store.markFailed(
             "prepared-failure",
             SovereignOpsAuditOutboxStatus.PREPARED,
+            0,
             "mutation-failed",
             retryable = false,
         )

@@ -108,6 +108,7 @@ class InMemorySovereignOpsApprovalMutationStore(
                 outboxStore.markFailed(
                     outboxId = auditIntent.outboxId,
                     expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                    expectedAttemptCount = 0,
                     errorCode = e::class.simpleName ?: "transition-failed",
                     retryable = false,
                 )

@@ -71,6 +71,17 @@ class JdbcSovereignOpsAuditOutboxStore(
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
         .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
 
+    private companion object {
+        /**
+         * How many additional non-blocking (SKIP LOCKED) claim passes to run
+         * when the first pass finds nothing, so a claim racing a concurrent
+         * terminal mutation linearizes after it instead of reporting a false
+         * empty. Bounded; each pass is non-blocking, so concurrent claimants
+         * can never deadlock on each other.
+         */
+        const val CLAIM_EMPTY_RECHECK_LIMIT: Int = 5
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // SovereignOpsAuditOutboxStore SPI
     // ══════════════════════════════════════════════════════════════════
@@ -139,7 +150,19 @@ class JdbcSovereignOpsAuditOutboxStore(
         return dataSource.connection.use { conn ->
             inOutboxTransaction(conn) { c ->
                 val claimExpiresAt = now.plus(claimLeaseDuration)
-                val selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
+                var selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
+                var rechecks = 0
+                while (selected.isEmpty() && rechecks < CLAIM_EMPTY_RECHECK_LIMIT) {
+                    // A concurrent terminal mutation can transiently lock the only
+                    // claimable row. Re-run the non-blocking skip-locked query so
+                    // this call linearizes after that mutation instead of reporting
+                    // a false empty from the transient lock window. Retries stay
+                    // non-blocking (SKIP LOCKED) so concurrent claimants can never
+                    // deadlock on each other; the bound keeps a genuinely long
+                    // transaction from extending this call indefinitely.
+                    selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
+                    rechecks++
+                }
 
                 val claimed = selected.map { row ->
                     val record = row.toDomain()
@@ -169,6 +192,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun markEmitted(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
         inOutboxTransaction(conn) { conn ->
@@ -183,6 +207,9 @@ class JdbcSovereignOpsAuditOutboxStore(
             }
             require(domain.status == expectedStatus) {
                 "tramai-sovereign-ops-outbox-status-mismatch"
+            }
+            check(domain.attemptCount == expectedAttemptCount) {
+                "tramai-sovereign-ops-outbox-concurrent-update"
             }
 
             val updated = domain.copy(
@@ -224,6 +251,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun markFailed(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
@@ -248,6 +276,9 @@ class JdbcSovereignOpsAuditOutboxStore(
             }
             require(domain.status == expectedStatus) {
                 "tramai-sovereign-ops-outbox-status-mismatch"
+            }
+            check(domain.attemptCount == expectedAttemptCount) {
+                "tramai-sovereign-ops-outbox-concurrent-update"
             }
 
             val targetStatus = if (retryable) {
@@ -553,7 +584,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                     status = 'EMITTING'
                     AND next_attempt_at IS NOT NULL
                     AND next_attempt_at < ?
-                )
+            )
             ORDER BY created_at ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
