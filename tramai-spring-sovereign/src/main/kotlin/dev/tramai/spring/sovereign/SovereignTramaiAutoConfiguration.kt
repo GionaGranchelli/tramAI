@@ -202,7 +202,9 @@ class SovereignTramaiAutoConfiguration {
         // Exactly one runtime authority: selecting the sovereign profile while a
         // plain Tramai bean exists (user-supplied, since standard auto-config is
         // profile-exclusive) is an ambiguous configuration and must fail loudly.
-        val manualTramaiBeans = applicationContext.getBeanNamesForType(Tramai::class.java, false, false)
+        // includeNonSingletons = true: a prototype-scoped Tramai bean is still an
+        // authority; only eager initialization is avoided.
+        val manualTramaiBeans = applicationContext.getBeanNamesForType(Tramai::class.java, true, false)
         check(manualTramaiBeans.isEmpty()) {
             "tramai.profile=sovereign is incompatible with a plain Tramai bean " +
                 "(found: ${manualTramaiBeans.joinToString()}). tramai.profile is the sole runtime " +

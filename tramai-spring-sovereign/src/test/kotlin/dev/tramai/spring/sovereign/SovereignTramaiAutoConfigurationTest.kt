@@ -18,11 +18,13 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import org.springframework.context.annotation.Scope
 import kotlin.test.Test
 
 class SovereignTramaiAutoConfigurationTest {
@@ -131,6 +133,23 @@ class SovereignTramaiAutoConfigurationTest {
             .withUserConfiguration(
                 MinimalProviderConfiguration::class.java,
                 ManualTramaiConfiguration::class.java,
+            )
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai.profile=sovereign is incompatible with a plain Tramai bean")
+                    .hasMessageContaining("exactly one runtime authority is allowed")
+            }
+    }
+
+    @Test
+    fun `prototype scoped Tramai bean under sovereign profile fails loudly`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalProviderConfiguration::class.java,
+                PrototypeTramaiConfiguration::class.java,
             )
             .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
             .run { context ->
@@ -307,6 +326,12 @@ open class MinimalProviderConfiguration {
 open class ManualTramaiConfiguration {
     @Bean
     open fun manualTramai(): dev.tramai.standalone.Tramai = dev.tramai.standalone.Tramai.builder().build()
+}
+
+open class PrototypeTramaiConfiguration {
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+    open fun prototypeTramai(): dev.tramai.standalone.Tramai = dev.tramai.standalone.Tramai.builder().build()
 }
 
 open class ModelRegistrySupplierConfiguration {
