@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #<N>).** The provider
+  circuit breaker now tracks the ownership of every admitted attempt instead
+  of only the breaker state:
+  - **No stampede at recovery expiry.** When the open window expires, exactly
+    one caller is admitted as the HALF_OPEN probe; all other callers keep
+    being rejected until the probe resolves.
+  - **Stale completions cannot corrupt newer state.** A provider call admitted
+    before a later breaker generation can no longer close, reopen, or extend a
+    newer OPEN/HALF_OPEN generation — completions carry the admission permit,
+    and a stale generation is rejected before any state change.
+  - **Synchronous and streaming executions now recover/reset breaker state
+    consistently.** A synchronous success is recorded by the breaker (it was
+    previously skipped), a successful stream closes an open circuit, and both
+    paths record a failing HALF_OPEN probe as an immediate reopen with a fresh
+    deadline.
+  - Proven by 21 mutation kills over the reachable behavior (zero reachable
+    weak mutations) and a 12-property model/reality oracle suite.
+
 ### Added
 
 - **Docs: unified starter onboarding (H3 prep).** Consumer guides now present `tramai-spring-boot-starter` as the Spring Boot entry point, paired with one `tramai-spring-provider-*` adapter (OpenAI / Anthropic / Ollama) and optional `tramai-spring-secrets-*` adapters for `vault:` / `aws-secretsmanager:` secret references; `tramai-spring` is described only as the legacy facade. The sovereign quickstart selects the runtime solely via `tramai.profile` (the obsolete `tramai.sovereign.enabled` switch is no longer shown) and its minimal configuration includes the mandatory `allowed-models` / `allowed-providers` / `provider-zones` / `models` properties. Module-boundary rules now list only the sovereign module's actual direct dependencies.

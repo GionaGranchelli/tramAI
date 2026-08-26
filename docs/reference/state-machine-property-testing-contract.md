@@ -15,7 +15,7 @@ components of TramAI.
 | Lease lifecycle | ✅ #290 |
 | Outbox lifecycle | ✅ #291 |
 | Workflow checkpoint/resume lifecycle | ✅ #295 |
-| Circuit breaker states | ⏳ |
+| Circuit breaker states | ✅ #<N> |
 | Provider retry/fallback | ⏳ |
 
 ## Method
@@ -1062,3 +1062,140 @@ With `WorkflowLeaseCheckpointFenceTck` runners added, M21 went STRONG (7 red cas
 - `tramai-orchestration/src/test/.../WorkflowCheckpointLegacyMigrationContractTest.kt` (5 cases × 3 stores)
 - `tramai-orchestration/src/test/.../WorkflowRecoveryContractTest.kt` (stale-operator G1-vs-G2 ABA discriminators for `failWorkflow` + `retryStep`)
 - Production: `WorkflowPersistence.kt`, `WorkflowRunner.kt`, `WorkflowPersistenceSession.kt`, `WorkflowLease.kt`, `FileWorkflowCheckpointStore.kt`, `MarkdownWorkflowCheckpointStore.kt`, `JdbcWorkflowCheckpointStore.kt`, `WorkflowRecoveryController.kt` + `api/` dump
+
+---
+
+## Circuit breaker lifecycle — #<N> (Epic 8.2g)
+
+**Status: ✅ complete.** The provider circuit breaker previously tracked state but
+not the ownership of an admitted attempt: `beforeCall` returned only a deadline,
+`onSuccess(providerId)`/`onFailure(providerId, error)` reconstructed breaker
+identity from the provider name, and OPEN expiry cleared the state so every
+competing caller was admitted. Five P0 discriminators proved the resulting
+defects RED, then the production lifecycle was redesigned around admission
+ownership + epoch-safe completion.
+
+### Architecture invariant
+
+> A provider attempt is allowed to mutate circuit-breaker state only while the
+> admission permit that authorized it remains valid for the authoritative
+> breaker generation.
+
+```text
+CLOSED(generation=N, failures=f)
+  │ beforeCall → Allowed(permit N)
+  │ qualifying failure, f+1 ≥ threshold
+  ▼
+OPEN(generation=N, blockedUntil=T)
+  │ exact expiry, exactly ONE atomic caller
+  ▼
+HALF_OPEN(generation=N, probe permit)
+  ├── probe success ─────────────► CLOSED(N, 0)
+  └── probe qualifying failure ───► OPEN(N+1, now+openDuration)   (fresh deadline, no threshold)
+```
+
+- `beforeCall(providerId): CircuitBreakerAdmission` — `Allowed(permit)` /
+  `Rejected(blockedUntil)`; permit = `(providerId, generation)`.
+- Completion APIs consume the **admission permit**, not merely the providerId;
+  a stale generation is rejected **before** state-specific handling.
+- OPEN **cannot own a completion permit** — no permit is ever minted for an OPEN
+  epoch, so a valid execution can never reach `completion(Open, matchingPermit)`.
+- HALF_OPEN is real state (not "OPEN removed and one lucky caller runs"):
+  exactly one probe permit exists; competing callers are rejected until the
+  probe resolves. Probe success closes; probe failure reopens immediately with
+  a fresh deadline regardless of the closed-state threshold.
+- Generation advances on every entry into OPEN (CLOSED→OPEN and HALF_OPEN→OPEN).
+- Qualifying failures: `TimeoutException` + retryable `ProviderException` only.
+- Disabled breaker is transparent: every `beforeCall` Allowed, completions no-op.
+- **Sync/streaming parity:** both execution paths thread the admission permit
+  from `beforeCall` into `onSuccess`/`onFailure`; a success path never returns
+  before breaker completion is recorded, and streaming does not perform a
+  second admission at stream completion.
+
+### P0 discriminators (5/5 RED → 5/5 GREEN)
+
+| # | Defect (baseline symptom) | RED evidence |
+|---|---|---|
+| P0-A | Sync success bypasses `onSuccess` (breaker mis-tripped) | `CircuitBreakerOpenException` on call 4 |
+| P0-B | OPEN expiry deletes state, admitting everyone (stampede) | `expected: 1 but was: 8` |
+| P0-C | Old success can close a newer OPEN | `Expecting actual not to be null` |
+| P0-D | Old failure can extend a newer OPEN | `expected: 100L but was: 110L` |
+| P0-E | Expiry loses history instead of controlled probe | `Expecting actual not to be null` |
+
+### Property suite (P1–P12)
+
+Pure `ProviderCircuitBreakerModel` oracle (Closed/Open/HalfOpen + generation +
+live permits) mirroring the contract above; 32 seeds × 32 actions with forced
+archetypes (threshold OPEN, expiry→HALF_OPEN, probe success/failure, stale
+completion after recovery, concurrent-expiry clusters, mixed qualifying).
+Every action is applied to model and real breaker and compared after each step.
+
+- P1 model/reality equivalence across the corpus
+- P2 live permits never carry a newer generation; stale completions are no-ops
+- P3 OPEN expiry admits at most one HALF_OPEN probe per instant
+- P4 stale completions never mutate breaker state
+- P5 qualifying failures open exactly at threshold; `true` exactly once
+- P6 non-qualifying failures never count, never open, never return true
+- P7 probe success closes (generation preserved); probe failure reopens (fresh deadline)
+- P8 rejected callers receive blockedUntil ≥ admission time (OPEN / probe in flight)
+- P9 `openUntilMillis` is expiry-aware (null when expired)
+- P10 stale success/failure after recovery cannot disturb CLOSED
+- P11 generation strictly increases on every OPEN entry
+- P12 disabled breaker transparency
+
+### Concurrency discriminators (C1–C4) + secondary regressions (H1–H7)
+
+- C1 atomic expiry: exactly one probe under 16 concurrent callers
+- C2 concurrent stale completions cannot mutate the open deadline/state
+- C3 concurrent probe + competitors reopen exactly once on probe failure
+- C4 generation strictly increases across rapid cycles; stale permits ignored
+- H1 HALF_OPEN concurrent success admits one probe and closes
+- H1b stale pre-OPEN success cannot close an in-flight HALF_OPEN probe
+- H2 stale success after recovery cannot disturb CLOSED
+- H3 stale failure after recovery cannot reopen (threshold 1)
+- H4 sync coordinator and breaker lifecycle agree on OPEN then CLOSE
+- H5 sync coordinator HALF_OPEN probe failure reopens with fresh deadline
+- H6 streaming success must reach `onSuccess` (next call admitted)
+- H7 streaming HALF_OPEN probe failure reopens; next expiry admits again
+
+### Mutation evidence (24 candidates)
+
+| Classification | Count |
+|---|---|
+| Candidate | 24 |
+| **STRONG** | **21** |
+| Unreachable by contract | 1 |
+| Invalid (compile-breaking) | 1 |
+| Redundant (corroborating) | 1 |
+| Reachable WEAK | **0** |
+
+Every reachable, non-redundant, compile-valid mutation was killed by an 8.2g
+discriminator/property/regression test. **Zero reachable weak mutations.**
+
+Four mutations survived the post-GREEN suite and exposed real oracle gaps;
+each was closed by a new discriminator rather than rationalized:
+
+| Mutation | Gap exposed | Fix |
+|---|---|---|
+| M01 (drop onSuccess generation check) | P0-C absorbed stale completions at OPEN; HALF_OPEN authority unpinned | H1b |
+| M17 (sync adopts fresh permit) | sync probe-FAILURE path unpinned (H4 covered success only) | H5 |
+| M23 (drop streaming onSuccess) | streaming recovery unpinned (harness only tested open-skip) | H6 |
+| M24 (streaming adopts fresh permit) | streaming probe-failure path unpinned | H7 |
+
+The M03/M04 Open-branch mutations are unreachable by contract (no permit is
+ever minted for an OPEN epoch and generation validation precedes
+state-specific handling), so they are excluded from the strength denominator —
+adding test seams to execute an impossible state would weaken the architecture.
+
+### Files
+
+- `tramai-engine/src/main/kotlin/dev/tramai/engine/ProviderCircuitBreaker.kt` (new)
+- `tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt` (inline breaker removed)
+- `tramai-engine/src/main/kotlin/dev/tramai/engine/provider/ProviderAttemptExecutor.kt` (permit-threaded sync)
+- `tramai-engine/src/main/kotlin/dev/tramai/engine/provider/ProviderExecutionCoordinator.kt` (admission-based)
+- `tramai-engine/src/main/kotlin/dev/tramai/engine/streaming/StreamingExecutionCoordinator.kt` (permit-threaded streaming)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecycleDiscriminatorTest.kt` (P0, RED commit `cc1fc065`)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerModel.kt` + `ProviderCircuitBreakerActionGenerator.kt`
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecyclePropertyTest.kt` (P1–P12)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H5, C1–C4)
+- `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7)
