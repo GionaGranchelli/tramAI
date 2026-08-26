@@ -106,6 +106,17 @@ That means:
 
 If a reviewer cannot tell from the tests what a feature guarantees, the test suite is not strong enough yet.
 
+## Repository Navigation
+
+Before editing a subsystem:
+
+1. Read [ARCHITECTURE.md](./ARCHITECTURE.md).
+2. Follow its ownership pointer to the relevant module.
+3. Read the applicable guide under `docs/architecture/change-guides/` when one exists.
+4. Run the contract/TCK identified by the architecture documentation.
+
+The architecture map is authoritative for navigation; do not duplicate it here.
+
 ## Mandatory Execution Protocol
 
 ### Before editing
