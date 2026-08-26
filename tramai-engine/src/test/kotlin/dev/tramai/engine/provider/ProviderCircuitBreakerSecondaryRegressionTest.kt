@@ -3,6 +3,7 @@ package dev.tramai.engine.provider
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ProviderRoutingPlan
+import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.engine.CircuitBreakerAdmission
 import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
@@ -261,6 +262,48 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         }
     }
 
+    // ------------------------------------------------------------ Section H-12
+
+    @Test
+    fun `H12 sync coordinator DLP-neutral HALF_OPEN probe cannot strand recovery`() {
+        runBlocking {
+            var now = 0L
+            var calls = 0
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val provider = FakeProvider {
+                calls++
+                if (calls == 1 || calls == 3) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+            }
+            val dlp = DlpInspectionException("dlp blocked")
+            val coordinator = coordinator(
+                plan = plan(provider),
+                breaker = breaker,
+                sanitizer = ProviderResponseSanitizer { _, _, _, _, _, _, _ -> throw dlp },
+            )
+
+            // First call fails retryably -> OPEN until t=100.
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // At exact expiry the probe is admitted; the provider succeeds but
+            // the response sanitizer rejects with DLP — a neutral terminal
+            // outcome that must release probe ownership (reopen with a fresh
+            // deadline) instead of stranding the sync recovery.
+            now = 100
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(DlpInspectionException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+
+            // At the new expiry a call is again admitted as the next probe; its
+            // qualifying provider failure reopens with yet another fresh deadline.
+            now = 200
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(300)
+        }
+    }
+
     // ------------------------------------------------------------ Section H-4
 
     @Test
@@ -455,11 +498,16 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         beforeRoute = ProviderRouteGate {},
     )
 
-    private fun coordinator(plan: ProviderRoutingPlan, breaker: ProviderCircuitBreaker): ProviderExecutionCoordinator {
+    private fun coordinator(
+        plan: ProviderRoutingPlan,
+        breaker: ProviderCircuitBreaker,
+        sanitizer: ProviderResponseSanitizer = ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+    ): ProviderExecutionCoordinator {
         val observer = dev.tramai.core.observation.OperationObserver { RecordingObservation() }
         val attempt = executor(
             observation = RecordingObservation(),
             circuitBreaker = breaker,
+            sanitizer = sanitizer,
         )
         return ProviderExecutionCoordinator(
             routingPlan = plan,
