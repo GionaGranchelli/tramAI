@@ -150,9 +150,9 @@ Examples are intentionally separate applications; consolidating them reduces doc
 - `:tramai-spring-boot-starter-sovereign-persistence-jdbc` (published) declares `api(project(":tramai-persistence-jdbc"))` — its public API surface includes an internal module's classes.
 - Sibling `:tramai-persistence-file` is `published`; consumers of the file starter get a published dependency.
 
-**Impact:** published artifact's API surface references internal-module types; inconsistent sibling treatment; consumers may transitively depend on a module marked internal (affects dependency policy checks and API baseline attribution).
+**Impact:** published artifact's API surface references internal-module types; inconsistent sibling treatment; consumers may transitively depend on a module marked internal (affects dependency policy checks and API baseline attribution). This is a **release-surface/classification decision**, not a docs clarification: the starter's public auto-configuration imports and exposes JDBC-module types (e.g. `JdbcAuditPayloadCodec`, `JdbcReplayEnvelopeCodec`, `JdbcContinuationArgumentsCodec`, `JdbcApprovalStore`) as part of its API surface.
 
-**Recommendation (CLARIFY, not CONSOLIDATE):** resolve the classification inconsistency — either publish `tramai-persistence-jdbc` (consistent with the file sibling and the JDBC store's actual consumer role) or make the starter's exposure `implementation` instead of `api` if its classes are not part of the intended consumer contract. Decision belongs to the JDBC-persistence track; no change in this PR.
+**Recommendation (CLARIFY, not CONSOLIDATE):** resolve the release-surface inconsistency — the expected resolution is to **publish `tramai-persistence-jdbc`** (consistent with the published `tramai-persistence-file` sibling, the types already exposed via the starter's `api(...)`, and direct JDBC persistence being a meaningful non-Spring capability), set appropriate `apiStability`, `releaseInclusion: included`, and a specific rationale, then let the manifest machinery derive publishing/BOM consequences. The alternative (hide it behind the starter via `api` → `implementation`) is only valid if no public starter signature leaks JDBC-module types — the current source already shows that assumption is false. Decision belongs to the JDBC-persistence track (9.1c); no change in this PR.
 
 ### 3.2 (CLARIFY) `tramai-spring` legacy facade naming
 
@@ -167,7 +167,7 @@ The following internal modules share the boilerplate rationale "Provides an inte
 
 - `:tramai-server`, `:tramai-mcp`, `:tramai-dashboard`, `:tramai-memory-store`, `:tramai-persistence-jdbc`, `:tramai-spring-consumer-boundary`, `:tramai-spring-consumer-selective`
 
-The M7 mutation guard only rejects blank values, so these pass validation while failing the *spirit* of AC2 ("every module has a documented reason to exist").
+The M7 mutation guard (`ModuleCatalogMutationTest` M7 — "blank owner and rationale are rejected") only rejects blank values, so these pass validation while failing the *spirit* of AC2 ("every module has a documented reason to exist").
 
 **Recommendation:** replace boilerplate with specific rationale per module (docs-only change to `config/quality/module-catalog.yml` rationale fields + regenerated matrix if it renders rationale). No module boundary changes.
 
@@ -186,7 +186,7 @@ The M7 mutation guard only rejects blank values, so these pass validation while 
 ## 5. Task closure statement
 
 - **Task 5 (review overlap / insufficient value): complete** — all 58 modules reviewed with disposition and evidence (§2), suspicious families explicitly tested (§2.4 providers, §2.6 starters, §2.5/§2.8 SPI↔implementation, §2.10 examples).
-- **Task 6 (consolidate where it improves clarity): complete** — no consolidation improves ownership or dependency clarity sufficiently to justify compatibility and churn costs. 11 CLARIFY items are documentation/rationale fixes, not module merges.
+- **Task 6 (consolidate where it improves clarity): complete** — no consolidation improves ownership or dependency clarity sufficiently to justify compatibility and churn costs. The 9 CLARIFY findings require no module consolidation: one is a release-surface/classification decision for JDBC persistence; the rest are rationale/architecture-metadata clarifications for retained modules.
 
 This is a legitimate successful outcome per the 9.1b framing: 58 reviewed, 0 justified consolidations.
 
@@ -194,11 +194,11 @@ This is a legitimate successful outcome per the 9.1b framing: 58 reviewed, 0 jus
 
 | # | Action | Type |
 |---|--------|------|
-| 1 | Resolve `tramai-persistence-jdbc` classification vs published starter exposure (§3.1) | Requires JDBC-persistence track decision; may be a build/manifest change |
-| 2 | Replace 7 boilerplate rationales with specific ones (§3.3) | Docs-only (catalog rationale + matrix regen if rendered) |
-| 3 | Fix `tramai-spring` legacy rationale (§3.2) | Docs-only |
+| 1 | Resolve `tramai-persistence-jdbc` release surface/classification vs published starter exposure (§3.1) — publish the JDBC module (matching the published `tramai-persistence-file` sibling and its types already exposed via starter `api(...)`) or hide it behind the starter (`api` → `implementation`, only if no public signature leaks JDBC types) | **Release-surface/classification decision** — module-catalog metadata + derived publishing/BOM consequences via the manifest machinery; needs focused API/release verification |
+| 2 | Replace 7 boilerplate rationales with specific ones (§3.3) | Architecture-metadata change to authoritative `config/quality/module-catalog.yml` (not docs-only; treated under module-architecture rules) + matrix regen if it renders rationale |
+| 3 | Fix `tramai-spring` legacy/back-compat rationale (§3.2) | Architecture-metadata change to authoritative catalog (not docs-only) |
 
-None of these is a module consolidation. If §3.1 lands as "publish the JDBC store," that is a classification change, not a merge.
+None of these is a module consolidation. Item 1 is a classification/release-surface decision (with derived BOM/publishing consequences); items 2–3 update authoritative manifest metadata.
 
 ## 7. Verification
 
