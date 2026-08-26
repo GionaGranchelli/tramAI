@@ -1,5 +1,7 @@
 # Architecture Overview
 
+> **Navigation:** for the authoritative module map, layers, ownership pointers, and sources of truth, start at [`ARCHITECTURE.md`](../../ARCHITECTURE.md). This page covers deeper runtime concepts that the map intentionally does not repeat.
+
 TramAI is a Kotlin-first JVM runtime for governed AI workflows. The core product goal is to let application code interact with AI through typed interface methods while runtime layers handle structured output, provider dispatch, policy enforcement, routing, replay safety, and auditability — not through framework-specific chains, agents, or scattered prompt orchestration.
 
 ## Core Flow
@@ -14,6 +16,8 @@ TramAI is a Kotlin-first JVM runtime for governed AI workflows. The core product
 8. The provider returns raw model output plus metadata.
 9. TramAI either returns raw text, streams chunks, or parses and validates structured output.
 10. Parse failures enter a retry loop with validation feedback.
+
+Ownership of each stage and the current type names live in [`execution-sequence.md`](./execution-sequence.md).
 
 ### Structured Output Retry
 
@@ -33,26 +37,15 @@ If the retry limit is exhausted, TramAI throws `StructuredOutputException` with 
 
 TramAI uses standard JDK dynamic proxies through `java.lang.reflect.Proxy` to implement `@AiService` interfaces at runtime.
 
-`TramaiInvocationHandler` intercepts interface method calls and converts `@Operation`, `@System`, and `@User` annotations into a `ModelRequest` for the engine.
+`TramaiInvocationHandler` intercepts interface method calls and converts `@Operation`, `@System`, and `@User` annotations into a model request for the engine.
 
 Suspend functions are detected from the JVM method signature by checking for a trailing `Continuation` parameter. Those calls are dispatched through `invokeSuspend()`, which launches a coroutine with the continuation's context.
 
 Non-suspend methods are wrapped in `runBlocking { execute(...) }`, so synchronous Java and Kotlin calls still use the same execution pipeline.
 
-The current runtime uses JDK dynamic proxies through `java.lang.reflect.Proxy`. KSP-based compile-time generation and broader GraalVM native-image support remain possible future work; they are not part of the current 0.5.0 release commitment.
+The current runtime uses JDK dynamic proxies through `java.lang.reflect.Proxy`. KSP-based compile-time generation and broader GraalVM native-image support remain possible future work.
 
-## Major Layers
-
-- Application layer: consumer-defined `@AiService` interfaces
-- Proxy layer: runtime-generated implementations that intercept method calls
-- Operation engine: prompt rendering, provider dispatch, streaming, tool calling, parsing, retry, and error handling
-- Observability layer: OpenTelemetry spans, metrics, and semantic attributes
-- Provider layer: Anthropic, Ollama, OpenAI, and OpenAI-compatible providers
-- Optional orchestration layer: typed workflow coordination above `tramai-engine`
-- Optional retrieval and memory layer: RAG, embeddings, vector stores, and bounded chat memory
-- Optional runtime/platform layer: scheduling, HTTP APIs, MCP exposure, tenancy, and dashboard operations
-
-### Operation Interceptor/Observer SPI
+## Operation Interceptor/Observer SPI
 
 The operation engine exposes two opt-in extension points for cross-cutting behavior.
 
@@ -62,7 +55,7 @@ The operation engine exposes two opt-in extension points for cross-cutting behav
 
 Both default to `NoOp` implementations and are enabled explicitly via `Tramai.builder()`.
 
-### Provider Resolution
+## Provider Resolution
 
 `ProviderRegistry` maps model names to provider routes and can define explicit fallback chains for each route.
 
@@ -72,9 +65,9 @@ Resolution order is:
 2. model-to-provider mapping
 3. default provider
 
-Each provider attempt is wrapped with circuit-breaker and retry policy logic. When the primary route fails, fallback routes are tried in order.
+Each provider attempt is wrapped with retry/fallback policy logic. When the primary route fails, fallback routes are tried in order. Provider admission and completion are owned by the engine's provider-execution boundary; provider adapters must not implement retries or fallbacks themselves.
 
-### Observability
+## Observability
 
 When OpenTelemetry is available, TramAI records spans and metrics using GenAI-oriented attributes such as `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, and `gen_ai.usage.output_tokens`.
 
@@ -104,3 +97,5 @@ The core `@AiService` runtime deliberately does not turn application code into a
 - fine-tuning workflows
 
 Those concerns, where they exist in this repository, live in optional modules above the core library surface. The design goal is composability: application teams can use typed AI services alone, or add memory, RAG, orchestration, scheduling, server, MCP, or platform layers without changing the core execution model.
+
+For module membership and dependency direction, see the [module matrix](../reference/module-matrix.md) and [module layers](../../ARCHITECTURE.md#2-module-layers).

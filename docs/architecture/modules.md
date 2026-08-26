@@ -1,67 +1,72 @@
-# Module Overview
+# Module Layers
 
-These are the current repository modules and their intended boundaries.
+> **Navigation:** the authoritative module list, classification (layer, maturity, publishability, API stability, owner, release inclusion) and dependency direction live in the machine-readable manifest. This page explains the layer philosophy only; it does not maintain a second module list.
 
-The important distinction is not just module name, but module tier:
+## Sources
 
-- stable consumer modules: normal application dependencies with the clearest compatibility expectations
-- runtime/platform modules: operational surfaces that exist in the repo but evolve faster
+- Module classification / ownership / maturity / publishability: [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml)
+- Forbidden / allowed dependency edges: [`config/quality/module-boundaries.yml`](../../config/quality/module-boundaries.yml)
+- Generated module matrix (all 58 modules with layer/maturity/api/published/owner/release): [`docs/reference/module-matrix.md`](../reference/module-matrix.md)
+- Dependency topology graph: [`docs/architecture/module-dependency-graph.md`](./module-dependency-graph.md)
 
-## Published Consumer Modules
+## Layer Philosophy
 
-- `tramai-core`: annotations, shared contracts, request and response models, common exceptions
-- `tramai-engine`: proxy generation, method dispatch, operation execution, retry and error handling
-- `tramai-structured`: schema generation, response parsing, validation integration, structured retry feedback
-- `tramai-observability`: OpenTelemetry integration and semantic convention mapping
-- `tramai-orchestration`: typed workflow composition, checkpoint/resume coordination, and optional lease-aware execution
-- `tramai-anthropic`: Anthropic provider implementation
-- `tramai-ollama`: Ollama provider implementation
-- `tramai-openai`: OpenAI and OpenAI-compatible provider implementation
-- `tramai-standalone`: minimal framework-free entry point and builder APIs
-- `tramai-spring-boot-starter`: unified Spring Boot starter composing `tramai-spring-core` (standard) and `tramai-spring-sovereign` (sovereign); `tramai.profile` selects the runtime
-- `tramai-spring`: legacy Spring facade over `tramai-spring-core`; not the onboarding entry point
-- `tramai-testing`: mock providers, assertion helpers, and test support
-- `tramai-bom`: BOM for consumer dependency management
-- `tramai-memory`: bounded conversation memory implementations
-- `tramai-embedding`: embedding SPI and provider integrations
-- `tramai-rag`: RAG pipeline and retrieval helpers
-- `tramai-vectorstore-spi`: vector store abstractions
-- `tramai-vectorstore-chroma`: Chroma adapter
-- `tramai-vectorstore-pgvector`: pgvector adapter
+The manifest defines 10 layers with a strict dependency direction (enforced by the maintainability baseline):
 
-## Runtime And Platform Modules
+```
+core-contracts
+      ↓
+runtime-execution
+      ↓
+governance-security / persistence / provider-adapters
+      ↓
+framework-integrations
+      ↓
+operations-observability / higher-capabilities
+      ↓
+applications-examples
 
-- `tramai-memory-store`: durable memory-store implementations and supporting persistence SPI
-- `tramai-scheduler`: cron scheduling, delay-step timing, and durable schedule stores
-- `tramai-server`: HTTP API surface, webhooks, run persistence views, OpenAPI, and SSE endpoints
-- `tramai-mcp`: MCP server adapter that exposes workflows as tools
-- `tramai-platform`: tenancy, API keys, rate limiting, plugin registry, and audit logging
-- `tramai-dashboard`: optional Vue 3 admin UI packaged as runtime-served static assets
+testing-support → supports contracts without entering the runtime dependency flow
+```
 
-## Dependency Direction
+- **core-contracts** — annotations, shared contracts, request/response models, exceptions. Near zero-dependency.
+- **runtime-execution** — engine, structured output, orchestration, standalone.
+- **governance-security** — policy, approval, audit, evidence, sovereign runtime.
+- **persistence** — storage implementations (file, JDBC).
+- **provider-adapters** — vendor providers via the provider SPI.
+- **framework-integrations** — Spring core/starter/sovereign, provider starters, secrets.
+- **operations-observability** — OTel, platform wiring, server/MCP/dashboard surfaces.
+- **higher-capabilities** — memory, RAG, embeddings, scheduler, vector stores.
+- **applications-examples** — executable examples (excluded from release).
+- **testing-support** — TCKs, fakes, consumer boundary tests.
 
-- `tramai-core` should remain as close to zero-dependency as practical.
-- `tramai-engine` depends on `tramai-core`.
-- `tramai-structured` depends on `tramai-core` and integrates with the engine's execution flow.
-- `tramai-observability` is optional and should remain decoupled from the core happy path when OpenTelemetry is absent.
-- Provider modules depend on shared request and response contracts and plug into the engine through the provider interface.
-- `tramai-standalone` composes the minimal runtime for non-framework users: `tramai-core`, `tramai-engine`, and `tramai-structured`.
-- Observability should be added by depending on `tramai-observability`, not by making `tramai-standalone` transitively heavier.
-- Framework adapters such as `tramai-spring` should be thin integration layers, not alternate runtimes.
+## Key Boundaries
+
+The following rules are enforced by `module-boundaries.yml` and verified by the maintainability baseline (new cycles and forbidden edges fail CI):
+
+- `tramai-core` must remain as close to zero-dependency as practical.
+- `tramai-engine` depends on `tramai-core`; it owns orchestration and retry policy.
+- `tramai-structured` owns schema generation, extraction, deserialization, and structured failure analysis.
+- `tramai-observability` is optional and must remain decoupled from the core happy path.
+- Provider modules plug into the engine through the provider interface; they must not implement retry/fallback/circuit logic.
+- `tramai-standalone` composes the minimal runtime for non-framework users.
+- Framework adapters such as `tramai-spring-core` are thin integration layers, not alternate runtimes.
 - `tramai-orchestration` owns workflow execution semantics and persistence boundaries.
-- `tramai-scheduler` sits above orchestration and should not backflow scheduling concerns into the engine.
-- `tramai-server` sits above orchestration and scheduler, exposing operational APIs rather than redefining workflow semantics.
-- `tramai-mcp` sits above server/orchestration concerns and should remain an adapter, not a second orchestration engine.
+- `tramai-scheduler` sits above orchestration and must not backflow scheduling concerns into the engine.
+- `tramai-server` sits above orchestration/scheduler, exposing operational APIs rather than redefining workflow semantics.
+- `tramai-mcp` is an adapter, not a second orchestration engine.
 - `tramai-platform` owns tenancy, governance, and plugin/runtime policy concerns above the server layer.
 - `tramai-dashboard` is a UI packaging module and must remain optional at runtime.
 
 ## Design Constraint
 
-The same core operation semantics should apply everywhere:
+The same core operation semantics apply everywhere:
 
 - standalone applications
 - Spring Boot applications
 - future framework adapters
 - tests using mock providers
 
-That same rule extends upward: the operational modules should compose the core runtime, not fork it.
+That same rule extends upward: the operational modules compose the core runtime, they do not fork it.
+
+For per-module navigation cards (responsibility, entry points, extension points, lifecycle, thread-safety, failure semantics, contract tests), see `docs/architecture/modules/` (added in Epic 11.2b).
