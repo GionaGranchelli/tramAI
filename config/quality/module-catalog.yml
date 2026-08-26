@@ -191,10 +191,11 @@ modules:
     apiStability: preview
 
   - path: ":tramai-persistence-jdbc"
-    <<: *internal
+    <<: *persistence
     layer: persistence
-    publishability: internal
-    apiStability: internal
+    publishability: published
+    apiStability: preview
+    rationale: "JDBC-backed persistence stores for sovereign approvals, audit and workflow state, consumed directly and via the sovereign persistence starter."
 
   - path: ":tramai-platform"
     <<: *operations
