@@ -758,7 +758,7 @@ factor; if it reproduces outside the lifecycle harness it is a material
 orchestration liveness defect and should be fixed in a dedicated PR before
 Epic 8.2d.
 
-## Lease lifecycle — Epic 8.2d (PR number assigned by GitHub)
+## Lease lifecycle — #290 (Epic 8.2d)
 
 The second lifecycle slice targets the durable lease ownership state machine
 — NOT the worker renewal loop (delay/renew/conflict/retry is a separate
@@ -811,7 +811,7 @@ and non-null→null, and 3+ generations in one history. The coverage guard
 semantically reached (not just present as enum constants) and that the same
 seed yields the same trace.
 
-### Properties (8 new shared cases, 51 → 57 × 3 implementations)
+### Properties (6 new shared cases, 51 → 57 × 3 implementations)
 
 1. **Generated histories match the independent model** — every seed/step:
    outcome category (success/no-op/conflict), durable `currentLease` vs the
@@ -830,7 +830,7 @@ seed yields the same trace.
    (×20): at `now == expiresAt`, claim(new) vs release(old); both legal
    serializations end with current = T2.
 
-### Fence-lineage properties (2 new shared cases, 14 → 16 × 3 implementations)
+### Fence-lineage properties (2 new shared cases, 14 → 16 × 3 implementations; 6 + 2 = 8 Epic 8.2d properties total)
 
 7. **Fence authority follows token lineage** — T1→T2→T3; fence(T3) succeeds;
    fence(T1)/fence(T2) stale; failed predecessor fences leave the checkpoint

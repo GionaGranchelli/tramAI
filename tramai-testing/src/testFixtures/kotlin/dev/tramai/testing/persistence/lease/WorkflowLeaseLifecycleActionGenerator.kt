@@ -8,7 +8,6 @@ internal object WorkflowLeaseLifecycleActionGenerator {
     const val SEED_COUNT: Long = 32L
     const val ACTIONS_PER_SEQUENCE: Int = 32
 
-    private const val DURATION_MILLIS: Long = 1_000
     private val owners = listOf("worker-a", "worker-b")
     private val revisions = listOf<Long?>(null, 1, 7, null)
 
@@ -16,6 +15,7 @@ internal object WorkflowLeaseLifecycleActionGenerator {
         seed: Long,
         count: Int = ACTIONS_PER_SEQUENCE,
         initialNow: Long,
+        durationMillis: Long,
     ): List<WorkflowLeaseLifecycleAction> {
         val rng = Random(seed)
         var model = WorkflowLeaseLifecycleModel.absent(initialNow)
@@ -23,7 +23,7 @@ internal object WorkflowLeaseLifecycleActionGenerator {
             repeat(count) { step ->
                 val action = forcedCoverageAction(step, seed, model) ?: pick(rng, model)
                 add(action)
-                when (val outcome = model.apply(action, DURATION_MILLIS)) {
+                when (val outcome = model.apply(action, durationMillis)) {
                     is WorkflowLeaseLifecycleOutcome.Success -> model = outcome.next
                     is WorkflowLeaseLifecycleOutcome.NoOp -> model = outcome.next
                     is WorkflowLeaseLifecycleOutcome.Failure -> Unit

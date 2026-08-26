@@ -615,7 +615,11 @@ abstract class WorkflowLeaseStoreTck {
             val bindings = linkedMapOf<String, MutableList<WorkflowLease>>()
             var currentLeaseObject: WorkflowLease? = null
             var model = WorkflowLeaseLifecycleModel.absent(clock())
-            val actions = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = clock())
+            val actions = WorkflowLeaseLifecycleActionGenerator.generate(
+                seed = seed,
+                initialNow = clock(),
+                durationMillis = LIFECYCLE_DURATION_MILLIS,
+            )
 
             actions.forEachIndexed { step, action ->
                 val before = model

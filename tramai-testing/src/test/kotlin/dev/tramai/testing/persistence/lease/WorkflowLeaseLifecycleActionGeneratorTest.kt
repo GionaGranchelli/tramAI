@@ -10,8 +10,8 @@ class WorkflowLeaseLifecycleActionGeneratorTest {
     @Test
     fun `same seed produces exactly the same lease action trace`() {
         for (seed in 0L until WorkflowLeaseLifecycleActionGenerator.SEED_COUNT) {
-            val first = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow)
-            val second = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow)
+            val first = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow, durationMillis = DURATION_MILLIS)
+            val second = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow, durationMillis = DURATION_MILLIS)
             assertThat(first.map { it.describe() })
                 .withFailMessage("seed $seed must be deterministic")
                 .isEqualTo(second.map { it.describe() })
@@ -73,7 +73,7 @@ class WorkflowLeaseLifecycleActionGeneratorTest {
         for (seed in 0L until WorkflowLeaseLifecycleActionGenerator.SEED_COUNT) {
             var model = WorkflowLeaseLifecycleModel.absent(initialNow)
             var vacated: VacatedLease? = null
-            val actions = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow)
+            val actions = WorkflowLeaseLifecycleActionGenerator.generate(seed, initialNow = initialNow, durationMillis = DURATION_MILLIS)
             actions.forEachIndexed { step, action ->
                 val before = model
                 val outcome = model.apply(action, DURATION_MILLIS)
