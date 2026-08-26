@@ -8,8 +8,10 @@ import dev.tramai.core.exception.TimeoutException
  *
  * [Allowed] carries the [CircuitBreakerPermit] that the caller must present when
  * reporting the outcome of the admitted invocation. [Rejected] reports the
- * provider is currently open; [blockedUntilMillis] is the expiry of the current
- * open epoch (callers may treat it as "retry after this instant").
+ * caller was not admitted; [blockedUntilMillis] is the earliest instant at
+ * which the caller may retry — either the expiry of the current OPEN epoch
+ * (provider still open) or, while a HALF_OPEN probe is in flight, the current
+ * instant (callers may treat it as "retry after this instant").
  */
 internal sealed interface CircuitBreakerAdmission {
     data class Allowed(val permit: CircuitBreakerPermit) : CircuitBreakerAdmission

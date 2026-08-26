@@ -1,7 +1,11 @@
 package dev.tramai.engine.provider
 
+import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.engine.CircuitBreakerAdmission
@@ -9,6 +13,7 @@ import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ProviderCircuitBreaker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -312,6 +317,141 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         }
     }
 
+    // ------------------------------------------------------------ Section H-14 (structural scope guard)
+
+    @Test
+    fun `H14 sync pre-route policy failure cannot strand the HALF_OPEN probe`() {
+        runBlocking {
+            var now = 0L
+            var calls = 0
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val coordinator = coordinator(
+                plan = plan(FakeProvider {
+                    calls++
+                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                }),
+                breaker = breaker,
+            )
+
+            // First call fails retryably -> OPEN until t=100.
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // At exact expiry the probe is admitted; beforeRoute then throws a
+            // POLICY violation BEFORE ownership transfers to the attempt
+            // executor. Without the structural scope guard this strands the
+            // probe in HALF_OPEN forever; with it, scope exit abandons the
+            // permit -> OPEN(gen+1, fresh deadline).
+            now = 100
+            assertThat(runCatching { coordinator.execute(executionRequest(beforeRoute = ProviderRouteGate { throw PolicyViolationException(dev.tramai.core.policy.PolicyDecision.Deny("denied", "TEST")) })) }.exceptionOrNull())
+                .isInstanceOf(PolicyViolationException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+
+            // At the new expiry a call is again admitted as the next probe and
+            // recovery completes: the escape did not strand the circuit.
+            now = 200
+            assertThat(coordinator.execute(executionRequest()).response.content).isEqualTo("ok")
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
+    @Test
+    fun `H15 sync pre-try interceptor escape cannot strand the HALF_OPEN probe`() {
+        runBlocking {
+            var now = 0L
+            var calls = 0
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            // The interceptor throws DURING startAttempt, BEFORE the executor's
+            // own try: operationInterceptor.interceptRequest is the first thing
+            // startAttempt does, outside any catch that abandons the permit.
+            var interceptCalls = 0
+            val coordinator = coordinator(
+                plan = plan(FakeProvider {
+                    calls++
+                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                }),
+                breaker = breaker,
+                interceptor = object : OperationInterceptor {
+                    override fun interceptRequest(context: OperationCallContext, messages: List<Message>): List<Message> {
+                        interceptCalls++
+                        if (interceptCalls == 2) throw CancellationException("pre-try cancel")
+                        return messages
+                    }
+                },
+            )
+
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // Probe admitted at expiry; startAttempt's interceptor escapes
+            // (cancellation) before the executor try. Scope guard must release
+            // the probe -> OPEN(gen+1, fresh deadline).
+            now = 100
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(CancellationException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+
+            // Replacement probe admitted at the new expiry; recovery completes.
+            now = 200
+            assertThat(coordinator.execute(executionRequest()).response.content).isEqualTo("ok")
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
+    @Test
+    fun `H17 scope-abandon fenced permit cannot disturb the replacement epoch`() {
+        runBlocking {
+            var now = 0L
+            var calls = 0
+            // Recording breaker: captures every permit the coordinator mints,
+            // so the test can replay the abandoned probe's stale completions.
+            val breaker = object : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now }) {
+                val admitted = mutableListOf<CircuitBreakerPermit>()
+                override fun beforeCall(providerId: String): CircuitBreakerAdmission =
+                    super.beforeCall(providerId).also { if (it is CircuitBreakerAdmission.Allowed) admitted += it.permit }
+            }
+            val coordinator = coordinator(
+                plan = plan(FakeProvider {
+                    calls++
+                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                }),
+                breaker = breaker,
+            )
+
+            // Call 1: CLOSED admission fails retryably -> OPEN until t=100.
+            assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
+                .isInstanceOf(ProviderException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+            val preOpenPermit = breaker.admitted.last() // gen 0 (CLOSED epoch)
+
+            // Call 2 at exact expiry: the coordinator mints the HALF_OPEN probe,
+            // beforeRoute escapes (policy), and the structural scope guard
+            // abandons it -> OPEN(gen+1, fresh deadline). The probe permit is
+            // now permanently stale.
+            now = 100
+            assertThat(runCatching { coordinator.execute(executionRequest(beforeRoute = ProviderRouteGate { throw PolicyViolationException(dev.tramai.core.policy.PolicyDecision.Deny("denied", "TEST")) })) }.exceptionOrNull())
+                .isInstanceOf(PolicyViolationException::class.java)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+            val probe = breaker.admitted.last() // the probe minted inside this run
+            assertThat(probe.generation).isEqualTo(preOpenPermit.generation + 1)
+
+            // Call 3 at the new expiry: replacement probe admitted; the
+            // abandoned permit's success/failure must not close/reopen the
+            // replacement epoch (only the replacement probe resolves it).
+            now = 200
+            val replacement = (breaker.beforeCall("primary") as CircuitBreakerAdmission.Allowed).permit
+            assertThat(breaker.beforeCall("primary")).isInstanceOf(CircuitBreakerAdmission.Rejected::class.java)
+            breaker.onSuccess(probe)
+            breaker.onFailure(probe, ProviderException("stale", retryable = true))
+            assertThat(breaker.beforeCall("primary")).isInstanceOf(CircuitBreakerAdmission.Rejected::class.java)
+
+            breaker.onSuccess(replacement)
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
     // ------------------------------------------------------------ Section H-4
 
     @Test
@@ -497,13 +637,13 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         .model("model", "primary")
         .build()
 
-    private fun executionRequest() = ProviderExecutionRequest(
+    private fun executionRequest(beforeRoute: ProviderRouteGate = ProviderRouteGate {}) = ProviderExecutionRequest(
         operation = componentOperation(),
         messages = emptyList(),
         attemptCounter = AttemptCounter(),
         correlationId = "cid",
         securityContext = ExecutionSecurityContext(),
-        beforeRoute = ProviderRouteGate {},
+        beforeRoute = beforeRoute,
     )
 
     private fun coordinator(
@@ -511,11 +651,13 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         breaker: ProviderCircuitBreaker,
         sanitizer: ProviderResponseSanitizer = ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
         observation: RecordingObservation = RecordingObservation(),
+        interceptor: OperationInterceptor = object : OperationInterceptor {},
     ): ProviderExecutionCoordinator {
         val attempt = executor(
             observation = observation,
             circuitBreaker = breaker,
             sanitizer = sanitizer,
+            interceptor = interceptor,
         )
         return ProviderExecutionCoordinator(
             routingPlan = plan,

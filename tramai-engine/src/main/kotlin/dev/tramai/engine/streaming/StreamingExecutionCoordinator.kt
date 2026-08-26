@@ -123,51 +123,66 @@ internal class StreamingExecutionCoordinator(
                         }
                         val permit = (admission as CircuitBreakerAdmission.Allowed).permit
 
-                        when (
-                            val result = executeStreamingRoute(
-                                StreamingExecutionRoute(
-                                    operation = operation,
-                                    route = route,
-                                    routeIndex = routeIndex,
-                                    attempt = attemptCounter.next(),
-                                    tokenBudgetTracker = tokenBudgetTracker,
-                                    memoryMessages = effectiveMessages,
-                                    historySize = history.size,
-                                    conversationId = conversationId,
-                                    emitChunk = { chunks.send(it) },
-                                    permit = permit,
-                                ),
-                                correlationId = correlationId,
-                                securityContext = securityContext,
-                                arguments = arguments,
-                            )
-                        ) {
-                            is StreamingRouteResult.Completed -> {
-                                if (conversationId != null) {
-                                    val assistantMessage = Message(
-                                        role = MessageRole.ASSISTANT,
-                                        content = result.fullText,
-                                    )
-                                    conversationMemoryCoordinator.persistTurn(
-                                        PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
-                                    )
-                                }
-                                return@launch
-                            }
-                            is StreamingRouteResult.StartupFailure -> {
-                                enforceStreamingFallbackAfterFailure(
-                                    error = result.error,
-                                    route = route,
-                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                        try {
+                            when (
+                                val result = executeStreamingRoute(
+                                    StreamingExecutionRoute(
+                                        operation = operation,
+                                        route = route,
+                                        routeIndex = routeIndex,
+                                        attempt = attemptCounter.next(),
+                                        tokenBudgetTracker = tokenBudgetTracker,
+                                        memoryMessages = effectiveMessages,
+                                        historySize = history.size,
+                                        conversationId = conversationId,
+                                        emitChunk = { chunks.send(it) },
+                                        permit = permit,
+                                    ),
                                     correlationId = correlationId,
                                     securityContext = securityContext,
+                                    arguments = arguments,
                                 )
-                                lastFailure = result.error
+                            ) {
+                                is StreamingRouteResult.Completed -> {
+                                    if (conversationId != null) {
+                                        val assistantMessage = Message(
+                                            role = MessageRole.ASSISTANT,
+                                            content = result.fullText,
+                                        )
+                                        conversationMemoryCoordinator.persistTurn(
+                                            PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
+                                        )
+                                    }
+                                    return@launch
+                                }
+                                is StreamingRouteResult.StartupFailure -> {
+                                    enforceStreamingFallbackAfterFailure(
+                                        error = result.error,
+                                        route = route,
+                                        nextRoute = candidates.getOrNull(routeIndex + 1),
+                                        correlationId = correlationId,
+                                        securityContext = securityContext,
+                                    )
+                                    lastFailure = result.error
+                                }
+                                is StreamingRouteResult.TerminalError -> {
+                                    chunks.send(result.errorChunk)
+                                    return@launch
+                                }
                             }
-                            is StreamingRouteResult.TerminalError -> {
-                                chunks.send(result.errorChunk)
-                                return@launch
-                            }
+                        } finally {
+                            // Structural permit relinquishment (same invariant
+                            // as the sync coordinator): admission creates an
+                            // obligation and scope exit ALWAYS discharges it.
+                            // Covers the streaming pre-try escapes that manual
+                            // call-site cleanup could miss — startStreamingObservation
+                            // observer failures and collectStreamingRoute's
+                            // interceptRequest, both of which run before their
+                            // own try. Idempotent by construction: success and
+                            // recorded failures have already advanced the state
+                            // (CLOSED / OPEN gen+1), so this is a no-op there;
+                            // an unrecorded neutral escape releases the probe.
+                            circuitBreaker.onAbandoned(permit)
                         }
                     }
 

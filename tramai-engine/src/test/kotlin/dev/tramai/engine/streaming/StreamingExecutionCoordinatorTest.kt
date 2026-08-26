@@ -39,6 +39,7 @@ import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.tool.ToolExposureCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +97,17 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    /** Observer whose [onCallStarted] throws on the N-th call — a pre-try escape. */
+    private class ThrowingOnStartObserver(private val sink: OrderedSink, private val throwOnCall: Int) : OperationObserver {
+        private var calls = 0
+        val observations = mutableListOf<RecordingObservation>()
+        override fun onCallStarted(context: OperationCallContext): OperationObservation {
+            calls++
+            if (calls == throwOnCall) throw CancellationException("pre-try observer escape")
+            return RecordingObservation(sink).also { observations += it; sink.record("observer.start") }
+        }
+    }
+
     private class RecordingMemory(private val sink: OrderedSink? = null) : ChatMemory {
         var history: List<Message> = emptyList()
         val stored = mutableListOf<Pair<String, List<Message>>>()
@@ -141,7 +153,7 @@ class StreamingExecutionCoordinatorTest {
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
-        observer: RecordingOperationObserver,
+        observer: OperationObserver,
         sink: OrderedSink? = null,
         memory: RecordingMemory = RecordingMemory(sink),
         circuitEnabled: Boolean = false,
@@ -401,6 +413,46 @@ class StreamingExecutionCoordinatorTest {
         coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
         assertThat(provider.streamRequests).hasSize(3)
         assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
+    @Test fun `H16 streaming pre-try observer escape cannot strand the HALF_OPEN probe`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
+        } }
+        // Observer throws on the SECOND onCallStarted — i.e. inside
+        // startStreamingObservation, BEFORE executeStreamingRoute's own try.
+        val coordinator = coordinator(
+            plan("p" to provider),
+            ThrowingOnStartObserver(OrderedSink(), throwOnCall = 2),
+            circuitEnabled = true,
+            circuitBreaker = breaker,
+        )
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; startStreamingObservation
+        // throws (pre-try escape). The structural scope guard must release the
+        // probe -> OPEN(gen+1, fresh deadline) instead of stranding HALF_OPEN.
+        now = 100
+        assertThatThrownBy { runBlocking { coordinator.execute(request()).toList() } }
+            .isInstanceOf(CancellationException::class.java)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe and the
+        // stream completes: recovery was not stranded by the pre-try escape.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(2) // probe never reached the provider
+        assertThat(breaker.openUntilMillis("p")).isNull()
         }
     }
 

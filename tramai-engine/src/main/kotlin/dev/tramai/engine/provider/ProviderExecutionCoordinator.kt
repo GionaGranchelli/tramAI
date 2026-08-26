@@ -42,9 +42,9 @@ internal class ProviderExecutionCoordinator(
                 lastCircuitOpen = error
                 continue
             }
+            val permit = (admission as CircuitBreakerAdmission.Allowed).permit
             try {
                 request.beforeRoute.beforeRoute()
-                val permit = (admission as CircuitBreakerAdmission.Allowed).permit
                 return attemptExecutor.execute(routeRequest(route, index, request, permit))
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
@@ -55,6 +55,18 @@ internal class ProviderExecutionCoordinator(
                         lastFailure = error
                     }
                 }
+            } finally {
+                // Structural permit relinquishment: admission creates an
+                // obligation and scope exit ALWAYS discharges it. This closes
+                // every post-admission escape that a manual call-site cleanup
+                // could miss — beforeRoute throwing policy/cancellation,
+                // startAttempt observer/interceptor failures, cancellation
+                // during the retry delay — without double-completing:
+                //   success            -> CLOSED (same gen)      -> no-op
+                //   qualifying failure -> OPEN (gen+1)           -> stale no-op
+                //   neutral CLOSED     -> CLOSED (same gen)      -> no-op
+                //   neutral HALF_OPEN  -> OPEN (gen+1) released  -> stale no-op
+                circuitBreaker.onAbandoned(permit)
             }
         }
         throw lastFailure ?: lastCircuitOpen ?: ProviderException("No available provider route for model '${request.operation.operation.model}'", retryable = true)
