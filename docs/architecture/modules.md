@@ -7,11 +7,11 @@
 - Module classification / ownership / maturity / publishability: [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml)
 - Forbidden / allowed dependency edges: [`config/quality/module-boundaries.yml`](../../config/quality/module-boundaries.yml)
 - Generated module matrix (all 58 modules with layer/maturity/api/published/owner/release): [`docs/reference/module-matrix.md`](../reference/module-matrix.md)
-- Dependency topology graph: [`docs/architecture/module-dependency-graph.md`](./module-dependency-graph.md)
+- Dependency topology graph (v0.5.0 baseline snapshot): [`docs/architecture/module-dependency-graph.md`](./module-dependency-graph.md) — current topology derives from the manifest + module-boundaries
 
 ## Layer Philosophy
 
-The manifest defines 10 layers with a strict dependency direction (enforced by the maintainability baseline):
+The manifest defines 10 layers with a conceptual dependency direction (**orientation, not a strict enforced hierarchy** — exact policy lives in each module's `dependencyPolicy` and in `module-boundaries.yml`, verified by the maintainability baseline):
 
 ```
 core-contracts
@@ -69,4 +69,4 @@ The same core operation semantics apply everywhere:
 
 That same rule extends upward: the operational modules compose the core runtime, they do not fork it.
 
-For per-module navigation cards (responsibility, entry points, extension points, lifecycle, thread-safety, failure semantics, contract tests), see `docs/architecture/modules/` (added in Epic 11.2b).
+For per-module navigation cards (responsibility, entry points, extension points, lifecycle, thread-safety, failure semantics, contract tests), see `docs/modules/` (per-module cards, completed in Epic 11.2b).

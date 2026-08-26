@@ -11,9 +11,9 @@ This is the authoritative navigation map for the TramAI repository. It tells you
 | Module classification / ownership / maturity / publishability / API stability / release inclusion | [`config/quality/module-catalog.yml`](./config/quality/module-catalog.yml) |
 | Module dependency exceptions / forbidden layer edges | [`config/quality/module-boundaries.yml`](./config/quality/module-boundaries.yml) |
 | Generated module overview (matrix) | [`docs/reference/module-matrix.md`](./docs/reference/module-matrix.md) — generated from the catalog, do not edit |
-| Dependency topology (graph) | [`docs/architecture/module-dependency-graph.md`](./docs/architecture/module-dependency-graph.md) |
+| Dependency topology (graph) | [`docs/architecture/module-dependency-graph.md`](./docs/architecture/module-dependency-graph.md) — **v0.5.0 baseline snapshot** (48 modules); current topology derives from the manifest + module-boundaries |
 | Public API compatibility | `api/*.api` dumps per module (binary-compatibility-validator) |
-| Runtime events / reason codes | [`docs/reference/runtime-event-catalogue.md`](./docs/reference/runtime-event-catalogue.md) |
+| Runtime events / reason codes | [`RuntimeEventCatalogue.kt`](./tramai-core/src/main/kotlin/dev/tramai/core/observation/event/RuntimeEventCatalogue.kt) (authoritative); [`docs/reference/runtime-event-catalogue.md`](./docs/reference/runtime-event-catalogue.md) is its generated view |
 | Provider routing | [`ProviderRegistry`](./tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderRegistry.kt) + provider routing contracts in `tramai-engine` |
 | Structured output contract | compiled structured descriptor (`StructuredTypeDescriptor`, `StructuredContractFingerprint` in `tramai-structured`) |
 | Persistence behavior | Store TCKs under [`tramai-testing`](./tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/persistence/) (e.g. `ApprovalStoreTck`) |
@@ -22,7 +22,7 @@ This is the authoritative navigation map for the TramAI repository. It tells you
 
 ## 2. Module layers
 
-The 10-layer model is defined by the manifest (`config/quality/module-catalog.yml`); this section explains the layers and their dependency direction. **Module membership is derived, not duplicated here** — see the [module matrix](./docs/reference/module-matrix.md).
+The 10-layer model is defined by the manifest (`config/quality/module-catalog.yml`); this section is **conceptual orientation, not a strict enforced hierarchy** — exact dependency policy lives in the manifest's per-module `dependencyPolicy` fields and `module-boundaries.yml`. **Module membership is derived, not duplicated here** — see the [module matrix](./docs/reference/module-matrix.md).
 
 ```
 core-contracts
@@ -51,7 +51,7 @@ testing-support → supports contracts without entering the runtime dependency f
 - **applications-examples** — executable examples (excluded from release).
 - **testing-support** — TCKs, fakes, consumer boundary tests.
 
-Dependency direction is enforced by `module-boundaries.yml` + the maintainability baseline (`verifyForbiddenEdges` / `verifyDependencyCycles`).
+Dependency direction is enforced by `module-boundaries.yml` + the maintainability baseline (`verifyForbiddenEdges` / `verifyDependencyCycles`), and aggregated by the unified architecture gate `./gradlew verify060Architecture`.
 
 ## 3. Where does X live?
 
@@ -81,7 +81,7 @@ Dependency direction is enforced by `module-boundaries.yml` + the maintainabilit
 | Adding a Spring provider integration | Do NOT add Spring dependencies to `tramai-core` / `tramai-engine` / `tramai-structured`. Spring integration lives in `tramai-spring-core` / starter modules. |
 | Adding a persistence backend | Do NOT copy an existing store's behavior as the specification. Implement the SPI and enroll in the shared TCK. |
 | Changing structured validation | Do NOT independently modify schema generation and post-parse validation. Start from the compiled structured contract (`StructuredTypeDescriptor`). |
-| Adding an event / reason code | Do NOT introduce another string literal beside the authoritative catalogue (`docs/reference/runtime-event-catalogue.md`). |
+| Adding an event / reason code | Do NOT introduce another string literal beside the authoritative `RuntimeEventCatalogue.kt` (`docs/reference/runtime-event-catalogue.md` is its generated view). |
 | Adding a workflow step | Do NOT add new concrete-type dispatch to a central orchestrator god object. Extend the step abstraction in `tramai-orchestration`. |
 
 ## 5. Execution ownership

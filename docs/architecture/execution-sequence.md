@@ -32,8 +32,8 @@ Key seams:
 
 Ownership: `tramai-engine/streaming` (`StreamingExecutionCoordinator`).
 
-- Diverges from the invocation flow at provider admission: the admitted attempt streams tokens instead of returning a full response.
-- Rejoins at structured/output processing and observation: streamed content is validated, sanitized, and audited before the caller sees it.
+- Diverges from the invocation flow at provider admission: the admitted attempt streams tokens instead of returning a full response. Token chunks are forwarded to the caller as they arrive (`StreamChunk.Token` → `onToken`); only the terminal assembled response passes through the response-interceptor path (`interceptResponse` on `StreamChunk.Complete`). Per-token validation/sanitization/audit before caller visibility is NOT claimed.
+- Rejoins at structured/output processing and observation on the terminal chunk: the completed response is intercepted, observed, token-budget-enforced, and emitted before the stream finishes.
 - Streaming models: `StreamingExecutionModels` in the same package.
 
 ## C. Tool invocation
@@ -55,7 +55,7 @@ The engine owns tool lifecycle; tools must not bypass policy or return unsanitiz
 
 Ownership: `tramai-engine/approval` (`ApprovalSuspensionCoordinator`, `ApprovalResumeCoordinator`, `DefaultApprovalGateway`, `ReplayAuthorizationService`, `ContinuationClaimService`); durable contracts in `tramai-core/approval`; store semantics under `tramai-security/approval` + store TCKs.
 
-- Suspension: an invocation that requires approval is suspended with a durable `ApprovalContinuation`; state transitions are governed by the approval lifecycle model (`ApprovalStoreTck` / `ApprovalLifecycleModel` in `tramai-testing`).
+- Suspension: an invocation that requires approval is suspended with a durable `ApprovalContinuation`; state transitions are governed by the **approval-continuation** lifecycle model — `ApprovalContinuationStoreTck` + `ApprovalContinuationLifecycleModel` in `tramai-testing` (distinct from `ApprovalStoreTck`, which covers the approval store itself).
 - Replay: incoming replays are validated (`ReplayEnvelopeFactory` / `ReplayEnvelopeValidator`) and deduplicated; claimed resumes route through `ClaimedResumeExecutor`.
 - Authority: `DefaultApprovalGateway` composes approval/suspension/continuation stores; audit decisions flow through `AuditEngineApprovalLifecycleAuditEmitter`.
 
