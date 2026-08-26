@@ -300,6 +300,32 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `H7 streaming HALF_OPEN probe failure reopens and the next expiry admits again`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; its qualifying failure must
+        // immediately reopen with a fresh deadline (now + openDuration) — NOT
+        // get stuck in HALF_OPEN where every later call is rejected forever.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
     @Test fun `open circuit skips route and uses next`() {
         runBlocking {
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
