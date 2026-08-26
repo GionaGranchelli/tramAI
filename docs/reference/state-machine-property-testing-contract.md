@@ -14,7 +14,7 @@ components of TramAI.
 | Worker lifecycle | ✅ #280 |
 | Lease lifecycle | ✅ #290 |
 | Outbox lifecycle | ✅ #291 |
-| Workflow checkpoint/resume lifecycle | ✅ #<N> |
+| Workflow checkpoint/resume lifecycle | ✅ #295 |
 | Circuit breaker states | ⏳ |
 | Provider retry/fallback | ⏳ |
 
@@ -1008,7 +1008,7 @@ Every mutation made at least one NEW Epic 8.2e property red; suite green again a
 - `SovereignOpsAuditOutboxStore` + `InMemory`/`File`/`Jdbc` stores + `SovereignOpsAuditOutboxDispatcher`
   + `DefaultSovereignOpsAuditOutboxOperations` + `api/` dump
 
-## Workflow checkpoint/resume lifecycle — #<N> (Epic 8.2f)
+## Workflow checkpoint/resume lifecycle — #295 (Epic 8.2f)
 
 **One checkpoint capability = one incarnation + one revision. Deletion permanently kills the incarnation; revision reuse after recreation can never revive stale authority. Recovery-required checkpoints are non-runnable through every execution entry point, including direct resume.**
 
