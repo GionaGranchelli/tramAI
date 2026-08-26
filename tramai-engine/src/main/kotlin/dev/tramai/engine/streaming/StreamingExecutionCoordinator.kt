@@ -230,12 +230,24 @@ internal class StreamingExecutionCoordinator(
     private suspend fun executeStreamingRoute(request: StreamingExecutionRoute, correlationId: String, securityContext: ExecutionSecurityContext, arguments: List<Any?>): StreamingRouteResult {
         val route = request.route
         val observation = startStreamingObservation(route, request.operation, request.attempt, request.routeIndex)
-        authorizeStreamingRoute(route, observation)
-        beforeResponseReturn.enforce(route, correlationId, securityContext)
-        toolExposureCoordinator.enforce(request.operation, correlationId, securityContext)
-        beforeInvocation.invoke(route.providerName, route.effectiveModelName, correlationId, securityContext)
+        try {
+            authorizeStreamingRoute(route, observation)
+            beforeResponseReturn.enforce(route, correlationId, securityContext)
+            toolExposureCoordinator.enforce(request.operation, correlationId, securityContext)
+            beforeInvocation.invoke(route.providerName, route.effectiveModelName, correlationId, securityContext)
+        } catch (error: CancellationException) {
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        }
 
-        val streamCapable = route.provider as? StreamCapable ?: throw ProviderCapabilityException(route.providerName, "streaming")
+        val streamCapable = route.provider as? StreamCapable ?: run {
+            circuitBreaker.onAbandoned(request.permit)
+            throw ProviderCapabilityException(route.providerName, "streaming")
+        }
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
         val memoryInjectedRequest = request.memoryMessages?.let { modelRequest.copy(messages = it) } ?: modelRequest
         return collectStreamingRoute(StreamingRouteCall(streamCapable, memoryInjectedRequest, request.operation, route, request.attempt, observation, request.tokenBudgetTracker, request.emitChunk, request.permit))
@@ -303,6 +315,7 @@ internal class StreamingExecutionCoordinator(
             handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation, permit)
         } catch (error: CancellationException) {
             observation.completeCancellation(error)
+            circuitBreaker.onAbandoned(permit)
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
@@ -348,7 +361,7 @@ internal class StreamingExecutionCoordinator(
         val response = ModelResponse(content = chunk.fullText, inputTokens = chunk.usage.inputTokens, outputTokens = chunk.usage.outputTokens, thinkingTokens = chunk.usage.thinkingTokens, modelUsed = route.effectiveModelName, finishReason = FinishReason.STOP)
         val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
         observation.onProviderResponse(interceptedResponse)
-        try { tokenBudgetCoordinator.enforce(tokenBudgetTracker, interceptedResponse, observation, route.providerName, route.effectiveModelName) } catch (error: TokenBudgetExceededException) { observation.onCallCompleted(parseSuccess = null); throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error))) }
+        try { tokenBudgetCoordinator.enforce(tokenBudgetTracker, interceptedResponse, observation, route.providerName, route.effectiveModelName) } catch (error: TokenBudgetExceededException) { observation.onCallCompleted(parseSuccess = null); circuitBreaker.onAbandoned(permit); throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error))) }
         observation.onCallCompleted(parseSuccess = null)
         circuitBreaker.onSuccess(permit)
         emitChunk(if (interceptedResponse.content != chunk.fullText) chunk.copy(fullText = interceptedResponse.content) else chunk)
@@ -368,11 +381,17 @@ internal class StreamingExecutionCoordinator(
 
     private fun recordCircuitBreakerFailure(permit: CircuitBreakerPermit, error: Throwable, observation: OperationObservation) {
         val opened = circuitBreaker.onFailure(permit, error)
-        if (opened) observation.emitRuntimeEvent(
-            RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
-                set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
-            },
-        )
+        if (opened) {
+            observation.emitRuntimeEvent(
+                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
+                    set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
+                },
+            )
+        } else {
+            // Non-qualifying failure: never a breaker failure, but a HALF_OPEN
+            // probe permit must still be released or recovery strands forever.
+            circuitBreaker.onAbandoned(permit)
+        }
     }
 
     private fun recordStartupRetryEvent(providerName: String, failureType: String, observation: OperationObservation) {

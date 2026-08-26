@@ -32,13 +32,14 @@ internal object ProviderCircuitBreakerActionGenerator {
         val actions = ArrayList<CircuitBreakerAction>(ACTION_COUNT)
         var model = initial
 
-        val forcedPrefix: List<CircuitBreakerAction> = when (seed % 6) {
+        val forcedPrefix: List<CircuitBreakerAction> = when (seed % 7) {
             0L -> THRESHOLD_REACHED_OPEN
             1L -> EXPIRY_TO_HALF_OPEN_PROBE_SUCCESS
             2L -> PROBE_FAILURE_REOPEN
             3L -> STALE_COMPLETION_AFTER_RECOVERY
             4L -> CONCURRENT_EXPIRY_CLUSTER
-            else -> MIXED_QUALIFYING
+            5L -> MIXED_QUALIFYING
+            else -> ABANDONED_PROBE
         }
         forcedPrefix.forEach { action ->
             actions.add(action)
@@ -55,6 +56,7 @@ internal object ProviderCircuitBreakerActionGenerator {
             if (liveGeneration != null) {
                 candidates.add(CircuitBreakerAction.OnSuccess(provider, liveGeneration))
                 candidates.add(CircuitBreakerAction.OnFailure(provider, liveGeneration, qualifying = rng.nextBoolean()))
+                candidates.add(CircuitBreakerAction.OnAbandoned(provider, liveGeneration))
             }
             val action = candidates[rng.nextInt(candidates.size)]
             actions.add(action)
@@ -142,5 +144,20 @@ internal object ProviderCircuitBreakerActionGenerator {
         CircuitBreakerAction.OnFailure(P, 0L, qualifying = false), // ignored
         CircuitBreakerAction.OnFailure(P, 0L, qualifying = true), // failures = 2
         CircuitBreakerAction.OnFailure(P, 0L, qualifying = true), // failures = 3 -> OPEN(1, 1000)
+    )
+
+    /** Seed % 7 == 6 — neutral probe termination (abandon) releases ownership and advances the generation. */
+    private val ABANDONED_PROBE: List<CircuitBreakerAction> = listOf(
+        CircuitBreakerAction.BeforeCall(P),
+        CircuitBreakerAction.OnFailure(P, 0L, qualifying = true),
+        CircuitBreakerAction.OnFailure(P, 0L, qualifying = true),
+        CircuitBreakerAction.OnFailure(P, 0L, qualifying = true), // OPEN(1, 1000)
+        CircuitBreakerAction.AdvanceClock(1_000L),
+        CircuitBreakerAction.BeforeCall(P), // -> HALF_OPEN(1), probe Allowed(1)
+        CircuitBreakerAction.OnAbandoned(P, 1L), // neutral -> OPEN(2, 2000)
+        CircuitBreakerAction.QueryOpenUntil(P), // 2000
+        CircuitBreakerAction.AdvanceClock(1_000L),
+        CircuitBreakerAction.BeforeCall(P), // replacement probe Allowed(2)
+        CircuitBreakerAction.OnSuccess(P, 2L), // probe success -> CLOSED(2, 0)
     )
 }

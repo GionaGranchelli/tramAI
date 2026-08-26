@@ -48,6 +48,7 @@ internal sealed interface CircuitBreakerAction {
     data class BeforeCall(val provider: String) : CircuitBreakerAction
     data class OnSuccess(val provider: String, val generation: Long) : CircuitBreakerAction
     data class OnFailure(val provider: String, val generation: Long, val qualifying: Boolean) : CircuitBreakerAction
+    data class OnAbandoned(val provider: String, val generation: Long) : CircuitBreakerAction
     data class QueryOpenUntil(val provider: String) : CircuitBreakerAction
 }
 
@@ -97,6 +98,7 @@ internal data class CircuitBreakerModel(
         is CircuitBreakerAction.BeforeCall -> beforeCall(action.provider)
         is CircuitBreakerAction.OnSuccess -> onSuccess(action.provider, action.generation)
         is CircuitBreakerAction.OnFailure -> onFailure(action.provider, action.generation, action.qualifying)
+        is CircuitBreakerAction.OnAbandoned -> onAbandoned(action.provider, action.generation)
         is CircuitBreakerAction.QueryOpenUntil -> result(openUntilMillis = openUntilMillis(action.provider))
     }
 
@@ -177,14 +179,47 @@ internal data class CircuitBreakerModel(
         }
     }
 
+    private fun onAbandoned(provider: String, generation: Long): CircuitBreakerModelResult {
+        if (!settings.enabled) {
+            return result()
+        }
+        val state = states[provider] ?: return result()
+        if (state.generation != generation) {
+            return result() // stale permit — no authority.
+        }
+        return if (state is CircuitBreakerState.HalfOpen) {
+            // Probe abandoned: release authority by re-entering OPEN with a
+            // fresh deadline and an ADVANCED generation so the abandoned
+            // permit can never regain authority. No CIRCUIT_OPENED event is
+            // emitted for a neutral outcome (the coordinators call onAbandoned
+            // without one), so the model reports opened=false.
+            copy(
+                states = states + (provider to CircuitBreakerState.Open(generation + 1, nowMillis + settings.openDurationMillis)),
+            ).result()
+        } else {
+            result() // CLOSED-epoch neutral outcome is a no-op (no count, no reset).
+        }
+    }
+
     private fun onFailure(provider: String, generation: Long, qualifying: Boolean): CircuitBreakerModelResult {
-        if (!settings.enabled || !qualifying) {
+        if (!settings.enabled) {
             return result()
         }
         val now = nowMillis
         val state = states[provider] ?: CircuitBreakerState.Closed(generation, consecutiveFailures = 0)
         if (state.generation != generation) {
-            return result() // stale completion — must not count, reopen, or extend
+            return result() // stale completion — must not count, reopen, or extend.
+        }
+        if (!qualifying) {
+            // Neutral terminal outcome: never counts, but an authoritative
+            // HALF_OPEN probe must still release its slot (reopen with fresh
+            // deadline + advanced generation). No CIRCUIT_OPENED event.
+            if (state is CircuitBreakerState.HalfOpen) {
+                return copy(
+                    states = states + (provider to CircuitBreakerState.Open(generation + 1, now + settings.openDurationMillis)),
+                ).result()
+            }
+            return result()
         }
         return when (state) {
             is CircuitBreakerState.Closed -> {

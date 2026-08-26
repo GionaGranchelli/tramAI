@@ -22,19 +22,21 @@ private val NON_QUALIFYING_ERRORS: List<Throwable> = listOf(
     CancellationException("cancelled"),
 )
 
-/** Provider of a completion action (OnSuccess/OnFailure), null otherwise. */
+/** Provider of a completion action (OnSuccess/OnFailure/OnAbandoned), null otherwise. */
 private val CircuitBreakerAction.completionProvider: String?
     get() = when (this) {
         is CircuitBreakerAction.OnSuccess -> provider
         is CircuitBreakerAction.OnFailure -> provider
+        is CircuitBreakerAction.OnAbandoned -> provider
         else -> null
     }
 
-/** Generation of a completion action (OnSuccess/OnFailure), null otherwise. */
+/** Generation of a completion action (OnSuccess/OnFailure/OnAbandoned), null otherwise. */
 private val CircuitBreakerAction.completionGeneration: Long?
     get() = when (this) {
         is CircuitBreakerAction.OnSuccess -> generation
         is CircuitBreakerAction.OnFailure -> generation
+        is CircuitBreakerAction.OnAbandoned -> generation
         else -> null
     }
 
@@ -105,6 +107,8 @@ class ProviderCircuitBreakerLifecyclePropertyTest {
                         CircuitBreakerPermit(action.provider, action.generation),
                         if (action.qualifying) TimeoutException("qualifying provider failure") else nonQualifyingError(step),
                     )
+                is CircuitBreakerAction.OnAbandoned ->
+                    breaker.onAbandoned(CircuitBreakerPermit(action.provider, action.generation))
                 is CircuitBreakerAction.QueryOpenUntil -> realQueried = breaker.openUntilMillis(action.provider)
             }
             val realOpenUntilAfter = PROPERTY_PROVIDERS.associateWith { breaker.openUntilMillis(it) }
@@ -579,5 +583,56 @@ class ProviderCircuitBreakerLifecyclePropertyTest {
         assertThat(traces.filter { it.action is CircuitBreakerAction.OnFailure }.map { it.modelResult.opened }).containsOnly(false)
         assertThat(traces[4].realQueriedOpenUntil).isNull()
         assertThat((traces[5].realAdmission as? CircuitBreakerAdmission.Allowed)?.permit?.generation).isEqualTo(0L)
+    }
+
+    // ── P13: every HALF_OPEN probe has a terminal breaker transition ────────
+
+    @Test
+    fun `P13 every HALF_OPEN probe reaches a terminal breaker transition`() {
+        // A probe that terminates neutrally (abandoned) must release probe
+        // ownership: the breaker re-enters OPEN with a fresh deadline and an
+        // ADVANCED generation, so a replacement probe is eventually admitted
+        // and the abandoned permit can never regain authority.
+        val actions = listOf(
+            CircuitBreakerAction.BeforeCall(PROPERTY_P),
+            CircuitBreakerAction.OnFailure(PROPERTY_P, 0L, qualifying = true), // open, gen 1
+            CircuitBreakerAction.QueryOpenUntil(PROPERTY_P),
+            CircuitBreakerAction.AdvanceClock(1_000L), // exact expiry
+            CircuitBreakerAction.BeforeCall(PROPERTY_P), // probe admitted, gen 1
+            CircuitBreakerAction.OnAbandoned(PROPERTY_P, 1L), // neutral termination
+            CircuitBreakerAction.QueryOpenUntil(PROPERTY_P),
+            CircuitBreakerAction.AdvanceClock(1_000L), // new expiry
+            CircuitBreakerAction.BeforeCall(PROPERTY_P), // replacement probe admitted, gen 2
+        )
+        val p13Settings = CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 1_000L)
+        val traces = driveScript("probe-abandoned", actions, model = CircuitBreakerModel(settings = p13Settings), breakerSettings = p13Settings)
+
+        // Abandonment releases: openUntilMillis reports the fresh deadline (now
+        // 1000 + openDuration 1000 = 2000).
+        assertThat(traces[6].realQueriedOpenUntil).isEqualTo(2_000L)
+        // The replacement probe is minted under the ADVANCED generation.
+        assertThat((traces[8].realAdmission as? CircuitBreakerAdmission.Allowed)?.permit?.generation).isEqualTo(2L)
+
+        // Stale abandoned permit can never regain authority: firing the OLD
+        // permit after the replacement probe is in flight is a no-op (the
+        // replacement probe stays authoritative — next admission still rejected).
+        val traces2 = driveScript(
+            "stale-abandoned-fenced",
+            listOf(
+                CircuitBreakerAction.BeforeCall(PROPERTY_P),
+                CircuitBreakerAction.OnFailure(PROPERTY_P, 0L, qualifying = true),
+                CircuitBreakerAction.AdvanceClock(1_000L),
+                CircuitBreakerAction.BeforeCall(PROPERTY_P), // probe gen 1
+                CircuitBreakerAction.OnAbandoned(PROPERTY_P, 1L), // abandoned -> OPEN gen 2
+                CircuitBreakerAction.AdvanceClock(1_000L),
+                CircuitBreakerAction.BeforeCall(PROPERTY_P), // replacement probe gen 2
+                CircuitBreakerAction.OnSuccess(PROPERTY_P, 1L), // STALE old success
+                CircuitBreakerAction.OnFailure(PROPERTY_P, 1L, qualifying = true), // STALE old failure
+                CircuitBreakerAction.BeforeCall(PROPERTY_P), // must still be rejected (probe in flight)
+            ),
+            model = CircuitBreakerModel(settings = p13Settings),
+            breakerSettings = p13Settings,
+        )
+        assertThat(traces2[9].realAdmission).isInstanceOf(CircuitBreakerAdmission.Rejected::class.java)
     }
 }

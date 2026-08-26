@@ -65,9 +65,11 @@ internal class ProviderAttemptExecutor(
                 return ProviderCallResult(sanitized, attempt.observation, request.providerId, request.request.model, attempt.approvedModel)
             } catch (error: DlpInspectionException) {
                 attempt.observation.onCallCompleted(parseSuccess = null)
+                circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: CancellationException) {
                 attempt.observation.completeCancellation(error)
+                circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
@@ -92,6 +94,11 @@ internal class ProviderAttemptExecutor(
                                     set(RuntimeAttributes.PROVIDER_ID, request.providerId)
                                 },
                             )
+                        } else {
+                            // Non-qualifying terminal failure: never a breaker
+                            // failure, but if this was the HALF_OPEN probe the
+                            // permit must still be released or recovery strands.
+                            circuitBreaker.onAbandoned(request.permit)
                         }
                         throw error
                     }
@@ -117,9 +124,11 @@ internal class ProviderAttemptExecutor(
             authorizationService.authorize(request.providerId, request.request.model)
         } catch (error: CancellationException) {
             observation.completeCancellation(error)
+            circuitBreaker.onAbandoned(request.permit)
             throw error
         } catch (error: ModelRegistryException) {
             observation.onCallCompleted(parseSuccess = null)
+            circuitBreaker.onAbandoned(request.permit)
             throw error
         }
         return ProviderRetryAttempt(context, intercepted, observation, approvedModel)

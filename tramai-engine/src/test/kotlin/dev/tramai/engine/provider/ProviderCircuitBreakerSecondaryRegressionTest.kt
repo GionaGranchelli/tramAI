@@ -181,6 +181,86 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         }
     }
 
+    // ------------------------------------------------------------ Section H-8/H-9/H-10
+
+    @Test
+    fun `H8 neutral HALF_OPEN failure cannot strand the circuit`() {
+        runBlocking {
+            var now = 0L
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+
+            // Threshold 1: one qualifying failure opens the circuit until t=100.
+            breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // At exact expiry the probe is admitted; it then terminates with a
+            // NON-RETRYABLE ProviderException — a neutral outcome that must
+            // release probe ownership (reopen with fresh deadline) rather than
+            // strand the circuit in HALF_OPEN.
+            now = 100
+            val probe = admit(breaker, "primary")
+            assertThat(breaker.onFailure(probe, ProviderException("permanent", retryable = false))).isFalse()
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+
+            // A replacement probe is admitted at the new expiry.
+            now = 200
+            val replacement = admit(breaker, "primary")
+            breaker.onSuccess(replacement)
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
+    @Test
+    fun `H9 abandoned HALF_OPEN probe is released and a replacement probe is eventually admitted`() {
+        runBlocking {
+            var now = 0L
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+
+            breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+
+            // Probe admitted at exact expiry and abandoned (the caller was
+            // cancelled / a pre-invocation gate failed). Cancellation must NOT
+            // count as a breaker failure — but recovery must remain possible.
+            now = 100
+            val probe = admit(breaker, "primary")
+            breaker.onAbandoned(probe)
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
+
+            // Next expiry: a fresh probe can be admitted.
+            now = 200
+            val replacement = admit(breaker, "primary")
+            breaker.onSuccess(replacement)
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
+    @Test
+    fun `H10 abandoned probe is fenced after replacement recovery begins`() {
+        runBlocking {
+            var now = 0L
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+
+            breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
+            now = 100
+            val abandoned = admit(breaker, "primary") // probe gen 1
+            breaker.onAbandoned(abandoned) // -> OPEN(gen 2, 200)
+            now = 200
+            val replacement = (breaker.beforeCall("primary") as CircuitBreakerAdmission.Allowed).permit // probe gen 2
+
+            // The abandoned permit can never regain authority: stale success
+            // and stale qualifying failure while the replacement probe is in
+            // flight must not close/reopen/reset it.
+            breaker.onSuccess(abandoned)
+            breaker.onFailure(abandoned, ProviderException("stale", retryable = true))
+            assertThat(breaker.beforeCall("primary")).isInstanceOf(dev.tramai.engine.CircuitBreakerAdmission.Rejected::class.java)
+
+            // Only the replacement probe resolves the circuit.
+            breaker.onSuccess(replacement)
+            assertThat(breaker.openUntilMillis("primary")).isNull()
+        }
+    }
+
     // ------------------------------------------------------------ Section H-4
 
     @Test

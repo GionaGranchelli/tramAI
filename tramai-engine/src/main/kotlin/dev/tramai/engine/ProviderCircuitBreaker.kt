@@ -146,13 +146,24 @@ internal open class ProviderCircuitBreaker(
         permit: CircuitBreakerPermit,
         error: Throwable,
     ): Boolean {
-        if (!settings.enabled || !isCircuitBreakingFailure(error)) {
+        if (!settings.enabled) {
             return false
         }
         val now = clockMillis()
         val state = states[permit.providerId] ?: CircuitState.Closed(permit.generation, consecutiveFailures = 0)
         if (state.generation != permit.generation) {
             return false // stale completion — must not count, reopen, or extend.
+        }
+        if (!isCircuitBreakingFailure(error)) {
+            // Neutral terminal outcome. Never counts as a breaker failure, but
+            // if this was the authoritative HALF_OPEN probe the slot must be
+            // released or recovery strands forever: re-enter OPEN with a fresh
+            // deadline and an ADVANCED generation so this permit can never
+            // regain authority. No CIRCUIT_OPENED event (opened=false).
+            if (state is CircuitState.HalfOpen) {
+                states[permit.providerId] = CircuitState.Open(permit.generation + 1, now + settings.openDurationMillis)
+            }
+            return false
         }
         return when (state) {
             is CircuitState.Closed -> {
@@ -172,6 +183,39 @@ internal open class ProviderCircuitBreaker(
                 true
             }
             is CircuitState.Open -> false // no permit is ever minted for an Open epoch; defensive no-op.
+        }
+    }
+
+    /**
+     * Records a neutral/abandoned completion for [permit] — a terminal outcome
+     * that is neither success nor a qualifying provider failure (caller
+     * cancellation, DLP/sanitizer failure, policy/model-registry rejection,
+     * non-retryable provider error, token-budget exhaustion).
+     *
+     * A neutral outcome must NEVER be treated as a breaker failure, but it must
+     * also not strand the circuit: if [permit] was the authoritative HALF_OPEN
+     * probe, releasing it is mandatory or every later caller is rejected
+     * forever (HALF_OPEN has no expiry of its own). The probe is released by
+     * re-entering OPEN with a FRESH deadline and an ADVANCED generation, so
+     * the abandoned permit can never regain authority — a replacement probe
+     * is minted under the new generation and the old permit is permanently
+     * stale.
+     *
+     * For non-probe permits (CLOSED-epoch admissions) a neutral outcome is a
+     * no-op: it does not count toward the threshold and does not reset the
+     * failure history. Stale permits are no-ops.
+     */
+    @Synchronized
+    open fun onAbandoned(permit: CircuitBreakerPermit) {
+        if (!settings.enabled) {
+            return
+        }
+        val state = states[permit.providerId] ?: return
+        if (state.generation != permit.generation) {
+            return // stale permit — no authority.
+        }
+        if (state is CircuitState.HalfOpen) {
+            states[permit.providerId] = CircuitState.Open(permit.generation + 1, clockMillis() + settings.openDurationMillis)
         }
     }
 

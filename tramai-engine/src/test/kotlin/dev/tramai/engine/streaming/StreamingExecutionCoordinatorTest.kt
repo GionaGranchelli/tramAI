@@ -300,6 +300,38 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `H11 streaming neutral probe outcome cannot strand recovery`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Error(ProviderException("permanent", retryable = false)))
+        } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; its NON-RETRYABLE error is a
+        // neutral outcome: not a breaker failure, but it must release probe
+        // ownership (reopen with a fresh deadline) instead of stranding the
+        // streaming recovery in HALF_OPEN.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
     @Test fun `H7 streaming HALF_OPEN probe failure reopens and the next expiry admits again`() {
         runBlocking {
         var now = 0L
