@@ -266,6 +266,40 @@ class StreamingExecutionCoordinatorTest {
         assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java); assertThat(fallback.streamRequests).isEmpty()
     }
 
+    @Test fun `H6 streaming success reaches the breaker and closes an open circuit`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok"))
+        } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First streaming call fails retryably before any token -> breaker OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // While open, the provider is skipped (no stream request) and the breaker stays open.
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(1)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; a successful stream must reach
+        // onSuccess and CLOSE the circuit. The observable difference from a
+        // stuck HALF_OPEN: a subsequent call is ADMITTED and reaches the provider.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(2)
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isNull()
+        }
+    }
+
     @Test fun `open circuit skips route and uses next`() {
         runBlocking {
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
