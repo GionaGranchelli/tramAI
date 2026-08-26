@@ -128,9 +128,11 @@ class FileWorkflowCheckpointStore private constructor(
                 workflowId = workflowId,
                 existing = effectiveExisting,
                 expectedRevision = expectedRevision,
+                expectedGeneration = checkpoint.checkpointGeneration,
             )
             val persisted = checkpoint.copy(
                 revision = (effectiveExisting?.revision ?: 0) + 1,
+                checkpointGeneration = effectiveExisting?.checkpointGeneration ?: newCheckpointGeneration(),
             )
             atomicWriter.write(canonical, encodeCheckpoint(persisted))
             if (target != canonical && existing != null) {
@@ -144,6 +146,7 @@ class FileWorkflowCheckpointStore private constructor(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) = persistenceBoundary(
         PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver,
         classify = ::classifyCheckpointFailure,
@@ -164,6 +167,7 @@ class FileWorkflowCheckpointStore private constructor(
                 workflowId = workflowId,
                 existing = effectiveExisting,
                 expectedRevision = expectedRevision,
+                expectedGeneration = expectedGeneration,
             )
             if (identityMatch && existing != null) {
                 Files.deleteIfExists(target)
@@ -301,6 +305,7 @@ internal fun encodeCheckpoint(checkpoint: WorkflowCheckpoint): String {
     properties["revision"] = checkpoint.revision.toString()
     properties["savedAtEpochMillis"] = checkpoint.savedAtEpochMillis.toString()
     properties["recoveryState"] = encodeRecoveryState(checkpoint.recoveryState)?.let(::base64Encode) ?: ""
+    properties["checkpointGeneration"] = checkpoint.checkpointGeneration.orEmpty()
     checkpoint.metadata.forEach { (key, value) ->
         properties["metadata.${base64Encode(key)}"] = base64Encode(value)
     }
@@ -327,6 +332,7 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint = try {
         metadata = metadata,
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
         recoveryState = decodeRecoveryState(properties.getProperty("recoveryState")?.takeIf { it.isNotBlank() }?.let(::base64Decode)),
+        checkpointGeneration = properties.getProperty("checkpointGeneration")?.ifBlank { null },
     )
 } catch (error: CorruptCheckpointException) {
     throw error
@@ -499,6 +505,7 @@ internal fun validateExpectedRevision(
     workflowId: String,
     existing: WorkflowCheckpoint?,
     expectedRevision: Long?,
+    expectedGeneration: String?,
 ) {
     if (expectedRevision == null && existing != null) {
         throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
@@ -509,17 +516,24 @@ internal fun validateExpectedRevision(
     if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
         throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
     }
+    if (expectedRevision != null && existing != null && existing.checkpointGeneration != expectedGeneration) {
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.SAVE, PersistenceFailureCode.CONFLICT)
+    }
 }
 internal fun validateDeleteExpectedRevision(
     workflowName: String,
     workflowId: String,
     existing: WorkflowCheckpoint?,
     expectedRevision: Long?,
+    expectedGeneration: String?,
 ) {
     if (expectedRevision != null && existing == null) {
         throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
     }
     if (expectedRevision != null && existing != null && existing.revision != expectedRevision) {
+        throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
+    }
+    if (expectedRevision != null && existing != null && existing.checkpointGeneration != expectedGeneration) {
         throw safePersistenceFailure(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, PersistenceFailureCode.CONFLICT)
     }
 }

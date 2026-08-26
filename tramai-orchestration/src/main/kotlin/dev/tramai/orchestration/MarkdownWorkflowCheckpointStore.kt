@@ -83,8 +83,12 @@ class MarkdownWorkflowCheckpointStore(
                 workflowId = workflowId,
                 existing = effectiveExisting,
                 expectedRevision = expectedRevision,
+                expectedGeneration = checkpoint.checkpointGeneration,
             )
-            val persisted = checkpoint.copy(revision = (effectiveExisting?.revision ?: 0) + 1)
+            val persisted = checkpoint.copy(
+                revision = (effectiveExisting?.revision ?: 0) + 1,
+                checkpointGeneration = effectiveExisting?.checkpointGeneration ?: newCheckpointGeneration(),
+            )
             writeStringAtomically(canonical, encodeMarkdownCheckpoint(persisted))
             if (target != canonical && existing != null) {
                 // Migrate the legacy-path record to the canonical path.
@@ -97,6 +101,7 @@ class MarkdownWorkflowCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) = persistenceBoundary(
         PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver,
         classify = ::classifyCheckpointFailure,
@@ -117,6 +122,7 @@ class MarkdownWorkflowCheckpointStore(
                 workflowId = workflowId,
                 existing = effectiveExisting,
                 expectedRevision = expectedRevision,
+                expectedGeneration = expectedGeneration,
             )
             if (identityMatch && existing != null) {
                 Files.deleteIfExists(target)
@@ -169,6 +175,7 @@ internal fun encodeMarkdownCheckpoint(checkpoint: WorkflowCheckpoint): String {
         appendLine("revision: ${checkpoint.revision}")
         appendLine("savedAtEpochMillis: ${checkpoint.savedAtEpochMillis}")
         appendLine("recoveryState: ${encodeRecoveryState(checkpoint.recoveryState)?.let(::base64Encode).orEmpty()}")
+        appendLine("checkpointGeneration: ${checkpoint.checkpointGeneration.orEmpty()}")
         if (metadataLines.isNotBlank()) {
             appendLine(metadataLines)
         }
@@ -227,6 +234,7 @@ internal fun decodeMarkdownCheckpoint(content: String): WorkflowCheckpoint = try
         recoveryState = decodeRecoveryState(
             frontMatter["recoveryState"]?.takeIf { it.isNotBlank() }?.let(::base64Decode),
         ),
+        checkpointGeneration = frontMatter["checkpointGeneration"]?.ifBlank { null },
     )
 } catch (error: CorruptCheckpointException) {
     throw error

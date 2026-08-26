@@ -463,10 +463,10 @@ class WorkflowLeaseStoreTest {
 
             val leaseA = storeA.claim("order", "a/b", "worker-a", checkpointRevision = null, leaseDurationMillis = 10_000)
             val checkpointStore = InMemoryWorkflowCheckpointStore()
-            checkpointStore.save(
+            val persisted = checkpointStore.save(
                 WorkflowCheckpoint("order", "a/b", nextStepIndex = 1, stepExecutions = 1, lastCompletedStepName = "step-1", statePayload = "s1", revision = 1),
             )
-            val checkpointV2 = WorkflowCheckpoint("order", "a/b", nextStepIndex = 2, stepExecutions = 2, lastCompletedStepName = "step-2", statePayload = "s2", revision = 2)
+            val checkpointV2 = WorkflowCheckpoint("order", "a/b", nextStepIndex = 2, stepExecutions = 2, lastCompletedStepName = "step-2", statePayload = "s2", revision = 2, checkpointGeneration = persisted.checkpointGeneration)
 
             // Hooked checkpoint store: blocks INSIDE the fenced mutation, after
             // the fence validated worker A's lease and acquired the lease lock.

@@ -52,6 +52,21 @@ abstract class WorkflowLeaseCheckpointFenceTck {
         savedAtEpochMillis = 1_800_000_000_000L,
     )
 
+    /**
+     * Persist a fresh checkpoint and return the persisted snapshot. The
+     * returned value is the actor's captured authority: generation + revision
+     * as minted by the store (a raw [checkpoint] carries null generation and
+     * can never update a generated record).
+     */
+    private suspend fun Harness.seedCheckpoint(
+        workflowName: String,
+        workflowId: String,
+        nextStepIndex: Int = 3,
+        revision: Long = 1,
+    ): WorkflowCheckpoint = checkpointStore.save(
+        checkpoint(workflowName, workflowId, nextStepIndex = nextStepIndex, revision = revision),
+    )
+
     private fun assertStale(thrown: Throwable?) {
         assertThat(thrown).isInstanceOf(StaleWorkflowLeaseException::class.java)
         assertThat(thrown?.message).isEqualTo("Workflow lease is no longer active")
@@ -61,12 +76,14 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fenced checkpoint save succeeds for the active owner`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 1, leaseDurationMillis = 1_000)
         val saved = h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4),
-            expectedRevision = 1,
+            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = lease,
         )
         assertThat(saved.revision).isEqualTo(2)
@@ -77,13 +94,14 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fenced checkpoint delete succeeds for the active owner`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 1, leaseDurationMillis = 1_000)
         h.fence.deleteCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
             workflowName = "invoice-review",
             workflowId = "run-001",
-            expectedRevision = 1,
+            expectedRevision = persisted.revision,
+            expectedGeneration = persisted.checkpointGeneration,
             expectedLease = lease,
         )
         assertThat(h.checkpointStore.load("invoice-review", "run-001")).isNull()
@@ -208,13 +226,15 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fence does not renew or extend the lease`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 1, leaseDurationMillis = 1_000)
         h.clock.advance(500)
         h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint("invoice-review", "run-001", revision = 1),
-            expectedRevision = 1,
+            checkpoint = checkpoint("invoice-review", "run-001", revision = 1).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = lease,
         )
         h.clock.advance(500)
@@ -226,15 +246,17 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fence does not mutate durable lease metadata`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 3, leaseDurationMillis = 1_000)
         // The caller's snapshot is a capability token; the fence must not
         // write its checkpointRevision into the durable lease.
         val tampered = lease.copy(checkpointRevision = 999)
         h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4),
-            expectedRevision = 1,
+            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = tampered,
         )
         assertThat(h.checkpointStore.load("invoice-review", "run-001")?.nextStepIndex).isEqualTo(4)
@@ -244,12 +266,14 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fence works with a null checkpoint revision lease`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = null, leaseDurationMillis = 1_000)
         h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4),
-            expectedRevision = 1,
+            checkpoint = checkpoint("invoice-review", "run-001", revision = 1, nextStepIndex = 4).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = lease,
         )
         assertThat(h.checkpointStore.load("invoice-review", "run-001")?.nextStepIndex).isEqualTo(4)
@@ -276,13 +300,15 @@ abstract class WorkflowLeaseCheckpointFenceTck {
     @Test
     fun `fence works with a tampered acquiredAt snapshot`() = runBlocking<Unit> {
         val h = newHarness()
-        h.checkpointStore.save(checkpoint("invoice-review", "run-001", revision = 1))
+        val persisted = h.seedCheckpoint("invoice-review", "run-001")
         val lease = h.leaseStore.claim("invoice-review", "run-001", "worker-7", checkpointRevision = 1, leaseDurationMillis = 1_000)
         val tampered = lease.copy(acquiredAtEpochMillis = 42, expiresAtEpochMillis = 43)
         val saved = h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint("invoice-review", "run-001", revision = 1),
-            expectedRevision = 1,
+            checkpoint = checkpoint("invoice-review", "run-001", revision = 1).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = tampered,
         )
         assertThat(saved.revision).isEqualTo(2)
@@ -295,7 +321,7 @@ abstract class WorkflowLeaseCheckpointFenceTck {
         val h = newHarness()
         val name = "fence-lineage"
         val id = "workflow"
-        h.checkpointStore.save(checkpoint(name, id, revision = 1))
+        val persisted = h.seedCheckpoint(name, id)
         val t1 = h.leaseStore.claim(name, id, "worker-a", checkpointRevision = 1, leaseDurationMillis = 1_000)
         h.clock.advance(1_001)
         val t2 = h.leaseStore.claim(name, id, "worker-b", checkpointRevision = 1, leaseDurationMillis = 1_000)
@@ -304,8 +330,10 @@ abstract class WorkflowLeaseCheckpointFenceTck {
 
         val saved = h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1),
-            expectedRevision = 1,
+            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = t3,
         )
         assertThat(saved.revision).isEqualTo(2)
@@ -369,10 +397,13 @@ abstract class WorkflowLeaseCheckpointFenceTck {
         // exactly its claim-time expiry (M20: a fence that rewrote expiresAt
         // from the CURRENT clock would shift it and break the equality).
         h.clock.advance(250)
+        val persisted = h.checkpointStore.load(name, id)!!
         val saved = h.fence.saveCheckpointIfLeaseOwner(
             checkpointStore = h.checkpointStore,
-            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1),
-            expectedRevision = 1,
+            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1).copy(
+                checkpointGeneration = persisted.checkpointGeneration,
+            ),
+            expectedRevision = persisted.revision,
             expectedLease = successor,
         )
         assertThat(saved.revision).isEqualTo(2)

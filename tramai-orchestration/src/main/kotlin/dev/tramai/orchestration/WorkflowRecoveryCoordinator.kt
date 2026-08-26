@@ -38,6 +38,7 @@ internal class WorkflowRecoveryCoordinator(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
                         expectedRevision = checkpoint.revision,
+                        expectedGeneration = checkpoint.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
                             stepName = unknownAttempt.stepName,
@@ -60,6 +61,7 @@ internal class WorkflowRecoveryCoordinator(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
                         expectedRevision = checkpoint.revision,
+                        expectedGeneration = checkpoint.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
                             stepName = unknownAttempt.stepName,
@@ -84,6 +86,7 @@ internal class WorkflowRecoveryCoordinator(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
                         expectedRevision = checkpoint.revision,
+                        expectedGeneration = checkpoint.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
                             stepName = unknownAttempt.stepName,
@@ -148,6 +151,7 @@ internal class WorkflowRecoveryCoordinator(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
                         expectedRevision = checkpoint.revision,
+                        expectedGeneration = checkpoint.checkpointGeneration,
                         record = WorkflowRecoveryRecord(
                             reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
                             stepName = attempt.stepName,

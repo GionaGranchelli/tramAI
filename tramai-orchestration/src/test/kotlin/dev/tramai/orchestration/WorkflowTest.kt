@@ -1481,6 +1481,7 @@ class WorkflowTest {
                     stepExecutions = 1,
                     lastCompletedStepName = "draft",
                     statePayload = "state-1",
+                    checkpointGeneration = first.checkpointGeneration,
                 ),
                 expectedRevision = first.revision,
             )
@@ -1515,6 +1516,7 @@ class WorkflowTest {
                     stepExecutions = 1,
                     lastCompletedStepName = "draft",
                     statePayload = "state-1",
+                    checkpointGeneration = first.checkpointGeneration,
                 ),
                 expectedRevision = first.revision,
             )
@@ -1527,8 +1529,9 @@ class WorkflowTest {
                         workflowId = "wf-1",
                         nextStepIndex = 2,
                         stepExecutions = 2,
-                        lastCompletedStepName = "review",
+                        lastCompletedStepName = "draft",
                         statePayload = "state-2",
+                        checkpointGeneration = first.checkpointGeneration,
                     ),
                     expectedRevision = first.revision,
                 )
@@ -1562,6 +1565,7 @@ class WorkflowTest {
                     stepExecutions = 1,
                     lastCompletedStepName = "draft",
                     statePayload = "state-1",
+                    checkpointGeneration = first.checkpointGeneration,
                 ),
                 expectedRevision = first.revision,
             )
@@ -1572,6 +1576,7 @@ class WorkflowTest {
                     workflowName = "delete-conflict",
                     workflowId = "wf-1",
                     expectedRevision = first.revision,
+                    expectedGeneration = first.checkpointGeneration,
                 )
             }
         }
@@ -1881,13 +1886,14 @@ private class DeleteConflictCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
         if (workflowName == failOnDeleteWorkflowName) {
             throw WorkflowCheckpointConflictException(
                 "simulated completion delete conflict for workflow '$workflowName' and workflowId='$workflowId'",
             )
         }
-        delegate.delete(workflowName, workflowId, expectedRevision)
+        delegate.delete(workflowName, workflowId, expectedRevision, expectedGeneration)
     }
 }
 private class RecordingWorkflowObserver : WorkflowObserver {

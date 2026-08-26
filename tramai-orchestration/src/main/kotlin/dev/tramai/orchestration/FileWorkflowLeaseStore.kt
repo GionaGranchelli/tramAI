@@ -261,6 +261,7 @@ class FileWorkflowLeaseStore private constructor(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
         validateFenceIdentity(expectedLease, workflowName, workflowId)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) {
@@ -269,7 +270,7 @@ class FileWorkflowLeaseStore private constructor(
                     ?.takeIf { identityMatches(it, expectedLease.workflowName, expectedLease.workflowId) }
                     ?.takeUnless(::isExpired)
                 validateExpectedLease(expectedLease, current)
-                checkpointStore.delete(workflowName, workflowId, expectedRevision)
+                checkpointStore.delete(workflowName, workflowId, expectedRevision, expectedGeneration)
             }
         }
     }

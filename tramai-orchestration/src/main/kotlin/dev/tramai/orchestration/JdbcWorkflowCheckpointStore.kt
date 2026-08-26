@@ -45,9 +45,10 @@ class JdbcWorkflowCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
         persistenceBoundary(PersistenceResourceKind.CHECKPOINT, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver, ::classifyCheckpointFailure) { executeJdbcCancellable(dataSource) { conn ->
-            deleteInConnection(conn, workflowName, workflowId, expectedRevision)
+            deleteInConnection(conn, workflowName, workflowId, expectedRevision, expectedGeneration)
         } }
     }
 
@@ -77,10 +78,13 @@ class JdbcWorkflowCheckpointStore(
             ${table.metadataColumn} TEXT NOT NULL,
             ${table.savedAtEpochMillisColumn} BIGINT NOT NULL,
             ${table.recoveryStateColumn} TEXT NULL,
+            ${table.checkpointGenerationColumn} TEXT NULL,
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
     fun migrationSql(): String = "ALTER TABLE ${table.tableName} ADD COLUMN ${table.recoveryStateColumn} TEXT NULL"
+    fun checkpointGenerationMigrationSql(): String =
+        "ALTER TABLE ${table.tableName} ADD COLUMN ${table.checkpointGenerationColumn} TEXT NULL"
     internal fun saveInConnection(
         connection: java.sql.Connection,
         checkpoint: WorkflowCheckpoint,
@@ -96,12 +100,16 @@ class JdbcWorkflowCheckpointStore(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long?,
+        expectedGeneration: String?,
     ) {
-        connection.prepareStatement(deleteSql(expectedRevision != null)).use { statement ->
+        connection.prepareStatement(deleteSql(expectedRevision != null, expectedGeneration != null)).use { statement ->
             statement.setString(1, workflowName)
             statement.setString(2, workflowId)
             if (expectedRevision != null) {
                 statement.setLong(3, expectedRevision)
+                if (expectedGeneration != null) {
+                    statement.setString(4, expectedGeneration)
+                }
             }
             val updated = statement.executeUpdate()
             if (expectedRevision != null && updated == 0) {
@@ -111,6 +119,7 @@ class JdbcWorkflowCheckpointStore(
                     workflowId = workflowId,
                     existing = existing,
                     expectedRevision = expectedRevision,
+                    expectedGeneration = expectedGeneration,
                 )
             }
         }
@@ -142,8 +151,12 @@ class JdbcWorkflowCheckpointStore(
             workflowId = checkpoint.workflowId,
             existing = existing,
             expectedRevision = null,
+            expectedGeneration = null,
         )
-        val persisted = checkpoint.copy(revision = 1)
+        val persisted = checkpoint.copy(
+            revision = 1,
+            checkpointGeneration = newCheckpointGeneration(),
+        )
         try {
             connection.prepareStatement(insertSql()).use { statement ->
                 statement.bindCheckpoint(persisted)
@@ -157,6 +170,7 @@ class JdbcWorkflowCheckpointStore(
                     workflowId = checkpoint.workflowId,
                     existing = current,
                     expectedRevision = null,
+                    expectedGeneration = null,
                 )
             }
             throw error
@@ -168,8 +182,11 @@ class JdbcWorkflowCheckpointStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long,
     ): WorkflowCheckpoint {
-        val persisted = checkpoint.copy(revision = expectedRevision + 1)
-        connection.prepareStatement(updateSql()).use { statement ->
+        val persisted = checkpoint.copy(
+            revision = expectedRevision + 1,
+            checkpointGeneration = checkpoint.checkpointGeneration ?: newCheckpointGeneration(),
+        )
+        connection.prepareStatement(updateSql(checkpoint.checkpointGeneration != null)).use { statement ->
             statement.setInt(1, persisted.nextStepIndex)
             statement.setInt(2, persisted.stepExecutions)
             statement.setString(3, persisted.lastCompletedStepName)
@@ -178,9 +195,13 @@ class JdbcWorkflowCheckpointStore(
             statement.setString(6, encodeMetadata(persisted.metadata))
             statement.setLong(7, persisted.savedAtEpochMillis)
             statement.setString(8, encodeRecoveryState(persisted.recoveryState))
-            statement.setString(9, checkpoint.workflowName)
-            statement.setString(10, checkpoint.workflowId)
-            statement.setLong(11, expectedRevision)
+            statement.setString(9, persisted.checkpointGeneration)
+            statement.setString(10, checkpoint.workflowName)
+            statement.setString(11, checkpoint.workflowId)
+            statement.setLong(12, expectedRevision)
+            if (checkpoint.checkpointGeneration != null) {
+                statement.setString(13, checkpoint.checkpointGeneration)
+            }
             val updated = statement.executeUpdate()
             if (updated == 0) {
                 val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
@@ -189,6 +210,7 @@ class JdbcWorkflowCheckpointStore(
                     workflowId = checkpoint.workflowId,
                     existing = existing,
                     expectedRevision = expectedRevision,
+                    expectedGeneration = checkpoint.checkpointGeneration,
                 )
             }
         }
@@ -205,10 +227,11 @@ class JdbcWorkflowCheckpointStore(
             ${table.revisionColumn},
             ${table.metadataColumn},
             ${table.savedAtEpochMillisColumn},
-            ${table.recoveryStateColumn}
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ${table.recoveryStateColumn},
+            ${table.checkpointGenerationColumn}
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
-    private fun updateSql(): String = """
+    private fun updateSql(generationAware: Boolean): String = """
         UPDATE ${table.tableName}
         SET
             ${table.nextStepIndexColumn} = ?,
@@ -218,10 +241,12 @@ class JdbcWorkflowCheckpointStore(
             ${table.revisionColumn} = ?,
             ${table.metadataColumn} = ?,
             ${table.savedAtEpochMillisColumn} = ?,
-            ${table.recoveryStateColumn} = ?
+            ${table.recoveryStateColumn} = ?,
+            ${table.checkpointGenerationColumn} = ?
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
             AND ${table.revisionColumn} = ?
+            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
     """.trimIndent()
     private fun selectSql(): String = """
         SELECT
@@ -234,7 +259,8 @@ class JdbcWorkflowCheckpointStore(
             ${table.revisionColumn},
             ${table.metadataColumn},
             ${table.savedAtEpochMillisColumn},
-            ${table.recoveryStateColumn}
+            ${table.recoveryStateColumn},
+            ${table.checkpointGenerationColumn}
         FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
@@ -250,16 +276,18 @@ class JdbcWorkflowCheckpointStore(
             ${table.revisionColumn},
             ${table.metadataColumn},
             ${table.savedAtEpochMillisColumn},
-            ${table.recoveryStateColumn}
+            ${table.recoveryStateColumn},
+            ${table.checkpointGenerationColumn}
         FROM ${table.tableName}
         ORDER BY ${table.workflowNameColumn}, ${table.workflowIdColumn}
     """.trimIndent()
-    private fun deleteSql(revisionAware: Boolean): String = if (revisionAware) {
+    private fun deleteSql(revisionAware: Boolean, generationAware: Boolean): String = if (revisionAware) {
         """
         DELETE FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
             AND ${table.revisionColumn} = ?
+            AND ${if (generationAware) "${table.checkpointGenerationColumn} = ?" else "${table.checkpointGenerationColumn} IS NULL"}
         """.trimIndent()
     } else {
         """
@@ -279,6 +307,7 @@ class JdbcWorkflowCheckpointStore(
         setString(8, encodeMetadata(checkpoint.metadata))
         setLong(9, checkpoint.savedAtEpochMillis)
         setString(10, encodeRecoveryState(checkpoint.recoveryState))
+        setString(11, checkpoint.checkpointGeneration)
     }
     private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint {
         val metadataPayload = getString(table.metadataColumn)
@@ -295,6 +324,7 @@ class JdbcWorkflowCheckpointStore(
                 metadata = decodeMetadata(metadataPayload),
                 savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
                 recoveryState = decodeRecoveryState(recoveryPayload),
+                checkpointGeneration = getString(table.checkpointGenerationColumn),
             )
         } catch (error: CorruptCheckpointException) {
             throw error
@@ -315,6 +345,7 @@ data class JdbcWorkflowCheckpointTable(
     val metadataColumn: String = "metadata_payload",
     val savedAtEpochMillisColumn: String = "saved_at_epoch_millis",
     val recoveryStateColumn: String = "recovery_state",
+    val checkpointGenerationColumn: String = "checkpoint_generation",
 ) {
     init {
         requireValidSqlIdentifier(tableName, "JdbcWorkflowCheckpointTable.tableName")
@@ -328,6 +359,7 @@ data class JdbcWorkflowCheckpointTable(
         requireValidSqlIdentifier(metadataColumn, "JdbcWorkflowCheckpointTable.metadataColumn")
         requireValidSqlIdentifier(savedAtEpochMillisColumn, "JdbcWorkflowCheckpointTable.savedAtEpochMillisColumn")
         requireValidSqlIdentifier(recoveryStateColumn, "JdbcWorkflowCheckpointTable.recoveryStateColumn")
+        requireValidSqlIdentifier(checkpointGenerationColumn, "JdbcWorkflowCheckpointTable.checkpointGenerationColumn")
     }
 }
 internal fun encodeMetadata(metadata: Map<String, String>): String {

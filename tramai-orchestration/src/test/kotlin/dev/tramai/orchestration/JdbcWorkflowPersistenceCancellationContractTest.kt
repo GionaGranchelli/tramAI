@@ -191,7 +191,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
     fun `cancelled fenced save rolls back transaction and never commits`() {
         runBlocking {
             val cp = testCheckpoint()
-            checkpointStore.save(cp, expectedRevision = null)
+            val persisted = checkpointStore.save(cp, expectedRevision = null)
             val lease = leaseStore.claim(
                 cp.workflowName, cp.workflowId, "owner", null, 60_000,
             )
@@ -210,8 +210,11 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             val deferred = async(Dispatchers.IO + job) {
                 blockingLeaseStore.saveCheckpointIfLeaseOwner(
                     blockingCheckpointStore,
-                    cp.copy(statePayload = "should-not-persist"),
-                    1L, lease,
+                    cp.copy(
+                        statePayload = "should-not-persist",
+                        checkpointGeneration = persisted.checkpointGeneration,
+                    ),
+                    persisted.revision, lease,
                 )
             }
             assertThat(updateStarted.await(5, TimeUnit.SECONDS))
@@ -231,7 +234,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
     fun `cancellation before commit rolls back and checkpoint is not persisted`() {
         runBlocking {
             val cp = testCheckpoint()
-            checkpointStore.save(cp, expectedRevision = null)
+            val persisted = checkpointStore.save(cp, expectedRevision = null)
             val lease = leaseStore.claim(
                 cp.workflowName, cp.workflowId, "owner", null, 60_000,
             )
@@ -250,8 +253,11 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             val deferred = async(Dispatchers.IO + job) {
                 commitBlockingLeaseStore.saveCheckpointIfLeaseOwner(
                     commitBlockingCheckpointStore,
-                    cp.copy(statePayload = "just-before-commit"),
-                    1L, lease,
+                    cp.copy(
+                        statePayload = "just-before-commit",
+                        checkpointGeneration = persisted.checkpointGeneration,
+                    ),
+                    persisted.revision, lease,
                 )
             }
             assertThat(commitStarted.await(5, TimeUnit.SECONDS))
@@ -366,7 +372,11 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             assertThat(loaded!!.statePayload).isEqualTo(cp.statePayload)
 
             val updated = checkpointStore.save(
-                cp.copy(statePayload = "updated"), expectedRevision = 1,
+                cp.copy(
+                    statePayload = "updated",
+                    checkpointGeneration = saved.checkpointGeneration,
+                ),
+                expectedRevision = saved.revision,
             )
             assertThat(updated.revision).isEqualTo(2)
             assertThat(
@@ -384,7 +394,11 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             assertThat(leaseStore.currentLease(cp.workflowName, cp.workflowId)).isNull()
 
             assertThat(checkpointStore.listCheckpoints()).isNotEmpty
-            checkpointStore.delete(cp.workflowName, cp.workflowId, expectedRevision = updated.revision)
+            checkpointStore.delete(
+                cp.workflowName, cp.workflowId,
+                expectedRevision = updated.revision,
+                expectedGeneration = updated.checkpointGeneration,
+            )
             assertThat(checkpointStore.load(cp.workflowName, cp.workflowId)).isNull()
         }
     }

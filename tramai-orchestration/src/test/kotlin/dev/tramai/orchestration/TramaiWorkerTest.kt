@@ -1133,6 +1133,7 @@ class TramaiWorkerTest {
             workflowName = workflow.name,
             workflowId = runId,
             expectedRevision = blocked.revision,
+            expectedGeneration = blocked.checkpointGeneration,
             reason = "operator confirmed side effect did not complete",
         )
         assertThat(checkpointStore.listStepAttempts(runId).single { it.attemptId == "attempt-1" }.status)
@@ -1238,7 +1239,7 @@ class TramaiWorkerTest {
                 // (no conflicting-resolution guard on a voided approval) and consumed, so
                 // the step executes exactly once with the corrected key.
                 val controller = InMemoryWorkflowRecoveryController(checkpointStore, checkpointStore)
-                controller.retryStep(workflow.name, runId, checkpoint.revision, "corrected approval", "current-key")
+                controller.retryStep(workflow.name, runId, checkpoint.revision, checkpoint.checkpointGeneration, "corrected approval", "current-key")
                 // Wait for the persisted COMPLETED attempt, not just the side effect: the
                 // worker persists COMPLETED after invoke() returns, so asserting on the
                 // store immediately after executions increments is racy under load.
@@ -1569,8 +1570,11 @@ private class FlakyRenewLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 }
 
@@ -1615,8 +1619,11 @@ private class CountingWorkerRegistryLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 
     override suspend fun registerWorker(
@@ -1692,8 +1699,11 @@ private class LeaseStealingLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
-        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        delegate.deleteCheckpointIfLeaseOwner(
+            checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+        )
     }
 }
 
@@ -1771,7 +1781,10 @@ private class ApprovalLeaseLossStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
-    ) = delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+        expectedGeneration: String?,
+    ) = delegate.deleteCheckpointIfLeaseOwner(
+        checkpointStore, workflowName, workflowId, expectedRevision, expectedLease, expectedGeneration,
+    )
 }
 
 private class WorkerTestHttpServer(

@@ -30,6 +30,7 @@ object WorkflowCheckpointFixtures {
         metadata: Map<String, String> = mapOf("region" to "eu-west", "tenant" to "acme"),
         savedAtEpochMillis: Long = SAVED_AT_EPOCH_MILLIS,
         recoveryState: WorkflowRecoveryState = WorkflowRecoveryState.Normal,
+        checkpointGeneration: String? = null,
     ): WorkflowCheckpoint = WorkflowCheckpoint(
         workflowName = workflowName,
         workflowId = workflowId,
@@ -41,6 +42,7 @@ object WorkflowCheckpointFixtures {
         metadata = metadata,
         savedAtEpochMillis = savedAtEpochMillis,
         recoveryState = recoveryState,
+        checkpointGeneration = checkpointGeneration,
     )
 
     fun recoveryRecord(
