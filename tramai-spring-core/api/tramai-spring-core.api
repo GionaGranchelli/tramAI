@@ -49,6 +49,11 @@ public final class dev/tramai/spring/SpringConfiguredModelProvider {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/spring/SpringProviderResolution {
+	public static final field INSTANCE Ldev/tramai/spring/SpringProviderResolution;
+	public final fun resolve (Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;)Ljava/util/List;
+}
+
 public final class dev/tramai/spring/SpringSecretChain {
 	public fun <init> (Ldev/tramai/core/secret/SecretValueResolver;)V
 	public final fun getResolver ()Ldev/tramai/core/secret/SecretValueResolver;

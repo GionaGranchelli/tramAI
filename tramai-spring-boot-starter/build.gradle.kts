@@ -34,6 +34,7 @@ dependencies {
     testImplementation(libs.coroutines.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(project(":tramai-spring-provider-openai"))
     testImplementation("org.junit.jupiter:junit-jupiter")
 }
 

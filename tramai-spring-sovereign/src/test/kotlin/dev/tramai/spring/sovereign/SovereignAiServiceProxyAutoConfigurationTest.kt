@@ -97,18 +97,17 @@ class SovereignAiServiceProxyAutoConfigurationTest {
     }
 
     @Test
-    fun `missing sovereign creator fails loudly and cannot fall back to standard runtime`() {
+    fun `missing provider under sovereign profile fails loudly and never falls back to standard`() {
         runner
             .withPropertyValues(*sovereignProperties)
             .run { context ->
-                assertThat(context).doesNotHaveBean(SovereignTramai::class.java)
-                assertThat(context).doesNotHaveBean(Tramai::class.java)
-                assertThat(context).doesNotHaveBean("tramaiAiServiceCreator")
-                assertThat(context).hasSingleBean(AiServiceBeanDefinitionRegistrar::class.java)
-
-                assertThatThrownBy {
-                    context.getBean(SovereignScannedAiService::class.java)
-                }.hasRootCauseInstanceOf(NoSuchBeanDefinitionException::class.java)
+                // H1 contract: selecting sovereign without any provider is a
+                // deterministic startup failure, not a silent zero-runtime state.
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("requires at least one model provider")
+                    .hasMessageContaining("tramai-spring-provider-*")
             }
     }
 

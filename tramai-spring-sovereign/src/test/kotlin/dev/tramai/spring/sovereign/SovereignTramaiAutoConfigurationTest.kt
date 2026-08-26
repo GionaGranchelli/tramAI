@@ -18,11 +18,13 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import org.springframework.context.annotation.Scope
 import kotlin.test.Test
 
 class SovereignTramaiAutoConfigurationTest {
@@ -44,6 +46,7 @@ class SovereignTramaiAutoConfigurationTest {
     @Test
     fun `creates SovereignProfileConfiguration from valid properties`() {
         contextRunner
+            .withUserConfiguration(MinimalProviderConfiguration::class.java)
             .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
             .run { context ->
                 assertThat(context).hasSingleBean(SovereignProfileConfiguration::class.java)
@@ -57,6 +60,7 @@ class SovereignTramaiAutoConfigurationTest {
     @Test
     fun `model registry is derived from properties dot models`() {
         contextRunner
+            .withUserConfiguration(MinimalProviderConfiguration::class.java)
             .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
             .run { context ->
                 assertThat(context).hasSingleBean(ModelRegistry::class.java)
@@ -93,16 +97,67 @@ class SovereignTramaiAutoConfigurationTest {
             }
     }
 
-    // ── enabled=false ────────────────────────────────────────────────────
+    // ── enabled=false (legacy dual selector) ─────────────────────────────
 
     @Test
-    fun `sovereign profile beans are not created when enabled is false`() {
+    fun `enabled false is rejected when the sovereign profile is selected`() {
         contextRunner
             .withPropertyValues("tramai.sovereign.enabled=false")
             .run { context ->
-                assertThat(context).doesNotHaveBean(SovereignProfileConfiguration::class.java)
-                assertThat(context).doesNotHaveBean(SovereignTramai::class.java)
-                assertThat(context).doesNotHaveBean(SovereignTramaiRuntime::class.java)
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai.sovereign.enabled=false is not supported")
+                    .hasMessageContaining("tramai.profile is the sole runtime selector")
+            }
+    }
+
+    // ── Zero-provider / authority guards ─────────────────────────────────
+
+    @Test
+    fun `sovereign profile without any provider fails loudly`() {
+        contextRunner
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("requires at least one model provider")
+                    .hasMessageContaining("tramai-spring-provider-*")
+            }
+    }
+
+    @Test
+    fun `manual Tramai bean under sovereign profile fails loudly`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalProviderConfiguration::class.java,
+                ManualTramaiConfiguration::class.java,
+            )
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai.profile=sovereign is incompatible with a plain Tramai bean")
+                    .hasMessageContaining("exactly one runtime authority is allowed")
+            }
+    }
+
+    @Test
+    fun `prototype scoped Tramai bean under sovereign profile fails loudly`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalProviderConfiguration::class.java,
+                PrototypeTramaiConfiguration::class.java,
+            )
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasFailed()
+                val failure = requireNotNull(context.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai.profile=sovereign is incompatible with a plain Tramai bean")
+                    .hasMessageContaining("exactly one runtime authority is allowed")
             }
     }
 
@@ -266,6 +321,17 @@ interface TestInvoiceAi {
 open class MinimalProviderConfiguration {
     @Bean
     open fun stubModelProvider(): StubModelProvider = StubModelProvider()
+}
+
+open class ManualTramaiConfiguration {
+    @Bean
+    open fun manualTramai(): dev.tramai.standalone.Tramai = dev.tramai.standalone.Tramai.builder().build()
+}
+
+open class PrototypeTramaiConfiguration {
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+    open fun prototypeTramai(): dev.tramai.standalone.Tramai = dev.tramai.standalone.Tramai.builder().build()
 }
 
 open class ModelRegistrySupplierConfiguration {

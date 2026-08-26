@@ -24,13 +24,15 @@ import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.spring.AiToolScanner
+import dev.tramai.spring.SpringConfiguredModelProvider
+import dev.tramai.spring.SpringProviderResolution
+import dev.tramai.standalone.Tramai
 import java.time.Clock
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
@@ -46,16 +48,15 @@ import org.springframework.context.annotation.Bean
  * - [SovereignTramai] and [SovereignTramaiRuntime]
  *
  * All beans are [ConditionalOnMissingBean] so users can override any default.
- * Set `tramai.sovereign.enabled=false` to disable all sovereign auto-configuration.
+ *
+ * `tramai.profile` is the sole runtime selector; this configuration activates
+ * through [SovereignTramaiProfileAutoConfiguration]. The legacy
+ * `tramai.sovereign.enabled=false` switch is rejected by property validation
+ * rather than silently suppressing the runtime (see
+ * [SovereignTramaiProperties]).
  */
 @AutoConfiguration
 @EnableConfigurationProperties(SovereignTramaiProperties::class)
-@ConditionalOnProperty(
-    prefix = "tramai.sovereign",
-    name = ["enabled"],
-    havingValue = "true",
-    matchIfMissing = true,
-)
 class SovereignTramaiAutoConfiguration {
 
     @field:Autowired
@@ -188,16 +189,28 @@ class SovereignTramaiAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean(ModelProvider::class)
     fun sovereignTramai(
         profile: SovereignProfileConfiguration,
         modelRegistry: ModelRegistry,
         auditStore: AuditStore,
         modelProviders: ObjectProvider<ModelProvider>,
+        springConfiguredProviders: ObjectProvider<SpringConfiguredModelProvider>,
         toolProviders: ObjectProvider<TramaiTool<*, *>>,
         properties: SovereignTramaiProperties,
         infrastructure: SovereignTramaiInfrastructure,
     ): SovereignTramai {
+        // Exactly one runtime authority: selecting the sovereign profile while a
+        // plain Tramai bean exists (user-supplied, since standard auto-config is
+        // profile-exclusive) is an ambiguous configuration and must fail loudly.
+        // includeNonSingletons = true: a prototype-scoped Tramai bean is still an
+        // authority; only eager initialization is avoided.
+        val manualTramaiBeans = applicationContext.getBeanNamesForType(Tramai::class.java, true, false)
+        check(manualTramaiBeans.isEmpty()) {
+            "tramai.profile=sovereign is incompatible with a plain Tramai bean " +
+                "(found: ${manualTramaiBeans.joinToString()}). tramai.profile is the sole runtime " +
+                "selector and exactly one runtime authority is allowed."
+        }
+
         val builder = SovereignTramai.builder()
             .profile(profile)
             .modelRegistry(modelRegistry)
@@ -209,10 +222,20 @@ class SovereignTramaiAutoConfiguration {
         infrastructure.suspendedInvocationStore?.let { builder.suspendedInvocationStore(it) }
         infrastructure.toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
 
-        // Register provider beans from the application context.
-        // Users provide ModelProvider beans and the starter wires them in.
-        modelProviders.orderedStream().forEach { provider ->
-            builder.provider(provider, name = provider.providerId())
+        // Same provider-resolution semantics as the standard profile: adapter
+        // modules contribute SpringConfiguredModelProvider descriptors and
+        // explicit ModelProvider beans override property-backed providers.
+        // A selected profile must never produce a runtime with zero providers.
+        val resolvedProviders = SpringProviderResolution.resolve(
+            springConfiguredProviders = springConfiguredProviders,
+            beanProviders = modelProviders,
+        )
+        check(resolvedProviders.isNotEmpty()) {
+            "tramai.profile=sovereign requires at least one model provider: add a " +
+                "tramai-spring-provider-* adapter with its properties or a ModelProvider bean."
+        }
+        resolvedProviders.forEach { (providerId, provider) ->
+            builder.provider(provider, name = providerId)
         }
 
         // Preserve explicit TramaiTool beans and add the same @AiTool method

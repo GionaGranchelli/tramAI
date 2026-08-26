@@ -28,8 +28,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 @ConfigurationProperties(prefix = "tramai.sovereign")
 data class SovereignTramaiProperties(
     /**
-     * Enables sovereign profile auto-configuration. When false, no sovereign
-     * beans are created (respects [ConditionalOnProperty] semantics).
+     * Compatibility switch retained for existing configurations.
+     *
+     * `tramai.profile` is the sole runtime selector. Setting this to `false`
+     * is rejected with a deterministic startup failure ([resolveProviderTrustZones]).
      */
     var enabled: Boolean = true,
 
@@ -69,6 +71,12 @@ data class SovereignTramaiProperties(
 ) {
     /** Validates this configuration and returns a resolved [ProviderTrustZone] map. */
     internal fun resolveProviderTrustZones(): Map<String, ProviderTrustZone> {
+        check(enabled) {
+            "tramai.sovereign.enabled=false is not supported: tramai.profile is the sole runtime " +
+                "selector. Remove tramai.sovereign.enabled or set it to true; to run the standard " +
+                "runtime select tramai.profile=standard (or omit it)."
+        }
+
         val zones = providerZones.mapValues { (_, zone) ->
             try {
                 ProviderTrustZone.valueOf(zone.uppercase())
