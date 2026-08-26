@@ -132,7 +132,7 @@ class ModuleGraphAnalyzer(private val ctx: MeasurementContext) {
         appendLine("```")
     }
 
-    private fun findCycles(nodes: List<String>, edges: List<DependencyEdge>): List<List<String>> {
+    internal fun findCycles(nodes: List<String>, edges: List<DependencyEdge>): List<List<String>> {
         val adj = mutableMapOf<String, MutableList<String>>()
         for (node in nodes) adj[node] = mutableListOf()
         for (edge in edges) adj.getOrPut(edge.from) { mutableListOf() }.add(edge.to)

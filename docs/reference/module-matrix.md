@@ -1,0 +1,64 @@
+# TramAI Module Matrix
+
+<!-- generated from config/quality/module-catalog.yml — do not edit manually -->
+
+| Module | Layer | Maturity | API | Published | Owner | Release |
+|--------|-------|----------|-----|-----------|-------|---------|
+| examples:approval-resume | applications-examples | internal | excluded | No | examples | excluded |
+| examples:governed-workflow | applications-examples | internal | excluded | No | examples | excluded |
+| examples:sovereign-document-intelligence | applications-examples | internal | excluded | No | examples | excluded |
+| examples:sovereign-offline-verification | applications-examples | internal | excluded | No | examples | excluded |
+| examples:spring-sovereign-starter | applications-examples | internal | excluded | No | examples | excluded |
+| examples:support-agent | applications-examples | internal | excluded | No | examples | excluded |
+| examples:tool-governance | applications-examples | internal | excluded | No | examples | excluded |
+| tramai-anthropic | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-azure-openai | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-bedrock | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-bom | core-contracts | stable | stable | Yes | core | included |
+| tramai-core | core-contracts | stable | stable | Yes | core | included |
+| tramai-dashboard | operations-observability | internal | internal | No | runtime | internal_only |
+| tramai-deepseek | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-embedding | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-engine | runtime-execution | preview | preview | Yes | runtime | included |
+| tramai-gemini | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-mcp | operations-observability | internal | internal | No | runtime | internal_only |
+| tramai-memory | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-memory-store | higher-capabilities | internal | internal | No | runtime | internal_only |
+| tramai-observability | operations-observability | preview | preview | Yes | observability | included |
+| tramai-ollama | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-openai | provider-adapters | preview | preview | Yes | providers | included |
+| tramai-orchestration | runtime-execution | preview | preview | Yes | runtime | included |
+| tramai-persistence-file | persistence | preview | preview | Yes | persistence | included |
+| tramai-persistence-jdbc | persistence | internal | internal | No | runtime | internal_only |
+| tramai-platform | operations-observability | preview | preview | Yes | observability | included |
+| tramai-rag | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-scheduler | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-security | governance-security | preview | preview | Yes | security | included |
+| tramai-server | operations-observability | internal | internal | No | runtime | internal_only |
+| tramai-sovereign | governance-security | preview | preview | Yes | security | included |
+| tramai-spring | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-local-provider-openai | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-ops | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-ops-actuator | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-ops-micrometer | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-ops-observability | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-ops-rest | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-persistence-file | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-boot-starter-sovereign-persistence-jdbc | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-consumer-boundary | testing-support | internal | internal | No | testing | internal_only |
+| tramai-spring-consumer-selective | testing-support | internal | internal | No | testing | internal_only |
+| tramai-spring-core | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-provider-anthropic | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-provider-ollama | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-provider-openai | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-secrets-aws | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-secrets-file | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-secrets-vault | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-spring-sovereign | framework-integrations | preview | preview | Yes | framework | included |
+| tramai-standalone | runtime-execution | preview | preview | Yes | runtime | included |
+| tramai-structured | runtime-execution | preview | preview | Yes | runtime | included |
+| tramai-testing | testing-support | internal | internal | Yes | testing | included |
+| tramai-vectorstore-chroma | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-vectorstore-pgvector | higher-capabilities | preview | preview | Yes | capabilities | included |
+| tramai-vectorstore-spi | higher-capabilities | preview | preview | Yes | capabilities | included |

@@ -1,293 +1,376 @@
-schemaVersion: "1"
+schemaVersion: "2"
 description: "TramAI 0.6.0 authoritative module catalogue. Every Gradle project appears exactly once."
+
+dependencyPolicies:
+  core: { allowedLayers: [core-contracts, testing-support] }
+  runtime: { allowedLayers: [core-contracts, runtime-execution, governance-security, testing-support] }
+  provider-adapter: { allowedLayers: [core-contracts, runtime-execution, provider-adapters, testing-support] }
+  framework: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, testing-support] }
+  testing: { allowedLayers: [core-contracts, framework-integrations, testing-support] }
+  example: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, applications-examples, testing-support] }
+  bom: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, applications-examples, testing-support] }
+
+# YAML merges keep each entry complete while making the shared module classifications auditable.
+entryDefaults:
+  example: &example { maturity: internal, visibility: internal, owner: examples, dependencyPolicy: example, releaseInclusion: excluded, rationale: "Provides an executable example for the documented TramAI capability." }
+  provider: &provider { maturity: preview, visibility: public, owner: providers, dependencyPolicy: provider-adapter, releaseInclusion: included, rationale: "Provides a provider-specific TramAI adapter." }
+  core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Provides a stable core TramAI contract." }
+  bom: &bom { maturity: stable, visibility: public, owner: core, dependencyPolicy: bom, releaseInclusion: included, rationale: "Provides the published TramAI dependency alignment platform." }
+  runtime: &runtime { maturity: preview, visibility: public, owner: runtime, dependencyPolicy: runtime, releaseInclusion: included, rationale: "Provides a runtime execution capability for TramAI." }
+  framework: &framework { maturity: preview, visibility: public, owner: framework, dependencyPolicy: framework, releaseInclusion: included, rationale: "Provides a framework integration for TramAI." }
+  capability: &capability { maturity: preview, visibility: public, owner: capabilities, dependencyPolicy: framework, releaseInclusion: included, rationale: "Provides a higher-level TramAI capability." }
+  security: &security { maturity: preview, visibility: public, owner: security, dependencyPolicy: framework, releaseInclusion: included, rationale: "Provides a governance or security capability for TramAI." }
+  persistence: &persistence { maturity: preview, visibility: public, owner: persistence, dependencyPolicy: framework, releaseInclusion: included, rationale: "Provides a persistence capability for TramAI." }
+  operations: &operations { maturity: preview, visibility: public, owner: observability, dependencyPolicy: framework, releaseInclusion: included, rationale: "Provides an operations or observability capability for TramAI." }
+  internal: &internal { maturity: internal, visibility: internal, owner: runtime, dependencyPolicy: framework, releaseInclusion: internal_only, rationale: "Provides an internal supporting capability for TramAI." }
+  internalTesting: &internalTesting { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: testing, releaseInclusion: internal_only, rationale: "Provides internal testing support for TramAI." }
+  publishedTesting: &publishedTesting { maturity: internal, visibility: public, owner: testing, dependencyPolicy: testing, releaseInclusion: included, rationale: "Provides published testing support for TramAI." }
 
 modules:
   - path: ":examples:approval-resume"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:governed-workflow"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:sovereign-document-intelligence"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:sovereign-offline-verification"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:spring-sovereign-starter"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:support-agent"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":examples:tool-governance"
+    <<: *example
     layer: applications-examples
     publishability: excluded
     apiStability: excluded
 
   - path: ":tramai-anthropic"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-azure-openai"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-bedrock"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-bom"
+    <<: *bom
     layer: core-contracts
     publishability: published
     apiStability: stable
 
   - path: ":tramai-core"
+    <<: *core
     layer: core-contracts
     publishability: published
     apiStability: stable
 
   - path: ":tramai-dashboard"
+    <<: *internal
     layer: operations-observability
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-deepseek"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-embedding"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-engine"
+    <<: *runtime
     layer: runtime-execution
     publishability: published
     apiStability: preview
 
   - path: ":tramai-gemini"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-mcp"
+    <<: *internal
     layer: operations-observability
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-memory"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-memory-store"
+    <<: *internal
     layer: higher-capabilities
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-observability"
+    <<: *operations
     layer: operations-observability
     publishability: published
     apiStability: preview
 
   - path: ":tramai-ollama"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-openai"
+    <<: *provider
     layer: provider-adapters
     publishability: published
     apiStability: preview
 
   - path: ":tramai-orchestration"
+    <<: *runtime
     layer: runtime-execution
     publishability: published
     apiStability: preview
 
   - path: ":tramai-persistence-file"
+    <<: *persistence
     layer: persistence
     publishability: published
     apiStability: preview
 
   - path: ":tramai-persistence-jdbc"
+    <<: *internal
     layer: persistence
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-platform"
+    <<: *operations
     layer: operations-observability
     publishability: published
     apiStability: preview
 
   - path: ":tramai-rag"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-scheduler"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-security"
+    <<: *security
     layer: governance-security
     publishability: published
     apiStability: preview
 
   - path: ":tramai-server"
+    <<: *internal
     layer: operations-observability
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-sovereign"
+    <<: *security
     layer: governance-security
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-core"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-provider-anthropic"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-provider-ollama"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-provider-openai"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-secrets-aws"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-secrets-file"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-secrets-vault"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-consumer-boundary"
+    <<: *internalTesting
     layer: testing-support
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-spring-consumer-selective"
+    <<: *internalTesting
     layer: testing-support
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-spring-boot-starter-local-provider-openai"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-sovereign"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-actuator"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-micrometer"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-observability"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    <<: *framework
     layer: framework-integrations
     publishability: published
     apiStability: preview
 
   - path: ":tramai-standalone"
+    <<: *runtime
     layer: runtime-execution
     publishability: published
     apiStability: preview
 
   - path: ":tramai-structured"
+    <<: *runtime
     layer: runtime-execution
     publishability: published
     apiStability: preview
 
   - path: ":tramai-testing"
+    <<: *publishedTesting
     layer: testing-support
     publishability: published
     apiStability: internal
 
   - path: ":tramai-vectorstore-chroma"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-vectorstore-pgvector"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview
 
   - path: ":tramai-vectorstore-spi"
+    <<: *capability
     layer: higher-capabilities
     publishability: published
     apiStability: preview

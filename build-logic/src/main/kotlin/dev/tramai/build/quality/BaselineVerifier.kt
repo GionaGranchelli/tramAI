@@ -135,6 +135,7 @@ class BaselineVerifier(
             verifyProtocolCatalog(committed, current, diagnostics)
             verifyStructuralHotspots(committed, current, deviationResult.deviations, diagnostics)
             verifyForbiddenEdges(committed, current, diagnostics)
+            verifyDependencyPolicies(current, diagnostics)
             verifyDocumentDrift(committed, diagnostics)
         } finally {
             // Always write report, even on partial failures
@@ -288,14 +289,14 @@ class BaselineVerifier(
         // Verify catalogue classifications match current baseline
         for (mod in current.structural.modules) {
             val catalogEntry = catalogModules[mod.path] ?: continue
-            if (catalogEntry.layer != mod.layer) {
+            if (catalogEntry.layer.yaml != mod.layer) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
                     "Module '${mod.path}': catalogue declares layer '${catalogEntry.layer}' but " +
                         "current baseline has '${mod.layer}'"))
             }
 
-            val expectedPublished = catalogEntry.publishability == "published"
+            val expectedPublished = catalogEntry.publishability == ModulePublishability.PUBLISHED
             if (expectedPublished != mod.publishable) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
@@ -514,6 +515,20 @@ class BaselineVerifier(
             val result = moduleBoundaries.checkEdge(edge.from, edge.to, moduleCatalog)
             if (result != null) {
                 diagnostics.add(result)
+            }
+        }
+    }
+
+    private fun verifyDependencyPolicies(current: BaselineDocument, diagnostics: MutableList<VerificationDiagnostic>) {
+        for (edge in current.structural.moduleDependencies.edges) {
+            val allowed = moduleCatalog.allowedLayersFor(edge.from) ?: continue
+            val target = moduleCatalog.entryFor(edge.to) ?: continue
+            if (target.layer !in allowed) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                    "Dependency policy violation: ${edge.from} may not depend on ${edge.to} (${target.layer.yaml})",
+                    modulePath = edge.from
+                ))
             }
         }
     }
