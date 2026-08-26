@@ -364,6 +364,7 @@ class JdbcSovereignRuntimeE2ETest {
                     val emitted = outboxStore.markEmitted(
                         claim.outboxId,
                         SovereignOpsAuditOutboxStatus.EMITTING,
+                        expectedAttemptCount = claim.attemptCount,
                         emittedAt = Instant.now(),
                     )
                     assertThat(emitted.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)

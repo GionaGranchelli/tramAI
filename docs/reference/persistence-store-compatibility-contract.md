@@ -638,6 +638,36 @@ implementation-dependent). No existing tests were deleted. The
 enters any production runtime module) so the shared suite can be written in
 one place.
 
+## SovereignOpsAuditOutboxStore attempt-generation fencing (Epic 8.2e)
+
+Epic 8.2e (the outbox lifecycle state-machine slice, `SovereignOpsAuditOutboxStoreTck`
+55 → 64 shared cases × 3 implementations) pins the claim-generation contract:
+
+- **`EMITTING` is a state; a dispatch attempt is an authority generation.**
+  The terminal mutation SPI now requires the caller's generation:
+  `markEmitted(outboxId, expectedStatus, expectedAttemptCount, emittedAt)` and
+  `markFailed(outboxId, expectedStatus, expectedAttemptCount, errorCode, retryable)`.
+  A mismatch throws `tramai-sovereign-ops-outbox-concurrent-update` and leaves
+  the record value-identical. `PREPARED → FAILED_PERMANENT` uses generation 0.
+- **`claimedBy` cannot fence reincarnation; `attemptCount` can.** A same-worker
+  reclaim is still a NEW authority generation; the stale attempt-1 caller is
+  rejected by generation even though `claimedBy` matches.
+- **The dispatcher passes the generation it owns** on both `markEmitted` and
+  `markFailed`, so a stale completion propagates as claim loss and can never be
+  converted into a retryable failure against the newer attempt.
+- **JDBC claim linearization:** `claimPending` re-runs the non-blocking
+  `SKIP LOCKED` pass (bounded, up to 5) when the first pass is empty, so a claim
+  racing a concurrent terminal mutation linearizes after it instead of reporting
+  a false empty from the transient lock window. Retries are non-blocking —
+  concurrent claimants can never deadlock (a blocking `FOR UPDATE` recheck
+  variant deadlocked the pool-claim race and was rejected).
+- **Exact expiry boundary (opposite to the workflow-lease contract):**
+  `claimExpiresAt < now` → reclaimable; `== now` → NOT reclaimable.
+
+Full property set, action alphabet, generated corpus, invariants, and 19-mutation
+evidence (0 weak) live in the state-machine contract document
+(`## Outbox lifecycle — Epic 8.2e`).
+
 ## WorkflowCheckpointStore TCK (PR #273)
 
 `WorkflowCheckpointStoreTck` (tramai-testing testFixtures, which gained a

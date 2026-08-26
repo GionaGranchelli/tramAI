@@ -1108,8 +1108,8 @@ public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAu
 	public fun listByStatus (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listExpiredEmitting (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
@@ -1341,8 +1341,8 @@ public abstract interface class dev/tramai/spring/sovereign/ops/outbox/Sovereign
 	public abstract fun listByStatus (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun listExpiredEmitting (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun listPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

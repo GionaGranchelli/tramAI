@@ -38,6 +38,7 @@ class SovereignOpsAuditOutboxOperationsTest {
                     outboxStore.markFailed(
                         outboxId = "retryable",
                         expectedStatus = SovereignOpsAuditOutboxStatus.PENDING,
+                        expectedAttemptCount = 0,
                         errorCode = "DispatchFailure",
                         retryable = true,
                     )
@@ -132,6 +133,7 @@ class SovereignOpsAuditOutboxOperationsTest {
                     outboxStore.markFailed(
                         outboxId = "retryable",
                         expectedStatus = SovereignOpsAuditOutboxStatus.PENDING,
+                        expectedAttemptCount = 0,
                         errorCode = "DispatchFailure",
                         retryable = true,
                     )
@@ -436,7 +438,12 @@ class SovereignOpsAuditOutboxOperationsTest {
                     outboxStore.markReadyForDispatch("emitted", SovereignOpsAuditOutboxStatus.PREPARED)
                     val claimed = outboxStore.claimPending("test", 10, Instant.now())
                     for (c in claimed) {
-                        outboxStore.markEmitted(c.outboxId, SovereignOpsAuditOutboxStatus.EMITTING, Instant.now())
+                        outboxStore.markEmitted(
+                            c.outboxId,
+                            SovereignOpsAuditOutboxStatus.EMITTING,
+                            c.attemptCount,
+                            Instant.now(),
+                        )
                     }
                 }
 

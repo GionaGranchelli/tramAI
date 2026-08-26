@@ -87,6 +87,7 @@ class DefaultSovereignOpsAuditOutboxOperations(
         return outboxStore.markFailed(
             outboxId = outboxId,
             expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+            expectedAttemptCount = 0,
             errorCode = "operator-marked-prepared-failed",
             retryable = false,
         ).toSummary()
@@ -120,6 +121,7 @@ class DefaultSovereignOpsAuditOutboxOperations(
                         outboxStore.markFailed(
                             outboxId = record.outboxId,
                             expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                            expectedAttemptCount = 0,
                             errorCode = "prepared-recovery-not-committed",
                             retryable = false,
                         )

@@ -57,16 +57,24 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         now: Instant,
     ): List<SovereignOpsAuditOutboxRecord> {
         val claimed = mutableListOf<SovereignOpsAuditOutboxRecord>()
-        for ((id, record) in store) {
+        for (id in store.keys) {
             if (claimed.size >= limit) break
-            if (!record.isClaimable(now)) continue
-
-            val updated = record.claimFor(claimedBy, now)
-            if (store.replace(id, record, updated)) {
-                claimed.add(updated)
-            }
+            claimOne(id, claimedBy, now)?.let(claimed::add)
         }
         return claimed
+    }
+
+    private fun claimOne(
+        outboxId: String,
+        claimedBy: String,
+        now: Instant,
+    ): SovereignOpsAuditOutboxRecord? {
+        while (true) {
+            val record = store[outboxId] ?: return null
+            if (!record.isClaimable(now)) return null
+            val updated = record.claimFor(claimedBy, now)
+            if (store.replace(outboxId, record, updated)) return updated
+        }
     }
 
     private fun SovereignOpsAuditOutboxRecord.isClaimable(now: Instant): Boolean =
@@ -97,6 +105,7 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun markEmitted(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
@@ -107,11 +116,14 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         require(record.status == expectedStatus) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
+        check(record.attemptCount == expectedAttemptCount) {
+            ERROR_OUTBOX_CONCURRENT_UPDATE
+        }
         val updated = record.copy(
             status = SovereignOpsAuditOutboxStatus.EMITTED,
             emittedAt = emittedAt,
         )
-        require(store.replace(outboxId, record, updated)) {
+        check(store.replace(outboxId, record, updated)) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated
@@ -120,6 +132,7 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun markFailed(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
@@ -140,13 +153,16 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         require(record.status == expectedStatus) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
+        check(record.attemptCount == expectedAttemptCount) {
+            ERROR_OUTBOX_CONCURRENT_UPDATE
+        }
         val newStatus = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         val updated = record.copy(
             status = newStatus,
             lastErrorCode = errorCode,
         )
-        require(store.replace(outboxId, record, updated)) {
+        check(store.replace(outboxId, record, updated)) {
             ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated

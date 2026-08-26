@@ -240,7 +240,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         val store = createStore()
         val claimed = emittingRecord(store, "emit-1")
         val emittedAt = t0.plusSeconds(30)
-        val updated = store.markEmitted("emit-1", SovereignOpsAuditOutboxStatus.EMITTING, emittedAt)
+        val updated = store.markEmitted("emit-1", SovereignOpsAuditOutboxStatus.EMITTING, 1, emittedAt)
         assertThat(updated.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
         assertThat(updated.emittedAt).isEqualTo(emittedAt)
     }
@@ -249,7 +249,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markEmitted preserves attempt and claim fields`() = runBlocking<Unit> {
         val store = createStore()
         val claimed = emittingRecord(store, "emit-2")
-        val updated = store.markEmitted("emit-2", SovereignOpsAuditOutboxStatus.EMITTING, t0.plusSeconds(30))
+        val updated = store.markEmitted("emit-2", SovereignOpsAuditOutboxStatus.EMITTING, 1, t0.plusSeconds(30))
         assertThat(updated.attemptCount).isEqualTo(claimed.attemptCount)
         assertThat(updated.claimedBy).isEqualTo("worker-1")
         assertThat(updated.claimedAt).isEqualTo(t0)
@@ -260,7 +260,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markEmitted on missing record throws not-found`() = runBlocking<Unit> {
         val store = createStore()
         val thrown = runCatching {
-            store.markEmitted("missing", SovereignOpsAuditOutboxStatus.EMITTING, t0)
+            store.markEmitted("missing", SovereignOpsAuditOutboxStatus.EMITTING, 1, t0)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-not-found")
@@ -271,7 +271,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         val store = createStore()
         store.append(record("emit-3"))
         val thrown = runCatching {
-            store.markEmitted("emit-3", SovereignOpsAuditOutboxStatus.PREPARED, t0)
+            store.markEmitted("emit-3", SovereignOpsAuditOutboxStatus.PREPARED, 0, t0)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -283,7 +283,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         store.append(record("emit-4"))
         store.markReadyForDispatch("emit-4", SovereignOpsAuditOutboxStatus.PREPARED)
         val thrown = runCatching {
-            store.markEmitted("emit-4", SovereignOpsAuditOutboxStatus.PENDING, t0)
+            store.markEmitted("emit-4", SovereignOpsAuditOutboxStatus.PENDING, 0, t0)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -293,9 +293,9 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markEmitted rejects EMITTED with expected EMITTED`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "emit-5")
-        store.markEmitted("emit-5", SovereignOpsAuditOutboxStatus.EMITTING, t0)
+        store.markEmitted("emit-5", SovereignOpsAuditOutboxStatus.EMITTING, 1, t0)
         val thrown = runCatching {
-            store.markEmitted("emit-5", SovereignOpsAuditOutboxStatus.EMITTED, t0)
+            store.markEmitted("emit-5", SovereignOpsAuditOutboxStatus.EMITTED, 1, t0)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -305,17 +305,17 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markEmitted rejects FAILED_RETRYABLE and FAILED_PERMANENT`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "emit-6")
-        store.markFailed("emit-6", SovereignOpsAuditOutboxStatus.EMITTING, "boom", retryable = true)
+        store.markFailed("emit-6", SovereignOpsAuditOutboxStatus.EMITTING, 1, "boom", retryable = true)
         val retryThrown = runCatching {
-            store.markEmitted("emit-6", SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE, t0)
+            store.markEmitted("emit-6", SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE, 1, t0)
         }.exceptionOrNull()
         assertThat(retryThrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(retryThrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
 
         emittingRecord(store, "emit-7")
-        store.markFailed("emit-7", SovereignOpsAuditOutboxStatus.EMITTING, "boom", retryable = false)
+        store.markFailed("emit-7", SovereignOpsAuditOutboxStatus.EMITTING, 1, "boom", retryable = false)
         val permThrown = runCatching {
-            store.markEmitted("emit-7", SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, t0)
+            store.markEmitted("emit-7", SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, 1, t0)
         }.exceptionOrNull()
         assertThat(permThrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(permThrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -327,7 +327,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed PREPARED permanent is legal with lastErrorCode`() = runBlocking<Unit> {
         val store = createStore()
         store.append(record("fail-1"))
-        val updated = store.markFailed("fail-1", SovereignOpsAuditOutboxStatus.PREPARED, "orphaned", retryable = false)
+        val updated = store.markFailed("fail-1", SovereignOpsAuditOutboxStatus.PREPARED, 0, "orphaned", retryable = false)
         assertThat(updated.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
         assertThat(updated.lastErrorCode).isEqualTo("orphaned")
     }
@@ -336,7 +336,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed EMITTING retryable is legal with lastErrorCode`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "fail-2")
-        val updated = store.markFailed("fail-2", SovereignOpsAuditOutboxStatus.EMITTING, "timeout", retryable = true)
+        val updated = store.markFailed("fail-2", SovereignOpsAuditOutboxStatus.EMITTING, 1, "timeout", retryable = true)
         assertThat(updated.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE)
         assertThat(updated.lastErrorCode).isEqualTo("timeout")
     }
@@ -345,7 +345,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed EMITTING permanent is legal with lastErrorCode`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "fail-3")
-        val updated = store.markFailed("fail-3", SovereignOpsAuditOutboxStatus.EMITTING, "fatal", retryable = false)
+        val updated = store.markFailed("fail-3", SovereignOpsAuditOutboxStatus.EMITTING, 1, "fatal", retryable = false)
         assertThat(updated.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
         assertThat(updated.lastErrorCode).isEqualTo("fatal")
     }
@@ -355,7 +355,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         val store = createStore()
         store.append(record("fail-4"))
         val thrown = runCatching {
-            store.markFailed("fail-4", SovereignOpsAuditOutboxStatus.PREPARED, "x", retryable = true)
+            store.markFailed("fail-4", SovereignOpsAuditOutboxStatus.PREPARED, 0, "x", retryable = true)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -367,7 +367,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         store.append(record("fail-5"))
         store.markReadyForDispatch("fail-5", SovereignOpsAuditOutboxStatus.PREPARED)
         val thrown = runCatching {
-            store.markFailed("fail-5", SovereignOpsAuditOutboxStatus.PENDING, "x", retryable = false)
+            store.markFailed("fail-5", SovereignOpsAuditOutboxStatus.PENDING, 0, "x", retryable = false)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -379,7 +379,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         store.append(record("fail-6"))
         store.markReadyForDispatch("fail-6", SovereignOpsAuditOutboxStatus.PREPARED)
         val thrown = runCatching {
-            store.markFailed("fail-6", SovereignOpsAuditOutboxStatus.PENDING, "x", retryable = true)
+            store.markFailed("fail-6", SovereignOpsAuditOutboxStatus.PENDING, 0, "x", retryable = true)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -389,9 +389,9 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed rejects FAILED_RETRYABLE`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "fail-7")
-        store.markFailed("fail-7", SovereignOpsAuditOutboxStatus.EMITTING, "x", retryable = true)
+        store.markFailed("fail-7", SovereignOpsAuditOutboxStatus.EMITTING, 1, "x", retryable = true)
         val thrown = runCatching {
-            store.markFailed("fail-7", SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE, "x", retryable = true)
+            store.markFailed("fail-7", SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE, 1, "x", retryable = true)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -401,9 +401,9 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed rejects EMITTED`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "fail-8")
-        store.markEmitted("fail-8", SovereignOpsAuditOutboxStatus.EMITTING, t0)
+        store.markEmitted("fail-8", SovereignOpsAuditOutboxStatus.EMITTING, 1, t0)
         val thrown = runCatching {
-            store.markFailed("fail-8", SovereignOpsAuditOutboxStatus.EMITTED, "x", retryable = true)
+            store.markFailed("fail-8", SovereignOpsAuditOutboxStatus.EMITTED, 1, "x", retryable = true)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -413,9 +413,9 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `markFailed rejects FAILED_PERMANENT`() = runBlocking<Unit> {
         val store = createStore()
         store.append(record("fail-9"))
-        store.markFailed("fail-9", SovereignOpsAuditOutboxStatus.PREPARED, "x", retryable = false)
+        store.markFailed("fail-9", SovereignOpsAuditOutboxStatus.PREPARED, 0, "x", retryable = false)
         val thrown = runCatching {
-            store.markFailed("fail-9", SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, "x", retryable = false)
+            store.markFailed("fail-9", SovereignOpsAuditOutboxStatus.FAILED_PERMANENT, 0, "x", retryable = false)
         }.exceptionOrNull()
         assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(thrown?.message).isEqualTo("tramai-sovereign-ops-outbox-status-mismatch")
@@ -442,7 +442,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `claim FAILED_RETRYABLE moves to EMITTING with new claimant`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "claim-2")
-        store.markFailed("claim-2", SovereignOpsAuditOutboxStatus.EMITTING, "timeout", retryable = true)
+        store.markFailed("claim-2", SovereignOpsAuditOutboxStatus.EMITTING, 1, "timeout", retryable = true)
         val claimed = store.claimPending("worker-2", 10, t0.plusSeconds(60))
         val c = claimed.single()
         assertThat(c.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
@@ -456,7 +456,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `retry claim clears lastErrorCode`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "claim-3")
-        store.markFailed("claim-3", SovereignOpsAuditOutboxStatus.EMITTING, "timeout", retryable = true)
+        store.markFailed("claim-3", SovereignOpsAuditOutboxStatus.EMITTING, 1, "timeout", retryable = true)
         assertThat(store.get("claim-3")?.lastErrorCode).isEqualTo("timeout")
         val claimed = store.claimPending("worker-3", 10, t0.plusSeconds(60))
         assertThat(claimed.single().lastErrorCode).isNull()
@@ -507,7 +507,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `EMITTED is never claimable`() = runBlocking<Unit> {
         val store = createStore()
         emittingRecord(store, "never-2")
-        store.markEmitted("never-2", SovereignOpsAuditOutboxStatus.EMITTING, t0)
+        store.markEmitted("never-2", SovereignOpsAuditOutboxStatus.EMITTING, 1, t0)
         assertThat(store.claimPending("worker-1", 10, t0.plusSeconds(3600))).isEmpty()
     }
 
@@ -515,7 +515,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
     fun `FAILED_PERMANENT is never claimable`() = runBlocking<Unit> {
         val store = createStore()
         store.append(record("never-3"))
-        store.markFailed("never-3", SovereignOpsAuditOutboxStatus.PREPARED, "fatal", retryable = false)
+        store.markFailed("never-3", SovereignOpsAuditOutboxStatus.PREPARED, 0, "fatal", retryable = false)
         assertThat(store.claimPending("worker-1", 10, t0.plusSeconds(3600))).isEmpty()
     }
 
@@ -535,7 +535,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         store.append(record("list-retry"))
         store.markReadyForDispatch("list-retry", SovereignOpsAuditOutboxStatus.PREPARED)
         store.claimPending("worker-1", 10, t0)
-        store.markFailed("list-retry", SovereignOpsAuditOutboxStatus.EMITTING, "boom", retryable = true)
+        store.markFailed("list-retry", SovereignOpsAuditOutboxStatus.EMITTING, 1, "boom", retryable = true)
         store.append(record("list-1"))
         store.markReadyForDispatch("list-1", SovereignOpsAuditOutboxStatus.PREPARED)
         store.append(record("list-2"))
@@ -708,7 +708,7 @@ abstract class SovereignOpsAuditOutboxStoreTck {
             emittingRecord(store, id)
             val outcomes = runInParallel(0 until 2) { index ->
                 runCatching {
-                    store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, t0.plusSeconds(index.toLong()))
+                    store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, t0.plusSeconds(index.toLong()))
                 }
             }
             assertThat(outcomes.count { it.isSuccess }).withFailMessage {
@@ -742,6 +742,456 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         repeat(items.size) { ready.receive() }
         release.complete(Unit)
         workers.map { it.await() }
+    }
+
+    // ── I. Claim-generation authority (Epic 8.2e) ─────────────────
+
+    /**
+     * P0 discriminator: a stale dispatch attempt must never be able to
+     * resolve a newer attempt.
+     *
+     * worker-A claims → attempt 1 → claim expires → worker-B reclaims
+     * → attempt 2 → worker-A (stale) attempts markEmitted / markFailed.
+     *
+     * The API boundary must reject both stale operations and leave
+     * attempt-2 value-identical. Pre-fix (status-only fence) this test is
+     * RED for all three implementations.
+     */
+    @Test
+    fun `stale attempt-1 completion cannot mutate attempt-2`() = runBlocking<Unit> {
+        val store = createStore()
+        val id = "gen-1"
+        store.append(record(id))
+        store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+
+        val attempt1 = store.claimPending("worker-A", 10, t0).single()
+        assertThat(attempt1.attemptCount).isEqualTo(1)
+
+        val expiry = t0.plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY)
+        val attempt2 = store.claimPending("worker-B", 10, expiry.plusSeconds(1)).single()
+        assertThat(attempt2.attemptCount).isEqualTo(2)
+        assertThat(attempt2.claimedBy).isEqualTo("worker-B")
+
+        val staleEmit = runCatching {
+            store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, t0.plusSeconds(2))
+        }.exceptionOrNull()
+        assertThat(staleEmit).isInstanceOf(IllegalStateException::class.java)
+
+        val staleFail = runCatching {
+            store.markFailed(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, "stale-timeout", retryable = true)
+        }.exceptionOrNull()
+        assertThat(staleFail).isInstanceOf(IllegalStateException::class.java)
+
+        val final = store.get(id)!!
+        assertThat(final.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
+        assertThat(final.attemptCount).isEqualTo(2)
+        assertThat(final.claimedBy).isEqualTo("worker-B")
+        assertThat(final.lastErrorCode).isNull()
+        assertThat(final.emittedAt).isNull()
+    }
+
+    @Test
+    fun `generated lifecycle histories match the independent model`() = runBlocking<Unit> {
+        for (seed in 0L until SovereignOpsAuditOutboxLifecycleActionGenerator.SEED_COUNT) {
+            val store = createStore()
+            val id = "model-$seed"
+            val fixture = record(id)
+            var model = SovereignOpsAuditOutboxLifecycleModel.absent(
+                now = t0,
+                auditFields = fixture.toModeledAuditFields(),
+            )
+            val actions = SovereignOpsAuditOutboxLifecycleActionGenerator.generate(
+                seed = seed,
+                initialNow = t0,
+                claimDuration = SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY,
+            )
+
+            actions.forEachIndexed { step, action ->
+                val beforeDurable = store.get(id)
+                val expected = model.apply(action, SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY)
+                val actualSucceeded = replayLifecycleAction(store, fixture, model, action)
+                val expectedSucceeded = expected is SovereignOpsAuditOutboxLifecycleOutcome.Success
+                assertThat(actualSucceeded)
+                    .withFailMessage("seed $seed step $step ${action.describe()} outcome mismatch")
+                    .isEqualTo(expectedSucceeded)
+
+                val next = when (expected) {
+                    is SovereignOpsAuditOutboxLifecycleOutcome.Success -> expected.next
+                    is SovereignOpsAuditOutboxLifecycleOutcome.Failure -> expected.unchanged
+                }
+                val afterDurable = store.get(id)
+                if (!expectedSucceeded) {
+                    assertThat(afterDurable)
+                        .withFailMessage("seed $seed step $step ${action.describe()} changed durable state after rejection")
+                        .isEqualTo(beforeDurable)
+                }
+                assertRecordMatchesModel(afterDurable, next.current, seed, step, action)
+                model = next
+            }
+        }
+    }
+
+    @Test
+    fun `attempt generation advances only on successful claim`() = runBlocking<Unit> {
+        val store = createStore()
+        val id = "generation-count"
+        store.append(record(id))
+        assertThat(store.get(id)?.attemptCount).isZero()
+        store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+        assertThat(store.get(id)?.attemptCount).isZero()
+
+        val attempt1 = store.claimPending("worker-A", 1, t0).single()
+        assertThat(attempt1.attemptCount).isEqualTo(1)
+        assertThat(store.claimPending("worker-B", 1, t0.plusSeconds(1))).isEmpty()
+        assertThat(store.get(id)?.attemptCount).isEqualTo(1)
+
+        store.markFailed(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, "retry-1", retryable = true)
+        assertThat(store.get(id)?.attemptCount).isEqualTo(1)
+        val attempt2 = store.claimPending("worker-B", 1, t0.plusSeconds(2)).single()
+        assertThat(attempt2.attemptCount).isEqualTo(2)
+
+        val readinessFailure = runCatching {
+            store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+        }
+        assertThat(readinessFailure.isFailure).isTrue()
+        assertThat(store.get(id)?.attemptCount).isEqualTo(2)
+        val attempt3At = requireNotNull(attempt2.claimExpiresAt).plusMillis(1)
+        val attempt3 = store.claimPending("worker-A", 1, attempt3At).single()
+        assertThat(attempt3.attemptCount).isEqualTo(3)
+
+        assertThat(store.get(id)?.attemptCount).isEqualTo(3)
+        store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 3, attempt3At)
+        assertThat(store.get(id)?.attemptCount).isEqualTo(3)
+        assertThat(store.claimPending("worker-B", 1, attempt3At.plusSeconds(3600))).isEmpty()
+        assertThat(store.get(id)?.attemptCount).isEqualTo(3)
+    }
+
+    @Test
+    fun `same-worker reclaim is still a new authority generation`() = runBlocking<Unit> {
+        val store = createStore()
+        val id = "same-worker-generation"
+        store.append(record(id))
+        store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+        val attempt1 = store.claimPending("worker-A", 1, t0).single()
+        val reclaimAt = requireNotNull(attempt1.claimExpiresAt).plusMillis(1)
+        val attempt2 = store.claimPending("worker-A", 1, reclaimAt).single()
+        assertThat(attempt2.claimedBy).isEqualTo(attempt1.claimedBy)
+        assertThat(attempt2.attemptCount).isEqualTo(2)
+
+        val authoritative = store.get(id)
+        assertThat(runCatching {
+            store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, reclaimAt)
+        }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+        assertThat(runCatching {
+            store.markFailed(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, "stale", retryable = true)
+        }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+        assertThat(store.get(id)).isEqualTo(authoritative)
+    }
+
+    @Test
+    fun `every predecessor attempt stays fenced`() = runBlocking<Unit> {
+        val store = createStore()
+        val id = "all-predecessors"
+        store.append(record(id))
+        store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+        store.claimPending("worker-A", 1, t0)
+        store.markFailed(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, "retry", retryable = true)
+        val attempt2 = store.claimPending("worker-B", 1, t0.plusSeconds(1)).single()
+        val attempt3At = requireNotNull(attempt2.claimExpiresAt).plusMillis(1)
+        val attempt3 = store.claimPending("worker-A", 1, attempt3At).single()
+        assertThat(attempt3.attemptCount).isEqualTo(3)
+
+        for (predecessor in listOf(1, 2)) {
+            val operations = listOf<suspend () -> SovereignOpsAuditOutboxRecord>(
+                { store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, predecessor, attempt3At) },
+                {
+                    store.markFailed(
+                        id,
+                        SovereignOpsAuditOutboxStatus.EMITTING,
+                        predecessor,
+                        "stale-retry-$predecessor",
+                        retryable = true,
+                    )
+                },
+                {
+                    store.markFailed(
+                        id,
+                        SovereignOpsAuditOutboxStatus.EMITTING,
+                        predecessor,
+                        "stale-permanent-$predecessor",
+                        retryable = false,
+                    )
+                },
+            )
+            for (operation in operations) {
+                val before = store.get(id)
+                assertThat(runCatching { operation() }.exceptionOrNull())
+                    .isInstanceOf(IllegalStateException::class.java)
+                assertThat(store.get(id)).isEqualTo(before)
+            }
+        }
+    }
+
+    @Test
+    fun `exact claim-expiry boundary stays authoritative`() = runBlocking<Unit> {
+        val store = createStore()
+        val id = "exact-expiry-property"
+        store.append(record(id))
+        store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+        val attempt1 = store.claimPending("worker-A", 1, t0).single()
+        val expiry = requireNotNull(attempt1.claimExpiresAt)
+
+        assertThat(store.claimPending("worker-B", 1, expiry.minusMillis(1))).isEmpty()
+        assertThat(store.get(id)).isEqualTo(attempt1)
+        assertThat(store.claimPending("worker-B", 1, expiry)).isEmpty()
+        assertThat(store.get(id)).isEqualTo(attempt1)
+        val attempt2 = store.claimPending("worker-B", 1, expiry.plusMillis(1)).single()
+        assertThat(attempt2.attemptCount).isEqualTo(2)
+        assertThat(attempt2.claimedBy).isEqualTo("worker-B")
+    }
+
+    @Test
+    fun `concurrent current-attempt completion vs failure linearizes`() = runBlocking<Unit> {
+        for (retryable in listOf(true, false)) {
+            repeat(12) { round ->
+                val store = createStore()
+                val id = "completion-failure-$retryable-$round"
+                store.append(record(id))
+                store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+                store.claimPending("worker-A", 1, t0)
+                val emittedAt = t0.plusSeconds(round.toLong())
+                val outcomes = runInParallel(listOf("emit", "fail")) { operation ->
+                    runCatching {
+                        if (operation == "emit") {
+                            store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, emittedAt)
+                        } else {
+                            store.markFailed(
+                                id,
+                                SovereignOpsAuditOutboxStatus.EMITTING,
+                                1,
+                                "race-failure",
+                                retryable,
+                            )
+                        }
+                    }
+                }
+                assertThat(outcomes.count { it.isSuccess }).isEqualTo(1)
+                val final = store.get(id)!!
+                val failureStatus = if (retryable) {
+                    SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+                } else {
+                    SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+                }
+                assertThat(final.status).isIn(SovereignOpsAuditOutboxStatus.EMITTED, failureStatus)
+                if (final.status == SovereignOpsAuditOutboxStatus.EMITTED) {
+                    assertThat(final.emittedAt).isEqualTo(emittedAt)
+                    assertThat(final.lastErrorCode).isNull()
+                } else {
+                    assertThat(final.emittedAt).isNull()
+                    assertThat(final.lastErrorCode).isEqualTo("race-failure")
+                }
+                assertThat(final.attemptCount).isEqualTo(1)
+            }
+        }
+    }
+
+    @Test
+    fun `expired reclaim vs old completion cannot destroy the successor`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val id = "reclaim-completion-$round"
+            store.append(record(id))
+            store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+            val attempt1 = store.claimPending("worker-A", 1, t0).single()
+            val reclaimAt = requireNotNull(attempt1.claimExpiresAt).plusMillis(1)
+            val outcomes = runInParallel(listOf("reclaim", "complete")) { operation ->
+                if (operation == "reclaim") {
+                    runCatching { store.claimPending("worker-B", 1, reclaimAt) }
+                } else {
+                    runCatching {
+                        store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 1, reclaimAt)
+                        emptyList()
+                    }
+                }
+            }
+            val reclaim = outcomes[0]
+            val completion = outcomes[1]
+            val final = store.get(id)!!
+            when (final.status) {
+                SovereignOpsAuditOutboxStatus.EMITTED -> {
+                    assertThat(final.attemptCount).isEqualTo(1)
+                    assertThat(completion.isSuccess).isTrue()
+                    assertThat(reclaim.getOrThrow()).isEmpty()
+                }
+                SovereignOpsAuditOutboxStatus.EMITTING -> {
+                    assertThat(final.attemptCount).isEqualTo(2)
+                    assertThat(final.claimedBy).isEqualTo("worker-B")
+                    assertThat(reclaim.getOrThrow()).hasSize(1)
+                    assertThat(completion.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+                    assertThat(final.emittedAt).isNull()
+                }
+                else -> error("illegal final status ${final.status}")
+            }
+        }
+    }
+
+    @Test
+    fun `expired reclaim vs old failure cannot demote the successor`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val store = createStore()
+            val id = "reclaim-failure-$round"
+            store.append(record(id))
+            store.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+            val attempt1 = store.claimPending("worker-A", 1, t0).single()
+            val reclaimAt = requireNotNull(attempt1.claimExpiresAt).plusMillis(1)
+            val outcomes = runInParallel(listOf("reclaim", "fail")) { operation ->
+                runCatching {
+                    if (operation == "reclaim") {
+                        store.claimPending("worker-B", 1, reclaimAt).single()
+                    } else {
+                        store.markFailed(
+                            id,
+                            SovereignOpsAuditOutboxStatus.EMITTING,
+                            1,
+                            "old-attempt-failure",
+                            retryable = true,
+                        )
+                    }
+                }
+            }
+            assertThat(outcomes[0].isSuccess).isTrue()
+            val final = store.get(id)!!
+            assertThat(final.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
+            assertThat(final.attemptCount).isEqualTo(2)
+            assertThat(final.claimedBy).isEqualTo("worker-B")
+            assertThat(final.lastErrorCode).isNull()
+            assertThat(final.emittedAt).isNull()
+            if (outcomes[1].isFailure) {
+                assertThat(outcomes[1].exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+            }
+        }
+    }
+
+    private suspend fun replayLifecycleAction(
+        store: SovereignOpsAuditOutboxStore,
+        fixture: SovereignOpsAuditOutboxRecord,
+        model: SovereignOpsAuditOutboxLifecycleModel,
+        action: SovereignOpsAuditOutboxLifecycleAction,
+    ): Boolean = runCatching {
+        val currentAttempt = model.current?.attemptCount ?: 0
+        val staleAttempt = model.predecessorClaims.firstOrNull()?.generation ?: Int.MIN_VALUE
+        when (action) {
+            SovereignOpsAuditOutboxLifecycleAction.AppendPrepared -> store.append(fixture)
+            SovereignOpsAuditOutboxLifecycleAction.MarkReady ->
+                store.markReadyForDispatch(fixture.outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+            SovereignOpsAuditOutboxLifecycleAction.MarkPreparedPermanentFailure -> store.markFailed(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.PREPARED,
+                0,
+                SovereignOpsAuditOutboxLifecycleModel.PREPARED_ERROR,
+                retryable = false,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerA,
+            SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerB,
+            -> {
+                val worker = if (action == SovereignOpsAuditOutboxLifecycleAction.ClaimWorkerA) {
+                    SovereignOpsAuditOutboxLifecycleModel.WORKER_A
+                } else {
+                    SovereignOpsAuditOutboxLifecycleModel.WORKER_B
+                }
+                check(store.claimPending(worker, 1, model.now).any { it.outboxId == fixture.outboxId })
+            }
+            SovereignOpsAuditOutboxLifecycleAction.MarkEmittedCurrent -> store.markEmitted(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                currentAttempt,
+                model.now,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureCurrent -> store.markFailed(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                currentAttempt,
+                SovereignOpsAuditOutboxLifecycleModel.RETRYABLE_ERROR,
+                retryable = true,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureCurrent -> store.markFailed(
+                fixture.outboxId,
+                if (model.current?.status == SovereignOpsAuditOutboxStatus.PREPARED) {
+                    SovereignOpsAuditOutboxStatus.PREPARED
+                } else {
+                    SovereignOpsAuditOutboxStatus.EMITTING
+                },
+                currentAttempt,
+                SovereignOpsAuditOutboxLifecycleModel.PERMANENT_ERROR,
+                retryable = false,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.MarkEmittedStaleAttempt -> store.markEmitted(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                staleAttempt,
+                model.now,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.MarkRetryableFailureStaleAttempt -> store.markFailed(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                staleAttempt,
+                SovereignOpsAuditOutboxLifecycleModel.STALE_RETRYABLE_ERROR,
+                retryable = true,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.MarkPermanentFailureStaleAttempt -> store.markFailed(
+                fixture.outboxId,
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                staleAttempt,
+                SovereignOpsAuditOutboxLifecycleModel.STALE_PERMANENT_ERROR,
+                retryable = false,
+            )
+            SovereignOpsAuditOutboxLifecycleAction.AdvanceBeforeClaimExpiry,
+            SovereignOpsAuditOutboxLifecycleAction.AdvanceToExactClaimExpiry,
+            SovereignOpsAuditOutboxLifecycleAction.AdvancePastClaimExpiry,
+            -> Unit
+            SovereignOpsAuditOutboxLifecycleAction.ObserveCurrent -> store.get(fixture.outboxId)
+        }
+    }.isSuccess
+
+    private fun SovereignOpsAuditOutboxRecord.toModeledAuditFields(): ModeledAuditFields = ModeledAuditFields(
+        outboxId = outboxId,
+        aggregateType = aggregateType,
+        aggregateIdDigest = aggregateIdDigest,
+        operation = operation,
+        eventKey = eventKey,
+        actor = actor,
+        workflowRunId = workflowRunId,
+        correlationId = correlationId,
+        approvalStatus = approvalStatus,
+        approvalVersion = approvalVersion,
+        reasonDigest = reasonDigest,
+        reasonLength = reasonLength,
+        createdAt = createdAt,
+    )
+
+    private fun assertRecordMatchesModel(
+        actual: SovereignOpsAuditOutboxRecord?,
+        expected: ModeledOutbox?,
+        seed: Long,
+        step: Int,
+        action: SovereignOpsAuditOutboxLifecycleAction,
+    ) {
+        val context = "seed $seed step $step ${action.describe()}"
+        if (expected == null) {
+            assertThat(actual).withFailMessage("$context expected absent record").isNull()
+            return
+        }
+        assertThat(actual).withFailMessage("$context expected durable record").isNotNull()
+        actual!!
+        assertThat(actual.toModeledAuditFields()).withFailMessage("$context audit fields changed")
+            .isEqualTo(expected.auditFields)
+        assertThat(actual.status).withFailMessage(context).isEqualTo(expected.status)
+        assertThat(actual.attemptCount).withFailMessage(context).isEqualTo(expected.attemptCount)
+        assertThat(actual.lastErrorCode).withFailMessage(context).isEqualTo(expected.lastErrorCode)
+        assertThat(actual.claimedBy).withFailMessage(context).isEqualTo(expected.claimedBy)
+        assertThat(actual.claimedAt).withFailMessage(context).isEqualTo(expected.claimedAt)
+        assertThat(actual.claimExpiresAt).withFailMessage(context).isEqualTo(expected.claimExpiresAt)
+        assertThat(actual.emittedAt).withFailMessage(context).isEqualTo(expected.emittedAt)
     }
 
     /** Range convenience overload for the race loops. */
