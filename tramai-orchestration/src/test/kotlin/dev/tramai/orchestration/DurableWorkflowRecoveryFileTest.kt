@@ -40,7 +40,7 @@ abstract class DurableWorkflowRecoveryContractTest {
             InMemoryWorkflowRecoveryController(persistence.checkpointStore, persistence.attemptStore).retryStep(
                 workflow.name,
                 runId,
-                required.revision,
+                required.revision, required.checkpointGeneration,
                 "safe after inspection",
             )
 
@@ -121,7 +121,7 @@ abstract class DurableWorkflowRecoveryContractTest {
             )
             assertThatThrownBy {
                 runBlocking {
-                    failingController.retryStep(workflow.name, runId, required.revision, "same approval")
+                    failingController.retryStep(workflow.name, runId, required.revision, required.checkpointGeneration, "same approval")
                 }
             }.isInstanceOf(IllegalStateException::class.java).hasMessage("clear failed")
 
@@ -134,10 +134,10 @@ abstract class DurableWorkflowRecoveryContractTest {
             val controller = InMemoryWorkflowRecoveryController(persistence.checkpointStore, persistence.attemptStore)
             assertThatThrownBy {
                 runBlocking {
-                    controller.retryStep(workflow.name, runId, stillRequired.revision, "conflicting approval")
+                    controller.retryStep(workflow.name, runId, stillRequired.revision, stillRequired.checkpointGeneration, "conflicting approval")
                 }
             }.isInstanceOf(WorkflowRecoveryStateException::class.java)
-            val cleared = controller.retryStep(workflow.name, runId, stillRequired.revision, "same approval")
+            val cleared = controller.retryStep(workflow.name, runId, stillRequired.revision, stillRequired.checkpointGeneration, "same approval")
             assertThat(cleared.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
         }
     }
@@ -152,7 +152,7 @@ abstract class DurableWorkflowRecoveryContractTest {
             InMemoryWorkflowRecoveryController(persistence.checkpointStore, persistence.attemptStore).failWorkflow(
                 workflow.name,
                 runId,
-                required.revision,
+                required.revision, required.checkpointGeneration,
                 "operator failed workflow",
             )
 
@@ -170,7 +170,7 @@ abstract class DurableWorkflowRecoveryContractTest {
         InMemoryWorkflowRecoveryController(persistence.checkpointStore, persistence.attemptStore).retryStep(
             workflow.name,
             runId,
-            required.revision,
+            required.revision, required.checkpointGeneration,
             "operator approved retry",
             key,
         )

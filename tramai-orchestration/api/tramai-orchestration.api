@@ -371,9 +371,9 @@ public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tra
 public final class dev/tramai/orchestration/InMemoryWorkflowRecoveryController : dev/tramai/orchestration/WorkflowRecoveryController {
 	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;)V
 	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/JdbcStepAttemptRecordStore : dev/tramai/orchestration/StepAttemptRecordStore {
@@ -1431,9 +1431,9 @@ public final class dev/tramai/orchestration/WorkflowPersistenceFailureException 
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowRecoveryController {
-	public abstract fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/WorkflowRecoveryReason : java/lang/Enum {

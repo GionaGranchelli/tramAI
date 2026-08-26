@@ -171,6 +171,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = required.revision,
+                expectedGeneration = required.checkpointGeneration,
                 reason = "operator confirmed side effect did not complete",
             )
             assertThat(retried.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
@@ -201,6 +202,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = required.revision,
+                expectedGeneration = required.checkpointGeneration,
                 reason = "irrecoverable error",
             )
             assertThat(store.load(saved.workflowName, saved.workflowId)).isNull()
@@ -233,6 +235,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = 42,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "wrong revision",
                     )
                 }
@@ -243,6 +246,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = 99,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "wrong revision",
                     )
                 }
@@ -268,6 +272,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = saved.revision,
+                        expectedGeneration = saved.checkpointGeneration,
                         reason = "should not apply",
                     )
                 }
@@ -292,6 +297,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = saved.revision,
+                        expectedGeneration = saved.checkpointGeneration,
                         reason = "should not apply",
                     )
                 }
@@ -339,6 +345,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = required.revision,
+                expectedGeneration = required.checkpointGeneration,
                 reason = "operator confirmed safe to retry",
             )
 
@@ -442,6 +449,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "reason-b",
                         approvedIdempotencyKey = "key-B",
                     )
@@ -454,6 +462,7 @@ class WorkflowRecoveryContractTest {
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = required.revision,
+                expectedGeneration = required.checkpointGeneration,
                 reason = "reason-a",
                 approvedIdempotencyKey = "key-A",
             )
@@ -499,6 +508,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "cannot retry without a store",
                     )
                 }
@@ -537,6 +547,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "attempt is gone",
                     )
                 }
@@ -589,6 +600,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "update will fail",
                     )
                 }
@@ -643,6 +655,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "retry must not bypass key verification",
                     )
                 }
@@ -695,6 +708,7 @@ class WorkflowRecoveryContractTest {
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
                         expectedRevision = required.revision,
+                        expectedGeneration = required.checkpointGeneration,
                         reason = "retry must not bypass key verification",
                     )
                 }
@@ -729,7 +743,7 @@ class WorkflowRecoveryContractTest {
                 InMemoryWorkflowRecoveryController(store, store).retryStep(
                     saved.workflowName,
                     saved.workflowId,
-                    required.revision,
+                    required.revision, required.checkpointGeneration,
                     "operator approved exact key",
                     "approved-key",
                 )
@@ -755,7 +769,7 @@ class WorkflowRecoveryContractTest {
             assertThatThrownBy {
                 runBlocking {
                     InMemoryWorkflowRecoveryController(store, store).retryStep(
-                        saved.workflowName, saved.workflowId, required.revision, "reason", "   ",
+                        saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "reason", "   ",
                     )
                 }
             }.isInstanceOf(IllegalArgumentException::class.java)
@@ -778,7 +792,7 @@ class WorkflowRecoveryContractTest {
                 )
                 val result = runCatching {
                     InMemoryWorkflowRecoveryController(store, store).retryStep(
-                        saved.workflowName, saved.workflowId, required.revision, "unsafe terminal mutation",
+                        saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "unsafe terminal mutation",
                     )
                 }
                 assertThat(result.exceptionOrNull()).isInstanceOf(WorkflowRecoveryStateException::class.java)
@@ -800,7 +814,7 @@ class WorkflowRecoveryContractTest {
             val controller = InMemoryWorkflowRecoveryController(checkpointStore, delegate)
 
             assertThat(runCatching {
-                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "approved")
+                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "approved")
             }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
             assertThat(delegate.listStepAttempts(saved.workflowId).single().resolutionAction)
                 .isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
@@ -808,10 +822,10 @@ class WorkflowRecoveryContractTest {
                 .isInstanceOf(WorkflowRecoveryState.Required::class.java)
 
             assertThat(runCatching {
-                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "different")
+                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "different")
             }.exceptionOrNull()).isInstanceOf(WorkflowRecoveryStateException::class.java)
 
-            val cleared = controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "approved")
+            val cleared = controller.retryStep(saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "approved")
             assertThat(cleared.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
         }
     }
@@ -827,7 +841,7 @@ class WorkflowRecoveryContractTest {
             val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
 
             InMemoryWorkflowRecoveryController(store, store).failWorkflow(
-                saved.workflowName, saved.workflowId, required.revision, "operator failed workflow",
+                saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "operator failed workflow",
             )
 
             val evidence = store.listStepAttempts(saved.workflowId).single()
@@ -848,7 +862,7 @@ class WorkflowRecoveryContractTest {
 
             assertThat(runCatching {
                 InMemoryWorkflowRecoveryController(FailingDeleteStore(delegate), delegate).failWorkflow(
-                    saved.workflowName, saved.workflowId, required.revision, "fail",
+                    saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "fail",
                 )
             }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
             assertThat(delegate.listStepAttempts(saved.workflowId).single().resolutionAction).isNull()
@@ -866,7 +880,7 @@ class WorkflowRecoveryContractTest {
             val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(), saved.checkpointGeneration)
 
             InMemoryWorkflowRecoveryController(store, FailingAttemptUpdateStore(store)).failWorkflow(
-                saved.workflowName, saved.workflowId, required.revision, "fail",
+                saved.workflowName, saved.workflowId, required.revision, required.checkpointGeneration, "fail",
             )
 
             assertThat(store.load(saved.workflowName, saved.workflowId)).isNull()
@@ -1061,6 +1075,129 @@ class WorkflowRecoveryContractTest {
     ) {
         val required = checkpoint.recoveryState as WorkflowRecoveryState.Required
         assertThat(required.record).isEqualTo(record)
+    }
+
+    @Test
+    fun `stale failWorkflow authorized against G1 cannot delete recreated same-revision G2`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store)
+
+            // G1/r1
+            val g1 = store.save(sampleCheckpoint())
+            // G1/r2 Required — the operator's snapshot
+            val g1Required = store.requireRecovery(
+                workflowName = g1.workflowName,
+                workflowId = g1.workflowId,
+                expectedRevision = g1.revision,
+                expectedGeneration = g1.checkpointGeneration,
+                record = recoveryRecord(),
+            )
+            val staleGeneration = g1Required.checkpointGeneration
+            val staleRevision = g1Required.revision
+            assertThat(staleRevision).isEqualTo(2)
+
+            // G1 deleted, then recreated as G2 and re-required at the same revision
+            store.delete(
+                g1.workflowName,
+                g1.workflowId,
+                expectedRevision = g1Required.revision,
+                expectedGeneration = g1Required.checkpointGeneration,
+            )
+            val g2 = store.save(sampleCheckpoint())
+            val g2Required = store.requireRecovery(
+                workflowName = g2.workflowName,
+                workflowId = g2.workflowId,
+                expectedRevision = g2.revision,
+                expectedGeneration = g2.checkpointGeneration,
+                record = recoveryRecord(),
+            )
+            assertThat(g2Required.revision).isEqualTo(2)
+            assertThat(g2Required.checkpointGeneration).isNotEqualTo(staleGeneration)
+
+            // Stale operator command: authorized against G1, revision matches G2's revision.
+            assertThatThrownBy {
+                runBlocking {
+                    controller.failWorkflow(
+                        workflowName = g2.workflowName,
+                        workflowId = g2.workflowId,
+                        expectedRevision = staleRevision,
+                        expectedGeneration = staleGeneration,
+                        reason = "stale fail",
+                    )
+                }
+            }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+
+            // G2/r2 must remain value-identical — the stale command must not delete it.
+            val after = store.load(g2.workflowName, g2.workflowId)!!
+            assertThat(after.revision).isEqualTo(2)
+            assertThat(after.checkpointGeneration).isEqualTo(g2Required.checkpointGeneration)
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after).isEqualTo(g2Required)
+        }
+    }
+
+    @Test
+    fun `stale retryStep authorized against G1 cannot approve or clear recreated same-revision G2`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store, store)
+
+            // G1/r1 + unresolved attempt
+            val g1 = store.save(sampleCheckpoint())
+            store.recordStepAttempt(unresolvedAttempt(g1.workflowId))
+            // G1/r2 Required — the operator's snapshot
+            val g1Required = store.requireRecovery(
+                workflowName = g1.workflowName,
+                workflowId = g1.workflowId,
+                expectedRevision = g1.revision,
+                expectedGeneration = g1.checkpointGeneration,
+                record = recoveryRecord(),
+            )
+            val staleGeneration = g1Required.checkpointGeneration
+            val staleRevision = g1Required.revision
+
+            // G1 deleted, then recreated as G2 with a fresh unresolved attempt
+            store.delete(
+                g1.workflowName,
+                g1.workflowId,
+                expectedRevision = g1Required.revision,
+                expectedGeneration = g1Required.checkpointGeneration,
+            )
+            val g2 = store.save(sampleCheckpoint())
+            store.recordStepAttempt(unresolvedAttempt(g2.workflowId))
+            val g2Required = store.requireRecovery(
+                workflowName = g2.workflowName,
+                workflowId = g2.workflowId,
+                expectedRevision = g2.revision,
+                expectedGeneration = g2.checkpointGeneration,
+                record = recoveryRecord(),
+            )
+            assertThat(g2Required.revision).isEqualTo(2)
+            assertThat(g2Required.checkpointGeneration).isNotEqualTo(staleGeneration)
+
+            // Stale operator command: authorized against G1, revision matches G2's revision.
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = g2.workflowName,
+                        workflowId = g2.workflowId,
+                        expectedRevision = staleRevision,
+                        expectedGeneration = staleGeneration,
+                        reason = "stale retry",
+                    )
+                }
+            }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+
+            // G2/r2 checkpoint unchanged AND no approval evidence was written.
+            val after = store.load(g2.workflowName, g2.workflowId)!!
+            assertThat(after).isEqualTo(g2Required)
+            val attempts = store.listStepAttempts(g2.workflowId)
+            assertThat(attempts).hasSize(1)
+            assertThat(attempts.single().resolutionAction).isNull()
+            assertThat(attempts.single().resolutionReason).isNull()
+            assertThat(attempts.single().approvedIdempotencyKey).isNull()
+        }
     }
 
     private fun recoveryRecord(
