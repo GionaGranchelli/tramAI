@@ -2,10 +2,13 @@ package dev.tramai.spring
 
 import dev.tramai.core.annotations.AiTool
 import dev.tramai.core.model.SideEffectLevel
+import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.ManagedNetworkEgress
 import dev.tramai.core.policy.RiskLevel
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -157,7 +160,6 @@ class AiToolScannerTest {
     @Test
     fun `jdk dynamic proxy bean is scanned correctly`() {
         val context = GenericApplicationContext().apply {
-            beanFactory.registerSingleton("toolServiceTarget", ToolServiceImpl())
             registerBeanDefinition("jdkProxyToolBean", RootBeanDefinition(ToolServiceImpl::class.java))
             beanFactory.addBeanPostProcessor(
                 object : BeanPostProcessor {
@@ -180,6 +182,98 @@ class AiToolScannerTest {
 
         assertEquals(listOf("lookupInvoice"), toolNames)
     }
+
+    @Test
+    fun `jdk proxied blocking tool executes through the proxy and preserves advice`() {
+        val advice = RecordingMethodInterceptor()
+        val context = GenericApplicationContext().apply {
+            registerBeanDefinition("jdkProxyToolBean", RootBeanDefinition(ToolServiceImpl::class.java))
+            beanFactory.addBeanPostProcessor(
+                object : BeanPostProcessor {
+                    override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                        if (beanName != "jdkProxyToolBean") {
+                            return bean
+                        }
+
+                        return ProxyFactory(bean).apply {
+                            setInterfaces(ToolService::class.java)
+                            isProxyTargetClass = false
+                            addAdvice(advice)
+                        }.proxy
+                    }
+                },
+            )
+            refresh()
+        }
+
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        val result = runBlocking {
+            (tool as TramaiTool<ToolInput, Any>).execute(ToolInput("inv-1"), toolExecutionContext())
+        }
+
+        assertEquals("inv-1", result)
+        assertEquals(listOf("lookupInvoice"), advice.invocations)
+    }
+
+    @Test
+    fun `jdk proxied suspend tool executes through the proxy and preserves advice`() {
+        val advice = RecordingMethodInterceptor()
+        val context = GenericApplicationContext().apply {
+            registerBeanDefinition("jdkSuspendProxyToolBean", RootBeanDefinition(SuspendToolServiceImpl::class.java))
+            beanFactory.addBeanPostProcessor(
+                object : BeanPostProcessor {
+                    override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                        if (beanName != "jdkSuspendProxyToolBean") {
+                            return bean
+                        }
+
+                        return ProxyFactory(bean).apply {
+                            setInterfaces(SuspendToolService::class.java)
+                            isProxyTargetClass = false
+                            addAdvice(advice)
+                        }.proxy
+                    }
+                },
+            )
+            refresh()
+        }
+
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        val result = runBlocking {
+            (tool as TramaiTool<ToolInput, Any>).execute(ToolInput("inv-2"), toolExecutionContext())
+        }
+
+        assertEquals("inv-2", result)
+        assertEquals(listOf("lookupInvoice"), advice.invocations)
+    }
+
+    @Test
+    fun `cglib proxied tool executes through the proxy and preserves advice`() {
+        val advice = RecordingMethodInterceptor()
+        val proxiedBean = ProxyFactory(ToolBean()).apply {
+            isProxyTargetClass = true
+            addAdvice(advice)
+        }.getProxy()
+        val context = GenericApplicationContext().apply {
+            beanFactory.registerSingleton("cglibProxiedToolBean", proxiedBean)
+            refresh()
+        }
+
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        val result = runBlocking {
+            (tool as TramaiTool<ToolInput, Any>).execute(ToolInput("inv-3"), toolExecutionContext())
+        }
+
+        assertEquals("inv-3", result)
+        assertEquals(listOf("lookupInvoice"), advice.invocations)
+    }
+
+    private fun toolExecutionContext() = ToolExecutionContext(
+        operationName = "test",
+        modelName = "local-model",
+        attemptNumber = 1,
+        timeout = java.time.Duration.ofSeconds(10),
+    )
 
     data class ToolInput(val invoiceId: String)
 
@@ -251,5 +345,24 @@ class AiToolScannerTest {
     open class ToolServiceImpl : ToolService {
         @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
         override fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    interface SuspendToolService {
+        @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
+        suspend fun lookupInvoice(input: ToolInput): String
+    }
+
+    open class SuspendToolServiceImpl : SuspendToolService {
+        @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
+        override suspend fun lookupInvoice(input: ToolInput): String = input.invoiceId
+    }
+
+    class RecordingMethodInterceptor : org.aopalliance.intercept.MethodInterceptor {
+        val invocations = mutableListOf<String>()
+
+        override fun invoke(invocation: org.aopalliance.intercept.MethodInvocation): Any {
+            invocations += invocation.method.name
+            return invocation.proceed() ?: Unit
+        }
     }
 }

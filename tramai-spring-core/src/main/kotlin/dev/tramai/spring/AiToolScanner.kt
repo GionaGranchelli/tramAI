@@ -51,8 +51,15 @@ object AiToolScanner {
 
             val targetClass: KClass<*> = org.springframework.util.ClassUtils.getUserClass(beanType).kotlin
 
+            // A JDK interface proxy resolves its bean type to the $Proxy class,
+            // whose synthesized methods carry no annotations; the @AiTool may
+            // live on an interface the proxy implements. Check both the target
+            // class and the declared interfaces before deciding to scan.
             val hasTool = try {
-                targetClass.functions.any { it.findAnnotation<AiTool>() != null }
+                targetClass.functions.any { it.findAnnotation<AiTool>() != null } ||
+                    beanType.interfaces.any { interfaceType ->
+                        interfaceType.kotlin.functions.any { it.findAnnotation<AiTool>() != null }
+                    }
             } catch (e: Throwable) {
                 false
             }
@@ -91,7 +98,9 @@ object AiToolScanner {
         bean: Any,
         function: KFunction<*>,
     ): TramaiTool<*, *>? {
-        val annotation = try { function.findAnnotation<AiTool>() } catch (e: Exception) { null } ?: return null
+        val annotation = try { function.findAnnotation<AiTool>() } catch (e: Exception) { null }
+            ?: findInterfaceAnnotation(bean, function)
+            ?: return null
 
         val parameters = function.valueParameters
         check(parameters.size == 1) {
@@ -118,6 +127,24 @@ object AiToolScanner {
             sideEffectLevel = annotation.sideEffectLevel,
             security = security,
         )
+    }
+
+    /**
+     * Falls back to an interface-declared [AiTool] when the implementation
+     * method carries no annotation (annotations on overrides are not inherited).
+     * The interface's Kotlin function also preserves suspend metadata, which is
+     * what [MethodBackedTramaiTool] dispatches through for proxied beans.
+     */
+    private fun findInterfaceAnnotation(bean: Any, function: KFunction<*>): AiTool? {
+        val declaredInterfaces = bean::class.java.interfaces
+        if (declaredInterfaces.isEmpty()) return null
+        return declaredInterfaces.asSequence()
+            .flatMap { it.kotlin.functions.asSequence() }
+            .firstOrNull { candidate ->
+                candidate.name == function.name &&
+                    candidate.valueParameters.size == function.valueParameters.size
+            }
+            ?.findAnnotation<AiTool>()
     }
 
     private fun resolveSecurityMetadata(
@@ -159,11 +186,36 @@ object AiToolScanner {
     ) : TramaiTool<I, Any> {
 
         override suspend fun execute(input: I, context: ToolExecutionContext): Any {
-            return if (function.isSuspend) {
-                function.callSuspend(bean, input) ?: Unit
+            val invocable = resolveInvocableFunction()
+            return if (invocable.isSuspend) {
+                invocable.callSuspend(bean, input) ?: Unit
             } else {
-                function.call(bean, input) ?: Unit
+                invocable.call(bean, input) ?: Unit
             }
+        }
+
+        /**
+         * The discovered [function] belongs to the tool's target class. For a
+         * JDK interface proxy the bean is NOT an instance of that target class,
+         * so invoking the target-class function on the proxy receiver throws a
+         * receiver-type mismatch. Resolve the same method against an interface
+         * the bean actually implements (Kotlin metadata is preserved there, so
+         * suspend functions stay suspend) — invocation then dispatches through
+         * the proxy and Spring AOP advice runs. Plain objects and CGLIB proxies
+         * fall back to the discovered target-class function.
+         */
+        private fun resolveInvocableFunction(): KFunction<*> {
+            val declaredInterfaces = bean::class.java.interfaces
+            if (declaredInterfaces.isNotEmpty()) {
+                for (interfaceType in declaredInterfaces) {
+                    val match = interfaceType.kotlin.functions.firstOrNull { candidate ->
+                        candidate.name == function.name &&
+                            candidate.valueParameters.size == function.valueParameters.size
+                    }
+                    if (match != null) return match
+                }
+            }
+            return function
         }
     }
 }
