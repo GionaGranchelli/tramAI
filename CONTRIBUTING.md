@@ -29,11 +29,18 @@ If your change pressures a module boundary or public API contract, update the do
 | Persistence contract | state/store semantics | `runtime-behaviour` (+ TCK) |
 | Concurrency/lifecycle | cancellation, workers, breaker | `runtime-behaviour` |
 | Provider integration | adapter/transport/provider behavior | `runtime-behaviour` (+ provider TCK) |
-| Module/build architecture | dependencies, Gradle logic | `build-logic` |
-| CI/quality | verifier or workflow | `ci-workflow` |
+| Module/build architecture | Gradle logic, dependency enforcement | `build-logic` |
+| Quality analyzer | scanners, analyzers, verifier implementation | `build-logic` |
+| CI workflow | `.github/workflows/**` | `ci-workflow` |
+| Canonical baseline | updating `config/quality/0.6.0-baseline.json` | `canonical-baseline` |
+| Quality deviation | maintainability deviation entries | `quality-deviation` |
 | Documentation/example | docs, samples, AGENTS.md, task descriptions | `documentation` |
 | Baseline migration | scanner identity, schema, or cardinality change | `baseline-migration` |
-| Quality deviation | adding/modifying `config/quality/maintainability-deviations.yml` | `quality-deviation` |
+
+The repository protocol has more semantic change classes than
+`verifyChangePolicy` currently accepts as explicit `-PchangeClass` overrides.
+Follow [AGENTS.md](./AGENTS.md) for the authoritative protocol; only use an
+override value accepted by the verifier.
 
 When running `./gradlew verifyChangePolicy`, pass `-PchangeClass=<class>` if auto-detection is wrong. Supported override values: `runtime-behaviour`, `build-logic`, `baseline-migration`. See [AGENTS.md](./AGENTS.md) for the full protocol, including which class combinations are forbidden.
 
