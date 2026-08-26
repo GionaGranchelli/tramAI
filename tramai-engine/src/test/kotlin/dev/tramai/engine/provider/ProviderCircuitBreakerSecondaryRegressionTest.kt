@@ -31,6 +31,34 @@ import kotlin.test.Test
  */
 class ProviderCircuitBreakerSecondaryRegressionTest {
 
+    // ------------------------------------------------------------ Section H-1b
+
+    @Test
+    fun `H1b stale pre-OPEN success cannot close an in-flight HALF_OPEN probe`() {
+        runBlocking {
+            var now = 0L
+            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+
+            // A and B admitted while CLOSED; A's failure opens the circuit.
+            val permitA = admit(breaker, "primary")
+            val permitB = admit(breaker, "primary")
+            breaker.onFailure(permitA, ProviderException("A failed", retryable = true))
+            assertThat(blockedUntil(breaker, "primary")).isEqualTo(100)
+
+            // At exact expiry the probe is admitted (HALF_OPEN). B's stale
+            // CLOSED-epoch success arrives while the probe is STILL IN FLIGHT —
+            // it must NOT close the circuit.
+            now = 100
+            val probe = admit(breaker, "primary")
+            breaker.onSuccess(permitB)
+            assertThat(breaker.beforeCall("primary")).isInstanceOf(CircuitBreakerAdmission.Rejected::class.java)
+
+            // The real probe failure still reopens with a fresh deadline.
+            breaker.onFailure(probe, ProviderException("probe failed", retryable = true))
+            assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
+        }
+    }
+
     // ------------------------------------------------------------ Section H-1
 
     @Test
