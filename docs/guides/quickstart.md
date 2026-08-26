@@ -99,8 +99,8 @@ Gradle:
 ```kotlin
 dependencies {
     implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-spring")
-    implementation("dev.tramai:tramai-openai")
+    implementation("dev.tramai:tramai-spring-boot-starter")
+    implementation("dev.tramai:tramai-spring-provider-openai")
 }
 ```
 
@@ -122,11 +122,11 @@ Maven:
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
@@ -186,6 +186,6 @@ Once the basic path works, the usual next steps are:
 Use this minimum-default rule:
 
 - non-Spring: `tramai-standalone` + one provider
-- Spring Boot: `tramai-spring` + one provider
+- Spring Boot: `tramai-spring-boot-starter` + one provider adapter
 
 Everything else is additive.

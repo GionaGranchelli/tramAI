@@ -223,28 +223,8 @@ knownAllowedEdges:
     reason: "Sovereign starter depends on sovereign"
 
   - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-spring"
-    reason: "Sovereign starter depends on spring"
-
-  - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-engine"
-    reason: "Sovereign starter depends on engine"
-
-  - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-observability"
-    reason: "Sovereign starter depends on observability"
-
-  - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-orchestration"
-    reason: "Sovereign starter depends on orchestration"
-
-  - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-structured"
-    reason: "Sovereign starter depends on structured"
-
-  - fromModule: ":tramai-spring-sovereign"
-    toModule: ":tramai-standalone"
-    reason: "Sovereign starter depends on standalone"
+    toModule: ":tramai-spring-core"
+    reason: "Sovereign starter depends on spring-core"
 
   # Unified starter composition — exact module pairs
   - fromModule: ":tramai-spring-boot-starter"

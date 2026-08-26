@@ -80,7 +80,7 @@ dependencies {
 </dependencies>
 ```
 
-If your app is Spring Boot, swap `tramai-standalone` for `tramai-spring`.
+If your app is Spring Boot, swap `tramai-standalone` for `tramai-spring-boot-starter` and `tramai-openai` for `tramai-spring-provider-openai`.
 
 ## Step 2: Start With A Raw String Operation
 

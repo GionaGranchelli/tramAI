@@ -30,27 +30,23 @@ A small governed AI workflow that demonstrates:
 
 ## Add dependencies
 
-The following modules are part of the Sovereign Runtime RC. Add them to your `build.gradle.kts` (or equivalent):
+Start from the unified starter plus one provider adapter for your model provider. Add them to your `build.gradle.kts` (or equivalent):
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-core:<version>")
-    implementation("dev.tramai:tramai-sovereign:<version>")
-    implementation("dev.tramai:tramai-security:<version>")
-    implementation("dev.tramai:tramai-persistence-file:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-actuator:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-rest:<version>")
+    implementation("dev.tramai:tramai-spring-provider-ollama:<version>")
 }
 ```
 
-For JDBC-backed persistence (alternative to file-backed), replace the file persistence dependency with the `tramai-spring-boot-starter-sovereign-persistence-jdbc` module, which provides PostgreSQL-backed stores for approvals, suspended invocations, continuations, audit events, and the audit outbox:
+The sovereign features used in this guide (encrypted persistence, ops workers, Actuator surfaces) come from the sovereign add-on starters — `tramai-spring-boot-starter-sovereign-persistence-file`, `tramai-spring-boot-starter-sovereign-ops`, `tramai-spring-boot-starter-sovereign-ops-actuator`, and `tramai-spring-boot-starter-sovereign-ops-rest` — add the ones matching the configuration you enable.
+
+For JDBC-backed persistence (alternative to file-backed), swap the file persistence add-on for the `tramai-spring-boot-starter-sovereign-persistence-jdbc` module, which provides PostgreSQL-backed stores for approvals, suspended invocations, continuations, audit events, and the audit outbox:
 
 ```kotlin
 dependencies {
-    // ... core, sovereign, security, ops dependencies ...
+    implementation("dev.tramai:tramai-spring-boot-starter:<version>")
+    implementation("dev.tramai:tramai-spring-provider-ollama:<version>")
 
     // Replace tramai-spring-boot-starter-sovereign-persistence-file with:
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-jdbc:<version>")
@@ -70,7 +66,14 @@ Enable the Sovereign Runtime and its subsystems in `application.yml`:
 tramai:
   profile: sovereign
   sovereign:
-    enabled: true
+    allowed-models:
+      - gemma4:e2b
+    allowed-providers:
+      - ollama
+    provider-zones:
+      ollama: LOCAL
+    models:
+      gemma4:e2b: ollama
     persistence:
       file:
         root-dir: ./build/tramai-sovereign
@@ -110,7 +113,6 @@ To use JDBC-backed persistence instead of file-backed, set `type: jdbc` and prov
 ```yaml
 tramai:
   sovereign:
-    enabled: true
     persistence:
       type: jdbc
       jdbc:
