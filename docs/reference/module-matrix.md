@@ -29,7 +29,7 @@
 | tramai-openai | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-orchestration | runtime-execution | preview | preview | Yes | runtime | included |
 | tramai-persistence-file | persistence | preview | preview | Yes | persistence | included |
-| tramai-persistence-jdbc | persistence | internal | internal | No | runtime | internal_only |
+| tramai-persistence-jdbc | persistence | preview | preview | Yes | persistence | included |
 | tramai-platform | operations-observability | preview | preview | Yes | observability | included |
 | tramai-rag | higher-capabilities | preview | preview | Yes | capabilities | included |
 | tramai-scheduler | higher-capabilities | preview | preview | Yes | capabilities | included |
