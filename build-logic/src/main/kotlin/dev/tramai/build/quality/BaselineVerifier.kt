@@ -292,7 +292,7 @@ class BaselineVerifier(
             if (catalogEntry.layer.yaml != mod.layer) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
-                    "Module '${mod.path}': catalogue declares layer '${catalogEntry.layer}' but " +
+                    "Module '${mod.path}': catalogue declares layer '${catalogEntry.layer.yaml}' but " +
                         "current baseline has '${mod.layer}'"))
             }
 
@@ -300,7 +300,7 @@ class BaselineVerifier(
             if (expectedPublished != mod.publishable) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
-                    "Module '${mod.path}': catalogue declares publishability '${catalogEntry.publishability}' " +
+                    "Module '${mod.path}': catalogue declares publishability '${catalogEntry.publishability.yaml}' " +
                         "but current baseline has '${if (mod.publishable) "published" else "not published"}'"))
             }
         }

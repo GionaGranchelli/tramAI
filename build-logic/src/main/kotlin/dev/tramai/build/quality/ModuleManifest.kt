@@ -9,12 +9,23 @@ object ModuleManifest {
         if (result.errors.isNotEmpty()) throw GradleException(result.errors.joinToString("\n") { "[${it.code}] ${it.message}" })
     }
 
-    fun publishableModulePaths(rootDir: File): List<String> = catalog(rootDir).modules.values
-        .filter { it.publishability == ModulePublishability.PUBLISHED }.map { it.path }.sorted()
+    fun publishableModulePaths(rootDir: File): List<String> =
+        publishableModulePaths(catalog(rootDir).modules.values)
 
-    fun bomModulePaths(rootDir: File): List<String> = catalog(rootDir).modules.values
-        .filter { it.path != ":tramai-bom" && it.publishability == ModulePublishability.PUBLISHED && it.releaseInclusion == ReleaseInclusion.INCLUDED }
-        .map { it.path }.sorted()
+    fun bomModulePaths(rootDir: File): List<String> =
+        bomModulePaths(catalog(rootDir).modules.values)
+
+    /** Pure: published modules only, sorted by path. */
+    fun publishableModulePaths(entries: Collection<ModuleCatalog.ModuleEntry>): List<String> =
+        entries.filter { it.publishability == ModulePublishability.PUBLISHED }.map { it.path }.sorted()
+
+    /** Pure: published + release-included modules (excluding the BOM itself), sorted. */
+    fun bomModulePaths(entries: Collection<ModuleCatalog.ModuleEntry>): List<String> =
+        entries.filter {
+            it.path != ":tramai-bom" &&
+                it.publishability == ModulePublishability.PUBLISHED &&
+                it.releaseInclusion == ReleaseInclusion.INCLUDED
+        }.map { it.path }.sorted()
 
     fun matrix(rootDir: File): String {
         val rows = catalog(rootDir).modules.values.sortedBy { it.path }.joinToString("\n") { entry ->

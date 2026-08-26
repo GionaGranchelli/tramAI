@@ -160,44 +160,74 @@ class ModuleCatalogMutationTest {
         )
     }
 
-    // ─── M5 — BOM drift ───
+    // ─── M5 — BOM drift (real discriminator) ───
 
     @Test
-    fun `M5 BOM drift - internal module with included release is rejected`() {
+    fun `M5 BOM drift - manifest BOM set vs stale actual BOM set fails with BOM_DRIFT`() {
         fixtureDir()
-        // Demote tramai-core to internal publishability but keep releaseInclusion: included
-        // (the core anchor carries releaseInclusion: included, so only publishability changes).
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
-            |  - path: ":tramai-core"
-            |    <<: *core
-            |    layer: core-contracts
-            |    publishability: internal
-            |    apiStability: internal
-            |
-            """.trimMargin()
-        )
-        assertNotEquals(realCatalogText(), mutated, "mutation must change content")
-        writeCatalog(mutated)
+        val catalog = ModuleCatalog(tempDir).parse()
 
-        val result = ModuleCatalog(tempDir).parse()
+        // Manifest-derived expectation includes tramai-core in the BOM.
         assertTrue(
-            codes(result).contains(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION),
-            "expected MODULE_CATALOG_INVALID_COMBINATION, got ${codes(result)}"
+            ModuleManifest.bomModulePaths(catalog.modules.values).contains(":tramai-core"),
+            "fixture manifest must expect tramai-core in the BOM"
+        )
+
+        // Deliberately stale actual: BOM constraint graph omits tramai-core.
+        val actualBom = ModuleManifest.bomModulePaths(catalog.modules.values).toSet() - ":tramai-core"
+        val diagnostics = ModuleManifestVerifier.verify(
+            catalogModules = catalog.modules,
+            projectPaths = catalog.modules.keys,
+            publishedPaths = ModuleManifest.publishableModulePaths(catalog.modules.values).toSet(),
+            bomPaths = actualBom,
         )
         assertTrue(
-            result.errors.any { it.message.contains("included release requires published") },
-            "error must explain the BOM-drift combination"
+            diagnostics.any { it.code == DiagnosticCode.MODULE_CATALOG_BOM_DRIFT },
+            "expected MODULE_CATALOG_BOM_DRIFT, got ${diagnostics.map { it.code }}"
+        )
+        assertTrue(
+            diagnostics.any { it.message.contains(":tramai-core") },
+            "BOM drift diagnostic must name the diverging module"
         )
     }
 
-    // ─── M6 — publishability drift ───
+    // ─── M6 — publishing drift (real discriminator) ───
 
     @Test
-    fun `M6 publishability drift - internal module absent from derived publishable and BOM sets`() {
+    fun `M6 publishing drift - manifest published set vs stale actual set fails with PUBLISHING_DRIFT`() {
         fixtureDir()
-        // Turn tramai-core into a fully VALID excluded module; the derivation guard
+        val catalog = ModuleCatalog(tempDir).parse()
+
+        // Manifest-derived expectation includes tramai-core as publishable.
+        assertTrue(
+            ModuleManifest.publishableModulePaths(catalog.modules.values).contains(":tramai-core"),
+            "fixture manifest must expect tramai-core published"
+        )
+
+        // Deliberately stale actual: configured publication set omits tramai-core.
+        val actualPublished = ModuleManifest.publishableModulePaths(catalog.modules.values).toSet() - ":tramai-core"
+        val diagnostics = ModuleManifestVerifier.verify(
+            catalogModules = catalog.modules,
+            projectPaths = catalog.modules.keys,
+            publishedPaths = actualPublished,
+            bomPaths = ModuleManifest.bomModulePaths(catalog.modules.values).toSet(),
+        )
+        assertTrue(
+            diagnostics.any { it.code == DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT },
+            "expected MODULE_CATALOG_PUBLISHING_DRIFT, got ${diagnostics.map { it.code }}"
+        )
+        assertTrue(
+            diagnostics.any { it.message.contains(":tramai-core") },
+            "publishing drift diagnostic must name the diverging module"
+        )
+    }
+
+    // ─── M6b — derivation drops internal modules (derivation-level guard) ───
+
+    @Test
+    fun `M6b derivation guard - internal module absent from derived publishable and BOM sets`() {
+        fixtureDir()
+        // Turn tramai-core into a fully VALID internal module; the derivation guard
         // (ModuleManifest) must drop it from both the publishable set and the BOM set.
         val mutated = realCatalogText().replace(
             coreBlock,

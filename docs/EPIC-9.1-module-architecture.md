@@ -149,23 +149,29 @@ After 3.6 (derivation), publishing is derived from the manifest, so these four
 ### 3.4 Formalize dependency policies
 
 Add a `dependencyPolicies` section to `module-catalog.yml` (or a sibling
-`dependency-policies` block at the top of the file):
+`dependency-policies` block at the top of the file). The AUTHORITATIVE policy
+set implemented in this PR (calibrated to the actual dependency graph, per the
+"encode what exists" rule):
 
 ```yaml
 dependencyPolicies:
-  core:
-    allowedLayers: [core-contracts, testing-support]
-  runtime:
-    allowedLayers: [core-contracts, runtime-execution, testing-support]
-  provider-adapter:
-    allowedLayers: [core-contracts, runtime-execution, provider-adapters, testing-support]
-  framework:
-    allowedLayers: [core-contracts, runtime-execution, governance-security,
-                    persistence, provider-adapters, framework-integrations,
-                    testing-support]
-  testing:
-    allowedLayers: [core-contracts, testing-support]
+  core: { allowedLayers: [core-contracts, testing-support] }
+  runtime: { allowedLayers: [core-contracts, runtime-execution, governance-security, testing-support] }
+  provider-adapter: { allowedLayers: [core-contracts, runtime-execution, provider-adapters, testing-support] }
+  framework: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, testing-support] }
+  testing: { allowedLayers: [core-contracts, framework-integrations, testing-support] }
+  example: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, applications-examples, testing-support] }
+  bom: { allowedLayers: [core-contracts, runtime-execution, governance-security, persistence, provider-adapters, framework-integrations, operations-observability, higher-capabilities, applications-examples, testing-support] }
 ```
+
+Note: `runtime` allows `governance-security` because `tramai-engine` depends on
+`tramai-security`; `framework` allows `operations-observability` and
+`higher-capabilities` because platform/server/rag/vectorstore modules sit in
+those layers; `testing` allows `framework-integrations` for the spring consumer
+test modules; `example` and `bom` allow all layers by design (examples
+demonstrate everything, the BOM constrains everything — the `bom` policy must
+allow all layers because the BOM's constraint graph references every published
+module).
 
 Each module's `dependencyPolicy` maps to `allowedLayers`. The verifier checks
 that every actual dependency edge respects the policy's allowed layers.
@@ -330,7 +336,36 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew verifyPr
 `verifyPr` green is the gate. If a new task must run inside `check`, wire it
 there; do not weaken anything.
 
-## 6. Non-goals (this PR)
+## 7. Accepted Release-Surface Reconciliation (architecture decision)
+
+**Decision:** the manifest classification wins over the legacy handwritten
+release list. This is an intentional release-surface correction, not
+incidental generation.
+
+The following previously-drifted published modules are therefore **restored
+to the 0.6.0 release set** (they were classified `published` in the old
+architecture catalog and are present in the v0.5.0 baseline publishable list,
+but had been dropped from the handwritten `publishableProjectNames`):
+
+| Module | Publishable | Sovereign bundle |
+|--------|-------------|------------------|
+| `:tramai-scheduler` | Yes | No (explicit bundle exclusion) |
+| `:tramai-spring-boot-starter-local-provider-openai` | Yes | Yes |
+| `:tramai-spring-boot-starter-sovereign-ops-rest` | Yes | Yes |
+| `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | Yes | Yes |
+
+Rationale: the manifest is now the single source of truth; the handwritten
+`publishableProjectNames` had drifted from it. Deriving publishing from the
+manifest restores these four to the release set. The sovereign bundle derives
+from the published set minus an explicit exclusion list (`scheduler`,
+provider adapters, framework adapters, vector stores, testing) so the bundle
+stays scoped to the signed sovereign runtime.
+
+If any of the four should NOT ship in 0.6.0, the fix is to demote it in the
+manifest (`publishability: internal` + `releaseInclusion: internal_only`) —
+not to reintroduce a handwritten publishing list.
+
+## 8. Non-goals (this PR)
 
 - No runtime/provider behavior changes
 - No module reorganization or consolidation
