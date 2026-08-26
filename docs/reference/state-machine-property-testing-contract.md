@@ -1179,27 +1179,30 @@ compared after each step.
 - H12 sync coordinator DLP-neutral HALF_OPEN probe cannot strand recovery
 - H13 streaming token-budget exhaustion on the probe cannot strand recovery
 
-### Mutation evidence (26 candidates, re-run in full on the post-P1 head)
+### Mutation evidence (29 candidates, reachable set re-run in full on the post-P1 head)
 
 | Classification | Count |
 |---|---|
-| Candidate | 26 |
-| **STRONG** | **25** |
+| Total candidate mutations | 29 |
+| **Reachable, non-redundant, compile-valid** | **26** |
+| STRONG (killed by an 8.2g test) | **26 / 26** |
 | Unreachable by contract | 1 |
 | Invalid (compile-breaking) | 1 |
 | Redundant (corroborating) | 1 |
 | Reachable WEAK | **0** |
 
-The original 21 STRONG mutations were re-executed against the new neutral/
-abandon transition, not grandfathered; five new candidates (M25–M29) cover
-the abandonment semantics. The re-run itself found two masked mutations:
-M17 (sync) and M24 (streaming) fresh-permit adoption survived because the
-`onAbandoned` fallback still released the probe — the remaining observable is
-the CIRCUIT_OPENED event, and H5/H7 were strengthened with event-count
-assertions so a qualifying trip and a neutral abandonment are
-distinguishable. Each STRONG result carries strict XML evidence
-(failures=1, XML present — a compile-error candidate is classified INVALID,
-never STRONG).
+Breakdown: the original campaign produced 24 candidates (21 STRONG + M03
+unreachable + M04 invalid + M15 redundant); the P1 round added five
+abandonment candidates M25–M29 → 29 total. The 26 reachable,
+non-redundant, compile-valid mutations were re-executed in full against the
+new neutral/abandon transition — all 26 killed, 0 weak. The re-run itself
+found two masked mutations: M17 (sync) and M24 (streaming) fresh-permit
+adoption survived because the `onAbandoned` fallback still released the
+probe — the remaining observable is the CIRCUIT_OPENED event, and H5/H7 were
+strengthened with event-count assertions so a qualifying trip and a neutral
+abandonment are distinguishable. Each STRONG result carries strict XML
+evidence (failures=1, XML present — a compile-error candidate is classified
+INVALID, never STRONG).
 
 Every reachable, non-redundant, compile-valid mutation was killed by an 8.2g
 discriminator/property/regression test. **Zero reachable weak mutations.**
