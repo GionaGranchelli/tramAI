@@ -14,7 +14,9 @@ import org.springframework.context.annotation.Import
  * The annotation does not select a runtime profile. `tramai.profile` remains the
  * authority: missing or `standard` yields the standard runtime, `sovereign`
  * yields the sovereign runtime. There is no implicit sovereign default — the
- * unified starter behaves identically under both profiles.
+ * unified starter exposes the same Spring programming model under both
+ * profiles; the selected runtime profile determines the execution and
+ * governance guarantees.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)

@@ -23,8 +23,11 @@ class SpringRuntimeProfileCompatibilityTckTest {
                 displayName = "standard",
                 profileProperty = "tramai.profile=standard",
                 runtimeType = Tramai::class.java,
-                forbiddenRuntimeType = SovereignTramai::class.java,
-                sovereignRuntimeType = null,
+                forbiddenRuntimeTypes = listOf(
+                    SovereignTramai::class.java,
+                    SovereignTramaiRuntime::class.java,
+                ),
+                auxiliaryRuntimeTypes = emptyList(),
                 properties = arrayOf(
                     "tramai.models.local-model=local-provider",
                     "tramai.default-provider=local-provider",
@@ -40,8 +43,8 @@ class SpringRuntimeProfileCompatibilityTckTest {
                 displayName = "sovereign",
                 profileProperty = "tramai.profile=sovereign",
                 runtimeType = SovereignTramai::class.java,
-                forbiddenRuntimeType = Tramai::class.java,
-                sovereignRuntimeType = SovereignTramaiRuntime::class.java,
+                forbiddenRuntimeTypes = listOf(Tramai::class.java),
+                auxiliaryRuntimeTypes = listOf(SovereignTramaiRuntime::class.java),
                 properties = arrayOf(
                     "tramai.sovereign.allowed-models[0]=local-model",
                     "tramai.sovereign.allowed-providers[0]=local-provider",

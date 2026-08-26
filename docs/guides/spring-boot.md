@@ -10,7 +10,7 @@ Add the starter to your app and configure at least one provider.
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.6.0"))
     implementation("dev.tramai:tramai-spring-boot-starter")
     implementation("dev.tramai:tramai-openai")
 }
@@ -24,7 +24,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>0.6.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

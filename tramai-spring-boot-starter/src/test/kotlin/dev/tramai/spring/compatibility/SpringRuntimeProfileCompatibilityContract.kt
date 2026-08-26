@@ -15,15 +15,21 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.ConfigurableApplicationContext
 
 /**
- * One runtime profile's view of the compatibility contract: which authority
- * beans must/must not exist and which runtime configuration to apply.
+ * One runtime profile's view of the compatibility contract.
+ *
+ * The authority invariant is modeled explicitly for every profile:
+ * [runtimeType] must exist exactly once, every [forbiddenRuntimeTypes] must
+ * not exist at all, and every [auxiliaryRuntimeTypes] (the sovereign runtime
+ * pairing) must exist exactly once. The standard harness therefore also
+ * asserts zero `SovereignTramaiRuntime` — a regression that creates the
+ * auxiliary runtime without its authority fails the contract.
  */
 internal data class RuntimeProfileHarness(
     val displayName: String,
     val profileProperty: String,
     val runtimeType: Class<*>,
-    val forbiddenRuntimeType: Class<*>,
-    val sovereignRuntimeType: Class<*>?,
+    val forbiddenRuntimeTypes: List<Class<*>>,
+    val auxiliaryRuntimeTypes: List<Class<*>>,
     val properties: Array<String>,
 )
 
@@ -112,9 +118,11 @@ internal class SpringRuntimeProfileCompatibilityContract(
 
     private fun verifyRuntimeAuthority(context: AssertableApplicationContext) {
         assertThat(context).hasSingleBean(harness.runtimeType)
-        assertThat(context).doesNotHaveBean(harness.forbiddenRuntimeType)
-        harness.sovereignRuntimeType?.let { sovereignRuntimeType ->
-            assertThat(context).hasSingleBean(sovereignRuntimeType)
+        harness.forbiddenRuntimeTypes.forEach { forbidden ->
+            assertThat(context).doesNotHaveBean(forbidden)
+        }
+        harness.auxiliaryRuntimeTypes.forEach { auxiliary ->
+            assertThat(context).hasSingleBean(auxiliary)
         }
     }
 
