@@ -8,9 +8,9 @@ import org.springframework.context.annotation.Import
  * Selects the standard TramAI runtime for Spring Boot applications.
  *
  * `standard` remains the default when no explicit profile is provided, preserving
- * existing `tramai-spring` behavior. The sovereign starter contributes a low-
- * precedence default of `tramai.profile=sovereign`, so adding that starter cannot
- * accidentally activate both runtimes.
+ * existing `tramai-spring` behavior. There is no implicit sovereign default:
+ * the sovereign runtime activates only when `tramai.profile=sovereign` is set
+ * explicitly, so the two runtime authorities can never both activate.
  */
 @AutoConfiguration
 @ConditionalOnProperty(
