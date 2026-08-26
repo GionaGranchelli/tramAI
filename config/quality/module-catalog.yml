@@ -104,6 +104,7 @@ modules:
 
   - path: ":tramai-dashboard"
     <<: *internal
+    rationale: "Optional Vue 3 admin dashboard packaged as runtime-served static assets for operational inspection."
     layer: operations-observability
     publishability: internal
     apiStability: internal
@@ -138,6 +139,7 @@ modules:
 
   - path: ":tramai-mcp"
     <<: *internal
+    rationale: "MCP server adapter exposing TramAI workflows as tools over stdio and SSE."
     layer: operations-observability
     publishability: internal
     apiStability: internal
@@ -151,6 +153,7 @@ modules:
 
   - path: ":tramai-memory-store"
     <<: *internal
+    rationale: "Durable memory-store implementations (JDBC, Redis) and supporting persistence SPI for the memory capability."
     layer: higher-capabilities
     publishability: internal
     apiStability: internal
@@ -227,6 +230,7 @@ modules:
 
   - path: ":tramai-server"
     <<: *internal
+    rationale: "HTTP API surface (workflow registry, workers, audit) with webhooks, OpenAPI and SSE endpoints."
     layer: operations-observability
     publishability: internal
     apiStability: internal
@@ -240,7 +244,7 @@ modules:
 
   - path: ":tramai-spring"
     <<: *framework
-    rationale: "Spring Boot auto-configuration and bean wiring for TramAI services."
+    rationale: "Legacy Spring facade over :tramai-spring-core retained for back-compatibility; not the onboarding entry point."
     layer: framework-integrations
     publishability: published
     apiStability: preview
@@ -296,12 +300,14 @@ modules:
 
   - path: ":tramai-spring-consumer-boundary"
     <<: *internalTesting
+    rationale: "Consumer-facing classpath boundary test verifying published Spring artifacts expose no unintended classes."
     layer: testing-support
     publishability: internal
     apiStability: internal
 
   - path: ":tramai-spring-consumer-selective"
     <<: *internalTesting
+    rationale: "Consumer-facing selective-dependency test verifying Spring consumers compile with minimal TramAI dependencies."
     layer: testing-support
     publishability: internal
     apiStability: internal
