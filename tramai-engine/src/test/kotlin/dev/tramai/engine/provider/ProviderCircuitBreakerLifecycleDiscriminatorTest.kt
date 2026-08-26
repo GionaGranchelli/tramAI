@@ -3,6 +3,8 @@ package dev.tramai.engine.provider
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ProviderRoutingPlan
+import dev.tramai.engine.CircuitBreakerAdmission
+import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -25,6 +27,9 @@ import kotlin.test.Test
  * - onSuccess removes provider state unconditionally → stale success closes newer OPEN
  * - onFailure re-opens with fresh deadline on already-open state → stale failure extends
  * - expiry resets the failure counter → one post-expiry failure cannot reopen
+ *
+ * The admit/blockedUntil helpers adapt the assertions to the permit-based API
+ * without changing any assertion value or the encoded invariant.
  */
 class ProviderCircuitBreakerLifecycleDiscriminatorTest {
 
@@ -39,9 +44,8 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             val provider = FakeProvider {
                 calls++
                 when (calls) {
-                    1 -> throw ProviderException("down", retryable = true)
-                    2 -> ModelResponse("ok")
-                    else -> throw ProviderException("down again", retryable = true)
+                    1, 3 -> throw ProviderException("down", retryable = true)
+                    else -> ModelResponse("ok")
                 }
             }
             val coordinator = coordinator(
@@ -71,15 +75,16 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             var now = 0L
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
 
-            breaker.onFailure("primary", ProviderException("down", retryable = true))
-            assertThat(breaker.beforeCall("primary")).isEqualTo(100) // t=0, OPEN until 100
+            val permit = admit(breaker, "primary")
+            breaker.onFailure(permit, ProviderException("down", retryable = true))
+            assertThat(blockedUntil(breaker, "primary")).isEqualTo(100) // t=0, OPEN until 100
 
             now = 99
-            assertThat(breaker.beforeCall("primary")).isEqualTo(100) // t=99 rejected
+            assertThat(blockedUntil(breaker, "primary")).isEqualTo(100) // t=99 rejected
 
             now = 100
             val admissions = supervisorScope {
-                (1..8).map { async { breaker.beforeCall("primary") == null } }.awaitAll()
+                (1..8).map { async { blockedUntil(breaker, "primary") == null } }.awaitAll()
             }
             // Exactly one HALF_OPEN probe may enter; the other 7 are rejected.
             assertThat(admissions.count { it }).isEqualTo(1)
@@ -94,17 +99,18 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             var now = 0L
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
 
-            // A and B both admitted while CLOSED.
-            assertThat(breaker.beforeCall("primary")).isNull()
-            assertThat(breaker.beforeCall("primary")).isNull()
+            // A and B both admitted while CLOSED — each owns a CLOSED-epoch permit.
+            val permitA = admit(breaker, "primary")
+            val permitB = admit(breaker, "primary")
 
             // A fails → OPEN until 100.
-            assertThat(breaker.onFailure("primary", ProviderException("A failed", retryable = true))).isTrue()
-            assertThat(breaker.beforeCall("primary")).isEqualTo(100)
+            assertThat(breaker.onFailure(permitA, ProviderException("A failed", retryable = true))).isTrue()
+            assertThat(blockedUntil(breaker, "primary")).isEqualTo(100)
 
-            // B completes SUCCESS afterwards — stale completion must not close the circuit.
-            breaker.onSuccess("primary")
-            assertThat(breaker.beforeCall("primary")).isEqualTo(100)
+            // B completes SUCCESS afterwards with its stale CLOSED-epoch permit —
+            // must not close the circuit.
+            breaker.onSuccess(permitB)
+            assertThat(blockedUntil(breaker, "primary")).isEqualTo(100)
         }
     }
 
@@ -117,16 +123,17 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
 
             // A and B both admitted while CLOSED.
-            assertThat(breaker.beforeCall("primary")).isNull()
-            assertThat(breaker.beforeCall("primary")).isNull()
+            val permitA = admit(breaker, "primary")
+            val permitB = admit(breaker, "primary")
 
             // t=0: A fails → OPEN until 100.
-            assertThat(breaker.onFailure("primary", ProviderException("A failed", retryable = true))).isTrue()
+            assertThat(breaker.onFailure(permitA, ProviderException("A failed", retryable = true))).isTrue()
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
 
-            // t=10: B (admitted pre-OPEN) fails → must not rewrite the deadline.
+            // t=10: B (admitted pre-OPEN) fails with its stale permit → must not
+            // rewrite the deadline.
             now = 10
-            breaker.onFailure("primary", ProviderException("B failed", retryable = true))
+            breaker.onFailure(permitB, ProviderException("B failed", retryable = true))
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
         }
     }
@@ -140,20 +147,32 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 3, openDurationMillis = 100), { now })
 
             // Three qualifying failures → OPEN.
-            repeat(3) { breaker.onFailure("primary", ProviderException("down", retryable = true)) }
+            repeat(3) { breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true)) }
             val openedUntil = breaker.openUntilMillis("primary")
             assertThat(openedUntil).isNotNull
 
-            // Advance exactly to expiry — the HALF_OPEN probe is admitted.
+            // Advance exactly to expiry — the HALF_OPEN probe is admitted with a
+            // probe permit.
             now = openedUntil!!
-            assertThat(breaker.beforeCall("primary")).isNull()
+            val probe = admit(breaker, "primary")
+            assertThat(probe).isNotNull
 
             // Probe fails with a retryable failure → immediately OPEN again,
             // fresh deadline = now + openDuration, NOT three more failures.
-            breaker.onFailure("primary", ProviderException("probe failed", retryable = true))
+            breaker.onFailure(probe, ProviderException("probe failed", retryable = true))
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
         }
     }
+
+    // ------------------------------------------------------------ adapters
+
+    /** Acquires a permit for [providerId] exactly as production does (beforeCall → Allowed). */
+    private fun admit(breaker: ProviderCircuitBreaker, providerId: String): CircuitBreakerPermit =
+        (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit
+
+    /** Returns the blocked-until millis when [providerId] is rejected, else null (admitted). */
+    private fun blockedUntil(breaker: ProviderCircuitBreaker, providerId: String): Long? =
+        (breaker.beforeCall(providerId) as? CircuitBreakerAdmission.Rejected)?.blockedUntilMillis
 
     // ------------------------------------------------------------ infra copy
 

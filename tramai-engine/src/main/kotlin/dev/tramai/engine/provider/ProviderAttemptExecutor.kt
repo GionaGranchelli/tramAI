@@ -19,6 +19,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.security.DlpInspectionException
+import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -58,6 +59,9 @@ internal class ProviderAttemptExecutor(
                 val response = operationInterceptor.interceptResponse(attempt.context, callOnce(request.providerId, request.provider, attempt.request, request.operation))
                 val sanitized = responseSanitizer.sanitize(response, request.operation, request.providerId, request.request.model, request.correlationId, request.securityContext, attempt.observation)
                 attempt.observation.onProviderResponse(sanitized)
+                // Synchronous success must reach the breaker symmetrically with the
+                // streaming path: a healthy completion resets the failure history.
+                circuitBreaker.onSuccess(request.permit)
                 return ProviderCallResult(sanitized, attempt.observation, request.providerId, request.request.model, attempt.approvedModel)
             } catch (error: DlpInspectionException) {
                 attempt.observation.onCallCompleted(parseSuccess = null)
@@ -82,7 +86,7 @@ internal class ProviderAttemptExecutor(
                         delay(decision.delayMillis)
                     }
                     ProviderRetryDecision.Stop -> {
-                        if (circuitBreaker.onFailure(request.providerId, error)) {
+                        if (circuitBreaker.onFailure(request.permit, error)) {
                             attempt.observation.emitRuntimeEvent(
                                 RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
                                     set(RuntimeAttributes.PROVIDER_ID, request.providerId)
@@ -136,7 +140,7 @@ internal class ProviderAttemptExecutor(
     }
 }
 
-internal data class ProviderRetryRequest(val providerId: String, val provider: ModelProvider, val request: ModelRequest, val operation: OperationDefinition, val attemptCounter: AttemptCounter, val routeIndex: Int, val correlationId: String, val securityContext: ExecutionSecurityContext)
+internal data class ProviderRetryRequest(val providerId: String, val provider: ModelProvider, val request: ModelRequest, val operation: OperationDefinition, val attemptCounter: AttemptCounter, val routeIndex: Int, val correlationId: String, val securityContext: ExecutionSecurityContext, val permit: CircuitBreakerPermit)
 private data class ProviderRetryAttempt(val context: OperationCallContext, val request: ModelRequest, val observation: OperationObservation, val approvedModel: RegisteredModel?)
 
 private fun OperationObservation.completeCancellation(cancellation: CancellationException) {

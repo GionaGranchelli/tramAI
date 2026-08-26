@@ -268,7 +268,7 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `open circuit skips route and uses next`() {
         runBlocking {
-        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure("primary", ProviderException("down", retryable = true))
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
         val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }; val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
         val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker).execute(request()).toList()
         assertThat(primary.streamRequests).isEmpty(); assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
@@ -277,7 +277,7 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `all routes open circuit emits no available route chunk with circuit error`() {
         runBlocking {
-        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure("p", ProviderException("down", retryable = true))
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("p") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
         val provider = RecordingProvider("p") { flow { emit(StreamChunk.Complete("bad")) } }
         val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker).execute(request()).toList()
         val error = chunks.single() as StreamChunk.Error
