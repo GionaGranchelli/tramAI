@@ -812,6 +812,59 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        // ---- Authoritative module manifest ----
+
+        project.tasks.register("verifyModuleManifest") {
+            group = "verification"
+            description = "Verifies manifest/project, publishing, and BOM membership equality"
+            doLast {
+                val catalog = ModuleManifest.catalog(project.rootDir)
+                val diagnostics = mutableListOf<VerificationDiagnostic>()
+                ModuleCatalog(project.rootDir).validateAgainstProjects(
+                    catalog.modules,
+                    project.allprojects.filter { it != project && it.buildFile.exists() }.map { it.path },
+                    diagnostics
+                )
+                val expectedPublished = ModuleManifest.publishableModulePaths(project.rootDir).toSet()
+                val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                    ?.map { it.toString() }?.toSet().orEmpty()
+                if (actualPublished != expectedPublished) diagnostics += VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
+                    "Publishing drift: build publishes ${actualPublished.sorted()} but manifest requires ${expectedPublished.sorted()}"
+                )
+                val expectedBom = ModuleManifest.bomModulePaths(project.rootDir).toSet()
+                val actualBom = (project.extensions.extraProperties.properties["tramai.bomModulePaths"] as? Collection<*>)
+                    ?.map { it.toString() }?.toSet().orEmpty()
+                if (actualBom != expectedBom) diagnostics += VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
+                    "BOM drift: build constrains ${actualBom.sorted()} but manifest requires ${expectedBom.sorted()}"
+                )
+                if (diagnostics.isNotEmpty()) throw GradleException(diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" })
+            }
+        }
+
+        project.tasks.register("generateModuleMatrix") {
+            group = "documentation"
+            description = "Generates the deterministic TramAI module matrix from the manifest"
+            doLast {
+                val target = File(project.rootDir, "docs/reference/module-matrix.md")
+                target.parentFile.mkdirs()
+                target.writeText(ModuleManifest.matrix(project.rootDir))
+            }
+        }
+
+        project.tasks.register("verifyModuleMatrixDrift") {
+            group = "verification"
+            description = "Fails when docs/reference/module-matrix.md differs from the manifest"
+            doLast {
+                val target = File(project.rootDir, "docs/reference/module-matrix.md")
+                val expected = ModuleManifest.matrix(project.rootDir)
+                if (!target.isFile || target.readText() != expected) throw GradleException(
+                    "[${DiagnosticCode.GENERATED_DOCUMENT_DRIFT}] Module matrix drift: run ./gradlew generateModuleMatrix"
+                )
+            }
+        }
+
         // ---- PR Verification (primary local check gate) ----
 
         val verifyPr = project.tasks.register("verifyPr") {
@@ -820,6 +873,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
             dependsOn("verifyMaintainabilityBaseline")
             dependsOn("verifyChangePolicy")
+            dependsOn("verifyModuleManifest")
+            dependsOn("verifyModuleMatrixDrift")
 
             // Include build-logic tests (included build — must use includedBuild API)
             val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")

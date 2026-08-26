@@ -92,9 +92,9 @@ class MeasurementContext(
                         testFixtureDirs = listOf(
                             File(proj.projectDir, "src/testFixtures/kotlin"),
                         ),
-                        publishable = entry?.publishability == "published",
-                        layer = entry?.layer ?: "unknown",
-                        apiStability = entry?.apiStability ?: "unclassified",
+                        publishable = entry?.publishability == ModulePublishability.PUBLISHED,
+                        layer = entry?.layer?.yaml ?: "unknown",
+                        apiStability = entry?.apiStability?.yaml ?: "unclassified",
                     )
                 }
 
@@ -192,9 +192,9 @@ class MeasurementContext(
                     testFixtureDirs = listOf(
                         File(moduleDir, "src/testFixtures/kotlin"),
                     ),
-                    publishable = entry?.publishability == "published",
-                    layer = entry?.layer ?: "unknown",
-                    apiStability = entry?.apiStability ?: "unclassified",
+                    publishable = entry?.publishability == ModulePublishability.PUBLISHED,
+                    layer = entry?.layer?.yaml ?: "unknown",
+                    apiStability = entry?.apiStability?.yaml ?: "unclassified",
                 )
             }
         }

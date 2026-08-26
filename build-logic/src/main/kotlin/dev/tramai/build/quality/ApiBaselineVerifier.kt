@@ -64,12 +64,12 @@ class ApiBaselineVerifier(
                         "$label API module '${record.module}' is missing a recognized module-catalog classification"
                     )
                 )
-            } else if (record.stability != catalogEntry.apiStability) {
+            } else if (record.stability != catalogEntry.apiStability.yaml) {
                 diagnostics.add(
                     VerificationDiagnostic.warning(
                         DiagnosticCode.API_MODULE_UNCLASSIFIED,
                         "$label API module '${record.module}' records '${record.stability}' but catalog declares " +
-                            "'${catalogEntry.apiStability}'"
+                            "'${catalogEntry.apiStability.yaml}'"
                     )
                 )
             }
