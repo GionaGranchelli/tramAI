@@ -21,8 +21,10 @@ import org.assertj.core.api.Assertions.assertThat
 import org.springframework.beans.factory.config.ConfigurableBeanFactory
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
 import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.assertj.AssertableApplicationContext
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Lazy
 import org.springframework.context.annotation.Primary
 import org.springframework.context.annotation.Scope
 import kotlin.test.Test
@@ -159,6 +161,46 @@ class SovereignTramaiAutoConfigurationTest {
                     .hasMessageContaining("tramai.profile=sovereign is incompatible with a plain Tramai bean")
                     .hasMessageContaining("exactly one runtime authority is allowed")
             }
+    }
+
+    // ── Symmetric standard-profile authority guard (one-authority invariant) ──
+
+    private val standardProfileGuardRunner = ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(StandardProfileSovereignAuthorityGuardAutoConfiguration::class.java),
+        )
+
+    private fun assertOneAuthorityFailure(context: AssertableApplicationContext) {
+        assertThat(context).hasFailed()
+        val failure = requireNotNull(context.startupFailure)
+        assertThat(failure)
+            .hasMessageContaining(
+                "tramai.profile=standard (or missing) is incompatible with a manual SovereignTramai bean",
+            )
+            .hasMessageContaining("exactly one runtime authority is allowed")
+    }
+
+    @Test
+    fun `manual SovereignTramai bean under explicit standard profile fails loudly`() {
+        standardProfileGuardRunner
+            .withPropertyValues("tramai.profile=standard")
+            .withUserConfiguration(ManualSovereignTramaiConfiguration::class.java)
+            .run { context -> assertOneAuthorityFailure(context) }
+    }
+
+    @Test
+    fun `manual SovereignTramai bean with missing profile fails loudly`() {
+        standardProfileGuardRunner
+            .withUserConfiguration(ManualSovereignTramaiConfiguration::class.java)
+            .run { context -> assertOneAuthorityFailure(context) }
+    }
+
+    @Test
+    fun `prototype scoped SovereignTramai bean under standard profile fails loudly`() {
+        standardProfileGuardRunner
+            .withPropertyValues("tramai.profile=standard")
+            .withUserConfiguration(PrototypeSovereignTramaiConfiguration::class.java)
+            .run { context -> assertOneAuthorityFailure(context) }
     }
 
     // ── User beans are respected ─────────────────────────────────────────
@@ -332,6 +374,25 @@ open class PrototypeTramaiConfiguration {
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
     open fun prototypeTramai(): dev.tramai.standalone.Tramai = dev.tramai.standalone.Tramai.builder().build()
+}
+
+/**
+ * The guard detects the bean DEFINITION (allowEagerInit=false), so these
+ * fixtures never need a real SovereignTramai: the lazy/prototype bean is
+ * never instantiated, and the guard must fail startup before it could be.
+ */
+open class ManualSovereignTramaiConfiguration {
+    @Bean
+    @Lazy
+    open fun manualSovereignTramai(): SovereignTramai =
+        error("manual SovereignTramai must not be instantiated: the authority guard should fail startup first")
+}
+
+open class PrototypeSovereignTramaiConfiguration {
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+    open fun prototypeSovereignTramai(): SovereignTramai =
+        error("prototype SovereignTramai must not be instantiated: the authority guard should fail startup first")
 }
 
 open class ModelRegistrySupplierConfiguration {

@@ -20,8 +20,7 @@ import org.springframework.core.type.AnnotationMetadata
  *
  * Imports are deferred so application `@Bean` definitions are registered before
  * TramAI auto-configuration conditions are evaluated. This preserves the same
- * lifecycle assumption as Spring Boot auto-configuration (for example,
- * sovereign runtime creation is conditional on an application ModelProvider).
+ * lifecycle assumption as Spring Boot auto-configuration.
  */
 internal class TramaiEnableImportSelector :
     DeferredImportSelector,

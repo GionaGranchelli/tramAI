@@ -321,6 +321,78 @@ class AiToolScannerTest {
         assertEquals(listOf("lookup", "lookup"), advice.invocations)
     }
 
+    @Test
+    fun `jdk proxied implementation-only annotated tool is discovered and preserves advice`() {
+        val advice = RecordingMethodInterceptor()
+        val context = GenericApplicationContext().apply {
+            registerBeanDefinition("jdkImplAnnotatedToolBean", RootBeanDefinition(ImplAnnotatedToolServiceImpl::class.java))
+            beanFactory.addBeanPostProcessor(
+                object : BeanPostProcessor {
+                    override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                        if (beanName != "jdkImplAnnotatedToolBean") {
+                            return bean
+                        }
+
+                        return ProxyFactory(bean).apply {
+                            setInterfaces(ImplAnnotatedToolService::class.java)
+                            isProxyTargetClass = false
+                            addAdvice(advice)
+                        }.proxy
+                    }
+                },
+            )
+            refresh()
+        }
+
+        // The interface carries NO @AiTool; only the implementation method is
+        // annotated (annotations on overrides are not inherited). The prefilter
+        // cannot see the target-class annotation on a JDK proxy, so discovery
+        // must re-check the AOP target class.
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        val result = runBlocking {
+            (tool as TramaiTool<ToolInput, Any>).execute(ToolInput("inv-4"), toolExecutionContext())
+        }
+
+        assertEquals("impl:inv-4", result)
+        assertEquals(listOf("lookup"), advice.invocations)
+    }
+
+    @Test
+    fun `jdk proxied generic interface tool resolves the type instantiation and preserves advice`() {
+        val advice = RecordingMethodInterceptor()
+        val context = GenericApplicationContext().apply {
+            registerBeanDefinition("jdkGenericToolBean", RootBeanDefinition(GenericToolServiceImpl::class.java))
+            beanFactory.addBeanPostProcessor(
+                object : BeanPostProcessor {
+                    override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                        if (beanName != "jdkGenericToolBean") {
+                            return bean
+                        }
+
+                        return ProxyFactory(bean).apply {
+                            setInterfaces(GenericToolService::class.java)
+                            isProxyTargetClass = false
+                            addAdvice(advice)
+                        }.proxy
+                    }
+                },
+            )
+            refresh()
+        }
+
+        // The interface declares lookup(input: T); the implementation
+        // instantiates T := InvoiceInput. The matcher must substitute the type
+        // parameter so the interface annotation (and invocable) resolve.
+        val tool = AiToolScanner.fromApplicationContext(context).single()
+        assertEquals("invoice.read", requireNotNull(tool.security).permission)
+        val result = runBlocking {
+            (tool as TramaiTool<InvoiceInput, Any>).execute(InvoiceInput("inv-5"), toolExecutionContext())
+        }
+
+        assertEquals("generic:inv-5", result)
+        assertEquals(listOf("lookup"), advice.invocations)
+    }
+
     private fun toolExecutionContext() = ToolExecutionContext(
         operationName = "test",
         modelName = "local-model",
@@ -441,6 +513,37 @@ class AiToolScannerTest {
         override fun lookup(input: InvoiceInput): String = "invoice:${input.invoiceId}"
 
         override fun lookup(input: CustomerInput): String = "customer:${input.customerId}"
+    }
+
+    /**
+     * Implementation-only annotation: the interface is NOT annotated, the
+     * @AiTool lives only on the overriding implementation method. A JDK proxy
+     * bean must not be skipped by the prefilter.
+     */
+    interface ImplAnnotatedToolService {
+        fun lookup(input: ToolInput): String
+    }
+
+    open class ImplAnnotatedToolServiceImpl : ImplAnnotatedToolService {
+        @AiTool(description = "Looks up an invoice", sideEffectLevel = SideEffectLevel.READ_ONLY)
+        override fun lookup(input: ToolInput): String = "impl:${input.invoiceId}"
+    }
+
+    /**
+     * Generic interface: the @AiTool lives on the interface whose parameter
+     * type is the type parameter T; the implementation instantiates it.
+     */
+    interface GenericToolService<T> {
+        @AiTool(
+            description = "Looks up a generic invoice",
+            sideEffectLevel = SideEffectLevel.READ_ONLY,
+            permission = "invoice.read",
+        )
+        fun lookup(input: T): String
+    }
+
+    open class GenericToolServiceImpl : GenericToolService<InvoiceInput> {
+        override fun lookup(input: InvoiceInput): String = "generic:${input.invoiceId}"
     }
 
     class RecordingMethodInterceptor : org.aopalliance.intercept.MethodInterceptor {
