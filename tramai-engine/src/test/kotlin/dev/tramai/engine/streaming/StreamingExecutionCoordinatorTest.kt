@@ -358,6 +358,45 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `H13 streaming token-budget exhaustion on the probe cannot strand recovery`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
+        } }
+        val tightBudget = TokenBudgetSettings(hardMaxTokensPerAttempt = 1)
+        val coordinator = coordinator(
+            plan("p" to provider),
+            RecordingOperationObserver(OrderedSink()),
+            circuitEnabled = true,
+            circuitBreaker = breaker,
+            budgetSettings = tightBudget,
+        )
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; its Complete chunk exceeds the
+        // token budget. The budget rejection is a NEUTRAL terminal outcome
+        // (never a breaker failure), but it must release probe ownership
+        // (reopen with fresh deadline) instead of stranding recovery.
+        now = 100
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
     @Test fun `open circuit skips route and uses next`() {
         runBlocking {
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
