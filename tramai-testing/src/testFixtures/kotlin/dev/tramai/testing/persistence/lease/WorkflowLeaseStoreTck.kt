@@ -603,6 +603,318 @@ abstract class WorkflowLeaseStoreTck {
         }
     }
 
+    // ── G. Lease lifecycle state-machine properties ────────────────
+
+    @Test
+    fun `generated lease histories match the lifecycle model`() = runBlocking<Unit> {
+        for (seed in 0L until WorkflowLeaseLifecycleActionGenerator.SEED_COUNT) {
+            val clock = MutableMillisClock()
+            val store = createStore(clock)
+            val workflowName = "state-machine-$seed"
+            val workflowId = "workflow-$seed"
+            val bindings = linkedMapOf<String, MutableList<WorkflowLease>>()
+            var currentLeaseObject: WorkflowLease? = null
+            var model = WorkflowLeaseLifecycleModel.absent(clock())
+            val actions = WorkflowLeaseLifecycleActionGenerator.generate(
+                seed = seed,
+                initialNow = clock(),
+                durationMillis = LIFECYCLE_DURATION_MILLIS,
+            )
+
+            actions.forEachIndexed { step, action ->
+                val before = model
+                val storedBefore = store.currentLease(workflowName, workflowId)
+                val expected = model.apply(action, LIFECYCLE_DURATION_MILLIS)
+
+                fun fallbackCapability(): WorkflowLease = currentLeaseObject
+                    ?: bindings.values.lastOrNull()?.lastOrNull()
+                    ?: WorkflowLeaseFixtures.lease(
+                        workflowName = workflowName,
+                        workflowId = workflowId,
+                        leaseId = "missing-token",
+                        ownerId = "worker-a",
+                        acquiredAtEpochMillis = clock(),
+                        expiresAtEpochMillis = clock() + LIFECYCLE_DURATION_MILLIS,
+                    )
+
+                fun currentCapability(): WorkflowLease {
+                    val token = before.current?.symbolicToken
+                    return token?.let { bindings[it]?.lastOrNull() } ?: fallbackCapability()
+                }
+
+                fun olderCurrentSnapshot(): WorkflowLease {
+                    val token = before.current?.symbolicToken
+                    return token?.let { bindings[it]?.firstOrNull() } ?: fallbackCapability()
+                }
+
+                fun predecessorCapability(generation: Long): WorkflowLease =
+                    bindings["T$generation"]?.firstOrNull() ?: fallbackCapability()
+
+                val actual: Result<WorkflowLease?> = runCatching {
+                    when (action) {
+                        is WorkflowLeaseLifecycleAction.Claim -> store.claim(
+                            workflowName = workflowName,
+                            workflowId = workflowId,
+                            ownerId = action.ownerId,
+                            checkpointRevision = action.checkpointRevision,
+                            leaseDurationMillis = LIFECYCLE_DURATION_MILLIS,
+                        )
+                        is WorkflowLeaseLifecycleAction.RenewCurrent -> store.renew(
+                            currentCapability(), action.checkpointRevision, LIFECYCLE_DURATION_MILLIS,
+                        )
+                        is WorkflowLeaseLifecycleAction.RenewCurrentOldSnapshot -> store.renew(
+                            olderCurrentSnapshot(), action.checkpointRevision, LIFECYCLE_DURATION_MILLIS,
+                        )
+                        is WorkflowLeaseLifecycleAction.RenewStalePredecessor -> store.renew(
+                            predecessorCapability(action.targetGeneration),
+                            checkpointRevision = null,
+                            leaseDurationMillis = LIFECYCLE_DURATION_MILLIS,
+                        )
+                        is WorkflowLeaseLifecycleAction.RenewWrongOwner -> store.renew(
+                            currentCapability().copy(ownerId = "intruder"),
+                            checkpointRevision = null,
+                            leaseDurationMillis = LIFECYCLE_DURATION_MILLIS,
+                        )
+                        is WorkflowLeaseLifecycleAction.RenewForgedToken -> store.renew(
+                            currentCapability().copy(leaseId = "forged-token"),
+                            checkpointRevision = null,
+                            leaseDurationMillis = LIFECYCLE_DURATION_MILLIS,
+                        )
+                        WorkflowLeaseLifecycleAction.ReleaseCurrent -> {
+                            store.release(currentCapability())
+                            null
+                        }
+                        WorkflowLeaseLifecycleAction.ReleaseCurrentOldSnapshot -> {
+                            store.release(olderCurrentSnapshot())
+                            null
+                        }
+                        is WorkflowLeaseLifecycleAction.ReleaseStalePredecessor -> {
+                            store.release(predecessorCapability(action.targetGeneration))
+                            null
+                        }
+                        is WorkflowLeaseLifecycleAction.ReleaseWrongOwner -> {
+                            store.release(currentCapability().copy(ownerId = "intruder"))
+                            null
+                        }
+                        is WorkflowLeaseLifecycleAction.ReleaseForgedToken -> {
+                            store.release(currentCapability().copy(leaseId = "forged-token"))
+                            null
+                        }
+                        WorkflowLeaseLifecycleAction.AdvanceBeforeExpiry,
+                        WorkflowLeaseLifecycleAction.AdvanceToExactExpiry,
+                        WorkflowLeaseLifecycleAction.AdvancePastExpiry,
+                        -> {
+                            val next = (expected as WorkflowLeaseLifecycleOutcome.Success).next
+                            clock.set(next.now)
+                            null
+                        }
+                        WorkflowLeaseLifecycleAction.ObserveCurrent -> store.currentLease(workflowName, workflowId)
+                    }
+                }
+
+                val context = "seed=$seed step=$step action=${action.describe()} before=${before.describe()}"
+                when (expected) {
+                    is WorkflowLeaseLifecycleOutcome.Success -> {
+                        assertThat(actual.exceptionOrNull()).withFailMessage(context).isNull()
+                        when (action) {
+                            is WorkflowLeaseLifecycleAction.Claim -> {
+                                val returned = requireNotNull(actual.getOrNull())
+                                val expectedLease = requireNotNull(expected.next.current)
+                                val priorLeaseIds = bindings.values.flatten().map { it.leaseId }.toSet()
+                                assertThat(returned.leaseId)
+                                    .withFailMessage("$context must allocate a fresh generation token")
+                                    .isNotIn(priorLeaseIds)
+                                bindings.getOrPut(expectedLease.symbolicToken) { arrayListOf() }.add(returned)
+                                currentLeaseObject = returned
+                            }
+                            is WorkflowLeaseLifecycleAction.RenewCurrent,
+                            is WorkflowLeaseLifecycleAction.RenewCurrentOldSnapshot,
+                            -> {
+                                val returned = requireNotNull(actual.getOrNull())
+                                val expectedLease = requireNotNull(expected.next.current)
+                                bindings.getOrPut(expectedLease.symbolicToken) { arrayListOf() }.add(returned)
+                                currentLeaseObject = returned
+                            }
+                            WorkflowLeaseLifecycleAction.ReleaseCurrent,
+                            WorkflowLeaseLifecycleAction.ReleaseCurrentOldSnapshot,
+                            -> {
+                                assertThat(actual.getOrNull()).withFailMessage(context).isNull()
+                                currentLeaseObject = null
+                            }
+                            WorkflowLeaseLifecycleAction.AdvanceBeforeExpiry,
+                            WorkflowLeaseLifecycleAction.AdvanceToExactExpiry,
+                            WorkflowLeaseLifecycleAction.AdvancePastExpiry,
+                            -> if (expected.next.current == null) currentLeaseObject = null
+                            WorkflowLeaseLifecycleAction.ObserveCurrent -> Unit
+                            else -> error("$context unexpectedly succeeded")
+                        }
+                        model = expected.next
+                    }
+                    is WorkflowLeaseLifecycleOutcome.NoOp -> {
+                        assertThat(actual.exceptionOrNull()).withFailMessage(context).isNull()
+                        assertThat(actual.getOrNull()).withFailMessage(context).isNull()
+                        model = expected.next
+                        currentLeaseObject = null
+                    }
+                    is WorkflowLeaseLifecycleOutcome.Failure -> {
+                        assertThat(expected.kind).isEqualTo(WorkflowLeaseLifecycleFailureKind.CONFLICT)
+                        assertConflict(actual.exceptionOrNull())
+                        assertThat(store.currentLease(workflowName, workflowId))
+                            .withFailMessage("$context conflict must not mutate the current lease")
+                            .isEqualTo(storedBefore)
+                    }
+                }
+
+                val violations = model.invariants()
+                assertThat(violations)
+                    .withFailMessage("$context after=${model.describe()} violations=$violations")
+                    .isEmpty()
+                assertLifecycleStoreMatchesModel(
+                    store = store,
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    model = model,
+                    bindings = bindings,
+                    currentLeaseObject = currentLeaseObject,
+                    context = context,
+                )
+            }
+
+            if (model.current == null) {
+                assertThat(store.currentLease(workflowName, workflowId))
+                    .withFailMessage("seed=$seed terminal absent model must have no durable lease")
+                    .isNull()
+            }
+        }
+    }
+
+    @Test
+    fun `every predecessor stays fenced after multiple generations`() = runBlocking<Unit> {
+        val clock = MutableMillisClock()
+        val store = createStore(clock)
+        val name = "multi-generation-fence"
+        val id = "workflow"
+        val t1 = store.claim(name, id, "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(LIFECYCLE_DURATION_MILLIS + 1)
+        val t2 = store.claim(name, id, "worker-b", null, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(LIFECYCLE_DURATION_MILLIS + 1)
+        val t3 = store.claim(name, id, "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(LIFECYCLE_DURATION_MILLIS + 1)
+        val t4 = store.claim(name, id, "worker-b", null, LIFECYCLE_DURATION_MILLIS)
+
+        assertThat(store.currentLease(name, id)).isEqualTo(t4)
+        for (predecessor in listOf(t1, t2, t3)) {
+            assertConflict(runCatching {
+                store.renew(predecessor, checkpointRevision = 9, leaseDurationMillis = LIFECYCLE_DURATION_MILLIS)
+            }.exceptionOrNull())
+            assertConflict(runCatching { store.release(predecessor) }.exceptionOrNull())
+            assertThat(store.currentLease(name, id)).isEqualTo(t4)
+        }
+    }
+
+    @Test
+    fun `same owner reincarnation is a new generation`() = runBlocking<Unit> {
+        val clock = MutableMillisClock()
+        val store = createStore(clock)
+        val first = store.claim("same-owner-generation", "workflow", "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(LIFECYCLE_DURATION_MILLIS + 1)
+        val second = store.claim("same-owner-generation", "workflow", "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+
+        assertThat(second.leaseId).isNotEqualTo(first.leaseId)
+        assertConflict(runCatching {
+            store.renew(first, checkpointRevision = 1, leaseDurationMillis = LIFECYCLE_DURATION_MILLIS)
+        }.exceptionOrNull())
+        assertConflict(runCatching { store.release(first) }.exceptionOrNull())
+        assertThat(store.currentLease("same-owner-generation", "workflow")).isEqualTo(second)
+    }
+
+    @Test
+    fun `renewal does not create a new generation`() = runBlocking<Unit> {
+        val clock = MutableMillisClock()
+        val store = createStore(clock)
+        val claimed = store.claim("renew-generation", "workflow", "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(100)
+        val revisionOne = store.renew(claimed, 1, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(100)
+        val revisionSeven = store.renew(revisionOne, 7, LIFECYCLE_DURATION_MILLIS)
+        clock.advance(100)
+        val revisionNull = store.renew(revisionSeven, null, LIFECYCLE_DURATION_MILLIS)
+        val chain = listOf(claimed, revisionOne, revisionSeven, revisionNull)
+
+        assertThat(chain.map { it.leaseId }.toSet()).containsExactly(claimed.leaseId)
+        assertThat(chain.map { it.ownerId }.toSet()).containsExactly(claimed.ownerId)
+        assertThat(chain.map { it.acquiredAtEpochMillis }.toSet()).containsExactly(claimed.acquiredAtEpochMillis)
+        assertThat(chain.map { it.checkpointRevision }).containsExactly(null, 1L, 7L, null)
+        assertThat(chain.map { it.expiresAtEpochMillis }).containsExactly(
+            claimed.expiresAtEpochMillis,
+            claimed.expiresAtEpochMillis + 100,
+            claimed.expiresAtEpochMillis + 200,
+            claimed.expiresAtEpochMillis + 300,
+        )
+        assertThat(store.currentLease("renew-generation", "workflow")).isEqualTo(revisionNull)
+    }
+
+    // ── H. Lifecycle concurrency properties ────────────────────────
+
+    @Test
+    fun `concurrent renew versus release has one legal serialization`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val clock = MutableMillisClock()
+            val store = createStore(clock)
+            val name = "renew-release-$round"
+            val lease = store.claim(name, "workflow", "worker-a", null, LIFECYCLE_DURATION_MILLIS)
+            val outcomes: List<Result<WorkflowLease?>> = runInParallel(0 until 2) { index ->
+                if (index == 0) {
+                    runCatching { store.renew(lease, checkpointRevision = 1, leaseDurationMillis = LIFECYCLE_DURATION_MILLIS) }
+                } else {
+                    runCatching {
+                        store.release(lease)
+                        null
+                    }
+                }
+            }
+
+            assertThat(outcomes[1].isSuccess)
+                .withFailMessage("round $round: release must succeed, outcomes=$outcomes")
+                .isTrue()
+            if (outcomes[0].isFailure) assertConflict(outcomes[0].exceptionOrNull())
+            assertThat(store.currentLease(name, "workflow"))
+                .withFailMessage("round $round: renew must never resurrect after release")
+                .isNull()
+        }
+    }
+
+    @Test
+    fun `exact expiry takeover versus old release cannot destroy successor`() = runBlocking<Unit> {
+        repeat(20) { round ->
+            val clock = MutableMillisClock()
+            val store = createStore(clock)
+            val name = "takeover-release-$round"
+            val old = store.claim(name, "workflow", "worker-old", null, LIFECYCLE_DURATION_MILLIS)
+            clock.advance(LIFECYCLE_DURATION_MILLIS)
+            val outcomes: List<Result<WorkflowLease?>> = runInParallel(0 until 2) { index ->
+                if (index == 0) {
+                    runCatching {
+                        store.claim(name, "workflow", "worker-new", null, LIFECYCLE_DURATION_MILLIS)
+                    }
+                } else {
+                    runCatching {
+                        store.release(old)
+                        null
+                    }
+                }
+            }
+
+            assertThat(outcomes[0].isSuccess)
+                .withFailMessage("round $round: exact-expiry takeover must succeed, outcomes=$outcomes")
+                .isTrue()
+            if (outcomes[1].isFailure) assertConflict(outcomes[1].exceptionOrNull())
+            assertThat(store.currentLease(name, "workflow")?.ownerId)
+                .withFailMessage("round $round: old release must not destroy successor")
+                .isEqualTo("worker-new")
+        }
+    }
+
     // ── Parallel-race helper (shared pattern from #269-#273) ────────
 
     private suspend fun <T, R> runInParallel(
@@ -627,4 +939,38 @@ abstract class WorkflowLeaseStoreTck {
         range: IntRange,
         block: suspend (Int) -> R,
     ): List<R> = runInParallel(range.toList(), block)
+
+    private suspend fun assertLifecycleStoreMatchesModel(
+        store: WorkflowLeaseStore,
+        workflowName: String,
+        workflowId: String,
+        model: WorkflowLeaseLifecycleModel,
+        bindings: Map<String, List<WorkflowLease>>,
+        currentLeaseObject: WorkflowLease?,
+        context: String,
+    ) {
+        val actual = store.currentLease(workflowName, workflowId)
+        val expected = model.current
+        if (expected == null) {
+            assertThat(actual).withFailMessage("$context model=${model.describe()}").isNull()
+            assertThat(currentLeaseObject).withFailMessage("$context current tracker must be empty").isNull()
+            return
+        }
+
+        val bound = bindings[expected.symbolicToken]?.lastOrNull()
+        assertThat(bound).withFailMessage("$context missing binding for ${expected.symbolicToken}").isNotNull
+        assertThat(actual).withFailMessage("$context model=${model.describe()}").isNotNull
+        assertThat(actual?.workflowName).isEqualTo(workflowName)
+        assertThat(actual?.workflowId).isEqualTo(workflowId)
+        assertThat(actual?.leaseId).isEqualTo(bound?.leaseId)
+        assertThat(actual?.ownerId).isEqualTo(expected.ownerId)
+        assertThat(actual?.checkpointRevision).isEqualTo(expected.checkpointRevision)
+        assertThat(actual?.acquiredAtEpochMillis).isEqualTo(expected.acquiredAtEpochMillis)
+        assertThat(actual?.expiresAtEpochMillis).isEqualTo(expected.expiresAtEpochMillis)
+        assertThat(currentLeaseObject).withFailMessage("$context current tracker differs from store").isEqualTo(actual)
+    }
+
+    private companion object {
+        const val LIFECYCLE_DURATION_MILLIS: Long = 1_000
+    }
 }

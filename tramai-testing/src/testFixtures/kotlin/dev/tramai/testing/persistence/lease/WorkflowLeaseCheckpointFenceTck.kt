@@ -287,4 +287,96 @@ abstract class WorkflowLeaseCheckpointFenceTck {
         )
         assertThat(saved.revision).isEqualTo(2)
     }
+
+    // ── Lease-token lineage properties ─────────────────────────────
+
+    @Test
+    fun `fence authority follows token lineage across multiple generations`() = runBlocking<Unit> {
+        val h = newHarness()
+        val name = "fence-lineage"
+        val id = "workflow"
+        h.checkpointStore.save(checkpoint(name, id, revision = 1))
+        val t1 = h.leaseStore.claim(name, id, "worker-a", checkpointRevision = 1, leaseDurationMillis = 1_000)
+        h.clock.advance(1_001)
+        val t2 = h.leaseStore.claim(name, id, "worker-b", checkpointRevision = 1, leaseDurationMillis = 1_000)
+        h.clock.advance(1_001)
+        val t3 = h.leaseStore.claim(name, id, "worker-a", checkpointRevision = 1, leaseDurationMillis = 1_000)
+
+        val saved = h.fence.saveCheckpointIfLeaseOwner(
+            checkpointStore = h.checkpointStore,
+            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1),
+            expectedRevision = 1,
+            expectedLease = t3,
+        )
+        assertThat(saved.revision).isEqualTo(2)
+
+        assertStale(runCatching {
+            h.fence.saveCheckpointIfLeaseOwner(
+                checkpointStore = h.checkpointStore,
+                checkpoint = checkpoint(name, id, nextStepIndex = 9, revision = 2),
+                expectedRevision = 2,
+                expectedLease = t1,
+            )
+        }.exceptionOrNull())
+        assertThat(h.checkpointStore.load(name, id)?.nextStepIndex).isEqualTo(4)
+
+        assertStale(runCatching {
+            h.fence.deleteCheckpointIfLeaseOwner(
+                checkpointStore = h.checkpointStore,
+                workflowName = name,
+                workflowId = id,
+                expectedRevision = 2,
+                expectedLease = t2,
+            )
+        }.exceptionOrNull())
+        assertThat(h.checkpointStore.load(name, id)?.nextStepIndex).isEqualTo(4)
+        assertThat(h.leaseStore.currentLease(name, id)).isEqualTo(t3)
+    }
+
+    @Test
+    fun `exact expiry takeover atomically invalidates predecessor fence`() = runBlocking<Unit> {
+        val h = newHarness()
+        val name = "exact-expiry-fence"
+        val id = "workflow"
+        h.checkpointStore.save(checkpoint(name, id, revision = 1))
+        val old = h.leaseStore.claim(name, id, "worker-old", checkpointRevision = 1, leaseDurationMillis = 1_000)
+        h.clock.advance(1_000)
+        val successor = h.leaseStore.claim(name, id, "worker-new", checkpointRevision = 1, leaseDurationMillis = 1_000)
+
+        assertStale(runCatching {
+            h.fence.saveCheckpointIfLeaseOwner(
+                checkpointStore = h.checkpointStore,
+                checkpoint = checkpoint(name, id, nextStepIndex = 9, revision = 1),
+                expectedRevision = 1,
+                expectedLease = old,
+            )
+        }.exceptionOrNull())
+        assertThat(h.checkpointStore.load(name, id)?.nextStepIndex).isEqualTo(3)
+
+        assertStale(runCatching {
+            h.fence.deleteCheckpointIfLeaseOwner(
+                checkpointStore = h.checkpointStore,
+                workflowName = name,
+                workflowId = id,
+                expectedRevision = 1,
+                expectedLease = old,
+            )
+        }.exceptionOrNull())
+        assertThat(h.checkpointStore.load(name, id)?.nextStepIndex).isEqualTo(3)
+
+        // Advance the clock before the successor's fenced save: the fence must
+        // never extend the lease, so the successor's expiry must remain
+        // exactly its claim-time expiry (M20: a fence that rewrote expiresAt
+        // from the CURRENT clock would shift it and break the equality).
+        h.clock.advance(250)
+        val saved = h.fence.saveCheckpointIfLeaseOwner(
+            checkpointStore = h.checkpointStore,
+            checkpoint = checkpoint(name, id, nextStepIndex = 4, revision = 1),
+            expectedRevision = 1,
+            expectedLease = successor,
+        )
+        assertThat(saved.revision).isEqualTo(2)
+        assertThat(h.checkpointStore.load(name, id)?.nextStepIndex).isEqualTo(4)
+        assertThat(h.leaseStore.currentLease(name, id)).isEqualTo(successor)
+    }
 }
