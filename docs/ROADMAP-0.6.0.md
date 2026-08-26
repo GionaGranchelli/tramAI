@@ -1401,6 +1401,15 @@ repair feedback. No layer maintains its own independent fixture lists.
 - Every module has a documented reason to exist.
 - CI rejects dependency cycles and forbidden layer edges.
 
+### Status: ✅ Complete
+
+- **AC1** (publishability not via hand-written lists) — ✅ PR #298 (manifest-derived publishing/BOM, `verifyModuleManifest` in `verifyPr`).
+- **AC2** (documented reason to exist) — ✅ PRs #298, #304 (specific rationale for all 58 modules).
+- **AC3** (cycles + forbidden edges rejected in CI) — ✅ PR #298 (M1–M8 mutation suite).
+- **Tasks 1–4** — ✅ PR #298.
+- **Task 5** (overlap review) — ✅ PR #300: 58/58 modules reviewed, 49 KEEP / 9 CLARIFY / 0 CONSOLIDATE.
+- **Task 6** (consolidation) — ✅ PR #300: reviewed; no consolidation improves ownership/dependency clarity sufficiently to justify compatibility and churn costs. The 9 CLARIFY findings were resolved without consolidation: JDBC release-surface correction (PR #303) + rationale clarity (PR #304).
+
 ---
 
 ## Epic 9.2: Move build logic into `build-logic`
