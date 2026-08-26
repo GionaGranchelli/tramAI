@@ -152,6 +152,7 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         runBlocking {
             var now = 0L
             var calls = 0
+            val observation = RecordingObservation()
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
             val coordinator = coordinator(
                 plan = plan(FakeProvider {
@@ -159,12 +160,14 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                     throw ProviderException("always down", retryable = true)
                 }),
                 breaker = breaker,
+                observation = observation,
             )
 
             // First call fails retryably -> OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
                 .isInstanceOf(ProviderException::class.java)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
+            assertThat(observation.events.map { it.first }.filter { it == "tramai.circuit.opened" }).hasSize(1)
 
             // At exact expiry the sync coordinator is admitted as the HALF_OPEN
             // probe; its qualifying failure must immediately reopen with a fresh
@@ -173,12 +176,17 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
                 .isInstanceOf(ProviderException::class.java)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
+            // A qualifying probe failure is a breaker TRIP: exactly one more
+            // CIRCUIT_OPENED event. (An abandoned/neutral probe would reopen
+            // WITHOUT the event — this discriminates the two paths.)
+            assertThat(observation.events.map { it.first }.filter { it == "tramai.circuit.opened" }).hasSize(2)
 
             // A call at the new deadline is again admitted (probe cycles continue).
             now = 200
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
                 .isInstanceOf(ProviderException::class.java)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
+            assertThat(observation.events.map { it.first }.filter { it == "tramai.circuit.opened" }).hasSize(3)
         }
     }
 
@@ -502,10 +510,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         plan: ProviderRoutingPlan,
         breaker: ProviderCircuitBreaker,
         sanitizer: ProviderResponseSanitizer = ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+        observation: RecordingObservation = RecordingObservation(),
     ): ProviderExecutionCoordinator {
-        val observer = dev.tramai.core.observation.OperationObserver { RecordingObservation() }
         val attempt = executor(
-            observation = RecordingObservation(),
+            observation = observation,
             circuitBreaker = breaker,
             sanitizer = sanitizer,
         )
