@@ -24,7 +24,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version><version></version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
