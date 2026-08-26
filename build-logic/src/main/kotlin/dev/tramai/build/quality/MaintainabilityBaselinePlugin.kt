@@ -816,28 +816,39 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyModuleManifest") {
             group = "verification"
-            description = "Verifies manifest/project, publishing, and BOM membership equality"
+            description = "Verifies manifest/settings equality and publishing/BOM membership against independent Gradle model signals"
             doLast {
                 val catalog = ModuleManifest.catalog(project.rootDir)
-                val diagnostics = mutableListOf<VerificationDiagnostic>()
-                ModuleCatalog(project.rootDir).validateAgainstProjects(
-                    catalog.modules,
-                    project.allprojects.filter { it != project && it.buildFile.exists() }.map { it.path },
-                    diagnostics
-                )
-                val expectedPublished = ModuleManifest.publishableModulePaths(project.rootDir).toSet()
+                // Independent signal 1: the actual Gradle project model (settings ↔ manifest).
+                val actualProjects = project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .map { it.path }
+                    .toSet()
+                // Independent signal 2: the publication set the build actually wires into
+                // release tasks. In this build publishing is DERIVED from the manifest, so
+                // the check is a regression lock: it fires if the derivation is replaced
+                // by a literal list or the two disagree.
                 val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
                     ?.map { it.toString() }?.toSet().orEmpty()
-                if (actualPublished != expectedPublished) diagnostics += VerificationDiagnostic.failure(
-                    DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
-                    "Publishing drift: build publishes ${actualPublished.sorted()} but manifest requires ${expectedPublished.sorted()}"
-                )
-                val expectedBom = ModuleManifest.bomModulePaths(project.rootDir).toSet()
-                val actualBom = (project.extensions.extraProperties.properties["tramai.bomModulePaths"] as? Collection<*>)
-                    ?.map { it.toString() }?.toSet().orEmpty()
-                if (actualBom != expectedBom) diagnostics += VerificationDiagnostic.failure(
-                    DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
-                    "BOM drift: build constrains ${actualBom.sorted()} but manifest requires ${expectedBom.sorted()}"
+                // Independent signal 3: the BOM's ACTUAL configured constraint graph, read
+                // from Gradle's model of tramai-bom's api configuration (not from a manifest
+                // round-trip).
+                val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
+                val actualBom = bomProject
+                    ?.configurations
+                    ?.findByName("api")
+                    ?.dependencyConstraints
+                    .orEmpty()
+                    .mapNotNull { constraint ->
+                        val name = constraint.name
+                        if (name.startsWith("tramai-") || name.startsWith("examples:")) ":$name" else null
+                    }
+                    .toSet()
+                val diagnostics = ModuleManifestVerifier.verify(
+                    catalogModules = catalog.modules,
+                    projectPaths = actualProjects,
+                    publishedPaths = actualPublished,
+                    bomPaths = actualBom,
                 )
                 if (diagnostics.isNotEmpty()) throw GradleException(diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" })
             }
