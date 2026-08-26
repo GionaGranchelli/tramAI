@@ -14,10 +14,13 @@ class WorkflowRecoveryStateException(
 /**
  * Controller for resolving workflows in [WorkflowRecoveryState.Required] state.
  *
- * All methods are fenced by [expectedRevision] — if the checkpoint's revision
- * has changed since it was loaded, the operation throws [WorkflowCheckpointConflictException].
- * If the checkpoint is not in [WorkflowRecoveryState.Required] state, the operation
- * throws [WorkflowRecoveryStateException].
+ * All methods are fenced by [expectedRevision] and [expectedGeneration] — if either
+ * has changed since the checkpoint was loaded, the operation throws
+ * [WorkflowCheckpointConflictException]. The generation fence ensures an operator
+ * command authorized against one incarnation can never act on a recreated
+ * incarnation that reuses the same revision number. If the checkpoint is not in
+ * [WorkflowRecoveryState.Required] state, the operation throws
+ * [WorkflowRecoveryStateException].
  *
  * NOTE: [confirmCompleted] is intentionally omitted from this PR. Safely advancing
  * a workflow past an unknown step without re-executing requires reconstructing or
@@ -40,7 +43,7 @@ interface WorkflowRecoveryController {
      * approval can never authorize an unspecified future key.
      *
      * @return the checkpoint after clearing recovery (revision advanced by one).
-     * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
+     * @throws WorkflowCheckpointConflictException if [expectedRevision] or [expectedGeneration] is stale.
      * @throws WorkflowRecoveryStateException if the checkpoint is not in [WorkflowRecoveryState.Required],
      * if the recovery reason is not retryable, if no [StepAttemptRecordStore] is configured,
      * or if the referenced unresolved attempt cannot be found — in every case the checkpoint
@@ -50,6 +53,7 @@ interface WorkflowRecoveryController {
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
     ): WorkflowCheckpoint
 
@@ -64,6 +68,7 @@ interface WorkflowRecoveryController {
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
         approvedIdempotencyKey: String,
     ): WorkflowCheckpoint
@@ -78,13 +83,14 @@ interface WorkflowRecoveryController {
      * reason is not persisted (documented limitation). Calling [retryStep] after
      * [failWorkflow] is not possible because the checkpoint no longer exists.
      *
-     * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
+     * @throws WorkflowCheckpointConflictException if [expectedRevision] or [expectedGeneration] is stale.
      * @throws WorkflowRecoveryStateException if the checkpoint is not in [WorkflowRecoveryState.Required].
      */
     suspend fun failWorkflow(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
     )
 }
@@ -117,11 +123,13 @@ class InMemoryWorkflowRecoveryController(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
     ): WorkflowCheckpoint = retryStepInternal(
         workflowName = workflowName,
         workflowId = workflowId,
         expectedRevision = expectedRevision,
+        expectedGeneration = expectedGeneration,
         reason = reason,
         approvedIdempotencyKey = null,
     )
@@ -130,6 +138,7 @@ class InMemoryWorkflowRecoveryController(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
         approvedIdempotencyKey: String,
     ): WorkflowCheckpoint {
@@ -138,6 +147,7 @@ class InMemoryWorkflowRecoveryController(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = expectedGeneration,
             reason = reason,
             approvedIdempotencyKey = approvedIdempotencyKey,
         )
@@ -147,16 +157,22 @@ class InMemoryWorkflowRecoveryController(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
         approvedIdempotencyKey: String?,
     ): WorkflowCheckpoint {
-        val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
+        val (checkpoint, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision, expectedGeneration)
         if (record.reason == WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING ||
             record.reason == WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH
         ) {
             if (!approvedIdempotencyKey.isNullOrBlank()) {
                 approveAttemptForRetry(workflowName, workflowId, record, reason, approvedIdempotencyKey)
-                return checkpointStore.clearRecovery(workflowName, workflowId, expectedRevision)
+                return checkpointStore.clearRecovery(
+                    workflowName,
+                    workflowId,
+                    expectedRevision,
+                    checkpoint.checkpointGeneration,
+                )
             }
             throw WorkflowRecoveryStateException(
                 "Cannot retry workflow '$workflowName'/'$workflowId': recovery reason ${record.reason} " +
@@ -168,6 +184,7 @@ class InMemoryWorkflowRecoveryController(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = checkpoint.checkpointGeneration,
         )
     }
 
@@ -175,15 +192,17 @@ class InMemoryWorkflowRecoveryController(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
         reason: String,
     ) {
-        val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
+        val (checkpoint, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision, expectedGeneration)
         // Delete directly with the ORIGINAL revision. If this fails, the checkpoint
         // stays in Required and the workflow stays blocked — the safe behavior.
         checkpointStore.delete(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
+            expectedGeneration = checkpoint.checkpointGeneration,
         )
         // Best-effort evidence only AFTER a successful delete — never write
         // "resolved: failed" for a workflow that is still in Required state.
@@ -192,21 +211,31 @@ class InMemoryWorkflowRecoveryController(
 
     /**
      * Loads the checkpoint and validates it is eligible for a recovery-resolution
-     * operation: it exists, its revision matches [expectedRevision], and its recovery
-     * state is [WorkflowRecoveryState.Required].
+     * operation: it exists, its revision matches [expectedRevision], its generation
+     * matches [expectedGeneration], and its recovery state is
+     * [WorkflowRecoveryState.Required].
+     *
+     * The generation check is load-bearing: an operator command authorized against
+     * one incarnation (G1/r2) must never act on a recreated incarnation that
+     * reuses the same revision number (G2/r2). The controller must not adopt the
+     * current checkpoint's generation on behalf of a caller that only possesses
+     * an old revision — that would transform stale authority into fresh authority.
      */
     private suspend fun loadRequiredCheckpoint(
         workflowName: String,
         workflowId: String,
         expectedRevision: Long,
+        expectedGeneration: String?,
     ): Pair<WorkflowCheckpoint, WorkflowRecoveryRecord> {
         val checkpoint = checkpointStore.load(workflowName, workflowId)
             ?: throw WorkflowCheckpointConflictException(
                 "Checkpoint does not exist for workflow '$workflowName'/'$workflowId' at expected revision $expectedRevision",
             )
-        if (checkpoint.revision != expectedRevision) {
+        if (checkpoint.revision != expectedRevision || checkpoint.checkpointGeneration != expectedGeneration) {
             throw WorkflowCheckpointConflictException(
-                "Checkpoint for workflow '$workflowName'/'$workflowId' is at revision ${checkpoint.revision}, not expected revision $expectedRevision",
+                "Checkpoint for workflow '$workflowName'/'$workflowId' is at revision ${checkpoint.revision} " +
+                    "generation ${checkpoint.checkpointGeneration}, not expected revision $expectedRevision " +
+                    "generation $expectedGeneration",
             )
         }
         val record = (checkpoint.recoveryState as? WorkflowRecoveryState.Required)?.record

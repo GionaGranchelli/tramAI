@@ -67,6 +67,7 @@ interface WorkflowLeaseCheckpointFence {
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String? = null,
     )
 }
 /**
@@ -259,6 +260,7 @@ class InMemoryWorkflowLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
         validateFenceIdentity(expectedLease, workflowName, workflowId)
         persistenceBoundary(PersistenceResourceKind.LEASE, PersistenceOperation.DELETE, persistenceFailureDiagnosticObserver) { leaseMutex.withLock {
@@ -266,7 +268,7 @@ class InMemoryWorkflowLeaseStore(
                 activeLease(workflowName, workflowId)
             }
             validateExpectedLease(expectedLease, current)
-            checkpointStore.delete(workflowName, workflowId, expectedRevision)
+            checkpointStore.delete(workflowName, workflowId, expectedRevision, expectedGeneration)
         } }
     }
 

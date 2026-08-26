@@ -214,12 +214,12 @@ public final class dev/tramai/orchestration/FileWorkflowCheckpointStore : dev/tr
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Ldev/tramai/orchestration/AtomicFileWriter;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
-	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
@@ -230,7 +230,7 @@ public final class dev/tramai/orchestration/FileWorkflowLeaseStore : dev/tramai/
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -335,16 +335,16 @@ public final class dev/tramai/orchestration/HttpStepConfig {
 public final class dev/tramai/orchestration/InMemoryWorkflowCheckpointStore : dev/tramai/orchestration/StepAttemptRecordStore, dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
 	public fun <init> ()V
 	public fun <init> (Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
-	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
@@ -356,7 +356,7 @@ public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tra
 	public fun <init> (Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun listActiveWorkers (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listStaleWorkers (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -371,9 +371,9 @@ public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tra
 public final class dev/tramai/orchestration/InMemoryWorkflowRecoveryController : dev/tramai/orchestration/WorkflowRecoveryController {
 	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;)V
 	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/JdbcStepAttemptRecordStore : dev/tramai/orchestration/StepAttemptRecordStore {
@@ -442,24 +442,26 @@ public final class dev/tramai/orchestration/JdbcWorkflowCheckpointStore : dev/tr
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
-	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun checkpointGenerationMigrationSql ()Ljava/lang/String;
+	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
-	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun migrationSql ()Ljava/lang/String;
-	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/JdbcWorkflowCheckpointTable {
 	public fun <init> ()V
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/String;
 	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
@@ -468,9 +470,10 @@ public final class dev/tramai/orchestration/JdbcWorkflowCheckpointTable {
 	public final fun component7 ()Ljava/lang/String;
 	public final fun component8 ()Ljava/lang/String;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
-	public static synthetic fun copy$default (Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCheckpointGenerationColumn ()Ljava/lang/String;
 	public final fun getLastCompletedStepNameColumn ()Ljava/lang/String;
 	public final fun getMetadataColumn ()Ljava/lang/String;
 	public final fun getNextStepIndexColumn ()Ljava/lang/String;
@@ -493,7 +496,7 @@ public final class dev/tramai/orchestration/JdbcWorkflowLeaseStore : dev/tramai/
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -561,11 +564,11 @@ public final class dev/tramai/orchestration/MarkdownWorkflowCheckpointStore : de
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
-	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
@@ -1175,10 +1178,11 @@ public final class dev/tramai/orchestration/WorkflowBuilder : dev/tramai/orchest
 }
 
 public final class dev/tramai/orchestration/WorkflowCheckpoint {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ldev/tramai/orchestration/WorkflowRecoveryState;
+	public final fun component11 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()I
 	public final fun component4 ()I
@@ -1187,9 +1191,10 @@ public final class dev/tramai/orchestration/WorkflowCheckpoint {
 	public final fun component7 ()J
 	public final fun component8 ()Ljava/util/Map;
 	public final fun component9 ()J
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;)Ldev/tramai/orchestration/WorkflowCheckpoint;
-	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;ILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowCheckpoint;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;Ljava/lang/String;)Ldev/tramai/orchestration/WorkflowCheckpoint;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JLdev/tramai/orchestration/WorkflowRecoveryState;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowCheckpoint;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCheckpointGeneration ()Ljava/lang/String;
 	public final fun getLastCompletedStepName ()Ljava/lang/String;
 	public final fun getMetadata ()Ljava/util/Map;
 	public final fun getNextStepIndex ()I
@@ -1225,21 +1230,25 @@ public abstract interface class dev/tramai/orchestration/WorkflowCheckpointPathS
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowCheckpointStore {
-	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun clearRecovery$suspendImpl (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun clearRecovery$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun clearRecovery$suspendImpl (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun requireRecovery$suspendImpl (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun requireRecovery (Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun requireRecovery$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun requireRecovery$suspendImpl (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun save$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/WorkflowCheckpointStore$DefaultImpls {
-	public static fun clearRecovery (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static fun requireRecovery (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun clearRecovery (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun clearRecovery$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static fun requireRecovery (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun requireRecovery$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;JLdev/tramai/orchestration/WorkflowRecoveryRecord;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun save$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
@@ -1316,8 +1325,13 @@ public final class dev/tramai/orchestration/WorkflowLease {
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowLeaseCheckpointFence {
-	public abstract fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun deleteCheckpointIfLeaseOwner$default (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowLeaseCheckpointFence$DefaultImpls {
+	public static synthetic fun deleteCheckpointIfLeaseOwner$default (Ldev/tramai/orchestration/WorkflowLeaseCheckpointFence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/WorkflowLeaseConflictException : java/lang/RuntimeException {
@@ -1417,9 +1431,9 @@ public final class dev/tramai/orchestration/WorkflowPersistenceFailureException 
 }
 
 public abstract interface class dev/tramai/orchestration/WorkflowRecoveryController {
-	public abstract fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/WorkflowRecoveryReason : java/lang/Enum {

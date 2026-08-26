@@ -32,6 +32,7 @@ class WorkflowCheckpointStoreTest {
                         nextStepIndex = 2,
                         stepExecutions = 2,
                         lastCompletedStepName = "review",
+                        checkpointGeneration = first.checkpointGeneration,
                     ),
                     expectedRevision = first.revision,
                 )
@@ -43,7 +44,7 @@ class WorkflowCheckpointStoreTest {
             assertThatThrownBy {
                 runBlocking {
                     store.save(
-                        checkpoint.copy(nextStepIndex = 3),
+                        checkpoint.copy(nextStepIndex = 3, checkpointGeneration = first.checkpointGeneration),
                         expectedRevision = first.revision,
                     )
                 }
@@ -56,6 +57,7 @@ class WorkflowCheckpointStoreTest {
                     workflowName = "file-workflow",
                     workflowId = "wf-1",
                     expectedRevision = second.revision,
+                    expectedGeneration = second.checkpointGeneration,
                 )
             }
             assertThat(runBlocking { store.load("file-workflow", "wf-1") }).isNull()
@@ -151,6 +153,7 @@ class WorkflowCheckpointStoreTest {
                     stepExecutions = 2,
                     lastCompletedStepName = "review",
                     statePayload = "state-2",
+                    checkpointGeneration = first.checkpointGeneration,
                 ),
                 expectedRevision = first.revision,
             )
@@ -164,7 +167,7 @@ class WorkflowCheckpointStoreTest {
         assertThatThrownBy {
             runBlocking {
                 store.save(
-                    checkpoint.copy(nextStepIndex = 3),
+                    checkpoint.copy(nextStepIndex = 3, checkpointGeneration = first.checkpointGeneration),
                     expectedRevision = first.revision,
                 )
             }
@@ -178,6 +181,7 @@ class WorkflowCheckpointStoreTest {
                     workflowName = "jdbc-workflow",
                     workflowId = "wf-jdbc",
                     expectedRevision = first.revision,
+                    expectedGeneration = first.checkpointGeneration,
                 )
             }
         }
@@ -189,6 +193,7 @@ class WorkflowCheckpointStoreTest {
                 workflowName = "jdbc-workflow",
                 workflowId = "wf-jdbc",
                 expectedRevision = second.revision,
+                expectedGeneration = second.checkpointGeneration,
             )
         }
         assertThat(runBlocking { store.load("jdbc-workflow", "wf-jdbc") }).isNull()
@@ -277,15 +282,20 @@ private class FakeJdbcBackend {
                 metadata = decodeMetadata(parameters[8] as String),
                 savedAtEpochMillis = parameters[9] as Long,
                 recoveryState = deserializeTestRecoveryState(parameters[10] as? String),
+                checkpointGeneration = parameters[11] as? String,
             )
             rows[checkpoint.workflowName to checkpoint.workflowId] = checkpoint
             1
         }
         normalizedSql.startsWith("UPDATE") -> {
-            val key = (parameters[9] as String) to (parameters[10] as String)
+            val key = (parameters[10] as String) to (parameters[11] as String)
             val existing = rows[key] ?: return 0
-            val expectedRevision = parameters[11] as Long
+            val expectedRevision = parameters[12] as Long
+            val expectedGeneration = parameters[13] as? String
             if (existing.revision != expectedRevision) {
+                return 0
+            }
+            if (expectedGeneration != null && existing.checkpointGeneration != expectedGeneration) {
                 return 0
             }
             rows[key] = existing.copy(
@@ -297,6 +307,7 @@ private class FakeJdbcBackend {
                 metadata = decodeMetadata(parameters[6] as String),
                 savedAtEpochMillis = parameters[7] as Long,
                 recoveryState = deserializeTestRecoveryState(parameters[8] as? String),
+                checkpointGeneration = parameters[9] as? String,
             )
             1
         }
@@ -304,7 +315,11 @@ private class FakeJdbcBackend {
             val key = (parameters[1] as String) to (parameters[2] as String)
             val existing = rows[key] ?: return 0
             val expectedRevision = parameters[3] as Long?
+            val expectedGeneration = parameters[4] as? String
             if (expectedRevision != null && existing.revision != expectedRevision) {
+                return 0
+            }
+            if (expectedGeneration != null && existing.checkpointGeneration != expectedGeneration) {
                 return 0
             }
             rows.remove(key)
@@ -356,6 +371,7 @@ private fun WorkflowCheckpoint.stringValue(column: Any?): String? = when (column
             )
         }
     }
+    "checkpoint_generation" -> checkpointGeneration
     else -> error("Unsupported column '$column'")
 }
 private fun WorkflowCheckpoint.intValue(column: Any?): Int = when (column) {

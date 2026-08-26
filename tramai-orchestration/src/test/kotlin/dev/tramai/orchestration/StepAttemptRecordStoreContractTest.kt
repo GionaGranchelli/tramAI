@@ -181,9 +181,13 @@ abstract class StepAttemptRecordStoreContractTest {
         runBlocking {
             val checkpointStore = InMemoryWorkflowCheckpointStore()
             val record = fullRecord().copy(resolutionAction = StepAttemptResolutionAction.WORKFLOW_FAILED)
-            checkpointStore.save(testCheckpoint(record.runId))
+            val persisted = checkpointStore.save(testCheckpoint(record.runId))
             store.recordStepAttempt(record)
-            checkpointStore.delete("workflow", record.runId, expectedRevision = 1)
+            checkpointStore.delete(
+                "workflow", record.runId,
+                expectedRevision = persisted.revision,
+                expectedGeneration = persisted.checkpointGeneration,
+            )
             assertThat(checkpointStore.load("workflow", record.runId)).isNull()
             assertThat(store.listStepAttempts(record.runId)).containsExactly(record)
         }

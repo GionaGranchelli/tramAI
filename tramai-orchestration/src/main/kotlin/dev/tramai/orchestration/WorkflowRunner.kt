@@ -138,6 +138,11 @@ internal class WorkflowRunner<S, R>(
             ?: throw WorkflowResumeException(
                 "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
             )
+        if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
+            throw WorkflowRecoveryStateException(
+                "Workflow '$name'/'${context.workflowId}' is in Required recovery state and cannot be resumed",
+            )
+        }
         if (checkpoint.nextStepIndex < 0 || checkpoint.nextStepIndex > steps.size) {
             throw WorkflowResumeException(
                 "Checkpoint for workflow '$name' and workflowId='${context.workflowId}' has invalid nextStepIndex=${checkpoint.nextStepIndex}; valid range is 0..${steps.size}",
@@ -172,6 +177,7 @@ internal class WorkflowRunner<S, R>(
             context = context,
             observer = isolatedObserver,
             initialRevision = checkpoint.revision,
+            initialGeneration = checkpoint.checkpointGeneration,
             workflowDefinitionCompatibility = definitionCompatibility,
         )
         return try {

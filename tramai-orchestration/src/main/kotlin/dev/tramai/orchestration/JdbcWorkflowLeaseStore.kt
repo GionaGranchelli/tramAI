@@ -168,6 +168,7 @@ class JdbcWorkflowLeaseStore(
         workflowId: String,
         expectedRevision: Long?,
         expectedLease: WorkflowLease,
+        expectedGeneration: String?,
     ) {
         validateFenceIdentity(expectedLease, workflowName, workflowId)
         val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
@@ -185,7 +186,13 @@ class JdbcWorkflowLeaseStore(
             // Same diagnostic-ownership split as saveCheckpointIfLeaseOwner:
             // checkpoint DML failures go to the checkpoint store's observer.
             try {
-                jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
+                jdbcCheckpointStore.deleteInConnection(
+                    conn,
+                    workflowName,
+                    workflowId,
+                    expectedRevision,
+                    expectedGeneration,
+                )
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 throw CheckpointDmlFailure(error)
