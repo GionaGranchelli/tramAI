@@ -80,7 +80,7 @@ dependencies {
 </dependencies>
 ```
 
-If your app is Spring Boot, swap `tramai-standalone` for `tramai-spring`.
+If your app is Spring Boot, swap `tramai-standalone` for `tramai-spring-boot-starter` and `tramai-openai` for `tramai-spring-provider-openai`, and import the current BOM version (`tramai-bom:<version>` in Gradle, `<version>TRAMAI_VERSION</version>` in Maven) — the unified Spring starter is not part of the 0.5.0 BOM.
 
 ## Step 2: Start With A Raw String Operation
 

@@ -17,7 +17,7 @@ Gradle:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -31,7 +31,7 @@ Maven:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -98,9 +98,9 @@ Gradle:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-spring")
-    implementation("dev.tramai:tramai-openai")
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
+    implementation("dev.tramai:tramai-spring-boot-starter")
+    implementation("dev.tramai:tramai-spring-provider-openai")
 }
 ```
 
@@ -112,7 +112,7 @@ Maven:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -122,11 +122,11 @@ Maven:
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
@@ -186,6 +186,6 @@ Once the basic path works, the usual next steps are:
 Use this minimum-default rule:
 
 - non-Spring: `tramai-standalone` + one provider
-- Spring Boot: `tramai-spring` + one provider
+- Spring Boot: `tramai-spring-boot-starter` + one provider adapter
 
 Everything else is additive.

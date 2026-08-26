@@ -34,7 +34,7 @@ Most first-time users get blocked here, so make the decision in this order.
 ### 1. Choose your runtime style
 
 - use `tramai-standalone` for CLI apps, background workers, and non-Spring services
-- use `tramai-spring` for Spring Boot applications
+- use `tramai-spring-boot-starter` for Spring Boot applications
 
 Do not start with `tramai-core` unless you are extending TramAI itself. It is a low-level module, not the normal entry point for application code.
 
@@ -45,6 +45,8 @@ Add exactly the provider module you plan to call:
 - `tramai-openai`
 - `tramai-anthropic`
 - `tramai-ollama`
+
+For Spring Boot, add the matching Spring provider adapter instead (`tramai-spring-provider-openai`, `tramai-spring-provider-anthropic`, or `tramai-spring-provider-ollama`).
 
 ### 3. Add optional modules only when you need them
 
@@ -62,7 +64,7 @@ Standalone + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -72,9 +74,9 @@ Spring Boot + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-spring")
-    implementation("dev.tramai:tramai-openai")
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
+    implementation("dev.tramai:tramai-spring-boot-starter")
+    implementation("dev.tramai:tramai-spring-provider-openai")
 }
 ```
 
@@ -82,7 +84,7 @@ Standalone + Ollama:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -98,7 +100,7 @@ Import the BOM:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -128,12 +130,12 @@ Spring Boot + OpenAI:
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
 
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
@@ -186,7 +188,7 @@ Use this when you are not sure what to add:
 | Goal | Modules |
 | --- | --- |
 | Plain JVM app | `tramai-standalone` + one provider |
-| Spring Boot app | `tramai-spring` + one provider |
+| Spring Boot app | `tramai-spring-boot-starter` + one provider adapter |
 | Structured output | already included in normal runtime paths |
 | OTel observability | add `tramai-observability` |
 | Workflow orchestration | add `tramai-orchestration` |

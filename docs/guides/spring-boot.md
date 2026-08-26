@@ -12,7 +12,7 @@ Add the starter to your app and configure at least one provider.
 dependencies {
     implementation(platform("dev.tramai:tramai-bom:<version>"))
     implementation("dev.tramai:tramai-spring-boot-starter")
-    implementation("dev.tramai:tramai-openai")
+    implementation("dev.tramai:tramai-spring-provider-openai")
 }
 ```
 
@@ -38,10 +38,12 @@ dependencies {
   </dependency>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
+
+Property-driven provider configuration comes from dedicated Spring adapter modules: `tramai-spring-provider-openai` (OpenAI and OpenAI-compatible endpoints), `tramai-spring-provider-anthropic` (Anthropic), and `tramai-spring-provider-ollama` (local Ollama). Add the adapter matching the provider you configure — the raw `tramai-openai` / `tramai-anthropic` / `tramai-ollama` modules are provider implementations, not Spring property adapters.
 
 ### Application code
 
@@ -224,6 +226,8 @@ Built-in reference schemes are:
 - `file:/absolute/path/to/secret.txt`
 - `vault:path[#field]` when `tramai.secrets.vault.enabled=true`
 - `aws-secretsmanager:secret-id[#field]` when `tramai.secrets.aws-secrets-manager.enabled=true`
+
+The `vault:` and `aws-secretsmanager:` schemes are provided by dedicated Spring modules: add `tramai-spring-secrets-vault` for `vault:` references and `tramai-spring-secrets-aws` for `aws-secretsmanager:` references. Without the matching module on the classpath, the scheme is not resolvable.
 
 Example:
 

@@ -18,7 +18,8 @@ The important distinction is not just module name, but module tier:
 - `tramai-ollama`: Ollama provider implementation
 - `tramai-openai`: OpenAI and OpenAI-compatible provider implementation
 - `tramai-standalone`: minimal framework-free entry point and builder APIs
-- `tramai-spring`: Spring Boot autoconfiguration and bean registration
+- `tramai-spring-boot-starter`: unified Spring Boot starter composing `tramai-spring-core` (standard) and `tramai-spring-sovereign` (sovereign); `tramai.profile` selects the runtime
+- `tramai-spring`: legacy Spring facade over `tramai-spring-core`; not the onboarding entry point
 - `tramai-testing`: mock providers, assertion helpers, and test support
 - `tramai-bom`: BOM for consumer dependency management
 - `tramai-memory`: bounded conversation memory implementations

@@ -44,7 +44,7 @@ Register every `@AiService` interface that TramAI will instantiate in the native
 That usually means:
 
 - application service interfaces used through `Tramai.create(...)`
-- Spring-discovered `@AiService` interfaces if you use `tramai-spring`
+- Spring-discovered `@AiService` interfaces if you use `tramai-spring-boot-starter`
 
 ## Minimal Workflow
 
@@ -86,7 +86,7 @@ It does not attempt to solve every native-image concern in an application. Your 
 
 ## Spring Note
 
-If you use `tramai-spring`, register the same `@AiService` interfaces that Spring will ask TramAI to instantiate.
+If you use `tramai-spring-boot-starter`, register the same `@AiService` interfaces that Spring will ask TramAI to instantiate.
 
 The important rule is the same in standalone and Spring usage:
 
