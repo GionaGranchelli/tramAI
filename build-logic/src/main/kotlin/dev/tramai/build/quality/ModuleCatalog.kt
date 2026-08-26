@@ -12,7 +12,7 @@ enum class ModuleLayer(val yaml: String) {
 }
 enum class ModuleMaturity(val yaml: String) { STABLE("stable"), PREVIEW("preview"), EXPERIMENTAL("experimental"), INTERNAL("internal"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
 enum class ModulePublishability(val yaml: String) { PUBLISHED("published"), INTERNAL("internal"), EXCLUDED("excluded"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
-enum class ModuleApiStability(val yaml: String) { STABLE("stable"), PREVIEW("preview"), INTERNAL("internal"), EXCLUDED("excluded"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
+enum class ModuleApiStability(val yaml: String) { STABLE("stable"), PREVIEW("preview"), EXPERIMENTAL("experimental"), INTERNAL("internal"), EXCLUDED("excluded"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
 enum class ModuleVisibility(val yaml: String) { PUBLIC("public"), INTERNAL("internal"), EXCLUDED("excluded"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
 enum class ReleaseInclusion(val yaml: String) { INCLUDED("included"), INTERNAL_ONLY("internal_only"), EXCLUDED("excluded"); companion object { fun fromYaml(value: String) = entries.firstOrNull { it.yaml == value } } }
 
@@ -68,7 +68,7 @@ class ModuleCatalog(private val rootDir: File) {
         if (layer == ModuleLayer.APPLICATIONS_EXAMPLES && publishability != ModulePublishability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE, "$path: examples must have publishability 'excluded'", path)
         if (publishability == ModulePublishability.EXCLUDED && api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY, "$path: excluded modules must have apiStability 'excluded'", path)
         if (visibility == ModuleVisibility.PUBLIC && publishability == ModulePublishability.INTERNAL) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: public visibility cannot be internal publishability", path)
-        if (api == ModuleApiStability.STABLE && maturity == ModuleMaturity.EXPERIMENTAL) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: stable API cannot have experimental maturity", path)
+        if (!apiStrengthFitsMaturity(api, maturity)) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: API strength '$api' cannot exceed maturity '$maturity' (stable API requires stable maturity; preview requires preview+; experimental requires experimental+)", path)
         if (release == ReleaseInclusion.INCLUDED && publishability != ModulePublishability.PUBLISHED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: included release requires published module", path)
         if (maturity == ModuleMaturity.INTERNAL && api != ModuleApiStability.INTERNAL && api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: internal maturity cannot promise stable/preview API", path)
         if (errors.none { it.modulePath == path }) modules[path] = ModuleEntry(path, layer, maturity, publishability, api, visibility, owner, policy, release, rationale)
@@ -81,4 +81,14 @@ class ModuleCatalog(private val rootDir: File) {
     fun entryFor(path: String): ModuleEntry? = parsedModules[path]
     fun allowedLayersFor(path: String): Set<ModuleLayer>? = parsedModules[path]?.dependencyPolicy?.let(parsedPolicies::get)
     private fun failure(code: DiagnosticCode, message: String, path: String? = null) = VerificationDiagnostic.failure(code, message, path)
+
+    companion object {
+        /** Strength matrix: API strength may never exceed module maturity. */
+        fun apiStrengthFitsMaturity(api: ModuleApiStability, maturity: ModuleMaturity): Boolean = when (api) {
+            ModuleApiStability.STABLE -> maturity == ModuleMaturity.STABLE
+            ModuleApiStability.PREVIEW -> maturity == ModuleMaturity.STABLE || maturity == ModuleMaturity.PREVIEW
+            ModuleApiStability.EXPERIMENTAL -> maturity == ModuleMaturity.STABLE || maturity == ModuleMaturity.PREVIEW || maturity == ModuleMaturity.EXPERIMENTAL
+            ModuleApiStability.INTERNAL, ModuleApiStability.EXCLUDED -> true
+        }
+    }
 }

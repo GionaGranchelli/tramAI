@@ -144,7 +144,7 @@ class ApiBaselineVerifier(
     }
 
     companion object {
-        private val VALID_STABILITIES = setOf("stable", "preview", "internal", "excluded")
+        private val VALID_STABILITIES = setOf("stable", "preview", "experimental", "internal", "excluded")
         private val ISO_TIMESTAMP = Regex("""\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}""")
 
         fun sortRecords(records: List<ApiDumpRecord>): List<ApiDumpRecord> =

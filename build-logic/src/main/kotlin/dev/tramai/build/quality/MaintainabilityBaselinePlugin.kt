@@ -998,6 +998,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     )
                 }
 
+                collectEvidence("api compatibility verification", setOf("api-architecture"), architectureDiagnostics) {
+                    addApiCompatibilityDiagnostics(project, architectureDiagnostics)
+                }
+
                 val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
                 val reportFile = File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json")
                 // Report is written BEFORE the terminal exception — failure must produce evidence.
@@ -1008,6 +1012,30 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         " — see ${reportFile.path}")
                 }
             }
+        }
+
+        // ---- Consumer compile proofs (Epic 10.2): real sources, real classes ----
+
+        registerConsumerCompatibilityTask(
+            project,
+            "verifyJavaConsumerCompatibility",
+            ":examples:java-consumer-smoke",
+            "src/main/java",
+            "build/classes/java/main",
+            "java",
+            dependsOnTask = "compileJava",
+        )
+        registerConsumerCompatibilityTask(
+            project,
+            "verifyKotlinConsumerCompatibility",
+            ":examples:kotlin-consumer-smoke",
+            "src/main/kotlin",
+            "build/classes/kotlin/main",
+            "kotlin",
+            dependsOnTask = "compileKotlin",
+        )
+        project.tasks.named("verify060Architecture") {
+            dependsOn("verifyJavaConsumerCompatibility", "verifyKotlinConsumerCompatibility")
         }
 
         // ---- PR Verification (primary local check gate) ----
@@ -1423,6 +1451,45 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         enrollmentGuardDiagnostics(discoveredClasses).forEach { (check, diagnostics) ->
             checks.getValue(check) += diagnostics
         }
+    }
+
+    /**
+     * Epic 10.2 (Track B3): semantic API compatibility evidence for the
+     * api-architecture check. Two contracts:
+     *   Contract 1 — current source (apiBuild output) vs committed dump.
+     *   Contract 2 — base-branch dump (git show) vs current committed dump;
+     *                drives stability policy via ApiCompatibilityVerifier.
+     * Plus migration-registry enforcement and stability-inversion leak scan.
+     * All diagnostics are API_* codes routed to api-architecture; the report
+     * is written before any terminal exception (fail-closed via collectEvidence).
+     */
+    private fun addApiCompatibilityDiagnostics(
+        project: Project,
+        checks: Map<String, MutableList<VerificationDiagnostic>>,
+    ) {
+        val catalog = ModuleManifest.catalog(project.rootDir)
+        val apiProjectPaths = project.allprojects
+            .filter { it != project && it.tasks.findByName("apiCheck") != null }
+            .map { it.path }
+            .toSet()
+        val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(project.rootDir, apiProjectPaths)
+        val generated = ApiCompatibilityEvidenceReader.readGeneratedDumps(project)
+        val baseRef = project.findProperty("changePolicyBase")?.toString() ?: "origin/master"
+        val base = ApiCompatibilityEvidenceReader.readBaseDumps(project.rootDir, baseRef, committed.keys)
+        val migrations = ApiCompatibilityEvidenceReader.parseMigrations(
+            File(project.rootDir, "config/quality/api-migrations.yml")
+        )
+        val projectVersion = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0").get()
+        val verifier = ApiCompatibilityVerifier(
+            catalogModules = catalog.modules,
+            projectVersion = projectVersion,
+        )
+        val diagnostics = verifier.verify(
+            ApiDumpEvidence(generated = generated, committed = committed, base = base),
+            migrations = migrations,
+        )
+        // Contract-1/2 and migration diagnostics flow straight to api-architecture.
+        checks.getValue("api-architecture") += diagnostics
     }
 
     private companion object {

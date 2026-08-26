@@ -1,0 +1,22 @@
+# TramAI 0.6.0 API migration registry.
+#
+# Each entry authorizes ONE exact API transition for ONE module:
+#   module        — Gradle project path
+#   fromSha256    — SHA-256 of the base-branch committed dump content
+#   toSha256      — SHA-256 of the current committed dump content
+#   targetVersion — the TramAI release this transition targets
+#   rationale     — why the API changed
+#   migration     — what downstream consumers must do
+#
+# Enforcement (all FAIL unless the entry is exact and current):
+#   - preview/experimental module dump changed without an entry          → FAIL
+#   - duplicate (module, fromSha256, toSha256) entries                   → FAIL
+#   - entry whose hashes match no actual module transition (orphan)      → FAIL
+#   - entry hashes mismatch the real base/current dumps (stale/wrong)    → FAIL
+#   - entry.targetVersion != project version                             → FAIL
+#   - stable modules can NEVER use entries (stable is frozen)            → FAIL
+#
+# Entries are committed in the same PR as the dump change and become stale
+# the moment the dump changes again (update the hashes in the next PR).
+
+migrations: []

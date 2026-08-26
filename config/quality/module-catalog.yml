@@ -69,6 +69,20 @@ modules:
     publishability: excluded
     apiStability: excluded
 
+  - path: ":examples:java-consumer-smoke"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+    rationale: "Java consumer compilation proof for stable API compatibility (Epic 10.2)."
+
+  - path: ":examples:kotlin-consumer-smoke"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+    rationale: "Kotlin consumer compilation proof for stable API compatibility (Epic 10.2)."
+
   - path: ":tramai-anthropic"
     <<: *provider
     rationale: "Provider adapter for Anthropic Claude models via the TramAI provider SPI."
