@@ -304,6 +304,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                 workflow.outboxStore.markEmitted(
                     claim.outboxId,
                     SovereignOpsAuditOutboxStatus.EMITTING,
+                    expectedAttemptCount = claim.attemptCount,
                     emittedAt = Instant.now(),
                 )
                 val dispatched = workflow.outboxStore.get(denialOutboxId)

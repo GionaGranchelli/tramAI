@@ -281,6 +281,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     override suspend fun markEmitted(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
         require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
@@ -289,7 +290,11 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         require(dto.status == expectedStatus.name) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
-        dto.toDomain().copy(
+        val record = dto.toDomain()
+        check(record.attemptCount == expectedAttemptCount) {
+            ERROR_OUTBOX_CONCURRENT_UPDATE
+        }
+        record.copy(
             status = SovereignOpsAuditOutboxStatus.EMITTED,
             emittedAt = emittedAt,
         )
@@ -298,6 +303,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     override suspend fun markFailed(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
@@ -316,12 +322,16 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         require(dto.status == expectedStatus.name) {
             ERROR_OUTBOX_STATUS_MISMATCH
         }
+        val record = dto.toDomain()
+        check(record.attemptCount == expectedAttemptCount) {
+            ERROR_OUTBOX_CONCURRENT_UPDATE
+        }
         val targetStatus = if (retryable) {
             SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         } else {
             SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         }
-        dto.toDomain().copy(
+        record.copy(
             status = targetStatus,
             lastErrorCode = errorCode,
         )
@@ -701,6 +711,7 @@ private const val STORAGE_NAME = "ops-audit-outbox"
 
 /** @see FileSovereignOpsAuditOutboxStore */
 private const val ERROR_OUTBOX_STATUS_MISMATCH = "tramai-sovereign-ops-outbox-status-mismatch"
+private const val ERROR_OUTBOX_CONCURRENT_UPDATE = "tramai-sovereign-ops-outbox-concurrent-update"
 
 /** @see FileSovereignOpsAuditOutboxStore */
 private const val ERROR_CORRUPTED_RECORD = "ops-audit-outbox-record-corrupted"

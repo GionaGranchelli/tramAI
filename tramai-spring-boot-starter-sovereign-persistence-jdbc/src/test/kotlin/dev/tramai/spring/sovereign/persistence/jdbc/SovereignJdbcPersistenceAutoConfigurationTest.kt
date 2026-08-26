@@ -783,6 +783,7 @@ class CustomOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun markEmitted(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         throw UnsupportedOperationException("custom stub")
@@ -791,6 +792,7 @@ class CustomOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun markFailed(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {

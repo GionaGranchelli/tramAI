@@ -68,24 +68,30 @@ interface SovereignOpsAuditOutboxStore {
     /**
      * Mark a record as successfully emitted.
      *
-     * Uses CAS to prevent concurrent overwrites.
+     * Uses status and [SovereignOpsAuditOutboxRecord.attemptCount] as an
+     * optimistic dispatch-generation fence to prevent stale claim owners
+     * from completing a successor attempt.
      * @throws IllegalStateException if CAS update fails (concurrent modification).
      */
     suspend fun markEmitted(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord
 
     /**
      * Mark a record as failed.
      *
-     * Uses CAS to prevent concurrent overwrites.
+     * Uses status and [SovereignOpsAuditOutboxRecord.attemptCount] as an
+     * optimistic dispatch-generation fence. PREPARED failures use generation
+     * zero.
      * @throws IllegalStateException if CAS update fails (concurrent modification).
      */
     suspend fun markFailed(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
+        expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord

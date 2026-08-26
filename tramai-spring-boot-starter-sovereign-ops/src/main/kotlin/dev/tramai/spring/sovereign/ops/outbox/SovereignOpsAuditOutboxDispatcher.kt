@@ -56,6 +56,7 @@ class SovereignOpsAuditOutboxDispatcher(
                 outboxStore.markEmitted(
                     outboxId = record.outboxId,
                     expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
+                    expectedAttemptCount = record.attemptCount,
                     emittedAt = clock.instant(),
                 )
                 emitted++
@@ -65,6 +66,7 @@ class SovereignOpsAuditOutboxDispatcher(
                 outboxStore.markFailed(
                     outboxId = record.outboxId,
                     expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,
+                    expectedAttemptCount = record.attemptCount,
                     errorCode = e::class.simpleName ?: "unknown",
                     retryable = true,
                 )
