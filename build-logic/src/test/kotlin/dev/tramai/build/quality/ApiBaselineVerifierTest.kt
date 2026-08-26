@@ -15,10 +15,28 @@ class ApiBaselineVerifierTest {
     private val verifier = ApiBaselineVerifier(
         repositoryRoot = File("/nonexistent"),
         catalogModules = mapOf(
-            ":tramai-core" to ModuleCatalog.ModuleEntry(":tramai-core", "core-contracts", "published", "stable"),
-            ":tramai-engine" to ModuleCatalog.ModuleEntry(":tramai-engine", "runtime-execution", "published", "preview"),
-            ":tramai-bom" to ModuleCatalog.ModuleEntry(":tramai-bom", "core-contracts", "published", "stable"),
+            ":tramai-core" to testEntry(":tramai-core", "core-contracts", "published", "stable"),
+            ":tramai-engine" to testEntry(":tramai-engine", "runtime-execution", "published", "preview"),
+            ":tramai-bom" to testEntry(":tramai-bom", "core-contracts", "published", "stable"),
         )
+    )
+
+    private fun testEntry(
+        path: String,
+        layer: String,
+        publishability: String,
+        apiStability: String
+    ): ModuleCatalog.ModuleEntry = ModuleCatalog.ModuleEntry(
+        path = path,
+        layer = ModuleLayer.fromYaml(layer) ?: error("bad layer $layer"),
+        maturity = ModuleMaturity.fromYaml(if (apiStability == "stable") "stable" else "preview") ?: error("bad maturity"),
+        publishability = ModulePublishability.fromYaml(publishability) ?: error("bad pub $publishability"),
+        apiStability = ModuleApiStability.fromYaml(apiStability) ?: error("bad api $apiStability"),
+        visibility = ModuleVisibility.fromYaml(if (publishability == "published") "public" else "internal") ?: error("bad vis"),
+        owner = "test",
+        dependencyPolicy = "core",
+        releaseInclusion = ReleaseInclusion.fromYaml(if (publishability == "published") "included" else "internal_only") ?: error("bad rel"),
+        rationale = "Test fixture entry."
     )
 
     private fun record(
@@ -134,8 +152,8 @@ class ApiBaselineVerifierTest {
         val localVerifier = ApiBaselineVerifier(
             repositoryRoot = File("/nonexistent"),
             catalogModules = mapOf(
-                ":tramai-core" to ModuleCatalog.ModuleEntry(":tramai-core", "core-contracts", "published", "stable"),
-                ":tramai-engine" to ModuleCatalog.ModuleEntry(":tramai-engine", "runtime-execution", "published", "preview"),
+                ":tramai-core" to testEntry(":tramai-core", "core-contracts", "published", "stable"),
+                ":tramai-engine" to testEntry(":tramai-engine", "runtime-execution", "published", "preview"),
             ),
             apiValidationModules = setOf(":tramai-core")
         )
@@ -153,7 +171,7 @@ class ApiBaselineVerifierTest {
         val localVerifier = ApiBaselineVerifier(
             repositoryRoot = File("/nonexistent"),
             catalogModules = mapOf(
-                ":tramai-core" to ModuleCatalog.ModuleEntry(":tramai-core", "core-contracts", "published", "stable"),
+                ":tramai-core" to testEntry(":tramai-core", "core-contracts", "published", "stable"),
             ),
             apiValidationModules = setOf(":tramai-core")
         )

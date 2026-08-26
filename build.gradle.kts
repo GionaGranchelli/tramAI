@@ -12,6 +12,7 @@ import groovy.json.JsonSlurper
 import java.io.File
 import java.net.URI
 import javax.xml.parsers.DocumentBuilderFactory
+import dev.tramai.build.quality.ModuleManifest
 
 plugins {
     base
@@ -51,72 +52,24 @@ val tramaiLicenseUrl = providers.gradleProperty("tramaiLicenseUrl").orElse("http
 val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("GionaGranchelli")
 val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse("Giona")
 val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
-val publishableProjectNames = listOf(
-    "tramai-anthropic",
-    "tramai-azure-openai",
-    "tramai-bedrock",
-    "tramai-bom",
-    "tramai-core",
-    "tramai-deepseek",
-    "tramai-embedding",
-    "tramai-engine",
-    "tramai-gemini",
-    "tramai-memory",
-    "tramai-observability",
-    "tramai-ollama",
-    "tramai-openai",
-    "tramai-orchestration",
-    "tramai-platform",
-    "tramai-spring",
-    "tramai-spring-core",
-    "tramai-spring-provider-anthropic",
-    "tramai-spring-provider-ollama",
-    "tramai-spring-provider-openai",
-    "tramai-spring-secrets-aws",
-    "tramai-spring-secrets-file",
-    "tramai-spring-secrets-vault",
-    "tramai-standalone",
-    "tramai-sovereign",
-    "tramai-persistence-file",
-    "tramai-structured",
-    "tramai-testing",
-    "tramai-vectorstore-spi",
-    "tramai-vectorstore-chroma",
-    "tramai-vectorstore-pgvector",
-    "tramai-rag",
-    "tramai-security",
-    "tramai-spring-sovereign",
-    "tramai-spring-boot-starter",
-    "tramai-spring-boot-starter-sovereign-persistence-file",
-    "tramai-spring-boot-starter-sovereign-ops",
-    "tramai-spring-boot-starter-sovereign-ops-actuator",
-    "tramai-spring-boot-starter-sovereign-ops-micrometer",
-    "tramai-spring-boot-starter-sovereign-ops-observability",
-)
+val publishableProjectNames = ModuleManifest.publishableModulePaths(rootDir).map { it.removePrefix(":") }
+extra["tramai.publishableModulePaths"] = publishableProjectNames.map { ":$it" }
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
 // Sovereign bundle modules for the dedicated publication dry-run repository.
 // Used by the verifySovereignRuntimeSignedBundle task to publish only to a local
 // file-based Maven repository — never to a remote — preventing accidental remote
 // publication during dry-run validation.
-val sovereignBundleModuleNames = listOf(
-    "tramai-bom",
-    "tramai-core",
-    "tramai-security",
-    "tramai-sovereign",
-    "tramai-standalone",
-    "tramai-engine",
-    "tramai-structured",
-    "tramai-persistence-file",
-    "tramai-spring-core",
-    "tramai-spring-sovereign",
-    "tramai-spring-boot-starter",
-    "tramai-spring-boot-starter-sovereign-persistence-file",
-    "tramai-spring-boot-starter-sovereign-ops",
-    "tramai-spring-boot-starter-sovereign-ops-actuator",
-    "tramai-spring-boot-starter-sovereign-ops-micrometer",
-    "tramai-spring-boot-starter-sovereign-ops-observability",
+// The sovereign bundle is the published manifest set minus modules outside its signed runtime scope.
+val sovereignBundleExcludedProjectNames = setOf(
+    "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-deepseek", "tramai-embedding",
+    "tramai-gemini", "tramai-memory", "tramai-observability", "tramai-ollama", "tramai-openai",
+    "tramai-orchestration", "tramai-platform", "tramai-rag", "tramai-scheduler", "tramai-spring",
+    "tramai-spring-provider-anthropic", "tramai-spring-provider-ollama", "tramai-spring-provider-openai",
+    "tramai-spring-secrets-aws", "tramai-spring-secrets-file", "tramai-spring-secrets-vault", "tramai-testing",
+    "tramai-vectorstore-chroma", "tramai-vectorstore-pgvector", "tramai-vectorstore-spi"
 )
+val sovereignBundleModuleNames = publishableProjectNames - sovereignBundleExcludedProjectNames
 
 // ──────────────────────────────────────────────
 // Sovereign Release Evidence Index - Typed Model
