@@ -19,8 +19,9 @@
     previously skipped), a successful stream closes an open circuit, and both
     paths record a failing HALF_OPEN probe as an immediate reopen with a fresh
     deadline.
-  - Proven by 21 mutation kills over the reachable behavior (zero reachable
-    weak mutations) and a 12-property model/reality oracle suite.
+  - Proven by 25 mutation kills over the reachable behavior (26 candidates:
+  25 STRONG, 1 unreachable-by-contract, 1 invalid, 1 redundant — zero
+  reachable weak mutations) and a 13-property model/reality oracle suite.
 
 ### Added
 

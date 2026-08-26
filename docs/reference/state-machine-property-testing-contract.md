@@ -1091,7 +1091,8 @@ OPEN(generation=N, blockedUntil=T)
   ▼
 HALF_OPEN(generation=N, probe permit)
   ├── probe success ─────────────► CLOSED(N, 0)
-  └── probe qualifying failure ───► OPEN(N+1, now+openDuration)   (fresh deadline, no threshold)
+  ├── probe qualifying failure ───► OPEN(N+1, now+openDuration)   (fresh deadline, no threshold)
+  └── probe neutral/abandoned ────► OPEN(N+1, now+openDuration)   (fresh deadline, no event)
 ```
 
 - `beforeCall(providerId): CircuitBreakerAdmission` — `Allowed(permit)` /
@@ -1102,8 +1103,18 @@ HALF_OPEN(generation=N, probe permit)
   epoch, so a valid execution can never reach `completion(Open, matchingPermit)`.
 - HALF_OPEN is real state (not "OPEN removed and one lucky caller runs"):
   exactly one probe permit exists; competing callers are rejected until the
-  probe resolves. Probe success closes; probe failure reopens immediately with
-  a fresh deadline regardless of the closed-state threshold.
+  probe resolves. **Every terminal outcome of the probe is a breaker
+  transition** — success closes; qualifying failure reopens; neutral
+  abandonment reopens with a fresh deadline and an advanced generation.
+- **Neutral/abandoned probe outcomes** (caller cancellation, DLP/sanitizer
+  failure, policy/model-registry rejection, non-retryable provider error,
+  token-budget exhaustion) never count as breaker failures and emit no
+  `CIRCUIT_OPENED` event. Re-entering OPEN after an abandoned probe is a
+  **recovery-state transition, not a breaker-trip event** — OPEN is used as
+  the recovery-delay state after an inconclusive probe. The generation
+  advances so the abandoned permit can never regain authority; terminal
+  cleanup is idempotent with respect to an already-consumed/stale permit
+  (a second completion from the same permit is a generation-mismatch no-op).
 - Generation advances on every entry into OPEN (CLOSED→OPEN and HALF_OPEN→OPEN).
 - Qualifying failures: `TimeoutException` + retryable `ProviderException` only.
 - Disabled breaker is transparent: every `beforeCall` Allowed, completions no-op.
@@ -1122,13 +1133,14 @@ HALF_OPEN(generation=N, probe permit)
 | P0-D | Old failure can extend a newer OPEN | `expected: 100L but was: 110L` |
 | P0-E | Expiry loses history instead of controlled probe | `Expecting actual not to be null` |
 
-### Property suite (P1–P12)
+### Property suite (P1–P13)
 
 Pure `ProviderCircuitBreakerModel` oracle (Closed/Open/HalfOpen + generation +
 live permits) mirroring the contract above; 32 seeds × 32 actions with forced
-archetypes (threshold OPEN, expiry→HALF_OPEN, probe success/failure, stale
-completion after recovery, concurrent-expiry clusters, mixed qualifying).
-Every action is applied to model and real breaker and compared after each step.
+archetypes (threshold OPEN, expiry→HALF_OPEN, probe success/failure,
+abandoned probe, stale completion after recovery, concurrent-expiry clusters,
+mixed qualifying). Every action is applied to model and real breaker and
+compared after each step.
 
 - P1 model/reality equivalence across the corpus
 - P2 live permits never carry a newer generation; stale completions are no-ops
@@ -1142,8 +1154,11 @@ Every action is applied to model and real breaker and compared after each step.
 - P10 stale success/failure after recovery cannot disturb CLOSED
 - P11 generation strictly increases on every OPEN entry
 - P12 disabled breaker transparency
+- P13 every HALF_OPEN probe reaches a terminal breaker transition; an
+  abandoned probe reopens with an ADVANCED generation and the abandoned
+  permit is fenced (stale success/failure after replacement recovery is a no-op)
 
-### Concurrency discriminators (C1–C4) + secondary regressions (H1–H7)
+### Concurrency discriminators (C1–C4) + secondary regressions (H1–H13)
 
 - C1 atomic expiry: exactly one probe under 16 concurrent callers
 - C2 concurrent stale completions cannot mutate the open deadline/state
@@ -1154,38 +1169,59 @@ Every action is applied to model and real breaker and compared after each step.
 - H2 stale success after recovery cannot disturb CLOSED
 - H3 stale failure after recovery cannot reopen (threshold 1)
 - H4 sync coordinator and breaker lifecycle agree on OPEN then CLOSE
-- H5 sync coordinator HALF_OPEN probe failure reopens with fresh deadline
+- H5 sync coordinator HALF_OPEN probe failure reopens with fresh deadline (qualifying trip emits exactly one CIRCUIT_OPENED; abandonment emits none)
 - H6 streaming success must reach `onSuccess` (next call admitted)
-- H7 streaming HALF_OPEN probe failure reopens; next expiry admits again
+- H7 streaming HALF_OPEN probe failure reopens; next expiry admits again (event-count discriminates trip vs abandonment)
+- H8 neutral HALF_OPEN failure cannot strand the circuit
+- H9 abandoned HALF_OPEN probe is released; a replacement probe is eventually admitted
+- H10 abandoned probe is fenced after replacement recovery begins (stale permit cannot close/reopen/reset)
+- H11 streaming neutral probe outcome cannot strand recovery
+- H12 sync coordinator DLP-neutral HALF_OPEN probe cannot strand recovery
+- H13 streaming token-budget exhaustion on the probe cannot strand recovery
 
-### Mutation evidence (24 candidates)
+### Mutation evidence (26 candidates, re-run in full on the post-P1 head)
 
 | Classification | Count |
 |---|---|
-| Candidate | 24 |
-| **STRONG** | **21** |
+| Candidate | 26 |
+| **STRONG** | **25** |
 | Unreachable by contract | 1 |
 | Invalid (compile-breaking) | 1 |
 | Redundant (corroborating) | 1 |
 | Reachable WEAK | **0** |
 
+The original 21 STRONG mutations were re-executed against the new neutral/
+abandon transition, not grandfathered; five new candidates (M25–M29) cover
+the abandonment semantics. The re-run itself found two masked mutations:
+M17 (sync) and M24 (streaming) fresh-permit adoption survived because the
+`onAbandoned` fallback still released the probe — the remaining observable is
+the CIRCUIT_OPENED event, and H5/H7 were strengthened with event-count
+assertions so a qualifying trip and a neutral abandonment are
+distinguishable. Each STRONG result carries strict XML evidence
+(failures=1, XML present — a compile-error candidate is classified INVALID,
+never STRONG).
+
 Every reachable, non-redundant, compile-valid mutation was killed by an 8.2g
 discriminator/property/regression test. **Zero reachable weak mutations.**
 
-Four mutations survived the post-GREEN suite and exposed real oracle gaps;
+Seven mutations survived the post-GREEN suite and exposed real oracle gaps;
 each was closed by a new discriminator rather than rationalized:
 
 | Mutation | Gap exposed | Fix |
 |---|---|---|
 | M01 (drop onSuccess generation check) | P0-C absorbed stale completions at OPEN; HALF_OPEN authority unpinned | H1b |
-| M17 (sync adopts fresh permit) | sync probe-FAILURE path unpinned (H4 covered success only) | H5 |
+| M17 (sync adopts fresh permit) | sync probe-FAILURE path unpinned (H4 covered success only) | H5 (+ event count) |
 | M23 (drop streaming onSuccess) | streaming recovery unpinned (harness only tested open-skip) | H6 |
-| M24 (streaming adopts fresh permit) | streaming probe-failure path unpinned | H7 |
+| M24 (streaming adopts fresh permit) | streaming probe-failure path unpinned | H7 (+ event count) |
+| M25 (drop neutral HALF_OPEN release in onFailure) | neutral probe could strand forever | H8 |
+| M28 (drop sync DLP abandonment plumbing) | sync neutral path bypasses onFailure | H12 |
+| M29 (drop streaming budget abandonment plumbing) | streaming neutral path bypasses onFailure | H13 |
 
 The M03/M04 Open-branch mutations are unreachable by contract (no permit is
 ever minted for an OPEN epoch and generation validation precedes
-state-specific handling), so they are excluded from the strength denominator —
-adding test seams to execute an impossible state would weaken the architecture.
+state-specific handling; the abandonment vocabulary consumes permits, never
+mints them), so they are excluded from the strength denominator — adding test
+seams to execute an impossible state would weaken the architecture.
 
 ### Files
 
@@ -1196,6 +1232,6 @@ adding test seams to execute an impossible state would weaken the architecture.
 - `tramai-engine/src/main/kotlin/dev/tramai/engine/streaming/StreamingExecutionCoordinator.kt` (permit-threaded streaming)
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecycleDiscriminatorTest.kt` (P0, RED commit `cc1fc065`)
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerModel.kt` + `ProviderCircuitBreakerActionGenerator.kt`
-- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecyclePropertyTest.kt` (P1–P12)
-- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H5, C1–C4)
-- `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecyclePropertyTest.kt` (P1–P13)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H12, C1–C4)
+- `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7, H11, H13)
