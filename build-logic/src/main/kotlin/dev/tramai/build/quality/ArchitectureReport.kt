@@ -77,21 +77,21 @@ object ArchitectureReportAggregator {
 }
 
 object ArchitectureReportJson {
-    fun write(report: ArchitectureVerificationReport, outputFile: File) {
-        ReportNormalizer.writeJson(toJsonValue(report), outputFile)
+    fun write(report: ArchitectureVerificationReport, outputFile: File, repoRoot: File) {
+        ReportNormalizer.writeJson(toJsonValue(report, repoRoot), outputFile)
     }
 
-    fun toJson(report: ArchitectureVerificationReport): String =
-        ReportNormalizer.toJson(toJsonValue(report))
+    fun toJson(report: ArchitectureVerificationReport, repoRoot: File): String =
+        ReportNormalizer.toJson(toJsonValue(report, repoRoot))
 
-    private fun toJsonValue(report: ArchitectureVerificationReport): Map<String, Any> = mapOf(
+    private fun toJsonValue(report: ArchitectureVerificationReport, repoRoot: File): Map<String, Any> = mapOf(
         "schemaVersion" to report.schemaVersion,
         "status" to report.status.name,
         "checks" to report.checks.map { check ->
             mapOf(
                 "id" to check.id,
                 "status" to check.status.name,
-                "diagnostics" to check.diagnostics.map(::diagnosticJson),
+                "diagnostics" to check.diagnostics.map { diagnosticJson(it, repoRoot) },
             )
         },
         "summary" to mapOf(
@@ -101,15 +101,96 @@ object ArchitectureReportJson {
         ),
     )
 
-    private fun diagnosticJson(diagnostic: VerificationDiagnostic): Map<String, String> = buildMap {
+    private fun diagnosticJson(diagnostic: VerificationDiagnostic, repoRoot: File): Map<String, String> = buildMap {
         put("code", diagnostic.code.name)
         put("severity", diagnostic.severity.name)
-        put("message", diagnostic.message)
+        put("message", sanitizePaths(diagnostic.message, repoRoot))
         diagnostic.modulePath?.let { put("modulePath", it) }
-        diagnostic.findingId?.let { put("findingId", it) }
+        diagnostic.findingId?.let { put("findingId", sanitizePaths(it, repoRoot)) }
         diagnostic.deviationId?.let { put("deviationId", it) }
-        diagnostic.baselineValue?.let { put("baselineValue", it) }
-        diagnostic.currentValue?.let { put("currentValue", it) }
+        diagnostic.baselineValue?.let { put("baselineValue", sanitizePaths(it, repoRoot)) }
+        diagnostic.currentValue?.let { put("currentValue", sanitizePaths(it, repoRoot)) }
+    }
+
+    /** Replaces the repository checkout root with a portable placeholder so failure
+     *  reports are path-independent across machines. */
+    private fun sanitizePaths(value: String, repoRoot: File): String {
+        val root = repoRoot.absolutePath
+        return value.replace(root, "<repo-root>")
+            .replace(root.replace(File.separatorChar, '/'), "<repo-root>")
+            .replace(root.replace('/', File.separatorChar), "<repo-root>")
+    }
+}
+
+/**
+ * Reads per-project fail-soft dependency probe outputs for the architecture
+ * gate. A probe that hit a resolution failure writes a typed marker instead of
+ * throwing, so the gate can fail closed with evidence rather than the task
+ * graph aborting before the report is written.
+ */
+internal data class DependencyProbeEvidence(
+    val resolvedRecords: List<ResolvedDependency>,
+    val failures: List<String>,
+)
+
+internal fun readDependencyProbeEvidence(probeFiles: List<File>): DependencyProbeEvidence {
+    val resolvedRecords = mutableListOf<ResolvedDependency>()
+    val failures = mutableListOf<String>()
+    probeFiles.forEach { file ->
+        if (!file.isFile) {
+            failures += "Missing dependency probe output: ${file.path}"
+            return@forEach
+        }
+        try {
+            val raw = ReportNormalizer.readJson(file, Array<Any>::class.java).toList()
+            val failed = raw.firstOrNull { (it as? Map<*, *>)?.get("resolutionFailed") == true }
+            if (failed != null) {
+                failures += (failed as Map<*, *>)["message"]?.toString() ?: "unknown dependency resolution failure"
+            } else {
+                resolvedRecords += ReportNormalizer.readJson(file, Array<ResolvedDependency>::class.java).toList()
+            }
+        } catch (exception: Exception) {
+            failures += "Invalid dependency probe output ${file.path}: ${exception.message}"
+        }
+    }
+    return DependencyProbeEvidence(resolvedRecords, failures)
+}
+
+/**
+ * Codes whose FAILURE presence means the baseline verifier could not establish
+ * its mandatory evidence (it early-returns without running the architecture
+ * checks). These must fail EVERY baseline-backed check: the gate cannot claim
+ * a check passed when its evidence was never produced.
+ */
+internal val baselineEvidenceFailureCodes: Set<DiagnosticCode> = setOf(
+    DiagnosticCode.EMPTY_SECTION,
+    DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+)
+
+/**
+ * Routes baseline diagnostics into the architecture gate. If the baseline
+ * verifier early-returned with evidence-unavailable FAILURE diagnostics
+ * ([baselineEvidenceFailureCodes]), every baseline-backed check fails closed.
+ * Otherwise diagnostics are routed through [classify] (the exhaustive
+ * DiagnosticCode → check-id mapping).
+ */
+internal fun routeBaselineDiagnostics(
+    diagnostics: List<VerificationDiagnostic>,
+    target: Map<String, MutableList<VerificationDiagnostic>>,
+    baselineCheckIds: Set<String>,
+    classify: (DiagnosticCode) -> String?,
+) {
+    val evidenceFailures = diagnostics.filter {
+        it.severity == DiagnosticSeverity.FAILURE && it.code in baselineEvidenceFailureCodes
+    }
+    if (evidenceFailures.isNotEmpty()) {
+        baselineCheckIds.forEach { checkId ->
+            target.getValue(checkId) += evidenceFailures
+        }
+    } else {
+        diagnostics.forEach { diagnostic ->
+            classify(diagnostic.code)?.let { target.getValue(it) += diagnostic }
+        }
     }
 }
 

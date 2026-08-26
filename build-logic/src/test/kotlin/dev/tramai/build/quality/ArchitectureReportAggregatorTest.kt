@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -108,7 +109,7 @@ class ArchitectureReportAggregatorTest {
         assertEquals(10, first.summary.passed)
         assertEquals(0, first.summary.failed)
         assertTrue(first.checks.all { it.diagnostics.isEmpty() })
-        assertEquals(ArchitectureReportJson.toJson(first), ArchitectureReportJson.toJson(second))
+        assertEquals(ArchitectureReportJson.toJson(first, tempDir), ArchitectureReportJson.toJson(second, tempDir))
     }
 
     @Test
@@ -130,11 +131,129 @@ class ArchitectureReportAggregatorTest {
         )
         // Report must be written even when evidence collection fails.
         val reportFile = File(tempDir, "architecture-report.json")
-        ArchitectureReportJson.write(report, reportFile)
+        ArchitectureReportJson.write(report, reportFile, tempDir)
         assertTrue(reportFile.isFile)
         val written = ReportNormalizer.readJson(reportFile, Map::class.java)
         assertEquals("FAIL", written["status"])
         assertEquals(2, (written["summary"] as Map<*, *>)["failed"].let { it as Number }.toInt())
+    }
+
+    @Test
+    fun `A12 baseline evidence unavailable fails every baseline-backed check`() {
+        val target = emptyChecks()
+        routeBaselineDiagnostics(
+            diagnostics = listOf(
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Committed baseline not found: ${tempDir.absolutePath}/config/quality/0.6.0-baseline.json",
+                ),
+            ),
+            target = target,
+            baselineCheckIds = setOf(
+                "module-manifest", "dependency-boundaries", "dependency-cycles",
+                "global-state", "api-architecture", "protocol-catalog", "cancellation-safety",
+            ),
+            classify = { null },
+        )
+        val report = ArchitectureReportAggregator.aggregate(target)
+
+        assertEquals(ArchitectureCheckStatus.FAIL, report.status)
+        assertEquals(7, report.summary.failed)
+        // Every baseline-backed check fails; the three non-baseline checks stay PASS.
+        val baselineIds = setOf(
+            "module-manifest", "dependency-boundaries", "dependency-cycles",
+            "global-state", "api-architecture", "protocol-catalog", "cancellation-safety",
+        )
+        assertTrue(report.checks.filter { it.id in baselineIds }.all { it.status == ArchitectureCheckStatus.FAIL })
+        assertTrue(report.checks.filter { it.id !in baselineIds }.all { it.status == ArchitectureCheckStatus.PASS })
+        // Every baseline-backed check carries the evidence-failure diagnostic.
+        assertTrue(
+            report.checks.filter { it.id in baselineIds }.all { check ->
+                check.diagnostics.any { it.code == DiagnosticCode.EMPTY_SECTION }
+            },
+        )
+        // A failing report with an absolute path must sanitize it.
+        val reportFile = File(tempDir, "architecture-report.json")
+        ArchitectureReportJson.write(report, reportFile, tempDir)
+        val json = reportFile.readText()
+        assertTrue(json.contains("<repo-root>"))
+        assertFalse(json.contains(tempDir.absolutePath))
+    }
+
+    @Test
+    fun `A13 dependency evidence unavailable fails every baseline-backed check`() {
+        val target = emptyChecks()
+        routeBaselineDiagnostics(
+            diagnostics = listOf(
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+                    "Failed to resolve current production dependencies: broken",
+                ),
+            ),
+            target = target,
+            baselineCheckIds = setOf(
+                "module-manifest", "dependency-boundaries", "dependency-cycles",
+                "global-state", "api-architecture", "protocol-catalog", "cancellation-safety",
+            ),
+            classify = { null },
+        )
+        val report = ArchitectureReportAggregator.aggregate(target)
+
+        assertEquals(ArchitectureCheckStatus.FAIL, report.status)
+        assertEquals(7, report.summary.failed)
+        val baselineIds = setOf(
+            "module-manifest", "dependency-boundaries", "dependency-cycles",
+            "global-state", "api-architecture", "protocol-catalog", "cancellation-safety",
+        )
+        assertTrue(
+            report.checks.filter { it.id in baselineIds }.all { check ->
+                check.diagnostics.any { it.code == DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED }
+            },
+        )
+    }
+
+    @Test
+    fun `A14 failure report never leaks repository root path`() {
+        val root = File(tempDir, "repo").apply { mkdirs() }
+        val target = emptyChecks()
+        collectEvidence("baseline verification", setOf("module-manifest"), target) {
+            target.getValue("module-manifest") += VerificationDiagnostic.failure(
+                DiagnosticCode.EMPTY_SECTION,
+                "Committed baseline not found: ${root.absolutePath}/config/quality/0.6.0-baseline.json",
+            )
+        }
+        val report = ArchitectureReportAggregator.aggregate(target)
+        val json = ArchitectureReportJson.toJson(report, root)
+
+        assertFalse(json.contains(root.absolutePath))
+        assertTrue(json.contains("<repo-root>"))
+    }
+
+    @Test
+    fun `A15 fail-soft dependency probe marker becomes typed evidence`() {
+        val probeDir = File(tempDir, "probes").apply { mkdirs() }
+        val okProbe = File(probeDir, "ok.json").apply {
+            writeText(
+                """[{"group":"dev.tramai","artifact":"tramai-core","selectedVersion":"1.0","requestedVersion":"1.0","direct":true,"configuration":"compileClasspath","selectionReason":"","dependencyPath":[":tramai-core"],"consumers":[":tramai-core"]}]""",
+            )
+        }
+        val failedProbe = File(probeDir, "failed.json").apply {
+            writeText(
+                """[{"resolutionFailed":true,"message":"Failed to resolve :tramai-core:compileClasspath dependency org.example:missing:1.0: not found"}]""",
+            )
+        }
+
+        val okEvidence = readDependencyProbeEvidence(listOf(okProbe))
+        assertTrue(okEvidence.failures.isEmpty())
+        assertEquals(1, okEvidence.resolvedRecords.size)
+
+        val failedEvidence = readDependencyProbeEvidence(listOf(okProbe, failedProbe))
+        assertEquals(1, failedEvidence.failures.size)
+        assertTrue(failedEvidence.failures.single().contains("org.example:missing"))
+
+        val missingEvidence = readDependencyProbeEvidence(listOf(File(probeDir, "absent.json")))
+        assertEquals(1, missingEvidence.failures.size)
+        assertTrue(missingEvidence.failures.single().contains("Missing dependency probe output"))
     }
 
     @Test

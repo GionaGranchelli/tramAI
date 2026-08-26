@@ -124,34 +124,54 @@ Diagnostic JSON shape (mirror `BaselineVerifier.writeVerificationReport`):
 Register in `MaintainabilityBaselinePlugin.kt`:
 
 1. **`verify060Architecture`** (group `verification`, description as PR title):
-   - `dependsOn("generateResolvedDependencyBaseline")` — the baseline verifier
-     requires `build/reports/maintainability/resolved-dependencies.json`; the
-     gate must run standalone on a clean workspace, not only after
-     `verifyPr`/`verifyMaintainabilityBaseline` have created the artifact.
-   - `dependsOn` the enrollment Test task below.
+   - `dependsOn` the fail-soft dependency probes below AND the enrollment Test
+     task. The probes never throw, so the gate's `doLast` always runs and the
+     report is always written — a dependency-resolution failure reaches the
+     gate as typed evidence, it does not abort the task graph.
    - Orchestrates **fail-closed** evidence collection so the report is ALWAYS
      written before any terminal exception:
-     1. Run `BaselineVerifier(...).verify()` (same construction as
-        `verifyMaintainabilityBaseline`), catch exceptions → convert to a
-        failure diagnostic for the affected checks.
-     2. Read the typed diagnostics from the `verification-report.json` the
-        verifier wrote (`build/reports/maintainability/verification-report.json`).
-     3. Call `ModuleManifestVerifier.verify(...)` directly (parse catalog +
+     1. Read the fail-soft per-project dependency probe outputs
+        (`architecture-dependencies.json` per project). If any probe recorded a
+        resolution failure, fail every baseline-backed check with
+        `DEPENDENCY_RESOLUTION_FAILED` and skip the baseline verifier (its
+        evidence is unavailable).
+     2. Otherwise aggregate the probe records into
+        `build/reports/maintainability/resolved-dependencies.json` and run
+        `BaselineVerifier(...).verify()` (same construction as
+        `verifyMaintainabilityBaseline`).
+     3. Read the typed diagnostics from the `verification-report.json` the
+        verifier wrote. If it contains evidence-unavailable FAILURE diagnostics
+        (`EMPTY_SECTION` / `DEPENDENCY_RESOLUTION_FAILED` — the verifier's
+        early-return paths for missing/unreadable baseline or failed current
+        generation), EVERY baseline-backed check fails closed: the gate cannot
+        claim a check passed when its evidence was never produced. Otherwise
+        route diagnostics through the exhaustive classification.
+     4. Call `ModuleManifestVerifier.verify(...)` directly (parse catalog +
         project model + published extra + BOM constraints) → typed diagnostics;
         catch exceptions → failure diagnostics for module-manifest +
         publishing-topology.
-     4. Read the JUnit XML produced by the enrollment Test task (see 2) →
+     5. Read the JUnit XML produced by the enrollment Test task (see 2) →
         provider-contracts / store-contracts outcomes; catch exceptions →
         failure diagnostics for both enrollment checks.
-     5. Partition by check id (§3), call `ArchitectureReportAggregator.aggregate`.
-     6. Write `build/reports/tramai/architecture/architecture-report.json` —
+     6. Partition by check id (§3), call `ArchitectureReportAggregator.aggregate`.
+     7. Write `build/reports/tramai/architecture/architecture-report.json` —
         BEFORE the terminal exception, so a failing run leaves evidence.
-     7. If `status == FAIL`, throw `GradleException` listing failed checks and
+        Diagnostic messages are sanitized (repository root replaced with
+        `<repo-root>`) so failure reports are path-independent.
+     8. If `status == FAIL`, throw `GradleException` listing failed checks and
         the report path.
    - Do NOT wire into `verifyPr`/`check` in this PR (CI lane redesign is a
      non-goal, Epic 10.5); keep it standalone. Running it in the PR's
      verification is the evidence.
-2. **`architectureContractEnrollmentTest`** — thin Test task (root project):
+2. **`architectureDependencyProbe`** — fail-soft per-project dependency probe
+   (new task type `ArchitectureDependencyProbeTask`, root project registers one
+   per subproject): resolves the project's compile/runtime classpath; on success
+   writes normalized records; on ANY resolution exception writes a typed marker
+   (`[{"resolutionFailed": true, "message": "..."}]`) and never throws. This is
+   what makes the gate's "report always written" guarantee hold even when
+   dependency resolution fails — the throwing task-graph prerequisite is
+   replaced by fail-soft evidence acquisition.
+3. **`architectureContractEnrollmentTest`** — thin Test task (root project):
    - `testClassesDirs`/`classpath` from the `:tramai-testing` test source set
      (⚠️ custom Test tasks need explicit wiring or they run zero tests)
    - `useJUnitPlatform { includeTestsMatching("dev.tramai.testing.*EnrollmentArchitectureTest") }`
@@ -170,7 +190,7 @@ Register in `MaintainabilityBaselinePlugin.kt`:
    `store-contracts`/`provider-contracts` even when the other guards still run.
    Discovery is by identity, not by count.
 
-## 7. Discriminator / mutation proof (A1–A11)
+## 7. Discriminator / mutation proof (A1–A15)
 
 New build-logic test file `ArchitectureReportAggregatorTest.kt`. Each test
 feeds the aggregator a real failure diagnostic (constructed with the EXACT
@@ -189,23 +209,29 @@ diagnostic via the real verifier on a fixture instead of constructing it:
 - **A9 evidence-source exception (review round 1, P1)**: `collectEvidence` with a throwing evidence lambda → affected checks FAIL with `EMPTY_SECTION`, and `ArchitectureReportJson.write` still produces a file with `status: FAIL` — proves the report survives evidence-source failures
 - **A10 enrollment identity pinning (review round 1, P1)**: deleting one pinned store class from the discovered set → `store-contracts` FAIL naming that class; renaming → FAIL in both directions (missing + unexpected); deleting the provider class → `provider-contracts` FAIL
 - **A11 aggregator rejects unexpected id set (review round 1, P2)**: `aggregate` with a map missing one of the 10 stable ids throws `IllegalArgumentException` — no 9/11-check reports
+- **A12 baseline evidence unavailable (review round 2, P1)**: `routeBaselineDiagnostics` with an `EMPTY_SECTION` FAILURE diagnostic → EVERY baseline-backed check FAIL (7), the three non-baseline checks stay PASS, and the written report sanitizes the absolute path to `<repo-root>`
+- **A13 dependency evidence unavailable (review round 2, P1)**: `routeBaselineDiagnostics` with a `DEPENDENCY_RESOLUTION_FAILED` FAILURE diagnostic → every baseline-backed check FAIL with that code
+- **A14 path sanitization (review round 2, P2)**: a failure diagnostic containing the repository root path serializes with `<repo-root>` and never leaks the absolute path
+- **A15 fail-soft probe marker (review round 2, P1/P2)**: `readDependencyProbeEvidence` turns a `resolutionFailed` probe marker into a typed failure and a valid probe into records; a missing probe file is also a failure
 
 The essential property: **an underlying verifier failing means
 `verify060Architecture` must fail and record that exact failure** — the
-aggregator maps every code the real verifiers emit to a FAIL bucket, and the
+aggregator maps every code the real verifiers emit to a FAIL bucket, the
 exhaustive `when (code)` classification in `baselineCheckFor` has NO else
-branch, so a new `DiagnosticCode` forces an explicit in-gate/out-of-gate
-decision at compile time.
+branch (a new `DiagnosticCode` forces an explicit in-gate/out-of-gate decision
+at compile time), and evidence-unavailable diagnostics fail closed rather than
+being silently discarded.
 
 ## 8. Files
 
 ### Create
-- `build-logic/src/main/kotlin/dev/tramai/build/quality/ArchitectureReport.kt` — model + `ArchitectureReportAggregator` (pure) + `collectEvidence` (fail-closed) + pinned `enrollmentArchitectureTestClasses` + `enrollmentGuardDiagnostics`
-- `build-logic/src/test/kotlin/dev/tramai/build/quality/ArchitectureReportAggregatorTest.kt` — A1–A11
+- `build-logic/src/main/kotlin/dev/tramai/build/quality/ArchitectureReport.kt` — model + `ArchitectureReportAggregator` (pure) + `collectEvidence` (fail-closed) + `routeBaselineDiagnostics` (evidence-failure fan-out) + pinned `enrollmentArchitectureTestClasses` + `enrollmentGuardDiagnostics` + `readDependencyProbeEvidence` + path sanitization
+- `build-logic/src/main/kotlin/dev/tramai/build/quality/DependencyResolutionTasks.kt` — extract `collectResolvedDependencies` (shared); add fail-soft `ArchitectureDependencyProbeTask`
+- `build-logic/src/test/kotlin/dev/tramai/build/quality/ArchitectureReportAggregatorTest.kt` — A1–A15
 - `docs/EPIC-10.4-architecture-gate.md` — this spec (committed first)
 
 ### Modify
-- `build-logic/src/main/kotlin/dev/tramai/build/quality/MaintainabilityBaselinePlugin.kt` — register `verify060Architecture` + `architectureContractEnrollmentTest`
+- `build-logic/src/main/kotlin/dev/tramai/build/quality/MaintainabilityBaselinePlugin.kt` — register `verify060Architecture` + `architectureContractEnrollmentTest` + per-project `architectureDependencyProbe`
 
 ### Do NOT touch
 - Any `tramai-*/src/main/kotlin/**` file (zero runtime production changes)

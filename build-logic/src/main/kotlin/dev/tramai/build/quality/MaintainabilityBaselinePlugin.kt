@@ -135,6 +135,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        // Fail-soft per-project dependency probes for the architecture gate.
+        // Unlike the tasks above they never throw on unresolved dependencies;
+        // the gate reads their outputs and converts resolution failure into
+        // typed fail-closed evidence, so the report is always written.
+        val architectureProbeTasks = mutableListOf<String>()
+        project.allprojects.filter { it != project && it.buildFile.exists() }.forEach { sub ->
+            val probe = sub.tasks.register("architectureDependencyProbe", ArchitectureDependencyProbeTask::class.java)
+            probe.configure {
+                group = "verification"
+                description = "Resolves external dependencies for ${sub.path} (fail-soft, architecture gate)"
+                outputFile.set(
+                    sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json")
+                )
+            }
+            architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
+        }
+
         project.tasks.register("generateModuleDependencyGraph") {
             group = "maintainability"
             description = "Generates the module dependency graph (JSON, DOT, Mermaid)"
@@ -906,7 +923,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verify060Architecture") {
             group = "verification"
             description = "build(quality): add unified 0.6.0 architecture gate"
-            dependsOn("generateResolvedDependencyBaseline")
+            dependsOn(*architectureProbeTasks.toTypedArray())
             dependsOn(enrollmentTest)
             doLast {
                 val architectureDiagnostics = ArchitectureReportAggregator.checkIds
@@ -915,8 +932,39 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val verificationReport = File(reportDir, "verification-report.json")
 
                 collectEvidence("baseline verification", baselineCheckIds, architectureDiagnostics) {
-                    BaselineVerifier(BaselineGenerator(context), context, reportDir).verify()
-                    addBaselineDiagnostics(readBaselineDiagnostics(verificationReport), architectureDiagnostics)
+                    // Read the fail-soft per-project dependency probes. Resolution
+                    // failure reaches the gate as typed evidence (the probe tasks
+                    // never abort the task graph), so the report is always written.
+                    val probeFiles = project.allprojects
+                        .filter { it != project && it.buildFile.exists() }
+                        .sortedBy { it.path }
+                        .map { sub ->
+                            File(sub.layout.buildDirectory.get().asFile, "reports/maintainability/architecture-dependencies.json")
+                        }
+                    val evidence = readDependencyProbeEvidence(probeFiles)
+                    if (evidence.failures.isNotEmpty()) {
+                        val message = "Dependency evidence unavailable: ${evidence.failures.joinToString("; ")}"
+                        baselineCheckIds.forEach { checkId ->
+                            architectureDiagnostics.getValue(checkId) += VerificationDiagnostic.failure(
+                                DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+                                message,
+                            )
+                        }
+                    } else {
+                        val resolvedDependenciesFile = File(reportDir, "resolved-dependencies.json")
+                        reportDir.mkdirs()
+                        ReportNormalizer.writeJson(
+                            BaselineGenerator.sortResolvedDependencies(evidence.resolvedRecords),
+                            resolvedDependenciesFile,
+                        )
+                        BaselineVerifier(BaselineGenerator(context), context, reportDir).verify()
+                        routeBaselineDiagnostics(
+                            readBaselineDiagnostics(verificationReport),
+                            architectureDiagnostics,
+                            baselineCheckIds,
+                            ::baselineCheckFor,
+                        )
+                    }
                 }
 
                 collectEvidence("module manifest verification", setOf("module-manifest", "publishing-topology"), architectureDiagnostics) {
@@ -953,7 +1001,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
                 val reportFile = File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json")
                 // Report is written BEFORE the terminal exception — failure must produce evidence.
-                ArchitectureReportJson.write(report, reportFile)
+                ArchitectureReportJson.write(report, reportFile, project.rootDir)
                 if (report.status == ArchitectureCheckStatus.FAIL) {
                     throw GradleException("0.6.0 architecture verification FAILED: " +
                         report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id } +
@@ -1198,15 +1246,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 baselineValue = entry["baselineValue"]?.toString(),
                 currentValue = entry["currentValue"]?.toString(),
             )
-        }
-    }
-
-    private fun addBaselineDiagnostics(
-        diagnostics: List<VerificationDiagnostic>,
-        checks: Map<String, MutableList<VerificationDiagnostic>>,
-    ) {
-        diagnostics.forEach { diagnostic ->
-            baselineCheckFor(diagnostic.code)?.let { checks.getValue(it) += diagnostic }
         }
     }
 
