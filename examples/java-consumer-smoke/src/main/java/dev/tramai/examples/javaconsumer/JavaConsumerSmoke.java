@@ -19,15 +19,13 @@ public final class JavaConsumerSmoke {
 
     @AiService
     public interface GreetingService {
-        @AiDescription("Greets a user by name")
         @AiTool(description = "greet")
         String greet(
                 @AiDescription("The user name") String name,
-                @AiRange(min = 1, max = 10) int enthusiasm);
+                @AiRange(min = 1.0, max = 10.0) int enthusiasm);
 
         @AiTool(description = "summarize")
-        @AiMinItems(1)
-        List<String> summarize(@AiDescription("Items to summarize") List<String> items);
+        List<String> summarize(@AiDescription("Items to summarize") @AiMinItems(1) List<String> items);
     }
 
     public static final String MARKER =

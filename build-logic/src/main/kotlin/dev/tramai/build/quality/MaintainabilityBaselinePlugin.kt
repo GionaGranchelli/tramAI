@@ -1021,7 +1021,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             "verifyJavaConsumerCompatibility",
             ":examples:java-consumer-smoke",
             "src/main/java",
-            "build/classes/java/main",
+            "classes/java/main",
             "java",
             dependsOnTask = "compileJava",
         )
@@ -1030,7 +1030,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             "verifyKotlinConsumerCompatibility",
             ":examples:kotlin-consumer-smoke",
             "src/main/kotlin",
-            "build/classes/kotlin/main",
+            "classes/kotlin/main",
             "kotlin",
             dependsOnTask = "compileKotlin",
         )
@@ -1450,6 +1450,39 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // even if the others still run. Discovery by identity, not by count.
         enrollmentGuardDiagnostics(discoveredClasses).forEach { (check, diagnostics) ->
             checks.getValue(check) += diagnostics
+        }
+    }
+
+    /**
+     * Registers a consumer-compatibility verify task: depends on the fixture's
+     * real compile task, then asserts real sources were compiled into real
+     * classes on the fixture's minimal consumer classpath. Fails the task
+     * (and thereby verify060Architecture) on any guard diagnostic.
+     */
+    private fun registerConsumerCompatibilityTask(
+        project: Project,
+        taskName: String,
+        modulePath: String,
+        sourceRelPath: String,
+        classesRelPath: String,
+        extension: String,
+        dependsOnTask: String,
+    ) {
+        val fixture = project.project(modulePath)
+        project.tasks.register(taskName) {
+            group = "verification"
+            description = "Compiles the $extension consumer smoke fixture against the stable API and proves real sources + real classes (Epic 10.2)"
+            dependsOn("$modulePath:$dependsOnTask")
+            doLast {
+                val sourceDir = File(fixture.projectDir, sourceRelPath)
+                val classesDir = File(fixture.layout.buildDirectory.get().asFile, classesRelPath)
+                val diagnostics = ConsumerCompatibilityGuard.validate(sourceDir, classesDir, extension)
+                if (diagnostics.isNotEmpty()) {
+                    throw GradleException(
+                        "$taskName FAILED: ${diagnostics.joinToString("; ") { it.message }}"
+                    )
+                }
+            }
         }
     }
 

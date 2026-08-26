@@ -17,7 +17,6 @@ object KotlinConsumerSmoke {
 
     @AiService
     interface GreetingService {
-        @AiDescription("Greets a user by name")
         @AiTool(description = "greet")
         fun greet(
             @AiDescription("The user name") name: String,
@@ -25,8 +24,9 @@ object KotlinConsumerSmoke {
         ): String
 
         @AiTool(description = "summarize")
-        @AiMinItems(1)
-        fun summarize(@AiDescription("Items to summarize") items: List<String>): List<String>
+        fun summarize(
+            @AiDescription("Items to summarize") @AiMinItems(1) items: List<String>,
+        ): List<String>
     }
 
     val marker: String =

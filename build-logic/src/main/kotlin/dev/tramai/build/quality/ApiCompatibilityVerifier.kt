@@ -386,7 +386,7 @@ object ApiCompatibilityEvidenceReader {
         val exit = process.waitFor()
         if (exit != 0) {
             // Path absent at base = new module → treat as empty base dump.
-            if (output.contains("exists on disk, but not in") || output.contains("Path '" )) {
+            if (output.contains("exists on disk, but not in")) {
                 return ""
             }
             throw IllegalStateException("git show $spec failed (exit $exit): ${output.take(200)}")

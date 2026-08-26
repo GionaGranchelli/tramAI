@@ -6,6 +6,8 @@
 |--------|-------|----------|-----|-----------|-------|---------|
 | examples:approval-resume | applications-examples | internal | excluded | No | examples | excluded |
 | examples:governed-workflow | applications-examples | internal | excluded | No | examples | excluded |
+| examples:java-consumer-smoke | applications-examples | internal | excluded | No | examples | excluded |
+| examples:kotlin-consumer-smoke | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-document-intelligence | applications-examples | internal | excluded | No | examples | excluded |
 | examples:sovereign-offline-verification | applications-examples | internal | excluded | No | examples | excluded |
 | examples:spring-sovereign-starter | applications-examples | internal | excluded | No | examples | excluded |
