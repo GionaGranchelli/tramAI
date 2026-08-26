@@ -1,4 +1,5 @@
 tramai:
+  profile: sovereign
   sovereign:
     enabled: true
     allowed-models:

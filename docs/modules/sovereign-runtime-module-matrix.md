@@ -13,8 +13,10 @@ troubleshooting flows.
 |---|---|---|---|
 | tramai-security | Policy enforcement, DLP, redaction, replay envelope safety | Governance core | Implemented / evolving |
 | tramai-sovereign | Trust zones, sovereign routing, local/cloud enforcement primitives | Runtime composition | Implemented / evolving |
+| tramai-spring-core | Shared Spring integration: runtime-neutral AI-service creator, `@AiService` proxy registration, profile-gated runtime selection | Spring integration foundation | Implemented / evolving |
 | tramai-persistence-file | Encrypted file-backed stores for approvals, continuations, audit, and outbox | Durable local persistence | Implemented / evolving |
-| tramai-spring-boot-starter-sovereign | Spring Boot auto-configuration for sovereign runtime | Spring integration | Implemented / evolving |
+| tramai-spring-sovereign | Spring auto-configuration for the sovereign runtime (`tramai.profile=sovereign`) | Spring integration | Implemented / evolving |
+| tramai-spring-boot-starter | Unified Spring Boot starter: composes standard + sovereign Spring integration; profile selects runtime | Spring integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-persistence-file | Spring auto-configuration for file-backed persistence | Spring persistence integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-ops | Operational APIs: audit outbox, recovery, dispatch, background worker, observer SPI | Operational recovery | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-ops-actuator | Optional read-only Actuator endpoint and health indicator for worker status | Operational visibility | Implemented / opt-in |
@@ -27,9 +29,11 @@ troubleshooting flows.
 ## Dependency Direction
 
 application
-  -> tramai-spring-boot-starter-sovereign
-     -> tramai-sovereign
-     -> tramai-security
+  -> tramai-spring-boot-starter (unified starter; tramai.profile selects runtime)
+     -> tramai-spring-core (standard runtime: creator, @AiService proxy registration, profile gate)
+     -> tramai-spring-sovereign (sovereign runtime auto-configuration)
+        -> tramai-sovereign
+        -> tramai-security
 
 application
   -> tramai-spring-boot-starter-sovereign-persistence-file

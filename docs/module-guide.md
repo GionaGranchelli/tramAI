@@ -155,7 +155,8 @@ dependencies {
 | Module | Purpose | When to use |
 |--------|---------|-------------|
 | `tramai-standalone` | Framework-free entry point via `Tramai.builder()`. | CLI tools, library code, Ktor, http4k, plain Kotlin. |
-| `tramai-spring` | Spring Boot auto-configuration (`@EnableTramai`). | Spring Boot 3.x applications. |
+| `tramai-spring-boot-starter` | Canonical Spring Boot starter: one programming model, two runtime profiles (`tramai.profile`). | Spring Boot 3.x applications — standard or sovereign. |
+| `tramai-spring` | Legacy Spring facade over `tramai-spring-core` (pre-0.6.0 coordinate). | Existing 0.5.x Spring applications; new apps should use the unified starter. |
 
 ### Platform Modules
 

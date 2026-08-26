@@ -401,7 +401,10 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                     dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
                 ),
             )
-            .withUserConfiguration(TestDataSourceConfig::class.java)
+            .withUserConfiguration(
+                TestDataSourceConfig::class.java,
+                MinimalProviderConfig::class.java,
+            )
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-model",
@@ -637,6 +640,11 @@ open class TestDataSourceConfig {
     open fun testDataSource(): DataSource = NoOpDataSource()
 }
 
+open class MinimalProviderConfig {
+    @Bean
+    open fun stubModelProvider(): StubModelProvider = StubModelProvider()
+}
+
 open class CustomAuditStoreConfig {
     @Bean
     @Primary
@@ -848,4 +856,13 @@ class CustomLeaseStore : SovereignOpsWorkerLeaseStore {
 
     override suspend fun get(leaseName: String) =
         throw UnsupportedOperationException("custom stub")
+}
+
+class StubModelProvider : dev.tramai.core.provider.ModelProvider {
+    override fun providerId(): String = "local-provider"
+
+    override suspend fun complete(
+        request: dev.tramai.core.model.ModelRequest,
+    ): dev.tramai.core.model.ModelResponse =
+        dev.tramai.core.model.ModelResponse(content = "stub response")
 }

@@ -20,7 +20,7 @@ kotlin {
 }
 
 dependencies {
-    api(project(":tramai-spring-boot-starter-sovereign"))
+    api(project(":tramai-spring-sovereign"))
     api(project(":tramai-spring-boot-starter-sovereign-ops"))
     api(project(":tramai-persistence-jdbc"))
     api(project(":tramai-security"))

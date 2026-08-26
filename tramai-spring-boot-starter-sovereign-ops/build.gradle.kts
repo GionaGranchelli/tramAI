@@ -23,7 +23,7 @@ dependencies {
     api(project(":tramai-core"))
     api(project(":tramai-security"))
     api(project(":tramai-sovereign"))
-    api(project(":tramai-spring-boot-starter-sovereign"))
+    api(project(":tramai-spring-sovereign"))
 
     implementation(project(":tramai-engine"))
     implementation(libs.coroutines.core)

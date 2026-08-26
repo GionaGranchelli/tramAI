@@ -15,9 +15,14 @@ public abstract interface annotation class dev/tramai/core/annotations/AiService
 }
 
 public abstract interface annotation class dev/tramai/core/annotations/AiTool : java/lang/annotation/Annotation {
+	public abstract fun approval ()Ldev/tramai/core/policy/ApprovalMode;
+	public abstract fun audit ()Ldev/tramai/core/policy/AuditDetail;
 	public abstract fun description ()Ljava/lang/String;
 	public abstract fun idempotent ()Z
+	public abstract fun managedNetworkEgress ()Ldev/tramai/core/policy/ManagedNetworkEgress;
 	public abstract fun name ()Ljava/lang/String;
+	public abstract fun permission ()Ljava/lang/String;
+	public abstract fun risk ()Ldev/tramai/core/policy/RiskLevel;
 	public abstract fun sideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
 }
 

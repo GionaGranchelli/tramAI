@@ -153,7 +153,8 @@ This publishes the following to mavenLocal() and runs their test suites:
 - `tramai-security`
 - `tramai-sovereign`
 - `tramai-persistence-file`
-- `tramai-spring-boot-starter-sovereign`
+- `tramai-spring-sovereign`
+- `tramai-spring-boot-starter`
 - `tramai-spring-boot-starter-sovereign-persistence-file`
 - `tramai-spring-boot-starter-sovereign-ops`
 - `tramai-spring-boot-starter-sovereign-ops-actuator`
@@ -194,10 +195,10 @@ This publishes the sovereign runtime modules **and their full transitive dev.tra
 
 The published module set includes:
 
-- 4 transitive framework modules: `tramai-core`, `tramai-standalone`, `tramai-engine`, `tramai-structured`
+- 5 transitive framework modules: `tramai-core`, `tramai-standalone`, `tramai-engine`, `tramai-structured`, `tramai-spring-core`
 - 10 sovereign modules: `tramai-bom`, `tramai-security`, `tramai-sovereign`, `tramai-persistence-file`, and the 6 Spring Boot starters
 
-After the bundle dry-run, the consumer smoke test resolves all 14 modules exclusively from the verification repo — no `mavenLocal` fallback.
+After the bundle dry-run, the consumer smoke test resolves all 15 modules exclusively from the verification repo — no `mavenLocal` fallback.
 
 The task always publishes to both `mavenLocal()` and the dedicated build-local repository. The dedicated repo uses a separate `sovereignBundleLocal` Maven repository configuration — never the shared `tramaiRemote` repository — so it cannot accidentally push to a remote publish target.
 

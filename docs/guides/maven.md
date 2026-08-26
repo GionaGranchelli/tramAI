@@ -7,11 +7,11 @@ Use this page when your project builds with Maven and you want copy-paste depend
 Start with:
 
 - `tramai-standalone` for plain JVM applications
-- `tramai-spring` for Spring Boot applications
+- `tramai-spring-boot-starter` for Spring Boot applications
 
 Then add:
 
-- one provider module such as `tramai-openai`, `tramai-anthropic`, or `tramai-ollama`
+- one provider module — `tramai-openai`, `tramai-anthropic`, or `tramai-ollama` for standalone apps; the `tramai-spring-provider-*` equivalent (`tramai-spring-provider-openai`, `tramai-spring-provider-anthropic`, `tramai-spring-provider-ollama`) for Spring Boot
 
 Optionally add:
 
@@ -30,7 +30,7 @@ Always import the BOM first so all TramAI modules stay on the same version.
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -62,12 +62,12 @@ Always import the BOM first so all TramAI modules stay on the same version.
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
 
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
@@ -110,12 +110,12 @@ Always import the BOM first so all TramAI modules stay on the same version.
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
 
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 
   <dependency>
@@ -151,7 +151,8 @@ Always import the BOM first so all TramAI modules stay on the same version.
 | Module | Use it when |
 | --- | --- |
 | `tramai-standalone` | You want the normal non-Spring runtime entry point. |
-| `tramai-spring` | You want Spring Boot bean registration and configuration binding. |
+| `tramai-spring-boot-starter` | You want Spring Boot bean registration and configuration binding (unified starter; `tramai.profile` selects standard or sovereign). |
+| `tramai-spring-provider-*` | Spring property-driven provider adapters: `tramai-spring-provider-openai`, `tramai-spring-provider-anthropic`, `tramai-spring-provider-ollama`. |
 | `tramai-openai` | You want OpenAI or OpenAI-compatible providers. |
 | `tramai-anthropic` | You want Anthropic models. |
 | `tramai-ollama` | You want local Ollama models. |

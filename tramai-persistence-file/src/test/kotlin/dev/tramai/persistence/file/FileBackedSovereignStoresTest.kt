@@ -26,6 +26,7 @@ import org.junit.jupiter.api.assertThrows
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.io.path.*
@@ -223,9 +224,19 @@ class FileBackedSovereignStoresTest {
 
         val path = suspendedRecordPath(approvalId)
         val encrypted = EncryptedFileEnvelopeV1.fromJson(path.readText())
+        // Flip one byte of the ciphertext+tag so the corruption is guaranteed to
+        // change the decrypted content. String-level mutations are unreliable:
+        // depending on the trailing Base64 padding, some character replacements
+        // decode to the same significant bits (e.g. 'X' -> 'Y' under '==' padding
+        // keeps the top 2 bits), making the corruption a silent no-op. A byte
+        // flip always changes the decoded ciphertext, so GCM auth always fails.
+        val corruptedCiphertext = Base64.getDecoder().decode(encrypted.ciphertextBase64)
+            .also { it[0] = (it[0].toInt() xor 0x01).toByte() }
         Files.writeString(
             path,
-            encrypted.copy(ciphertextBase64 = encrypted.ciphertextBase64.dropLast(1) + "X").toJson(),
+            encrypted.copy(
+                ciphertextBase64 = Base64.getEncoder().encodeToString(corruptedCiphertext),
+            ).toJson(),
         )
 
         assertThrows<FileStoreCorruptionException> {

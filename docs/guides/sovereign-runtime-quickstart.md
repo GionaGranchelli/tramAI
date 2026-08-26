@@ -30,58 +30,88 @@ A small governed AI workflow that demonstrates:
 
 ## Add dependencies
 
-The following modules are part of the Sovereign Runtime RC. Add them to your `build.gradle.kts` (or equivalent):
+Start from the unified starter plus one provider adapter for your model provider. Add them to your `build.gradle.kts` (or equivalent):
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-core:<version>")
-    implementation("dev.tramai:tramai-sovereign:<version>")
-    implementation("dev.tramai:tramai-security:<version>")
-    implementation("dev.tramai:tramai-persistence-file:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-actuator:<version>")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-rest:<version>")
+    implementation("dev.tramai:tramai-spring-boot-starter:<version>")
+    implementation("dev.tramai:tramai-spring-provider-ollama:<version>")
 }
 ```
 
-For JDBC-backed persistence (alternative to file-backed), replace the file persistence dependency with the `tramai-spring-boot-starter-sovereign-persistence-jdbc` module, which provides PostgreSQL-backed stores for approvals, suspended invocations, continuations, audit events, and the audit outbox:
-
-```kotlin
-dependencies {
-    // ... core, sovereign, security, ops dependencies ...
-
-    // Replace tramai-spring-boot-starter-sovereign-persistence-file with:
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-jdbc:<version>")
-    runtimeOnly("org.postgresql:postgresql")
-}
-```
+The sovereign features used in this guide (encrypted persistence, ops workers, Actuator surfaces) come from the sovereign add-on starters — `tramai-spring-boot-starter-sovereign-persistence-file`, `tramai-spring-boot-starter-sovereign-ops`, `tramai-spring-boot-starter-sovereign-ops-actuator`, and `tramai-spring-boot-starter-sovereign-ops-rest` — add the ones matching the configuration you enable.
 
 > **Important:** These coordinates are shown as a conceptual example. The exact published coordinates, versioning scheme, and Maven Central availability are still evolving. For local evaluation, depend on source modules via the project's local publication workflow.
 
 ## Minimal configuration
 
-Enable the Sovereign Runtime and its subsystems in `application.yml`:
+Sovereignty is **configuration, not code**: use the same unified starter as standard applications, then select the sovereign runtime with `tramai.profile: sovereign`. The application code (`@AiService` interfaces, constructor injection, `@AiTool` methods) does not change between profiles.
+
+Enable the Sovereign Runtime in `application.yml`:
+
+```yaml
+tramai:
+  profile: sovereign
+  providers:
+    ollama:
+      base-url: http://localhost:11434
+  sovereign:
+    allowed-models:
+      - gemma4:e2b
+    allowed-providers:
+      - ollama
+    provider-zones:
+      ollama: LOCAL
+    models:
+      gemma4:e2b: ollama
+```
+
+This is a complete, startable configuration: the unified starter + `tramai-spring-provider-ollama` bring up the sovereign runtime, the Ollama adapter registers the provider (the `base-url` is required — without it the adapter produces no provider and startup fails), and the `sovereign` block satisfies the mandatory runtime properties (allowed models, allowed providers, provider zones, model routes).
+
+This activates:
+- sovereign runtime policy engine and routing
+
+### Add-ons: persistence and ops workers
+
+The sovereign add-on starters activate the heavier subsystems. Each one pairs a dependency with its configuration.
+
+#### Encrypted file-backed persistence
+
+Add the dependency:
+
+```kotlin
+dependencies {
+    implementation("dev.tramai:tramai-spring-boot-starter:<version>")
+    implementation("dev.tramai:tramai-spring-provider-ollama:<version>")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:<version>")
+}
+```
+
+Add to the minimal configuration (the base block above already selects the sovereign profile):
 
 ```yaml
 tramai:
   sovereign:
-    enabled: true
     persistence:
-      file:
-        root-dir: ./build/tramai-sovereign
+      type: file
+      base-dir: ./data/tramai-sovereign
+      encryption:
+        key-env: TRAMAI_SOVEREIGN_STORE_KEY
+```
+
+`TRAMAI_SOVEREIGN_STORE_KEY` must hold a base64-encoded 256-bit key. This activates encrypted file-backed persistence (approvals, continuations, audit stream, outbox).
+
+#### Ops workers and Actuator surfaces
+
+Add `tramai-spring-boot-starter-sovereign-ops` (and `tramai-spring-boot-starter-sovereign-ops-actuator` for the Actuator endpoints) and enable the workers you need, e.g. the audit outbox worker:
+
+```yaml
+tramai:
+  sovereign:
     ops:
       audit-outbox:
         worker:
           enabled: true
-      actuator:
-        worker-status:
-          enabled: true
-        worker-health:
-          enabled: true
-      reviewer-ui-enabled: true
-      rest-control-plane-enabled: true
       approved-resume-worker:
         enabled: true
 
@@ -93,21 +123,44 @@ management:
 ```
 
 This activates:
-- sovereign runtime policy engine and routing
-- encrypted file-backed persistence (approvals, continuations, audit stream, outbox)
 - audit outbox background worker (recovery + dispatch loop)
-- multi-node worker lease coordination (prevents duplicate dispatch cycles)
-- optional read-only Actuator worker status endpoint
-- optional Actuator worker health component
+- optional read-only Actuator worker status endpoint and health component
+- approved-continuation resume worker
 
 ### JDBC persistence configuration
 
-To use JDBC-backed persistence instead of file-backed, set `type: jdbc` and provide a DataSource and encryption key:
+To use JDBC-backed persistence instead of file-backed, add the JDBC add-on and the ops starter (the JDBC config below enables the audit outbox worker with lease coordination):
+
+```kotlin
+dependencies {
+    implementation("dev.tramai:tramai-spring-boot-starter:<version>")
+    implementation("dev.tramai:tramai-spring-provider-ollama:<version>")
+
+    // Replace tramai-spring-boot-starter-sovereign-persistence-file with:
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-jdbc:<version>")
+    // Ops worker + lease coordination used in the JDBC configuration below:
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
+    runtimeOnly("org.postgresql:postgresql")
+}
+```
+
+Provide a DataSource and encryption key:
 
 ```yaml
 tramai:
+  profile: sovereign
+  providers:
+    ollama:
+      base-url: http://localhost:11434
   sovereign:
-    enabled: true
+    allowed-models:
+      - gemma4:e2b
+    allowed-providers:
+      - ollama
+    provider-zones:
+      ollama: LOCAL
+    models:
+      gemma4:e2b: ollama
     persistence:
       type: jdbc
       jdbc:
@@ -123,15 +176,15 @@ tramai:
           lease-name: sovereign-ops-audit-outbox-worker
           worker-id: ${HOSTNAME:node-1}
           lease-duration: 2m
-```
 
-This activates JDBC-backed stores and multi-node worker coordination via the `worker_leases` table. Set `lease-enabled: false` to run without lease coordination (single-node mode).
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/tramai
     username: ${DB_USER}
     password: ${DB_PASSWORD}
 ```
+
+This activates JDBC-backed stores and multi-node worker coordination via the `worker_leases` table. Set `lease-enabled: false` to run without lease coordination (single-node mode).
 
 > **Important:** The application database must have the TramAI JDBC schema migrations applied before runtime startup. Database migration execution is not covered by this quickstart — expect a dedicated migration guide in a future PR.
 

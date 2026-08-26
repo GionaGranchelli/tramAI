@@ -1,14 +1,17 @@
 package dev.tramai.spring
 
 import dev.tramai.core.annotations.AiTool
-import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.policy.ToolSecurityMetadata
 import org.springframework.aop.support.AopUtils
 import org.springframework.beans.factory.ListableBeanFactory
 import org.springframework.context.ApplicationContext
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
+import kotlin.reflect.KType
+import kotlin.reflect.KTypeParameter
 import kotlin.reflect.full.callSuspend
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.functions
@@ -50,12 +53,23 @@ object AiToolScanner {
 
             val targetClass: KClass<*> = org.springframework.util.ClassUtils.getUserClass(beanType).kotlin
 
+            // A JDK interface proxy resolves its bean type to the $Proxy class,
+            // whose synthesized methods carry no annotations; the @AiTool may
+            // live on an interface the proxy implements or on the AOP target
+            // class. The proxy's implementation-class annotations are invisible
+            // here (only AopUtils.getTargetClass can see them, and that needs
+            // the bean instance), so a JDK proxy is never skipped by the
+            // prefilter — it is re-checked against the real target class below.
+            val isJdkProxy = java.lang.reflect.Proxy.isProxyClass(beanType)
             val hasTool = try {
-                targetClass.functions.any { it.findAnnotation<AiTool>() != null }
+                targetClass.functions.any { it.findAnnotation<AiTool>() != null } ||
+                    beanType.interfaces.any { interfaceType ->
+                        interfaceType.kotlin.functions.any { it.findAnnotation<AiTool>() != null }
+                    }
             } catch (e: Throwable) {
                 false
             }
-            if (!hasTool) return@forEach
+            if (!hasTool && !isJdkProxy) return@forEach
 
             val bean = try {
                 factory.getBean(beanName)
@@ -68,6 +82,16 @@ object AiToolScanner {
             } catch (e: Throwable) {
                 beanType
             }
+
+            // JDK proxies may carry @AiTool only on the implementation class
+            // (annotations on overrides are not inherited); the prefilter could
+            // not see that, so re-evaluate on the real AOP target class.
+            val finalHasTool = hasTool || try {
+                actualTargetClass.kotlin.functions.any { it.findAnnotation<AiTool>() != null }
+            } catch (e: Throwable) {
+                false
+            }
+            if (!finalHasTool) return@forEach
 
             result.add(AnnotatedBean(beanName, bean, actualTargetClass))
         }
@@ -90,7 +114,9 @@ object AiToolScanner {
         bean: Any,
         function: KFunction<*>,
     ): TramaiTool<*, *>? {
-        val annotation = try { function.findAnnotation<AiTool>() } catch (e: Exception) { null } ?: return null
+        val annotation = try { function.findAnnotation<AiTool>() } catch (e: Exception) { null }
+            ?: findInterfaceAnnotation(bean, function)
+            ?: return null
 
         val parameters = function.valueParameters
         check(parameters.size == 1) {
@@ -105,6 +131,7 @@ object AiToolScanner {
         }
 
         val toolName = annotation.name.takeIf { it.isNotBlank() } ?: function.name
+        val security = resolveSecurityMetadata(beanName, function.name, toolName, annotation)
 
         return MethodBackedTramaiTool(
             bean = bean,
@@ -113,7 +140,138 @@ object AiToolScanner {
             description = annotation.description,
             inputType = inputType,
             idempotent = annotation.idempotent,
-            sideEffectLevel = annotation.sideEffectLevel
+            sideEffectLevel = annotation.sideEffectLevel,
+            security = security,
+        )
+    }
+
+    /**
+     * Exact overload-safe signature match. Name + arity alone is not enough:
+     * `fun lookup(InvoiceInput)` and `fun lookup(CustomerInput)` share both.
+     * Compare name, suspend-ness, and the full parameter type shapes.
+     */
+    private fun KFunction<*>.sameSignatureAs(other: KFunction<*>): Boolean =
+        name == other.name &&
+            isSuspend == other.isSuspend &&
+            valueParameters.size == other.valueParameters.size &&
+            valueParameters.zip(other.valueParameters).all { (a, b) -> a.type.sameShape(b.type) }
+
+    /** Structural type comparison: classifier + nullability + type arguments. */
+    private fun KType.sameShape(other: KType): Boolean {
+        if (classifier != other.classifier || isMarkedNullable != other.isMarkedNullable) return false
+        if (arguments.size != other.arguments.size) return false
+        return arguments.zip(other.arguments).all { (a, b) ->
+            a.variance == b.variance &&
+                when {
+                    a.type == null && b.type == null -> true
+                    a.type != null && b.type != null -> a.type!!.sameShape(b.type!!)
+                    else -> false
+                }
+        }
+    }
+
+    /**
+     * Substitutes the interface type parameters with the actual types the
+     * bean's implementation class instantiates them with. BFS through the
+     * supertype graph so the substitution is found through intermediate
+     * interfaces as well (`InvoiceTool : Tool<InvoiceInput>` → `T` →
+     * `InvoiceInput`). Empty for non-generic interfaces.
+     */
+    private fun KClass<*>.typeSubstitutionFor(interfaceKClass: KClass<*>): Map<KTypeParameter, KType> {
+        if (interfaceKClass.typeParameters.isEmpty()) return emptyMap()
+        val result = mutableMapOf<KTypeParameter, KType>()
+        val queue = ArrayDeque<KType>()
+        queue.addAll(supertypes)
+        while (queue.isNotEmpty()) {
+            val supertype = queue.removeFirst()
+            if (supertype.classifier == interfaceKClass) {
+                supertype.arguments.forEachIndexed { index, argument ->
+                    val argumentType = argument.type
+                    if (index < interfaceKClass.typeParameters.size && argumentType != null) {
+                        result[interfaceKClass.typeParameters[index]] = argumentType
+                    }
+                }
+                return result
+            }
+            (supertype.classifier as? KClass<*>)?.let { queue.addAll(it.supertypes) }
+        }
+        return result
+    }
+
+    /**
+     * Resolves the interface function corresponding to the implementation
+     * [function]. Used for both the interface-declared [AiTool] fallback and
+     * the invocable proxy function. Overload-safe and generic-aware: the
+     * interface's parameter type shape is compared after substituting its type
+     * parameters with the implementation's actual instantiation, so
+     * `interface Tool<T> { fun lookup(input: T) }` matches
+     * `class InvoiceTool : Tool<InvoiceInput> { fun lookup(input: InvoiceInput) }`.
+     */
+    private fun resolveInterfaceFunction(bean: Any, function: KFunction<*>): KFunction<*>? {
+        val declaredInterfaces = bean::class.java.interfaces
+        if (declaredInterfaces.isEmpty()) return null
+        val implementationClass = try {
+            AopUtils.getTargetClass(bean).kotlin
+        } catch (e: Throwable) {
+            bean::class
+        }
+        for (interfaceType in declaredInterfaces) {
+            val substitution = implementationClass.typeSubstitutionFor(interfaceType.kotlin)
+            val match = interfaceType.kotlin.functions.firstOrNull { candidate ->
+                candidate.name == function.name &&
+                    candidate.isSuspend == function.isSuspend &&
+                    candidate.valueParameters.size == function.valueParameters.size &&
+                    candidate.valueParameters.zip(function.valueParameters).all { (c, f) ->
+                        c.type.substituted(substitution).sameShape(f.type)
+                    }
+            }
+            if (match != null) return match
+        }
+        return null
+    }
+
+    /** Replaces top-level type parameters with the mapped actual types. */
+    private fun KType.substituted(map: Map<KTypeParameter, KType>): KType {
+        val typeClassifier = classifier
+        if (typeClassifier is KTypeParameter && typeClassifier in map) {
+            return map.getValue(typeClassifier)
+        }
+        return this
+    }
+
+    /**
+     * Falls back to an interface-declared [AiTool] when the implementation
+     * method carries no annotation (annotations on overrides are not inherited).
+     * The interface's Kotlin function also preserves suspend metadata, which is
+     * what [MethodBackedTramaiTool] dispatches through for proxied beans.
+     */
+    private fun findInterfaceAnnotation(bean: Any, function: KFunction<*>): AiTool? =
+        resolveInterfaceFunction(bean, function)?.findAnnotation<AiTool>()
+
+    private fun resolveSecurityMetadata(
+        beanName: String,
+        functionName: String,
+        toolName: String,
+        annotation: AiTool,
+    ): ToolSecurityMetadata? {
+        val permission = annotation.permission
+        if (permission.isEmpty()) {
+            return null
+        }
+
+        check(permission.isNotBlank()) {
+            "Tool '$toolName' (method $functionName in bean $beanName) declares a blank permission"
+        }
+        check(permission == permission.trim()) {
+            "Tool '$toolName' (method $functionName in bean $beanName) permission must not have surrounding whitespace"
+        }
+
+        return ToolSecurityMetadata(
+            permission = permission,
+            risk = annotation.risk,
+            approval = annotation.approval,
+            managedNetworkEgress = annotation.managedNetworkEgress,
+            audit = annotation.audit,
         )
     }
 
@@ -124,14 +282,29 @@ object AiToolScanner {
         override val description: String,
         override val inputType: KClass<I>,
         override val idempotent: Boolean,
-        override val sideEffectLevel: SideEffectLevel
+        override val sideEffectLevel: SideEffectLevel,
+        override val security: ToolSecurityMetadata?,
     ) : TramaiTool<I, Any> {
 
+        /**
+         * The discovered [function] belongs to the tool's target class. For a
+         * JDK interface proxy the bean is NOT an instance of that target class,
+         * so invoking the target-class function on the proxy receiver throws a
+         * receiver-type mismatch. Resolve the same signature against an
+         * interface the bean actually implements (Kotlin metadata is preserved
+         * there, so suspend functions stay suspend) — invocation then
+         * dispatches through the proxy and Spring AOP advice runs. Plain
+         * objects and CGLIB proxies fall back to the discovered target-class
+         * function. The proxy/function relationship is immutable for the
+         * lifetime of the tool, so the resolution is done once.
+         */
+        private val invocable: KFunction<*> = resolveInterfaceFunction(bean, function) ?: function
+
         override suspend fun execute(input: I, context: ToolExecutionContext): Any {
-            return if (function.isSuspend) {
-                function.callSuspend(bean, input) ?: Unit
+            return if (invocable.isSuspend) {
+                invocable.callSuspend(bean, input) ?: Unit
             } else {
-                function.call(bean, input) ?: Unit
+                invocable.call(bean, input) ?: Unit
             }
         }
     }

@@ -115,35 +115,15 @@ class TramaiAutoConfiguration {
 
         // Property-generated providers are contributed by adapter modules as
         // SpringConfiguredModelProvider beans; core no longer knows any
-        // concrete provider type.
-        val propertyProviders: List<Pair<String, ModelProvider>> =
-            dependencies.springConfiguredProviders.orderedStream()
-                .map { it.providerId to it.provider }
-                .toList()
-
-        val beanProviders = dependencies.modelProviders.orderedStream().toList()
-        val beanProviderCounts = beanProviders.groupingBy { it.providerId() }.eachCount()
-        // Unique beans override property-backed providers; genuine user duplicates are
-        // registered as-is so the canonical plan builder rejects them deterministically.
-        val uniqueBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) == 1 }
-        val duplicateBeanProviders = beanProviders.filter { beanProviderCounts.getValue(it.providerId()) > 1 }
-
-        // Only bean-over-property precedence is intentional. A property-vs-property
-        // duplicate (e.g. OpenAI plus an openai-compatible provider explicitly named
-        // "openai") must NOT be silently collapsed — pass both through so the canonical
-        // plan builder rejects the collision deterministically.
-        val propertyProviderCounts = propertyProviders.groupingBy { it.first }.eachCount()
-        val duplicatePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) > 1 }
-        val uniquePropertyProviders = propertyProviders.filter { propertyProviderCounts.getValue(it.first) == 1 }
-
-        val providersById = uniquePropertyProviders.toMap() + uniqueBeanProviders.associate { it.providerId() to it }
-        providersById.forEach { (providerId, provider) ->
+        // concrete provider type. Same resolution semantics as the sovereign
+        // profile: beans override property providers, duplicates pass through
+        // for the canonical plan builder to reject.
+        SpringProviderResolution.resolve(
+            springConfiguredProviders = dependencies.springConfiguredProviders,
+            beanProviders = dependencies.modelProviders,
+        ).forEach { (providerId, provider) ->
             builder.provider(provider, name = providerId)
         }
-        duplicatePropertyProviders.forEach { (providerId, provider) ->
-            builder.provider(provider, name = providerId)
-        }
-        duplicateBeanProviders.forEach { provider -> builder.provider(provider, name = provider.providerId()) }
 
         properties.models.forEach { (model, providerName) ->
             builder.model(model, providerName)

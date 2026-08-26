@@ -1,18 +1,18 @@
 # Spring Boot Integration
 
-Use `tramai-spring` when you want Tramai service interfaces injected as Spring beans.
+Use `tramai-spring-boot-starter` when you want Tramai service interfaces injected as Spring beans. One starter covers both runtime profiles — standard and sovereign; the profile is selected with `tramai.profile`, never with a different dependency or annotation.
 
 ## Quick Start
 
-Add the module to your app and configure at least one provider.
+Add the starter to your app and configure at least one provider.
 
 ### Gradle
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-spring")
-    implementation("dev.tramai:tramai-openai")
+    implementation(platform("dev.tramai:tramai-bom:<version>"))
+    implementation("dev.tramai:tramai-spring-boot-starter")
+    implementation("dev.tramai:tramai-spring-provider-openai")
 }
 ```
 
@@ -24,7 +24,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>TRAMAI_VERSION</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -34,14 +34,16 @@ dependencies {
 <dependencies>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-spring</artifactId>
+    <artifactId>tramai-spring-boot-starter</artifactId>
   </dependency>
   <dependency>
     <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
+    <artifactId>tramai-spring-provider-openai</artifactId>
   </dependency>
 </dependencies>
 ```
+
+Property-driven provider configuration comes from dedicated Spring adapter modules: `tramai-spring-provider-openai` (OpenAI and OpenAI-compatible endpoints), `tramai-spring-provider-anthropic` (Anthropic), and `tramai-spring-provider-ollama` (local Ollama). Add the adapter matching the provider you configure — the raw `tramai-openai` / `tramai-anthropic` / `tramai-ollama` modules are provider implementations, not Spring property adapters.
 
 ### Application code
 
@@ -78,11 +80,84 @@ tramai:
 
 That is the core Spring model:
 
-1. add `tramai-spring`
+1. add `tramai-spring-boot-starter`
 2. add one provider module
 3. define an `@AiService`
 4. configure `tramai.*`
 5. inject the interface like a normal bean
+
+## Runtime profiles
+
+`tramai.profile` selects the runtime; the application code is identical for both profiles.
+
+| `tramai.profile` | Runtime | Guarantees |
+|---|---|---|
+| *(missing)* | standard | configurable/general runtime behavior |
+| `standard` / `STANDARD` | standard | configurable/general runtime behavior |
+| `sovereign` / `SOVEREIGN` | sovereign | fail-closed governed execution, provider/model constraints, tool metadata enforcement |
+
+- Missing profile defaults to **standard**. There is no implicit sovereign selection.
+- Values are case-insensitive; any other value fails loudly at startup (e.g. `tramai.profile=soveriegn`).
+- Exactly one runtime authority is ever active — never both.
+
+### Sovereign
+
+```yaml
+tramai:
+  profile: sovereign
+  sovereign:
+    allowed-models:
+      - local-model
+    allowed-providers:
+      - local-provider
+    provider-zones:
+      local-provider: LOCAL
+    models:
+      local-model: local-provider
+```
+
+Your business code does not need a sovereign version. Sovereignty is selected at the runtime boundary — the same `@AiService` interfaces, the same constructor injection, the same `@AiTool` methods. Governance becomes stricter, the programming model does not change. See the [Sovereign Runtime Quickstart](sovereign-runtime-quickstart.md).
+
+### `@EnableTramai`
+
+- Under Spring Boot, `@EnableTramai` is **normally unnecessary** — auto-configuration discovers Tramai automatically.
+- In annotation-driven / non-Boot Spring contexts it is a useful explicit opt-in.
+- It selects the Spring programming model, **not** the runtime profile. The runtime profile is always `tramai.profile`. Explicit `@EnableTramai` coexists with Boot auto-configuration without duplicate beans.
+
+## Module responsibilities
+
+| Artifact | Purpose | Typical direct dependency? |
+|---|---|---|
+| `tramai-spring-boot-starter` | Canonical Boot starter for both profiles | **Yes** |
+| `tramai-spring-core` | Shared/standard Spring integration | Usually transitive |
+| `tramai-spring-sovereign` | Sovereign Spring runtime integration | Usually transitive |
+
+Depend on `tramai-spring-boot-starter`. Do not manually compose core + sovereign unless you have an advanced reason.
+
+## Migrating from `tramai-spring-boot-starter-sovereign`
+
+The standalone sovereign starter was removed in 0.6.0. To migrate:
+
+```kotlin
+// Before
+implementation("dev.tramai:tramai-spring-boot-starter-sovereign:<version>")
+
+// After
+implementation("dev.tramai:tramai-spring-boot-starter:<version>")
+```
+
+plus:
+
+```yaml
+tramai:
+  profile: sovereign
+```
+
+What changed:
+
+- **Implicit sovereign selection was removed** — `tramai.profile=sovereign` is now explicit; without it the app runs standard.
+- Packages/classes in `dev.tramai.spring.sovereign` remain the sovereign integration; no application code rewrite is needed for ordinary `@AiService` / `@AiTool` usage.
+- No compatibility code is provided — the unified starter is the single canonical path.
 
 ## YAML Configuration
 
@@ -151,6 +226,8 @@ Built-in reference schemes are:
 - `file:/absolute/path/to/secret.txt`
 - `vault:path[#field]` when `tramai.secrets.vault.enabled=true`
 - `aws-secretsmanager:secret-id[#field]` when `tramai.secrets.aws-secrets-manager.enabled=true`
+
+The `vault:` and `aws-secretsmanager:` schemes are provided by dedicated Spring modules: add `tramai-spring-secrets-vault` for `vault:` references and `tramai-spring-secrets-aws` for `aws-secretsmanager:` references. Without the matching module on the classpath, the scheme is not resolvable.
 
 Example:
 
