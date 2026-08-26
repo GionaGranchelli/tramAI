@@ -2,8 +2,10 @@ package dev.tramai.spring.sovereign.persistence.jdbc
 
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -1080,6 +1082,111 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
                 stmt.execute("TRUNCATE TABLE audit_outbox CASCADE")
             }
         }
+    }
+
+    /**
+     * Deterministic Epic 8.2e regression: a `claimPending` that finds no
+     * unlocked row must serialize behind a concurrent terminal mutation
+     * holding the only eligible row, not poll-and-give-up.
+     *
+     * The codec is gated so that `markFailed` parks *after* it acquired the
+     * row via `SELECT … FOR UPDATE` and *before* it commits (the encode
+     * happens inside the transaction, between the lock and the UPDATE).
+     * While it is parked, the eligible row is invisible to SKIP LOCKED —
+     * the exact schedule that bounded recheck polling gets wrong.
+     */
+    @Test
+    fun `claim pending serializes behind a terminal mutation holding the only eligible row`() {
+        val gated = GatedOutboxPayloadCodec(testCodec)
+        val gatedStore = JdbcSovereignOpsAuditOutboxStore(
+            dataSource = dataSource,
+            payloadCodec = gated,
+            claimLeaseDuration = Duration.ofMinutes(5),
+        )
+        runBlocking {
+            val id = "serialize-1"
+            gatedStore.append(record(id))
+            gatedStore.markReadyForDispatch(id, SovereignOpsAuditOutboxStatus.PREPARED)
+            val attempt1 = gatedStore.claimPending("worker-A", 10, BASE_NOW).single()
+            assertThat(attempt1.attemptCount).isEqualTo(1)
+
+            // Expire attempt 1's claim: now > claimExpiresAt.
+            val expiredNow = BASE_NOW.plus(Duration.ofMinutes(5)).plusMillis(1)
+
+            gated.armParking()
+            val markFailed = async(Dispatchers.Default) {
+                runCatching {
+                    gatedStore.markFailed(
+                        id,
+                        SovereignOpsAuditOutboxStatus.EMITTING,
+                        expectedAttemptCount = 1,
+                        errorCode = "boom",
+                        retryable = true,
+                    )
+                }
+            }
+            // markFailed has acquired the row lock and is parked at the codec.
+            assertThat(gated.awaitParked(10_000))
+                .withFailMessage("markFailed never parked at the gated codec")
+                .isTrue
+
+            // While the terminal mutation holds the row lock, the reclaim must
+            // NOT report empty: the row is claimable on both sides of the
+            // transition, so a lock cannot create a "nothing claimable" window.
+            val reclaim = async(Dispatchers.Default) {
+                gatedStore.claimPending("worker-B", 10, expiredNow)
+            }
+            // Give reclaim a chance to enter its claim path before releasing.
+            delay(250)
+            gated.releaseParking()
+            val failedOutcome = markFailed.await()
+            assertThat(failedOutcome.isSuccess)
+                .withFailMessage("markFailed failed: ${failedOutcome.exceptionOrNull()}")
+                .isTrue
+
+            val claimed = reclaim.await()
+            assertThat(claimed)
+                .withFailMessage("reclaim returned empty while the row was claimable on both sides of the terminal transition")
+                .isNotEmpty()
+            assertThat(claimed.single().attemptCount).isEqualTo(2)
+            assertThat(claimed.single().claimedBy).isEqualTo("worker-B")
+            assertThat(gatedStore.get(id)?.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
+            assertThat(gatedStore.get(id)?.attemptCount).isEqualTo(2)
+        }
+    }
+
+    /**
+     * Codec wrapper that parks one [encode] call on a latch so a test can
+     * hold a row lock open inside a terminal mutation.
+     */
+    private class GatedOutboxPayloadCodec(
+        private val delegate: JdbcOpsAuditOutboxPayloadCodec,
+    ) : JdbcOpsAuditOutboxPayloadCodec {
+        private val parkNext = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val parked = java.util.concurrent.CountDownLatch(1)
+        private val release = java.util.concurrent.CountDownLatch(1)
+
+        fun armParking() {
+            parkNext.set(true)
+        }
+
+        fun awaitParked(timeoutMillis: Long): Boolean =
+            parked.await(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+        fun releaseParking() {
+            release.countDown()
+        }
+
+        override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
+            if (parkNext.getAndSet(false)) {
+                parked.countDown()
+                release.await()
+            }
+            return delegate.encode(plaintext)
+        }
+
+        override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
+            delegate.decode(envelope)
     }
 
     private fun runMigrations() {

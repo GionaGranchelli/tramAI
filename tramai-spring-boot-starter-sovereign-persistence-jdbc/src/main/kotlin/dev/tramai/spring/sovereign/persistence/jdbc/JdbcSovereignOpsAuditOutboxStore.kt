@@ -73,13 +73,14 @@ class JdbcSovereignOpsAuditOutboxStore(
 
     private companion object {
         /**
-         * How many additional non-blocking (SKIP LOCKED) claim passes to run
-         * when the first pass finds nothing, so a claim racing a concurrent
-         * terminal mutation linearizes after it instead of reporting a false
-         * empty. Bounded; each pass is non-blocking, so concurrent claimants
-         * can never deadlock on each other.
+         * Maximum candidates considered by the blocking fallback in
+         * [selectClaimableSerialized] before giving up. Each candidate is
+         * acquired with a blocking (non-SKIP) `FOR UPDATE` and re-checked
+         * under the lock; a candidate that was claimed by a concurrent
+         * transaction while we waited is skipped. The bound is a liveness
+         * guard against pathological churn, not a correctness mechanism.
          */
-        const val CLAIM_EMPTY_RECHECK_LIMIT: Int = 5
+        const val CLAIM_BLOCKING_FALLBACK_LIMIT: Int = 5
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -150,18 +151,17 @@ class JdbcSovereignOpsAuditOutboxStore(
         return dataSource.connection.use { conn ->
             inOutboxTransaction(conn) { c ->
                 val claimExpiresAt = now.plus(claimLeaseDuration)
+                // Fast path: non-blocking SKIP LOCKED pass. When it finds rows,
+                // claim them normally.
                 var selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
-                var rechecks = 0
-                while (selected.isEmpty() && rechecks < CLAIM_EMPTY_RECHECK_LIMIT) {
-                    // A concurrent terminal mutation can transiently lock the only
-                    // claimable row. Re-run the non-blocking skip-locked query so
-                    // this call linearizes after that mutation instead of reporting
-                    // a false empty from the transient lock window. Retries stay
-                    // non-blocking (SKIP LOCKED) so concurrent claimants can never
-                    // deadlock on each other; the bound keeps a genuinely long
-                    // transaction from extending this call indefinitely.
-                    selected = selectClaimableForUpdateSkipLocked(c, actualLimit, now)
-                    rechecks++
+                if (selected.isEmpty()) {
+                    // A concurrent terminal mutation may be holding the only
+                    // eligible row's lock, making it invisible to SKIP LOCKED.
+                    // Serialize against it (or prove no candidate exists)
+                    // instead of polling: the row is claimable on both sides
+                    // of the terminal transition, so a lock cannot legally
+                    // create a "nothing claimable" window.
+                    selected = selectClaimableSerialized(c, actualLimit, now)
                 }
 
                 val claimed = selected.map { row ->
@@ -597,6 +597,91 @@ class JdbcSovereignOpsAuditOutboxStore(
                 val results = mutableListOf<OutboxRow>()
                 while (rs.next()) results.add(mapRow(rs))
                 results
+            }
+        }
+    }
+
+    /**
+     * Blocking fallback for [claimPending] when the non-blocking fast path
+     * found nothing.
+     *
+     * A concurrent terminal mutation can hold the only eligible row's lock;
+     * SKIP LOCKED would pretend the row does not exist, which is not a legal
+     * answer here because the row is claimable on both sides of the terminal
+     * transition. Instead:
+     *
+     * 1. probe for a claimable candidate with a non-locking read — if no
+     *    candidate exists, the empty result is proven, not guessed;
+     * 2. if a candidate exists, block on THAT candidate by primary key with a
+     *    plain `FOR UPDATE` (no SKIP LOCKED). The caller holds no outbox row
+     *    locks at this point (the fast path selected zero rows), so this wait
+     *    cannot participate in a claim-vs-claim lock cycle;
+     * 3. re-read the row under the acquired lock; if it is still claimable,
+     *    claim it; otherwise a concurrent transaction took it while we
+     *    waited — skip and re-evaluate the next candidate.
+     *
+     * The bound [CLAIM_BLOCKING_FALLBACK_LIMIT] is a liveness guard only.
+     */
+    private fun selectClaimableSerialized(
+        conn: Connection,
+        limit: Int,
+        now: Instant,
+    ): List<OutboxRow> {
+        val candidates = selectClaimableCandidateIds(conn, now, limit)
+        if (candidates.isEmpty()) return emptyList()
+
+        var checked = 0
+        for (candidateId in candidates) {
+            if (checked >= CLAIM_BLOCKING_FALLBACK_LIMIT) break
+            val row = selectByIdForUpdate(conn, candidateId) ?: continue
+            val record = row.toDomain()
+            if (record.isDispatchable(now)) return listOf(row)
+            checked++
+        }
+        return emptyList()
+    }
+
+    /**
+     * Non-locking probe for claimable candidate ids: the same eligibility
+     * predicate as [selectClaimableForUpdateSkipLocked] but without the
+     * `FOR UPDATE SKIP LOCKED` clause, so a hidden locked row is still
+     * visible. Returns ids in claim order.
+     */
+    private fun selectClaimableCandidateIds(
+        conn: Connection,
+        now: Instant,
+        limit: Int,
+    ): List<String> {
+        val sql = """
+            SELECT outbox_id FROM audit_outbox
+            WHERE
+                status IN ('PENDING', 'FAILED_RETRYABLE')
+                OR (
+                    status = 'EMITTING'
+                    AND next_attempt_at IS NOT NULL
+                    AND next_attempt_at < ?
+            )
+            ORDER BY created_at ASC
+            LIMIT ?
+        """.trimIndent()
+
+        return conn.prepareStatement(sql).use { stmt ->
+            stmt.setTimestamp(1, Timestamp.from(now))
+            stmt.setInt(2, limit)
+            stmt.executeQuery().let { rs ->
+                val results = mutableListOf<String>()
+                while (rs.next()) results.add(rs.getString(1))
+                results
+            }
+        }
+    }
+
+    private fun selectByIdForUpdate(conn: Connection, outboxId: String): OutboxRow? {
+        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+        return conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, outboxId)
+            stmt.executeQuery().let { rs ->
+                if (rs.next()) mapRow(rs) else null
             }
         }
     }

@@ -859,7 +859,6 @@ abstract class SovereignOpsAuditOutboxStoreTck {
         val attempt3 = store.claimPending("worker-A", 1, attempt3At).single()
         assertThat(attempt3.attemptCount).isEqualTo(3)
 
-        store.get(id)
         assertThat(store.get(id)?.attemptCount).isEqualTo(3)
         store.markEmitted(id, SovereignOpsAuditOutboxStatus.EMITTING, 3, attempt3At)
         assertThat(store.get(id)?.attemptCount).isEqualTo(3)

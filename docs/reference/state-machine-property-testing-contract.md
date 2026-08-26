@@ -840,7 +840,7 @@ seed yields the same trace.
    save nor delete a checkpoint (STALE, checkpoint unchanged); the successor
    is the only active fencing capability.
 
-### Mutation evidence (19 mutations, each restored; 0 weak)
+### Mutation evidence (21 mutations, each restored; 0 weak)
 
 M1 active claim overwrites the current lease, M2 exact expiry treated as
 still active, M3 takeover reuses the predecessor leaseId (covers both owner
@@ -878,7 +878,7 @@ still detected via the active-lease re-check + SQLException path). The
 InMemory and File stores never exhibited the race (both serialize the
 check-then-act); the property runs against all three implementations and
 only JDBC went red pre-fix.
-## Outbox lifecycle — Epic 8.2e (PR number assigned by GitHub)
+## Outbox lifecycle — #291 (Epic 8.2e)
 
 ### Thesis
 
@@ -896,17 +896,23 @@ caller's authority. P0 discriminator (stale attempt-1 `markEmitted`/`markFailed`
 attempt-2) was RED on all three implementations (56 tests, 1 failed — the existing 55 stayed
 green).
 
-### Production changes (2, deliberate)
+### Production changes (3, deliberate)
 
 1. **Attempt-count fencing (public SPI change).** `markEmitted`/`markFailed` gained a required
    `expectedAttemptCount: Int` — the optimistic dispatch-generation fence, monotonic and durable
    across all implementations. `PREPARED → FAILED_PERMANENT` uses generation 0. A mismatch throws
    `tramai-sovereign-ops-outbox-concurrent-update`. `api/` dump regenerated.
-2. **JDBC claim linearization.** `claimPending` re-runs the non-blocking `SKIP LOCKED` pass (up to
-   5 times) when the first pass finds nothing, so a claim racing a concurrent terminal mutation
-   linearizes after it instead of reporting a false empty from the transient lock window. Retries
-   stay non-blocking — concurrent claimants can never deadlock (a blocking `FOR UPDATE` recheck
-   variant deadlocked the pool-claim race and was rejected).
+2. **JDBC claim linearization.** `claimPending` keeps `SKIP LOCKED` as the non-blocking fast path;
+   when it selects zero rows, a non-locking candidate probe proves whether any claimable row exists,
+   and if one does, the claim blocks on that candidate by primary key (`SELECT … FOR UPDATE`, no
+   SKIP LOCKED) and re-reads it under the acquired lock. The blocking wait is only ever entered
+   while this transaction holds zero outbox row locks, so concurrent claimants cannot deadlock (a
+   blocking multi-row `FOR UPDATE` recheck variant deadlocked the pool-claim race and was rejected;
+   the earlier bounded `SKIP LOCKED` re-polling was rejected because observation-count heuristics
+   cannot establish linearizability — a hidden eligible row must be serialized against or proven
+   ineligible, never polled away). Covered by a deterministic gated-codec regression: a `markFailed`
+   parked between row lock and commit must not make a concurrent reclaim of the expired row report
+   empty.
 3. **Dispatcher companion.** The dispatcher passes `expectedAttemptCount = record.attemptCount`
    (the generation it owns) on both `markEmitted` and `markFailed`, so a stale completion can no
    longer be converted into a retryable failure against the newer attempt; it propagates as claim
@@ -975,7 +981,10 @@ emittedAt, null before; terminal never reopens; current generation never decreas
 can own different generations; stale generation never authoritative again, cannot complete or fail
 successor; failed mutation leaves durable state value-identical; audit identity/payload immutable.
 
-### Mutation evidence (19 mutations, each restored; 0 weak)
+### Mutation evidence (19 executed mutations, each restored; 0 weak)
+
+Candidate IDs M15/M16/M20/M21 were folded into equivalent production-line mutations
+(M13/M14 — identical InMemory code lines) rather than run as independent candidates.
 
 M1 terminal status becomes claimable, M2 PREPARED becomes claimable, M3 FAILED_RETRYABLE cannot
 re-claim, M4 fresh EMITTING can re-claim, M5 exact expiry becomes reclaimable, M6 past expiry
@@ -986,7 +995,8 @@ reclaim-vs-old-completion — identical InMemory code line), M14 stale attempt m
 (covers M15/M16/M21 — identical line: same-worker stale and reclaim-vs-old-failure demotion),
 M17 EMITTED can be modified, M18 FAILED_PERMANENT can be modified, M19 completion-vs-failure
 allows two winners (CAS enforcement removed), M22 dispatcher converts stale completion into a
-successor failure (expectedAttemptCount + 1), M23 JDBC claim recheck reverted (first-pass only).
+successor failure (expectedAttemptCount + 1), M23 JDBC blocking serialization fallback removed
+(first-pass only — the gated-codec regression must go red).
 Every mutation made at least one NEW Epic 8.2e property red; suite green again after each restore.
 
 ### Files
