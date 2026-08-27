@@ -23,7 +23,7 @@ Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (persistence layer), re
 | ApprovalResumeCredentialStore | `tramai-core/.../approval/gateway/ApprovalResumeCredentialStore.kt` | `create` L20 (dup → IllegalStateException) · `get` L26 · `delete` L33 — MUST encrypt SealedResumeToken at rest (L10-12) |
 | AuditStore | `tramai-security/.../audit/AuditStore.kt` | `appendNext` L4 · `readStream` L9 · `readStreamPage` L23 · `latestEvent` L41 |
 | SuspendedInvocationStore | `tramai-engine/.../SuspendedInvocationStore.kt` | `create(metadata, replayEnvelope)` L155 · `get` L167 · `revealReplayEnvelope` L175 (only after claim) · `remove` L181 — envelope NOT exposed via `get` (L139-142) |
-| WorkflowCheckpointStore | `tramai-orchestration/.../WorkflowPersistence.kt` | `load` L73 · `save(checkpoint, expectedRevision)` L77 · `delete` L81 · `requireRecovery` L96 · `clearRecovery` L139 + `WorkflowStateCodec<S>` L63 |
+| WorkflowCheckpointStore | `tramai-orchestration/.../WorkflowPersistence.kt` | `load` L80 · `save(checkpoint, expectedRevision)` L84 · `delete` L88 · `requireRecovery` L103 · `clearRecovery` L146 + `WorkflowStateCodec<S>` L70 |
 | WorkflowLeaseStore | `tramai-orchestration/.../WorkflowLease.kt` | `currentLease` L34 · `claim` L38 · `renew` L45 · `release` L50 (+ optional `WorkflowLeaseCheckpointFence` L56-72) |
 
 ## Files normally changed

@@ -1344,16 +1344,18 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.3: Time, randomness, and scheduling abstractions
 
+**Status: 🚧 IN PROGRESS** — 8.3a (wall vs monotonic time semantics) functionally complete and frozen; 8.3b (identity + randomness), 8.3c (scheduler ownership), 8.3d (closure) pending. Contract: `docs/reference/time-semantics-contract.md`.
+
 **Goal:** Eliminate incidental nondeterminism from domain decisions.
 
 ### Tasks
 
-1. Use `Clock` for wall-clock timestamps.
-2. Use a monotonic time source for duration and timeout accounting where appropriate.
-3. Inject jitter/random sources into retry policies.
-4. Avoid direct `System.currentTimeMillis()` in domain logic.
-5. Centralize scheduler ownership.
-6. Make tests independent of real sleeps whenever possible.
+1. Use `Clock` for wall-clock timestamps. — **8.3a: done** — one injected Clock per worker boundary; recovery controller ABI unchanged (internal `forTest` seam).
+2. Use a monotonic time source for duration and timeout accounting where appropriate. — **8.3a: done** — `MonotonicTimeSource`/`NanoTimeSource` seam; `MonotonicDrainBudget` exact residual; heartbeat uptime monotonic.
+3. Inject jitter/random sources into retry policies. — **8.3b**.
+4. Avoid direct `System.currentTimeMillis()` in domain logic. — **8.3a: done** in orchestration elapsed/persisted paths; the public `WorkflowCheckpoint(savedAtEpochMillis = System.currentTimeMillis())` default remains deliberately (composition boundary, own compatibility scrutiny).
+5. Centralize scheduler ownership. — **8.3c**.
+6. Make tests independent of real sleeps whenever possible. — **8.3a: done** for the affected paths — 14 discriminators, exact arithmetic, zero timing thresholds (M04-hardened).
 
 ### Acceptance criteria
 
