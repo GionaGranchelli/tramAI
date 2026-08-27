@@ -55,5 +55,13 @@ gradlePlugin {
             id = "tramai.publishing"
             implementationClass = "dev.tramai.build.publishing.TramaiPublishingPlugin"
         }
+        create("tramaiReleaseVerification") {
+            id = "tramai.release-verification"
+            implementationClass = "dev.tramai.build.release.TramaiReleaseVerificationPlugin"
+        }
+        create("tramaiSovereignVerification") {
+            id = "tramai.sovereign-verification"
+            implementationClass = "dev.tramai.build.sovereign.TramaiSovereignVerificationPlugin"
+        }
     }
 }
