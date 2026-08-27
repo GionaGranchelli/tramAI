@@ -203,18 +203,21 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
             manifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
 
             // Source JARs: consume the actual output of each module's
-            // jar/sourcesJar/javadocJar task. Declaring the task outputs as
-            // inputs (instead of the whole libs dir) keeps Gradle's implicit
-            // dependency validation happy — reading the dir would otherwise pull
-            // in producers like :tramai-engine:testFixturesJar that this task
-            // neither depends on nor wants. Missing tasks (TestKit fixtures,
-            // partial checkouts) are skipped — the task action still enforces
-            // the full expected module set.
+            // jar/sourcesJar/javadocJar task as real Gradle producer edges.
+            // `tasks.matching { ... }.configureEach { }` would only fire when a
+            // matching task is realized through OTHER means — on a clean
+            // workspace the lazily-registered jar tasks are never realized, so
+            // the edge silently never registers and prepare fails (regression
+            // found by the Sovereign Runtime Release Candidate workflow).
+            // `.all { }` registers the action eagerly for tasks added later.
+            // Declaring task outputs as inputs (rather than the whole libs dir)
+            // keeps Gradle's implicit dependency validation happy — reading the
+            // dir would pull in producers like :tramai-engine:testFixturesJar
+            // that this task neither depends on nor wants.
             sovereignReleaseModules.forEach { modulePath ->
                 val subproject = project.rootProject.findProject(modulePath) ?: return@forEach
                 listOf("jar", "sourcesJar", "javadocJar").forEach { taskName ->
-                    val tasks = subproject.tasks.matching { it.name == taskName }
-                    tasks.configureEach(
+                    subproject.tasks.matching { it.name == taskName }.all(
                         object : org.gradle.api.Action<org.gradle.api.Task> {
                             override fun execute(task: org.gradle.api.Task) {
                                 if (task is org.gradle.api.tasks.bundling.Jar) {

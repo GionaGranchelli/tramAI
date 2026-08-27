@@ -286,6 +286,11 @@ class ReleaseVerificationPluginTest {
         // never to the declared release boundary.
         writeFile(
             dir,
+            "tramai-core/src/main/kotlin/dev/tramai/core/Stub.kt",
+            "package dev.tramai.core\nclass Stub\n",
+        )
+        writeFile(
+            dir,
             "build.gradle.kts",
             """
             plugins {
@@ -298,6 +303,14 @@ class ReleaseVerificationPluginTest {
             }
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
+            }
+            // The real convention plugin registers sources/javadoc jars; the
+            // fixture must too, so the only failing module is :tramai-missing.
+            subprojects {
+                if (name == "tramai-core") {
+                    tasks.register<Jar>("sourcesJar") { archiveClassifier.set("sources"); from("src") }
+                    tasks.register<Jar>("javadocJar") { archiveClassifier.set("javadoc"); from("src") }
+                }
             }
             """.trimIndent(),
         )
@@ -410,6 +423,91 @@ class ReleaseVerificationPluginTest {
         assertTrue(
             second.output.contains("Reusing configuration cache"),
             "second run must reuse the configuration cache: ${second.output.take(800)}",
+        )
+    }
+
+    // ── T13: clean-workspace producer graph for prepareSovereignReleaseArtifacts ──
+
+    @Test
+    fun `T13 prepareSovereignReleaseArtifacts has real producer edges from a clean workspace`() {
+        val dir = baseFixture()
+        // Fixture tramai-core only has `jar` (from java-library); the real
+        // convention plugin also registers sourcesJar/javadocJar. Register them
+        // here with real sources so the jars are non-empty.
+        writeFile(
+            dir,
+            "tramai-core/src/main/kotlin/dev/tramai/core/Stub.kt",
+            "package dev.tramai.core\nclass Stub\n",
+        )
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            group = "dev.tramai"
+            version = "0.6.0"
+
+            tasks.register<Jar>("sourcesJar") {
+                archiveClassifier.set("sources")
+                from("src/main/kotlin")
+            }
+            tasks.register<Jar>("javadocJar") {
+                archiveClassifier.set("javadoc")
+                from("src/main/kotlin")
+            }
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins {
+                id("tramai.release-verification")
+                id("tramai.sovereign-verification")
+            }
+            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
+            tasks.register("verifySovereignOpsObservabilityDocs") {
+                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
+            }
+            tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
+                mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
+            }
+            tasks.named<dev.tramai.build.sovereign.PrepareSovereignReleaseArtifactsTask>("prepareSovereignReleaseArtifacts") {
+                moduleNames.set(listOf("tramai-core"))
+            }
+            """.trimIndent(),
+        )
+        // Clean-workspace discriminator: no build/libs anywhere.
+        assertFalse(File(dir, "tramai-core/build/libs").exists())
+
+        val result = runner(dir, "prepareSovereignReleaseArtifacts", "--dry-run").build()
+        for (producer in listOf(
+            ":tramai-core:jar",
+            ":tramai-core:sourcesJar",
+            ":tramai-core:javadocJar",
+        )) {
+            assertTrue(
+                result.output.contains(producer),
+                "prepareSovereignReleaseArtifacts must depend on $producer: ${result.output.take(1500)}",
+            )
+        }
+        // The real run must execute the producers and generate the manifest.
+        val real = runner(dir, "prepareSovereignReleaseArtifacts").build()
+        for (producer in listOf(
+            "> Task :tramai-core:jar",
+            "> Task :tramai-core:sourcesJar",
+            "> Task :tramai-core:javadocJar",
+        )) {
+            assertTrue(
+                real.output.contains(producer),
+                "$producer must execute: ${real.output.take(1500)}",
+            )
+        }
+        val manifest = File(dir, "build/sovereign-release/release-artifacts-v1.json")
+        assertTrue(manifest.isFile, "release-artifacts-v1.json must be generated")
+        assertTrue(
+            real.output.contains("BUILD SUCCESSFUL"),
+            "prepare must succeed on a clean workspace: ${real.output.take(800)}",
         )
     }
 }
