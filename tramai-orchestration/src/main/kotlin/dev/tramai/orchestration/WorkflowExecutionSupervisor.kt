@@ -59,7 +59,7 @@ internal class WorkflowExecutionSupervisor(
 
     fun activeExecutionCount(): Int = activeExecutions.size
 
-    fun activeExecutionsSnapshot(): List<ActiveExecution> = activeExecutions.values.toList()
+    fun activeExecutionsSnapshot(): List<ActiveExecution> = activeExecutions.values.map { it }
 
     fun latestFailure(workflowId: String): Throwable? = executionFailures[workflowId]
 
