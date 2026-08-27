@@ -2,6 +2,7 @@ package dev.tramai.engine.streaming
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
@@ -58,6 +59,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -75,6 +77,12 @@ class StreamingExecutionCoordinatorTest {
         fun stream(input: String): Flow<StreamChunk>
     }
 
+    @AiService
+    private interface ExplicitProviderStreamingService {
+        @Operation(prompt = "Answer", model = "logical-model", provider = "primary", providerRetries = 1)
+        fun stream(input: String): Flow<StreamChunk>
+    }
+
     private val defaultBudget = TokenBudgetSettings(hardMaxTokensPerOperation = 20)
 
     private fun operation() = ServiceDefinitionCompiler(
@@ -84,6 +92,10 @@ class StreamingExecutionCoordinatorTest {
     private fun operationWithRetries() = ServiceDefinitionCompiler(
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
     ).compile(StreamingServiceWithRetries::class).operations.entries.single().value.definition
+
+    private fun operationWithExplicitProvider() = ServiceDefinitionCompiler(
+        OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
+    ).compile(ExplicitProviderStreamingService::class).operations.entries.single().value.definition
 
     private class OrderedSink {
         val events = mutableListOf<String>()
@@ -176,6 +188,9 @@ class StreamingExecutionCoordinatorTest {
 
     private fun requestWithRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
         StreamingExecutionRequest(operationWithRetries(), listOf("input"), budget.createTracker(), conversationId)
+
+    private fun requestWithExplicitProvider(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
+        StreamingExecutionRequest(operationWithExplicitProvider(), listOf("input"), budget.createTracker(), conversationId)
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
@@ -403,6 +418,179 @@ class StreamingExecutionCoordinatorTest {
         coordinator.execute(requestWithRetries()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
         assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(1)
+        }
+    }
+
+    @Test fun `P0-D after first streaming token retryable failure is terminal no retry no fallback`() {
+        // Once ANY token has escaped to the consumer, retry/fallback authority
+        // is permanently gone: a retryable failure after a token is surfaced
+        // as a terminal error. Provider A called exactly once; provider B never;
+        // zero retry events; zero fallback transitions.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Token("visible")); emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+        val error = chunks.last() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+        assertThat((error.cause as ProviderException).retryable).isTrue()
+        assertThat(primary.streamRequests).hasSize(1) // no retry after token
+        assertThat(fallback.streamRequests).isEmpty() // no fallback after token
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.retry.scheduled", "policy.fallback")
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" }).isEmpty()
+        }
+    }
+
+    @Test fun `P0-E cancellation during provider call performs no retry or fallback classification`() {
+        // Cancellation is absolute terminal control flow: it never enters
+        // retry/fallback classification, never calls the fallback provider,
+        // never fires a fallback transition. providerRetries=1 is in effect
+        // but the cancellation lands inside the provider stream, not on a
+        // classified failure.
+        runBlocking {
+        val sink = OrderedSink()
+        val entered = CompletableDeferred<Unit>()
+        val primary = RecordingProvider("primary") { flow { entered.complete(Unit); awaitCancellation() } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val c = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink)
+        val collector = async { c.execute(requestWithRetries()).toList() }
+        entered.await()
+        collector.cancel()
+        runCatching { collector.await() }
+        assertThat(collector.isCancelled).isTrue()
+        assertThat(primary.streamRequests).hasSize(1) // no retry
+        assertThat(fallback.streamRequests).isEmpty() // no fallback
+        assertThat(sink.events).doesNotContain("policy.fallback", "observation.engine-event:tramai.retry.scheduled")
+        }
+    }
+
+    @Test fun `P0-F circuit open route consumes zero attempts and advances exactly once`() {
+        // A circuit-open route is skipped with ZERO provider attempts and ZERO
+        // retry-budget consumption; the fallback route is the next candidate
+        // and runs as the next global attempt. No retry events, no startup_retry.
+        runBlocking {
+        val sink = OrderedSink()
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+        breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val observer = AttemptRecordingObserver(sink)
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), observer, sink, circuitEnabled = true, circuitBreaker = breaker).execute(requestWithRetries()).toList()
+        assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
+        assertThat(primary.streamRequests).isEmpty() // zero attempts on the open route
+        assertThat(fallback.streamRequests).hasSize(1)
+        assertThat(observer.attempts).containsExactly("fallback" to 0) // advanced exactly once, attempt 0
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.retry.scheduled", "observation.engine-event:tramai.streaming.startup_retry")
+        }
+    }
+
+    @Test fun `P0-G fallback gate denial is fail-closed next provider never executes`() {
+        // The fallback gate is a fail-closed authorization boundary: denial
+        // throws PolicyViolationException, the NEXT provider never executes,
+        // and the original provider failure is preserved as suppressed.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val c = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink, denyFallback = true)
+        val thrown = catchThrowable { runBlocking { c.execute(requestWithRetries()).toList() } }
+        assertThat(thrown).isInstanceOf(PolicyViolationException::class.java)
+        assertThat(fallback.streamRequests).isEmpty() // next provider never executed
+        assertThat((thrown as PolicyViolationException).suppressed)
+            .anySatisfy { assertThat(it).isInstanceOf(ProviderException::class.java).hasMessage("down") }
+        }
+    }
+
+    @Test fun `P0-H explicit provider operation retries that provider but never enters model fallbacks`() {
+        // @Operation(provider = "primary") resolves to exactly ONE route: the
+        // explicit provider. Even though a model fallback is registered, the
+        // exhausted retryable failure must NOT advance to it — the explicit
+        // provider has no configured fallback chain.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithExplicitProvider()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+        assertThat(primary.streamRequests).hasSize(2) // retried the explicit provider
+        assertThat(fallback.streamRequests).isEmpty() // never entered model fallbacks
+        assertThat(sink.events).doesNotContain("policy.fallback")
+        }
+    }
+
+    @Test fun `P0-I fallback route uses its own effective model not the requested model`() {
+        // The fallback route registered via fallbackModel("logical-model",
+        // "fallback-model", "fallback") must be invoked with the FALLBACK
+        // route's effective model ("fallback-model"), never the primary or the
+        // requested "logical-model".
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val builder = ProviderRoutingPlan.builder()
+            .provider("primary", primary)
+            .provider("fallback", fallback)
+            .model("logical-model", "primary")
+            .fallbackModel("logical-model", "fallback-model", "fallback")
+        val chunks = coordinator(builder.build(), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+        assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
+        assertThat(fallback.streamRequests).hasSize(1)
+        assertThat(fallback.streamRequests.single().model).isEqualTo("fallback-model")
+        assertThat(primary.streamRequests).hasSize(2)
+        }
+    }
+
+    @Test fun `P0-L terminal error precedence last executed provider failure beats circuit open`() {
+        // Deterministic precedence: the LAST EXECUTED provider failure wins over
+        // a circuit-open-only skip. Route 1 exhausts its retry budget (a real
+        // provider failure); route 2 is circuit-open (skipped). The terminal
+        // error must be the provider failure, NOT the circuit-open exception.
+        runBlocking {
+        val sink = OrderedSink()
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+        breaker.onFailure((breaker.beforeCall("fallback") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("primary down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = breaker).execute(requestWithRetries()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+        assertThat(error.cause.message).isEqualTo("primary down") // last executed failure, not circuit-open
+        assertThat(fallback.streamRequests).isEmpty()
+        }
+    }
+
+    @Test fun `P0-L circuit open only skips produce the circuit open terminal error`() {
+        // No provider was ever executed (all routes circuit-open): the terminal
+        // error is the circuit-open exception from the LAST skipped route.
+        runBlocking {
+        val sink = OrderedSink()
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+        breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        breaker.onFailure((breaker.beforeCall("fallback") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = breaker).execute(requestWithRetries()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(CircuitBreakerOpenException::class.java)
+        assertThat(primary.streamRequests).isEmpty()
+        assertThat(fallback.streamRequests).isEmpty()
         }
     }
 
