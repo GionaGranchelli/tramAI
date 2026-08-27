@@ -97,8 +97,12 @@ Do **not** use it for single-turn AI calls — `tramai-engine` with an `@AiServi
 **Gradle (Kotlin DSL):**
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-orchestration")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-orchestration")
 }
 ```
 

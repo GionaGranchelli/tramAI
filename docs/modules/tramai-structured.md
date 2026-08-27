@@ -92,7 +92,13 @@ Without this module, every consumer would reimplement JSON extraction, schema ge
 **Gradle (Kotlin DSL):**
 
 ```kotlin
-implementation("dev.tramai:tramai-structured")  // version from the TramAI BOM
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-structured")
+}
 ```
 
 **Maven:**

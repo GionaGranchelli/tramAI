@@ -886,6 +886,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        project.tasks.register("verifyModuleDocContract") {
+            group = "verification"
+            description = "Verifies the module-card documentation contract (Epic 11.2b3): manifest/card coverage, required headings, link/path resolution, no legacy classification, resolvable dependency snippets, no internal Maven advertisement, README counts"
+            doLast {
+                val diagnostics = ModuleDocContractVerifier.verify(project.rootDir)
+                if (diagnostics.isNotEmpty()) {
+                    throw GradleException(
+                        diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" }
+                    )
+                }
+            }
+        }
+
         project.tasks.register("verifyModuleMatrixDrift") {
             group = "verification"
             description = "Fails when docs/reference/module-matrix.md differs from the manifest"
@@ -1053,6 +1066,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             )
         }
 
+        // Module documentation contract gate (Epic 11.2b3) — wired into the 0.6.0
+        // architecture gate (verifyPr wiring follows its registration below).
+        project.tasks.named("verify060Architecture") {
+            dependsOn("verifyModuleDocContract")
+        }
+
         // ---- PR Verification (primary local check gate) ----
 
         val verifyPr = project.tasks.register("verifyPr") {
@@ -1063,6 +1082,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             dependsOn("verifyChangePolicy")
             dependsOn("verifyModuleManifest")
             dependsOn("verifyModuleMatrixDrift")
+            dependsOn("verifyModuleDocContract")
 
             // Include build-logic tests (included build — must use includedBuild API)
             val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
@@ -1395,6 +1415,17 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
         DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
         DiagnosticCode.EMPTY_SECTION,
+        // Module documentation contract (Epic 11.2b3) — enforced by the
+        // verifyModuleDocContract task directly, not a maintainability baseline.
+        DiagnosticCode.MODULE_CARD_MISSING,
+        DiagnosticCode.MODULE_CARD_ORPHAN,
+        DiagnosticCode.MODULE_CARD_HEADING_MISSING,
+        DiagnosticCode.MODULE_CARD_LINK_BROKEN,
+        DiagnosticCode.MODULE_CARD_INLINE_PATH_BROKEN,
+        DiagnosticCode.MODULE_CARD_LEGACY_CLASSIFICATION,
+        DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
+        DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
+        DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
         -> null
     }
 
