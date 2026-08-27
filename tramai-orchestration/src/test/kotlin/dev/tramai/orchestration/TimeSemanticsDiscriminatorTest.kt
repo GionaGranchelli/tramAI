@@ -25,9 +25,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  * time, never wall-clock derived (a wall-clock jump must not inflate or
  * destroy the remaining drain budget).
  *
- * Both tests are RED on the current production code: the uptime formula
- * reads System.currentTimeMillis() and the drain residual reads
- * System.currentTimeMillis(), so neither can express the monotonic
+ * Both tests were RED on the pre-fix production code: the uptime formula
+ * read System.currentTimeMillis() and the drain residual read
+ * System.currentTimeMillis(), so neither could express the monotonic
  * contract.
  */
 class TimeSemanticsDiscriminatorTest {
@@ -174,7 +174,7 @@ class TimeSemanticsDiscriminatorTest {
         runBlocking {
             delta.now = 50L
             val job = launch {
-                publisher.heartbeatLoop(startedAtMark = { startedMark }, claimedCount = { 0 })
+                publisher.heartbeatLoop(startedAtMark = startedMark, claimedCount = { 0 })
             }
             while (observer.uptimes.size < 1) delay(5)
             delta.now = 100L

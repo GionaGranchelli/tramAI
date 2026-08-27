@@ -284,9 +284,12 @@ internal class WorkerLifecycleController(
                 shutdownCoordinator.onShutdownHook(hook)
                 executionSupervisor.attachScope(scope)
                 shutdownCoordinator.beginAcceptingWork()
+                val heartbeatStartedMark = checkNotNull(startedMark) {
+                    "worker start mark must exist before heartbeat activation"
+                }
                 val heartbeatJob = scope.launch(start = CoroutineStart.LAZY) {
                     heartbeatPublisher.heartbeatLoop(
-                        startedAtMark = { startedMark ?: timeSource.markNow() },
+                        startedAtMark = heartbeatStartedMark,
                         claimedCount = { executionSupervisor.activeExecutionCount() },
                     )
                 }
