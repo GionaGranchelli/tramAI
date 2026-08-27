@@ -16,12 +16,13 @@ Owns governance semantics: policy decision points (`DefaultPolicyEngine`, `RuleB
 - `dev.tramai.security.audit.*` — `AuditEngine`, `AuditStore`, hash-chain validation
 - `dev.tramai.security.approval.*` — approval gate coordination, in-memory store implementations (`InMemoryApprovalStore`, `InMemoryApprovalContinuationStore`)
 - `dev.tramai.security.evidence.*` — evidence records
+- Public store contracts (implemented by `tramai-persistence-file` / `tramai-persistence-jdbc`): `ApprovalStore` / `ApprovalContinuationStore` (in `tramai-core` API), `AuditStore` (in `tramai-security` API)
 
 Verify the full public surface against `tramai-security/api/tramai-security.api`.
 
 ### Internal extension points
 
-- Store SPIs (`ApprovalStore`, `ApprovalContinuationStore`, `AuditStore`) — implemented by `tramai-persistence-file` / `tramai-persistence-jdbc`
+- Internal approval/audit coordinators and recovery machinery (implementation details, not consumer seams)
 
 ### Significant dependencies
 

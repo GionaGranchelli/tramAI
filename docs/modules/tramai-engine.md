@@ -17,6 +17,7 @@ Runtime execution core: turns `@AiService` interfaces into provider-backed proxi
 - `EngineEventObserver` — engine observation hook
 - `DefaultApprovalGateway` — approval gateway integration point
 - Public settings/SPI surfaces intended for consumers (retry, circuit-breaker, token-budget settings; cache SPI `OperationResponseCache`)
+- Core extension SPIs consumed by the engine: `OperationInterceptor`, `OperationObserver` (contracts in `tramai-core`)
 
 Verify the full public surface against `tramai-engine/api/tramai-engine.api`.
 
@@ -29,7 +30,6 @@ Verify the full public surface against `tramai-engine/api/tramai-engine.api`.
 - `StructuredResponseCoordinator` — structured-output integration (internal)
 - `ToolExposureCoordinator` / `ToolAuthorizationCoordinator` / `ToolInvocationExecutor` — tool flow (internal)
 - `ApprovalSuspensionCoordinator` / `ApprovalResumeCoordinator` — approval flow (internal)
-- `OperationInterceptor` / `OperationObserver` — cross-cutting request/response hooks
 
 ### Significant dependencies
 
@@ -107,8 +107,9 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-// Version from the canonical tramaiVersion Gradle property (see gradle.properties)
-implementation(platform("dev.tramai:tramai-bom:${tramaiVersion}"))
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-engine")
 ```
 

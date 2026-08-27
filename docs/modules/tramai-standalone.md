@@ -20,7 +20,7 @@ Verify the full public surface against `tramai-standalone/api/tramai-standalone.
 
 ### Internal extension points
 
-- Engine/structured/provider wiring knobs through the `Tramai` builder
+- Engine/structured/provider wiring knobs exposed by the builder (the public builder/runtime API is listed under Public entry points)
 
 ### Significant dependencies
 

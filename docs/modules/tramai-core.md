@@ -25,9 +25,7 @@ Verify the full public surface against `tramai-core/api/tramai-core.api`.
 
 ### Internal extension points
 
-- `StructuredOutputHandler` implementation slot (implemented by `tramai-structured`)
-
-Note: public extension SPIs such as `OperationInterceptor`, `OperationObserver`, `DlpInterceptor`, `SecretValueResolver`, and `ConversationIdProvider` are consumer-facing contracts (present in `tramai-core/api/tramai-core.api`), not internal seams — consumers implement them directly.
+- Implementation slot of the public structured-output SPI (implemented by `tramai-structured`)
 
 ### Significant dependencies
 

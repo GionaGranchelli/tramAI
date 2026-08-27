@@ -17,6 +17,9 @@ Multi-step workflow execution: workflow definitions, execution supervision, work
 - `TramaiWorker` — worker entry point
 - `WorkflowRecoveryController` — recovery entry point (public per `tramai-orchestration/api/tramai-orchestration.api`)
 - Workflow definition/builder API (`Workflow`, `WorkflowBuilder`, `WorkflowBindingRegistry`)
+- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
+- Persistence stores: `FileWorkflowCheckpointStore`, `JdbcWorkflowCheckpointStore`, `FileWorkflowLeaseStore`, `JdbcWorkflowLeaseStore`, `FileStepAttemptRecordStore`
+- `PartitionAssignmentStrategy` — partition strategy SPI
 
 Verify the full public surface against `tramai-orchestration/api/tramai-orchestration.api` — the supervision/lifecycle coordinators below are internal.
 
@@ -24,11 +27,9 @@ Verify the full public surface against `tramai-orchestration/api/tramai-orchestr
 
 - `WorkflowExecutionSupervisor` — workflow execution ownership (internal)
 - `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown (internal)
-- `WorkflowRecoveryCoordinator` — recovery coordination (internal; `WorkflowRecoveryController` is the public face)
+- `WorkflowRecoveryCoordinator` — recovery coordination (internal)
 - `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing (internal)
-- Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI, partition strategy (`PartitionAssignmentStrategy`)
-- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
-- Persistence: `WorkflowPersistenceSession`, file/JDBC checkpoint/lease/step-attempt stores
+- Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI (`WorkflowPersistenceSession`)
 
 ### Significant dependencies
 
@@ -114,8 +115,9 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-// Version from the canonical tramaiVersion Gradle property (see gradle.properties)
-implementation(platform("dev.tramai:tramai-bom:${tramaiVersion}"))
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-orchestration")
 ```
 
@@ -124,8 +126,8 @@ implementation("dev.tramai:tramai-orchestration")
 | Topic | Link |
 |-------|------|
 | Quickstart with all modules | `docs/guides/getting-started.md` |
-| Understanding workflow basics | `docs/specs/spec-005-standalone-java-api.md` |
-| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-009-streaming-responses.md` |
+| Understanding workflow basics | `docs/specs/spec-012-orchestration-and-coordination.md` |
+| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-015-agent-steps.md` |
 | Governed workflow quickstart | `docs/guides/governed-workflow-quickstart.md` |
 
 ---
