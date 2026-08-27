@@ -41,12 +41,15 @@ import dev.tramai.engine.provider.AttemptCounter
 import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
+import dev.tramai.engine.provider.ProviderRetryDecision
+import dev.tramai.engine.provider.ProviderRetryPolicy
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -71,6 +74,7 @@ internal class StreamingExecutionCoordinator(
     private val conversationMemoryCoordinator: ConversationMemoryCoordinator,
     private val tokenBudgetCoordinator: TokenBudgetCoordinator,
     private val modelRegistryEnforcer: ModelRegistryEnforcer,
+    private val retryPolicy: ProviderRetryPolicy,
     private val beforeResolution: ProviderResolutionGate,
     private val beforeInvocation: ProviderInvocationGate,
     private val fallbackGate: ProviderFallbackGate,
@@ -124,50 +128,84 @@ internal class StreamingExecutionCoordinator(
                         val permit = (admission as CircuitBreakerAdmission.Allowed).permit
 
                         try {
-                            when (
-                                val result = executeStreamingRoute(
-                                    StreamingExecutionRoute(
-                                        operation = operation,
-                                        route = route,
-                                        routeIndex = routeIndex,
-                                        attempt = attemptCounter.next(),
-                                        tokenBudgetTracker = tokenBudgetTracker,
-                                        memoryMessages = effectiveMessages,
-                                        historySize = history.size,
-                                        conversationId = conversationId,
-                                        emitChunk = { chunks.send(it) },
-                                        permit = permit,
-                                    ),
-                                    correlationId = correlationId,
-                                    securityContext = securityContext,
-                                    arguments = arguments,
-                                )
-                            ) {
-                                is StreamingRouteResult.Completed -> {
-                                    if (conversationId != null) {
-                                        val assistantMessage = Message(
-                                            role = MessageRole.ASSISTANT,
-                                            content = result.fullText,
-                                        )
-                                        conversationMemoryCoordinator.persistTurn(
-                                            PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
-                                        )
-                                    }
-                                    return@launch
-                                }
-                                is StreamingRouteResult.StartupFailure -> {
-                                    enforceStreamingFallbackAfterFailure(
-                                        error = result.error,
-                                        route = route,
-                                        nextRoute = candidates.getOrNull(routeIndex + 1),
+                            // Provider retry budget (Epic 8.2h P0-A): transient
+                            // STREAMING STARTUP failures retry the SAME route
+                            // before any token, honoring @Operation.providerRetries
+                            // exactly like the sync path — maxAttempts =
+                            // providerRetries + 1, same ProviderRetryPolicy, same
+                            // retry-after cap / backoff / jitter. Retry never
+                            // changes route; fallback only after exhaustion.
+                            // Every attempt of a route shares the SAME circuit-
+                            // breaker permit (8.2g boundary): intermediate retries
+                            // never call onFailure — only the terminal route
+                            // outcome completes breaker authority.
+                            // After any token, retry/fallback authority is
+                            // permanently gone (handleFallbackResult's
+                            // emittedAnyTokens gate).
+                            val maxAttempts = operation.operation.providerRetries + 1
+                            repeat(maxAttempts) { retryIndex ->
+                                when (
+                                    val result = executeStreamingRoute(
+                                        StreamingExecutionRoute(
+                                            operation = operation,
+                                            route = route,
+                                            routeIndex = routeIndex,
+                                            attempt = attemptCounter.next(),
+                                            tokenBudgetTracker = tokenBudgetTracker,
+                                            memoryMessages = effectiveMessages,
+                                            historySize = history.size,
+                                            conversationId = conversationId,
+                                            emitChunk = { chunks.send(it) },
+                                            permit = permit,
+                                        ),
                                         correlationId = correlationId,
                                         securityContext = securityContext,
+                                        arguments = arguments,
                                     )
-                                    lastFailure = result.error
-                                }
-                                is StreamingRouteResult.TerminalError -> {
-                                    chunks.send(result.errorChunk)
-                                    return@launch
+                                ) {
+                                    is StreamingRouteResult.Completed -> {
+                                        if (conversationId != null) {
+                                            val assistantMessage = Message(
+                                                role = MessageRole.ASSISTANT,
+                                                content = result.fullText,
+                                            )
+                                            conversationMemoryCoordinator.persistTurn(
+                                                PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
+                                            )
+                                        }
+                                        return@launch
+                                    }
+                                    is StreamingRouteResult.StartupFailure -> {
+                                        when (val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)) {
+                                            is ProviderRetryDecision.Retry -> {
+                                                result.observation.emitRuntimeEvent(
+                                                    RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
+                                                        set(RuntimeAttributes.PROVIDER_ID, route.providerName)
+                                                        set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
+                                                        set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
+                                                        set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
+                                                    },
+                                                )
+                                                delay(decision.delayMillis)
+                                            }
+                                            ProviderRetryDecision.Stop -> {
+                                                recordCircuitBreakerFailure(permit, result.error, result.observation)
+                                                enforceStreamingFallbackAfterFailure(
+                                                    error = result.error,
+                                                    route = route,
+                                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                                                    correlationId = correlationId,
+                                                    securityContext = securityContext,
+                                                )
+                                                lastFailure = result.error
+                                                return@repeat
+                                            }
+                                        }
+                                    }
+                                    is StreamingRouteResult.TerminalError -> {
+                                        chunks.send(result.errorChunk)
+                                        return@launch
+                                    }
                                 }
                             }
                         } finally {
@@ -419,8 +457,20 @@ internal class StreamingExecutionCoordinator(
     }
 
     private fun handleFallbackResult(error: TramaiException, emittedAnyTokens: Boolean, providerName: String, observation: OperationObservation, permit: CircuitBreakerPermit, terminalChunk: StreamChunk.Error = StreamChunk.Error(error)): StreamingRouteResult {
-        val result = if (!emittedAnyTokens && shouldFallbackFrom(error)) { recordStartupRetryEvent(providerName, error::class.simpleName ?: "unknown", observation); StreamingRouteResult.StartupFailure(error) } else StreamingRouteResult.TerminalError(terminalChunk)
-        recordCircuitBreakerFailure(permit, error, observation)
+        val result = if (!emittedAnyTokens && shouldFallbackFrom(error)) {
+            // Retryable STARTUP failure (no token yet): the route loop decides
+            // retry-vs-exhausted via ProviderRetryPolicy. The breaker is NOT
+            // touched here — an intermediate retry must not record a breaker
+            // failure (8.2h P0-K); the terminal exhausted failure records in
+            // the route loop's Stop branch.
+            recordStartupRetryEvent(providerName, error::class.simpleName ?: "unknown", observation)
+            StreamingRouteResult.StartupFailure(error, observation)
+        } else {
+            // Terminal: non-retryable, post-token failure, or fallback-disallowed.
+            // This completes breaker authority for the route.
+            recordCircuitBreakerFailure(permit, error, observation)
+            StreamingRouteResult.TerminalError(terminalChunk)
+        }
         observation.onCallCompleted(parseSuccess = null)
         return result
     }

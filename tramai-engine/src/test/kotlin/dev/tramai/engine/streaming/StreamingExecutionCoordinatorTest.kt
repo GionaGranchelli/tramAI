@@ -28,6 +28,8 @@ import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.PolicyEnforcementHelper
 import dev.tramai.engine.ProviderCircuitBreaker
+import dev.tramai.engine.ProviderRetryDelayPolicy
+import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.budget.TokenBudgetCoordinator
@@ -38,6 +40,7 @@ import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
+import dev.tramai.engine.provider.ProviderRetryPolicy
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -176,6 +179,7 @@ class StreamingExecutionCoordinatorTest {
         circuitBreaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = circuitEnabled, failureThreshold = 1)),
         closed: AtomicBoolean = AtomicBoolean(false),
         qualifiedServiceName: String? = "test.StreamingService",
+        retryPolicy: ProviderRetryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
@@ -186,6 +190,7 @@ class StreamingExecutionCoordinatorTest {
             ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
             ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }), TokenBudgetCoordinator(budgetSettings),
             ModelRegistryEnforcer(object : ModelRegistry { override suspend fun findApprovedModel(providerId: String, modelName: String) = null }, ModelRegistrySettings(enabled = false)),
+            retryPolicy,
             ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
             ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
             ProviderFallbackGate { _, _, _, _, _, _ -> recordingSink.record("policy.fallback"); if (denyFallback) throw denied() },
@@ -292,7 +297,10 @@ class StreamingExecutionCoordinatorTest {
         runBlocking {
         val sink = OrderedSink(); val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }; val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Token("ok")); emit(StreamChunk.Complete("ok")) } }; primary.sink = sink; fallback.sink = sink
         val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(request()).toList()
-        assertThat(chunks).containsExactly(StreamChunk.Token("ok"), StreamChunk.Complete("ok")); assertThat(primary.streamRequests).hasSize(1); assertThat(fallback.streamRequests).hasSize(1); assertThat(sink.events).contains("observation.engine-event:tramai.streaming.startup_retry", "policy.fallback")
+        // Default providerRetries = 3 -> 4 attempts on the primary BEFORE the
+        // exhausted failure falls back. The terminal attempt records the
+        // breaker failure; the three intermediate retries emit retry.scheduled.
+        assertThat(chunks).containsExactly(StreamChunk.Token("ok"), StreamChunk.Complete("ok")); assertThat(primary.streamRequests).hasSize(4); assertThat(fallback.streamRequests).hasSize(1); assertThat(sink.events).contains("observation.engine-event:tramai.streaming.startup_retry", "observation.engine-event:tramai.retry.scheduled", "policy.fallback")
         }
     }
 
@@ -323,18 +331,21 @@ class StreamingExecutionCoordinatorTest {
         var calls = 0
         val provider = RecordingProvider("p") { flow {
             calls++
-            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            if (calls <= 4) emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
             else emit(StreamChunk.Complete("ok"))
         } }
         val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
 
-        // First streaming call fails retryably before any token -> breaker OPEN until t=100.
+        // Default providerRetries = 3 -> 4 attempts. Intermediate retries never
+        // trip the breaker (8.2h P0-K); only the terminal exhausted failure on
+        // attempt 4 records onFailure -> OPEN until t=100.
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+        assertThat(provider.streamRequests).hasSize(4)
 
         // While open, the provider is skipped (no stream request) and the breaker stays open.
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(1)
+        assertThat(provider.streamRequests).hasSize(4)
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
 
         // At exact expiry the probe is admitted; a successful stream must reach
@@ -342,10 +353,10 @@ class StreamingExecutionCoordinatorTest {
         // stuck HALF_OPEN: a subsequent call is ADMITTED and reaches the provider.
         now = 100
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(2)
+        assertThat(provider.streamRequests).hasSize(5)
         now = 200
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(provider.streamRequests).hasSize(6)
         assertThat(breaker.openUntilMillis("p")).isNull()
         }
     }
@@ -357,14 +368,17 @@ class StreamingExecutionCoordinatorTest {
         var calls = 0
         val provider = RecordingProvider("p") { flow {
             calls++
-            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            if (calls <= 4) emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
             else emit(StreamChunk.Error(ProviderException("permanent", retryable = false)))
         } }
         val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
 
-        // First call fails retryably -> OPEN until t=100.
+        // Default providerRetries = 3 -> 4 attempts; the terminal exhausted
+        // retryable failure trips -> OPEN until t=100. Intermediate retries
+        // never touch the breaker.
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+        assertThat(provider.streamRequests).hasSize(4)
 
         // At exact expiry the probe is admitted; its NON-RETRYABLE error is a
         // neutral outcome: not a breaker failure, but it must release probe
@@ -377,7 +391,7 @@ class StreamingExecutionCoordinatorTest {
         // At the new expiry a call is again admitted as the next probe.
         now = 200
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(provider.streamRequests).hasSize(6) // 4 + probe + probe
         assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
         }
     }
@@ -387,10 +401,12 @@ class StreamingExecutionCoordinatorTest {
         var now = 0L
         val sink = OrderedSink()
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
-        val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+        val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
         val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), circuitEnabled = true, circuitBreaker = breaker)
 
-        // First call fails retryably -> OPEN until t=100.
+        // Default providerRetries = 3 -> 4 attempts; only the terminal attempt
+        // records the breaker failure. Intermediate retries emit retry.scheduled
+        // and never touch the breaker (8.2h P0-K).
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
         assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(1)
@@ -409,7 +425,7 @@ class StreamingExecutionCoordinatorTest {
         // At the new expiry a call is again admitted as the next probe.
         now = 200
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(provider.streamRequests).hasSize(12) // 4 attempts × 3 executes
         assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
         assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(3)
         }
@@ -422,7 +438,7 @@ class StreamingExecutionCoordinatorTest {
         var calls = 0
         val provider = RecordingProvider("p") { flow {
             calls++
-            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            if (calls <= 4) emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
             else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
         } }
         val tightBudget = TokenBudgetSettings(hardMaxTokensPerAttempt = 1)
@@ -434,7 +450,8 @@ class StreamingExecutionCoordinatorTest {
             budgetSettings = tightBudget,
         )
 
-        // First call fails retryably -> OPEN until t=100.
+        // Default providerRetries = 3 -> 4 attempts; the terminal exhausted
+        // retryable failure trips -> OPEN until t=100.
         coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
 
@@ -449,7 +466,7 @@ class StreamingExecutionCoordinatorTest {
         // At the new expiry a call is again admitted as the next probe.
         now = 200
         coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
-        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(provider.streamRequests).hasSize(6) // 4 + probe + probe
         assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
         }
     }
@@ -461,19 +478,21 @@ class StreamingExecutionCoordinatorTest {
         var calls = 0
         val provider = RecordingProvider("p") { flow {
             calls++
-            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            if (calls <= 4) emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
             else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
         } }
-        // Observer throws on the SECOND onCallStarted — i.e. inside
+        // Observer throws on the FIFTH onCallStarted — i.e. on the HALF_OPEN
+        // probe's startStreamingObservation, AFTER the first route exhausted
+        // its 4-attempt retry budget and tripped the breaker. Inside
         // startStreamingObservation, BEFORE executeStreamingRoute's own try.
         val coordinator = coordinator(
             plan("p" to provider),
-            ThrowingOnStartObserver(OrderedSink(), throwOnCall = 2),
+            ThrowingOnStartObserver(OrderedSink(), throwOnCall = 5),
             circuitEnabled = true,
             circuitBreaker = breaker,
         )
 
-        // First call fails retryably -> OPEN until t=100.
+        // First route exhausts its retry budget -> OPEN until t=100.
         coordinator.execute(request()).toList()
         assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
 
@@ -489,7 +508,7 @@ class StreamingExecutionCoordinatorTest {
         // stream completes: recovery was not stranded by the pre-try escape.
         now = 200
         coordinator.execute(request()).toList()
-        assertThat(provider.streamRequests).hasSize(2) // probe never reached the provider
+        assertThat(provider.streamRequests).hasSize(5) // 4 attempts + final probe
         assertThat(breaker.openUntilMillis("p")).isNull()
         }
     }

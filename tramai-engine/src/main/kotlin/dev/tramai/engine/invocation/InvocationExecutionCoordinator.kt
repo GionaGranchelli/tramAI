@@ -176,6 +176,7 @@ internal class InvocationExecutionCoordinator(
         conversationMemoryCoordinator = conversationMemoryCoordinator,
         tokenBudgetCoordinator = tokenBudgetCoordinator,
         modelRegistryEnforcer = modelRegistryEnforcer,
+        retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
         beforeResolution = beforeResolutionGate,
         beforeInvocation = beforeProviderInvocationGate,
         fallbackGate = fallbackGate,
