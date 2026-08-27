@@ -59,7 +59,7 @@ internal class WorkflowExecutionSupervisor(
 
     fun activeExecutionCount(): Int = activeExecutions.size
 
-    fun activeExecutionsSnapshot(): List<ActiveExecution> = activeExecutions.values.toList()
+    fun activeExecutionsSnapshot(): List<ActiveExecution> = stableConcurrentSnapshot(activeExecutions.values)
 
     fun latestFailure(workflowId: String): Throwable? = executionFailures[workflowId]
 
@@ -629,3 +629,14 @@ private suspend fun runCleanupPreservingCancellation(
         cancellation.addSuppressed(cleanupError)
     }
 }
+
+
+/**
+ * Snapshot iteration that is safe under concurrent growth/shrinkage of a
+ * thread-safe collection. Deliberately NOT [Collection.toList]: its singleton
+ * fast-path (`size == 1 -> iterator().next()`) can observe a size that the
+ * concurrent collection no longer satisfies, throwing NoSuchElementException.
+ * `map { it }` uses the standard hasNext()/next() progression and yields an
+ * empty list for an emptied collection.
+ */
+internal fun <T> stableConcurrentSnapshot(values: Collection<T>): List<T> = values.map { it }

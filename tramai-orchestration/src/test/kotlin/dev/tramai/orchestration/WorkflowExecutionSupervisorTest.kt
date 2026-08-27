@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -265,6 +266,25 @@ class WorkflowExecutionSupervisorTest {
         val attempt = runBlocking { store.listStepAttempts("w-1") }.single()
         assertThat(attempt.status).isEqualTo(StepAttemptStatus.FAILED)
         scope.cancel()
+    }
+
+    @Test
+    fun `snapshot iteration is safe when the map shrinks between size and iteration`() {
+        // Models ConcurrentHashMap.values in the observed shutdown race: the
+        // collection reports size == 1, then the map empties before the
+        // iterator advances. Executes the SAME snapshot function production
+        // uses (stableConcurrentSnapshot), so a regression back to
+        // Collection.toList() in the snapshot path makes this RED.
+        val shrinking = object : Collection<ActiveExecution> {
+            override val size: Int get() = 1
+            override fun isEmpty(): Boolean = false
+            override fun iterator(): Iterator<ActiveExecution> = emptyList<ActiveExecution>().iterator()
+            override fun contains(element: ActiveExecution): Boolean = false
+            override fun containsAll(elements: Collection<ActiveExecution>): Boolean = false
+        }
+        assertThatThrownBy { shrinking.toList() }
+            .isInstanceOf(NoSuchElementException::class.java)
+        assertThat(stableConcurrentSnapshot(shrinking)).isEmpty()
     }
 
     private data class TestState(val value: String)

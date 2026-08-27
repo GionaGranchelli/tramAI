@@ -609,7 +609,7 @@ class TramaiWorkerTest {
     }
 
     @Test
-    fun `worker heartbeats are visible and stale workers are detectable`(): Unit = runBlocking {
+    fun `worker registration and heartbeats are visible`(): Unit = runBlocking {
         var now = 5_000L
         val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
         val checkpointStore = InMemoryWorkflowCheckpointStore()
@@ -625,12 +625,39 @@ class TramaiWorkerTest {
             waitUntil {
                 leaseStore.listActiveWorkers().singleOrNull()?.workerId == "worker-0"
             }
-            now += 2_000
-            assertThat(leaseStore.listStaleWorkers(1_000).map { it.workerId })
-                .containsExactly("worker-0")
+            // The heartbeat loop must keep the registry row current: after the
+            // clock advances to the next heartbeat cadence, the row's
+            // last-heartbeat catches up to the new time (a live heartbeat
+            // updated it) and the worker is NOT stale. The waitUntil
+            // guarantees the refresh landed before the staleness assertion.
+            now += 500
+            waitUntil {
+                leaseStore.listActiveWorkers().single().lastHeartbeatEpochMillis == now
+            }
+            assertThat(leaseStore.listStaleWorkers(1_000)).isEmpty()
         } finally {
             worker.shutdown()
         }
+    }
+
+    @Test
+    fun `stale workers are detected from the registry clock without racing the heartbeat`(): Unit = runBlocking {
+        // Pure store semantics: no live worker/heartbeat involved. Register at
+        // T0, advance the fake wall clock past the threshold, assert stale at
+        // T1 — deterministic, no scheduling luck.
+        var now = 5_000L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        leaseStore.registerWorker(
+            workerId = "worker-0",
+            poolName = "tests",
+            version = "dev",
+            capabilityLabels = emptySet(),
+            host = "host",
+        )
+        assertThat(leaseStore.listActiveWorkers().single().workerId).isEqualTo("worker-0")
+        now += 2_000
+        assertThat(leaseStore.listStaleWorkers(1_000).map { it.workerId })
+            .containsExactly("worker-0")
     }
 
     @Test
