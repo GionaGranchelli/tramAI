@@ -1158,7 +1158,7 @@ compared after each step.
   abandoned probe reopens with an ADVANCED generation and the abandoned
   permit is fenced (stale success/failure after replacement recovery is a no-op)
 
-### Concurrency discriminators (C1–C4) + secondary regressions (H1–H13)
+### Concurrency discriminators (C1–C4) + secondary regressions (H1–H17, incl. H1b)
 
 - C1 atomic expiry: exactly one probe under 16 concurrent callers
 - C2 concurrent stale completions cannot mutate the open deadline/state
@@ -1258,5 +1258,5 @@ seams to execute an impossible state would weaken the architecture.
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecycleDiscriminatorTest.kt` (P0, RED commit `cc1fc065`)
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerModel.kt` + `ProviderCircuitBreakerActionGenerator.kt`
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecyclePropertyTest.kt` (P1–P13)
-- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H12, C1–C4)
-- `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7, H11, H13)
+- `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H17 incl. H1b, C1–C4)
+- `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7, H11, H13, H16)

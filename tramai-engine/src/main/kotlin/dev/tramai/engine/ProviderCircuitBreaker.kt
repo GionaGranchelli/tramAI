@@ -49,7 +49,11 @@ internal data class CircuitBreakerPermit(
  *   ▼
  * HALF_OPEN(generation=N+1, probe in flight)
  *   ├─ probe success ────────────────► CLOSED(generation=N+1)
- *   └─ probe qualifying failure ─────► OPEN(generation=N+2, fresh deadline)
+ *   ├─ probe qualifying failure ─────► OPEN(generation=N+2, fresh deadline)
+ *   └─ probe neutral / abandoned ────► OPEN(generation=N+2, fresh deadline)
+ *                                       (recovery-state transition: no
+ *                                       CIRCUIT_OPENED event, never counted
+ *                                       as a breaker failure)
  * ```
  *
  * Generation advances on every entry into OPEN (CLOSED→OPEN and
