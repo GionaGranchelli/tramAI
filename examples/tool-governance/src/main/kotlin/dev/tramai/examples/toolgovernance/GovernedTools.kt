@@ -1,5 +1,6 @@
 package dev.tramai.examples.toolgovernance
 
+import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.ToolResult
@@ -9,7 +10,26 @@ import dev.tramai.core.policy.RiskLevel
 import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.ManagedNetworkEgress
 import dev.tramai.core.policy.AuditDetail
+import dev.tramai.security.PolicyConfiguration
 import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Explicit deny-by-default policy for one governed tool scenario.
+ *
+ * No wildcard allowlists: every set names exactly the tool, model, provider,
+ * and permission the scenario exercises. Values are derived from the tool's
+ * security metadata and the deterministic provider identity — never invented.
+ */
+internal fun governedPolicyFor(
+    tool: ResolvedTool,
+    provider: ModelProvider,
+): PolicyConfiguration = PolicyConfiguration(
+    allowedTools = setOf(tool.name),
+    allowedModels = setOf("test-model"),
+    allowedProviders = setOf(provider.providerId()),
+    allowedPermissions = setOf(requireNotNull(tool.security).permission),
+    requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
+)
 
 /**
  * Read-only customer lookup tool — LOW risk, AUTO approval.
@@ -72,8 +92,7 @@ class AccountDeleteTool : ResolvedTool {
  * Payment execution tool — HIGH risk, HUMAN_REQUIRED approval.
  *
  * Permission: payment.execute
- * The baseline DefaultPolicyEngine grants exposure via the wildcard permission (allowedPermissions contains "*")
- * but the execution policy gate returns REQUIRE_APPROVAL because HIGH risk with
+ * The execution policy gate returns REQUIRE_APPROVAL because HIGH risk with
  * HUMAN_REQUIRED approval is above the approval threshold.
  */
 class PaymentTool : ResolvedTool {

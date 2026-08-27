@@ -10,7 +10,6 @@ import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.create
 import dev.tramai.security.DefaultPolicyEngine
-import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.approval.AllowAnyApprovalDecisionValidator
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
@@ -86,27 +85,29 @@ object ToolGovernanceMain {
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-customer-lookup"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
-        val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
+        val baselinePolicy = DefaultPolicyEngine(governedPolicyFor(tool, provider))
         val engine = TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf("customer_lookup" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = baselinePolicy,
         )
-        val service = engine.create<CustomerLookupService>()
+        engine.use {
+            val service = engine.create<CustomerLookupService>()
 
-        try {
-            val result = service.lookup("CUST-001")
-            println("  Result: $result")
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            println("  Exception: ${e::class.simpleName}: ${e.message}")
+            try {
+                val result = service.lookup("CUST-001")
+                println("  Result: $result")
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                println("  Exception: ${e::class.simpleName}: ${e.message}")
+            }
+
+            println("  Tool executed: ${tool.callCount.get() > 0}")
+            println("  Provider calls: ${provider.callCount.get()}")
+            printEvidence(store.readStream(streamId))
+            println()
         }
-
-        println("  Tool executed: ${tool.callCount.get() > 0}")
-        println("  Provider calls: ${provider.callCount.get()}")
-        printEvidence(store.readStream(streamId))
-        println()
     }
 
     private suspend fun scenarioAccountDelete() {
@@ -118,7 +119,7 @@ object ToolGovernanceMain {
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-account-delete"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
-        val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
+        val baselinePolicy = DefaultPolicyEngine(governedPolicyFor(tool, provider))
 
         // Policy wrapper that denies account_delete at BEFORE_TOOL_EXECUTION
         val denyingPolicy = PolicyEngine { context ->
@@ -135,24 +136,26 @@ object ToolGovernanceMain {
             policyDecisionAuditEmitter = emitter,
             policyEngine = denyingPolicy,
         )
-        val service = engine.create<AccountDeleteService>()
+        engine.use {
+            val service = engine.create<AccountDeleteService>()
 
-        try {
-            service.delete("ACC-001")
-            println("  Result: unexpected success (policy should have denied)")
-        } catch (e: PolicyViolationException) {
-            println("  Expected exception: PolicyViolationException")
-            println("  Reason: ${e.decision.reason}")
-            println("  Code: ${e.decision.reasonCode}")
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            println("  Unexpected exception: ${e::class.simpleName}: ${e.message}")
+            try {
+                service.delete("ACC-001")
+                println("  Result: unexpected success (policy should have denied)")
+            } catch (e: PolicyViolationException) {
+                println("  Expected exception: PolicyViolationException")
+                println("  Reason: ${e.decision.reason}")
+                println("  Code: ${e.decision.reasonCode}")
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                println("  Unexpected exception: ${e::class.simpleName}: ${e.message}")
+            }
+
+            println("  Tool executed: ${tool.callCount.get() > 0}")
+            println("  Provider calls: ${provider.callCount.get()}")
+            printEvidence(store.readStream(streamId))
+            println()
         }
-
-        println("  Tool executed: ${tool.callCount.get() > 0}")
-        println("  Provider calls: ${provider.callCount.get()}")
-        printEvidence(store.readStream(streamId))
-        println()
     }
 
     private suspend fun scenarioPayment() {
@@ -164,7 +167,7 @@ object ToolGovernanceMain {
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-payment"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
-        val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
+        val baselinePolicy = DefaultPolicyEngine(governedPolicyFor(tool, provider))
 
         val approvalGateCoordinator = DefaultApprovalGateCoordinator(
             store = InMemoryApprovalStore(clock = fixedClock),
@@ -185,24 +188,26 @@ object ToolGovernanceMain {
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             clock = fixedClock,
         )
-        val service = engine.create<PaymentService>()
+        engine.use {
+            val service = engine.create<PaymentService>()
 
-        try {
-            service.pay("5000 EUR")
-            println("  Result: unexpected success (should have been suspended)")
-        } catch (e: ApprovalSuspendedException) {
-            println("  Expected exception: ApprovalSuspendedException")
-            println("  Tool: ${e.toolName}")
-            println("  Workflow: ${e.workflowRunId}")
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            println("  Exception: ${e::class.simpleName}: ${e.message}")
+            try {
+                service.pay("5000 EUR")
+                println("  Result: unexpected success (should have been suspended)")
+            } catch (e: ApprovalSuspendedException) {
+                println("  Expected exception: ApprovalSuspendedException")
+                println("  Tool: ${e.toolName}")
+                println("  Workflow: ${e.workflowRunId}")
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                println("  Exception: ${e::class.simpleName}: ${e.message}")
+            }
+
+            println("  Tool executed: ${tool.callCount.get() > 0}")
+            println("  Provider calls: ${provider.callCount.get()}")
+            printEvidence(store.readStream(streamId))
+            println()
         }
-
-        println("  Tool executed: ${tool.callCount.get() > 0}")
-        println("  Provider calls: ${provider.callCount.get()}")
-        printEvidence(store.readStream(streamId))
-        println()
     }
 
     /**
