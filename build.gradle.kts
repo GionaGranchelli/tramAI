@@ -238,6 +238,62 @@ tasks.register("prepareCycloneDxBom") {
     }
 }
 
+// ──────────────────────────────────────────────
+// Task: prepareSovereignEvidenceBundle
+// ──────────────────────────────────────────────
+
+tasks.register("prepareSovereignEvidenceBundle") {
+    group = "verification"
+    description = "Assembles all sovereign audit outputs into build/sovereign-evidence/."
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val outputDir = buildDir.resolve("sovereign-evidence")
+        val supplyChainDir = outputDir.resolve("supply-chain")
+        val releaseDir = outputDir.resolve("release")
+        val releaseArtifactsDir = outputDir.resolve("release/artifacts")
+
+        // Required input paths
+        val evidencePack = buildDir.resolve("zero-egress-report/sovereign-evidence-pack-v1.json")
+        val zeroEgressReport = buildDir.resolve("zero-egress-report/zero-egress-report.json")
+        val sbom = buildDir.resolve("supply-chain/sbom/tramai-cyclonedx-sbom.json")
+        val sbomDigest = buildDir.resolve("supply-chain/sbom/tramai-cyclonedx-sbom.sha256")
+        val releaseManifest = buildDir.resolve("sovereign-release/release-artifacts-v1.json")
+        val releaseArtifactsSrc = buildDir.resolve("sovereign-release/artifacts")
+
+        // Fail closed on missing inputs
+        require(evidencePack.exists()) { "sovereign-evidence-missing-evidence-pack" }
+        require(zeroEgressReport.exists()) { "sovereign-evidence-missing-zero-egress-report" }
+        require(sbom.exists()) { "sovereign-evidence-missing-sbom" }
+        require(sbomDigest.exists()) { "sovereign-evidence-missing-sbom-digest" }
+        require(releaseManifest.exists()) { "sovereign-evidence-missing-release-manifest" }
+        require(releaseArtifactsSrc.isDirectory()) { "sovereign-evidence-missing-release-artifacts-dir" }
+        val jarFiles = releaseArtifactsSrc.listFiles { f -> f.name.endsWith(".jar") }?.toList() ?: emptyList()
+        require(jarFiles.isNotEmpty()) { "sovereign-evidence-empty-release-artifacts-dir" }
+
+        // Clean output
+        if (outputDir.exists()) outputDir.deleteRecursively()
+        supplyChainDir.mkdirs()
+        releaseDir.mkdirs()
+        releaseArtifactsDir.mkdirs()
+
+        // Copy files
+        evidencePack.copyTo(outputDir.resolve("sovereign-evidence-pack-v1.json"), overwrite = true)
+        zeroEgressReport.copyTo(outputDir.resolve("zero-egress-report.json"), overwrite = true)
+        sbom.copyTo(supplyChainDir.resolve("tramai-cyclonedx-sbom.json"), overwrite = true)
+        sbomDigest.copyTo(supplyChainDir.resolve("tramai-cyclonedx-sbom.sha256"), overwrite = true)
+        releaseManifest.copyTo(releaseDir.resolve("release-artifacts-v1.json"), overwrite = true)
+
+        // Copy JARs in deterministic filename order
+        jarFiles.sortedBy { it.name }.forEach { jar ->
+            jar.copyTo(releaseArtifactsDir.resolve(jar.name), overwrite = true)
+        }
+
+        logger.lifecycle("Sovereign evidence bundle assembled: ${outputDir.absolutePath}")
+        logger.lifecycle("  Files: ${outputDir.walkTopDown().count { it.isFile }}")
+    }
+}
+
 
 // ──────────────────────────────────────────────
 // Task: verifySovereignEvidenceBundleReleaseManifest
