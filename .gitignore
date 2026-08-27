@@ -3,6 +3,15 @@
 .gradle
 /build/
 **/build/
+
+# `dev.tramai.build` is a legitimate build-logic Kotlin package directory,
+# NOT generated output. `**/build/` above matches it; un-ignore it so new
+# source files there (e.g. ModuleDocContractVerifier.kt) can be tracked
+# without `git add -f`.
+!build-logic/src/main/kotlin/dev/tramai/build/
+!build-logic/src/main/kotlin/dev/tramai/build/**
+!build-logic/src/test/kotlin/dev/tramai/build/
+!build-logic/src/test/kotlin/dev/tramai/build/**
 gradle-app.setting
 *.iml
 *.log
