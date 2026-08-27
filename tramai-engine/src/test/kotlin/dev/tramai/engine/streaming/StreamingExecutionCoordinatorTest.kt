@@ -108,7 +108,7 @@ class StreamingExecutionCoordinatorTest {
     ).compile(StreamingServiceZeroRetries::class).operations.entries.single().value.definition
 
     private class OrderedSink {
-        val events = mutableListOf<String>()
+        val events = java.util.concurrent.CopyOnWriteArrayList<String>()
         fun record(name: String) { events += name }
     }
 

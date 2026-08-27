@@ -98,7 +98,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
     }
 
     private class OrderedSink {
-        val events = mutableListOf<String>()
+        val events = java.util.concurrent.CopyOnWriteArrayList<String>()
         fun record(name: String) { events += name }
         fun count(name: String): Int = events.count { it == name }
     }
