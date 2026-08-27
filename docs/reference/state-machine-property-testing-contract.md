@@ -1260,3 +1260,68 @@ seams to execute an impossible state would weaken the architecture.
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerLifecyclePropertyTest.kt` (P1–P13)
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H17 incl. H1b, C1–C4)
 - `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7, H11, H13, H16)
+
+## Epic 8.2h — Provider retry/fallback lifecycle (PR pending)
+
+**Central invariant.** Every provider attempt has exactly one authoritative disposition. Retry remains within the currently admitted route; fallback can occur only after that route exhausts its retry authority; a breaker permit is owned by the route, not by each physical retry attempt; and once streaming output becomes externally visible, retry and fallback authority are permanently lost.
+
+**Stop is classification-independent.** `ProviderRetryDecision.Stop` permanently relinquishes same-route retry authority regardless of WHY it stopped — budget exhaustion OR error classification (P0-O). A fallback-eligible but non-retryable startup failure (e.g. `CircuitBreakerOpenException` returned by the provider stream) must therefore leave the route after exactly ONE attempt, advance through the fallback gate exactly once, and hand the outer candidate loop to the next route. Regression fixed in the final review round: the streaming `Stop` branch previously `return@repeat`-ed into the same-route loop, re-invoking the same provider and re-running the fallback gate on every extra attempt.
+
+**Three ownership levels:**
+
+```
+Invocation
+  └─ Route
+       └─ Attempt
+
+ATTEMPT      → may request same-route retry
+ROUTE        → owns one circuit-breaker permit
+             → terminal route outcome completes that permit
+             → may advance through fallback
+INVOCATION   → owns the final result
+```
+
+One breaker admission → route (physical attempt, retry, retry, …) → one semantic breaker completion. **"Each retry is a circuit-breaker attempt" is false under this architecture.** Sync and streaming share retry semantics but are not mechanically identical: streaming legitimately adds the irreversible `OUTPUT_VISIBLE` state.
+
+### P0-A: the production defect (RED → GREEN)
+
+Streaming ignored `@Operation.providerRetries`. Before: a primary retryable failure fell back immediately. After: it retries the same provider within budget, and falls back only after exhaustion. RED baseline commit: `6edfc9cc`; fixed by `349f12b6`.
+
+Remaining discriminators, grouped:
+
+- **Retry authority** — P0-A/B/C/N: budget = `N + 1` physical attempts; retry stays on the same route; retry delay contract (`retryAfterMillis` honored, backoff for timeouts, cap applied, suspension real).
+- **Streaming irreversibility** — P0-D/M: after the first token, retryable failure is terminal; `STREAMING_STARTUP_RETRY` is a recovery-eligible marker only.
+- **Cancellation/policy** — P0-E/G: cancellation is absolute control flow (no retry/fallback classification); fallback-gate denial is fail-closed with the deny error authoritative.
+- **Routing** — P0-F/H/I/J/L: circuit-open consumes zero attempts, advances exactly once; explicit provider resolves to route cardinality one; effective-fallback model is resolution-owned; global attempt numbering stays continuous; last executed provider failure beats circuit-open in terminal error precedence.
+- **Stop route-exit** — P0-O: `Stop` before budget exhaustion (circuit-open from the stream) invokes the primary exactly once, the fallback gate exactly once, and advances exactly one fallback; `RETRY_SCHEDULED` stays zero.
+- **Circuit-breaker composition** — P0-K: intermediate retries never trip the breaker; only the terminal route outcome completes breaker authority; retry → permanent is a NEUTRAL completion.
+
+### Model vocabulary
+
+Pure `ProviderRetryFallbackModel` (test-only oracle) with frozen vocabulary:
+
+- `AttemptOutcome × OutputVisibility` — two independent algebras. The failure identity is the same before and after a token; disposition changes solely because output became visible. `OutputVisibility`: `NONE → VISIBLE`, irreversible.
+- `RouteAdmission` — circuit-open is route **admission** (zero attempts, no permit), not a provider-attempt failure. When the skipped route has a next route AND the fallback gate denies, the model still counts the gate transition (`fallbackTransitions + 1`): reality's gate hook fires before the denial throws, so the counters must match (forced archetype in P14).
+- `RouteDisposition` — `RetrySameRoute(nextRetryIndex) / Fallback(nextRouteIndex) / Succeeded(routeIndex) / Failed(failure)`: the single authoritative per-attempt decision.
+- `TerminalOutcome` — `Success / Cancelled / Failure(kind) / FallbackDenied(kind)`. `FallbackDenied` is distinct from attempt-time `PolicyRejection`.
+- `BreakerDisposition` — `SUCCESS / QUALIFYING_FAILURE / NEUTRAL`. Describes the semantic completion of one admitted route, **not** the raw number of `onSuccess`/`onFailure`/`onAbandoned` calls (idempotent belt-and-suspenders cleanup can double-invoke).
+
+### Property evidence
+
+P1–P14 independent model-vs-reality oracle. Reality corpus: 32 seeds × retry budgets {0, 1, 2} = **96 coordinator executions**. Semantic coverage guard: 32 seeds × 3 budgets × route counts {1, 2, 3} = **288 model scripts**.
+
+The generated script is authoritative. Model and production independently consume the same declared route/admission/outcome sequence; model output is never used to configure production inputs. (Review correction: the harness originally derived reality's response queues from the model's routing trace, coupling the oracle to the implementation it judges; the script now declares every route explicitly and `runModel` `require()`s each action against the model's own decisions.)
+
+### Mutation evidence
+
+23 mutation candidates: **20 STRONG, 3 REDUNDANT, 0 UNREACHABLE, 0 WEAK, 0 INVALID**. Exactly-one-replacement; probe = property suite + streaming coordinator suite.
+
+- **M15/M16** — redundant because the structural admitted-route `finally { onAbandoned(permit) }` subsumes the elided inner cleanup.
+- **M21** — redundant under the mutation probe configuration because `jitterRatio = 0.0`; jitter is not claimed behaviorally irrelevant in production.
+- **M23** — `Stop` fails to exit the route (break removed, loop re-enters the same route). Killed by P0-O: the primary is re-invoked and the fallback gate re-runs despite `Stop` at the first failure. Added after the final review round re-certified the control-flow area it mutates.
+- **Taxonomy correction.** M14/M22 were initially misclassified as unreachable because the probe did not observe retry delay semantics; they were actually reachable WEAK mutations. P0-N added coordinator-level delay/source/suspension observability (`RETRY_SCHEDULED` attributes + a lower-bound suspension measurement), after which both became STRONG.
+
+### Event semantics
+
+- `tramai.retry.scheduled` — the actual same-route retry decision.
+- `tramai.streaming.startup_retry` — once-per-route marker that a retryable pre-token streaming failure entered an available recovery path. **Observational**, not the authority that decides retry. P0-M pins the boundary: `providerRetries = 0` + no fallback → no event; recovery actually possible → exactly one event for the route.

@@ -2,6 +2,7 @@ package dev.tramai.engine.streaming
 
 import dev.tramai.core.exception.TramaiException
 import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.observation.OperationObservation
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.budget.TokenBudgetTracker
 
@@ -19,6 +20,7 @@ internal sealed class StreamingRouteResult {
 
     data class StartupFailure(
         val error: TramaiException,
+        val observation: OperationObservation,
     ) : StreamingRouteResult()
 
     data class TerminalError(

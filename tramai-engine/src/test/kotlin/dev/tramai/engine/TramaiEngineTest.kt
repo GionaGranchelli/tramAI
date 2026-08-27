@@ -1120,10 +1120,11 @@ class TramaiEngineTest {
             StreamChunk.Token("ok"),
             StreamChunk.Complete("ok", UsageMetrics(outputTokens = 1)),
         )
-        assertThat(primary.streamRequests).hasSize(1)
+        // Default providerRetries = 3 -> 4 primary attempts before exhaustion.
+        assertThat(primary.streamRequests).hasSize(4)
         assertThat(fallback.streamRequests).hasSize(1)
         assertThat(observer.records.flatMap { it.engineEvents.map(EngineEventRecord::name) })
-            .contains("tramai.streaming.startup_retry")
+            .contains("tramai.streaming.startup_retry", "tramai.retry.scheduled")
     }
 
     @Test
@@ -1965,7 +1966,7 @@ class TramaiEngineTest {
                 StreamChunk.Complete("fallback answer", UsageMetrics(outputTokens = 2)),
             )
 
-            assertThat(primary.streamRequests).hasSize(1)
+            assertThat(primary.streamRequests).hasSize(4) // default providerRetries=3 -> 4 attempts
             assertThat(fallback.streamRequests).hasSize(1)
 
             // Memory must be persisted exactly once from the successful fallback
