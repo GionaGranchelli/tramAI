@@ -86,9 +86,13 @@ Don't use this module when:
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-standalone")  // version from the TramAI BOM
-    implementation("dev.tramai:tramai-ollama")  // version from the TramAI BOM // or tramai-openai, tramai-anthropic
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-ollama") // or tramai-openai, tramai-anthropic
 }
 ```
 

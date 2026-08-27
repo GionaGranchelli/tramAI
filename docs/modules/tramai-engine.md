@@ -89,8 +89,12 @@ You only interact with it directly if you are building a custom integration or n
 **Gradle:**
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-engine")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-engine")
 }
 ```
 
@@ -484,8 +488,12 @@ Inject conversation history into AI calls and persist responses automatically.
 Requires adding `tramai-memory` to your dependencies:
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-memory")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-memory")
 }
 ```
 

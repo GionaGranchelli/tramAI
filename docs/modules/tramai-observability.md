@@ -82,8 +82,12 @@ Without this module, Tramai runs with no-op observers — operations and workflo
 **Gradle (Kotlin DSL):**
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-observability")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-observability")
     // You also need an OpenTelemetry SDK + exporter runtime dependency:
     runtimeOnly("io.opentelemetry:opentelemetry-exporter-otlp:...")
     runtimeOnly("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:...")

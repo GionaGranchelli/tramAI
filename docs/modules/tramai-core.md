@@ -87,8 +87,12 @@ Without `tramai-core`, no two Tramai modules could communicate. It provides:
 **Gradle (Kotlin DSL):**
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-core")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-core")
 }
 ```
 

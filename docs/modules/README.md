@@ -9,7 +9,7 @@ Per-module architecture and navigation cards for TramAI. The authoritative modul
 
 ## Card contract
 
-Cards normalized under Epic 11.2b conform to the following architecture contract. C2b1 normalized 11 core/governance/persistence/observability/testing cards; **C2b2 normalized 20 non-Spring cards** (provider adapters, higher capabilities, vector stores, operations/observability, BOM). **C2b3a normalized `tramai-spring` (legacy facade) and created the Spring family + testing/consumer-support cards**; the remaining example/application cards and the documentation verifier follow in C2b3b.
+Cards normalized under Epic 11.2b conform to the following architecture contract. C2b1 normalized 11 core/governance/persistence/observability/testing cards; **C2b2 normalized 20 non-Spring cards** (provider adapters, higher capabilities, vector stores, operations/observability, BOM). **C2b3 closed coverage: normalized `tramai-spring` (legacy facade) and created the remaining Spring family, testing-support, and example cards.**
 
 Each conforming card starts with an `## Architecture` section using these headings:
 
@@ -33,14 +33,27 @@ Coverage is computed against the 60-module authoritative manifest (`module-catal
 | Metric | Count |
 |--------|-------|
 | Manifest modules | 60 |
-| Module cards | 51 |
-| Conforming cards (C2b1 + C2b2 + C2b3a) | 51 |
+| Module cards | 60 |
+| Conforming cards (C2b1 + C2b2 + C2b3) | 60 |
 | Existing non-conforming | 0 |
-| Missing cards | 9 (application/example slice — C2b3b) |
+| Missing cards | 0 |
 | Orphans | 0 |
 
-### Cards (51)
+## Card contract verifier
 
+`./gradlew verifyModuleDocContract` mechanically enforces the contract: one card per manifest module (no missing/orphan), required headings, resolvable local links/inline paths, no legacy hand-maintained classification metadata, no versionless `dev.tramai:*` dependency snippets without a BOM import or explicit version, and no external Maven-coordinate examples for internal/unpublished modules. It is wired into `verify060Architecture` and `verifyPr`.
+
+### Cards (60)
+
+- approval-resume
+- governed-workflow
+- java-consumer-smoke
+- kotlin-consumer-smoke
+- sovereign-document-intelligence
+- sovereign-offline-verification
+- spring-sovereign-starter
+- support-agent
+- tool-governance
 - tramai-anthropic
 - tramai-azure-openai
 - tramai-bedrock
