@@ -146,7 +146,7 @@ abstract class StepAttemptRecordStoreContractTest {
             listOf(
                 minimalRecord(attemptId = "z", startedAt = 9),
                 minimalRecord(attemptId = "a", startedAt = 10),
-                minimalRecord(attemptId = "b", startedAt = 10),
+                minimalRecord(attemptId = "b", startedAt = 11),
             ).forEach { store.recordStepAttempt(it) }
             assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("b")
         }

@@ -72,15 +72,19 @@ internal fun decodeResolutionAction(name: String?): StepAttemptResolutionAction?
  *   record because the attempt store and the checkpoint store are independent.
  *
  * Ordering and retrieval:
- * - [listStepAttempts] returns records for one run ordered deterministically by
- *   `startedAt`, then `stepName`. For attempts with EQUAL persisted `startedAt`,
- *   the tie-break must be a stable creation-order authority, never the random
- *   `attemptId` (the in-memory implementation preserves insertion order; the
- *   file/JDBC implementations still use `attemptId` pending a durable sequence
- *   column — tracked as a cross-store contract follow-up).
- * - [latestStepAttempt] returns the record for the given run and step with the maximum
- *   `startedAt`; ties resolve to the LAST-created attempt (in-memory: insertion order;
- *   file/JDBC pending the same follow-up), or `null` when absent.
+ * - [listStepAttempts] returns records for one run ordered by `startedAt`, then
+ *   `stepName`. Equal-key ordering must be deterministic and stable across reads;
+ *   the final tie authority is implementation-specific today.
+ * - [latestStepAttempt] returns the record for the given run and step with the
+ *   maximum `startedAt`. The equal-startedAt tie authority is implementation-specific
+ *   today, or `null` when absent.
+ *
+ * Tie authority today:
+ * - `InMemoryWorkflowCheckpointStore` additionally guarantees creation-order tie
+ *   semantics (last-created wins `latest`; insertion order survives `list`).
+ * - The file/JDBC implementations currently use `attemptId` (a random UUID) as the
+ *   final deterministic tie-break. A durable creation-order authority requires a
+ *   persisted sequence and is deferred (tracked as a cross-store follow-up).
  *
  * Durability and failure behaviour:
  * - Persistent implementations must survive store recreation and process restart, and
