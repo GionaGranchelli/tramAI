@@ -83,6 +83,12 @@ class StreamingExecutionCoordinatorTest {
         fun stream(input: String): Flow<StreamChunk>
     }
 
+    @AiService
+    private interface StreamingServiceZeroRetries {
+        @Operation(prompt = "Answer", model = "logical-model", providerRetries = 0)
+        fun stream(input: String): Flow<StreamChunk>
+    }
+
     private val defaultBudget = TokenBudgetSettings(hardMaxTokensPerOperation = 20)
 
     private fun operation() = ServiceDefinitionCompiler(
@@ -96,6 +102,10 @@ class StreamingExecutionCoordinatorTest {
     private fun operationWithExplicitProvider() = ServiceDefinitionCompiler(
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
     ).compile(ExplicitProviderStreamingService::class).operations.entries.single().value.definition
+
+    private fun operationWithZeroRetries() = ServiceDefinitionCompiler(
+        OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
+    ).compile(StreamingServiceZeroRetries::class).operations.entries.single().value.definition
 
     private class OrderedSink {
         val events = mutableListOf<String>()
@@ -191,6 +201,9 @@ class StreamingExecutionCoordinatorTest {
 
     private fun requestWithExplicitProvider(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
         StreamingExecutionRequest(operationWithExplicitProvider(), listOf("input"), budget.createTracker(), conversationId)
+
+    private fun requestWithZeroRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
+        StreamingExecutionRequest(operationWithZeroRetries(), listOf("input"), budget.createTracker(), conversationId)
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
@@ -591,6 +604,66 @@ class StreamingExecutionCoordinatorTest {
         assertThat(error.cause).isInstanceOf(CircuitBreakerOpenException::class.java)
         assertThat(primary.streamRequests).isEmpty()
         assertThat(fallback.streamRequests).isEmpty()
+        }
+    }
+
+    @Test fun `P0-M startup retry event suppressed when providerRetries zero and no fallback route`() {
+        // providerRetries = 0, no fallback route: the retryable startup failure
+        // has NO recovery path, so STREAMING_STARTUP_RETRY must NOT be emitted —
+        // the event name must never announce a retry that cannot happen
+        // (Option 1: recovery-eligible marker).
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val chunks = coordinator(plan("primary" to primary), RecordingOperationObserver(sink), sink).execute(requestWithZeroRetries()).toList()
+        val error = chunks.single() as StreamChunk.Error
+        assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+        assertThat(primary.streamRequests).hasSize(1) // no retry possible
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.streaming.startup_retry", "observation.engine-event:tramai.retry.scheduled", "policy.fallback")
+        }
+    }
+
+    @Test fun `P0-M startup retry event emitted when providerRetries zero but fallback route exists`() {
+        // providerRetries = 0 + fallback route: the recovery action is FALLBACK,
+        // not retry. STREAMING_STARTUP_RETRY (recovery-eligible marker) fires
+        // once; no RETRY_SCHEDULED (no same-route retry exists); one fallback
+        // transition.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithZeroRetries()).toList()
+        assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
+        assertThat(primary.streamRequests).hasSize(1) // zero retries
+        assertThat(fallback.streamRequests).hasSize(1)
+        assertThat(sink.events).contains("observation.engine-event:tramai.streaming.startup_retry", "policy.fallback")
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.retry.scheduled")
+        }
+    }
+
+    @Test fun `P0-K breaker neutral terminal completion when retries end in permanent failure`() {
+        // retryable -> retry -> PERMANENT failure: intermediate transient
+        // failures do NOT leak into breaker accounting. The authoritative route
+        // result is the permanent error — a NEUTRAL terminal completion: zero
+        // qualifying breaker failures, zero successes, breaker never trips.
+        runBlocking {
+        val sink = OrderedSink()
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var attempts = 0
+        val provider = RecordingProvider("p") {
+            attempts++
+            if (attempts == 1) flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+            else flow { emit(StreamChunk.Error(ProviderException("permanent", retryable = false))) }
+        }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = breaker)
+        coordinator.execute(requestWithRetries()).toList()
+        assertThat(breaker.openUntilMillis("p")).isNull() // never tripped
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.circuit.opened")
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.retry.scheduled" }).hasSize(1)
         }
     }
 

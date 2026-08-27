@@ -176,17 +176,23 @@ internal class StreamingExecutionCoordinator(
                                         return@launch
                                     }
                                     is StreamingRouteResult.StartupFailure -> {
-                                        // STREAMING_STARTUP_RETRY: a retryable
-                                        // startup failure was observed before any
-                                        // token — the route has entered retry/
-                                        // fallback recovery. Emitted ONCE per
-                                        // route (first retryable startup failure),
-                                        // independent of how recovery resolves
-                                        // (retry, exhaustion, or terminal).
-                                        if (retryIndex == 0) {
+                                        // STREAMING_STARTUP_RETRY: recovery-eligible
+                                        // marker (8.2h P0-M, Option 1). Emitted at
+                                        // most once per route, when a retryable
+                                        // pre-token failure will ACTUALLY be
+                                        // followed by recovery — a same-route
+                                        // retry or a fallback to a next route.
+                                        // providerRetries=0 + no fallback route =
+                                        // no recovery, so no event: the name
+                                        // must never announce a retry that cannot
+                                        // happen. RETRY_SCHEDULED remains the
+                                        // decision event for actual same-route
+                                        // retries.
+                                        val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)
+                                        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || candidates.getOrNull(routeIndex + 1) != null)) {
                                             recordStartupRetryEvent(route.providerName, result.error::class.simpleName ?: "unknown", result.observation)
                                         }
-                                        when (val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)) {
+                                        when (decision) {
                                             is ProviderRetryDecision.Retry -> {
                                                 result.observation.emitRuntimeEvent(
                                                     RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
