@@ -3,20 +3,26 @@ package dev.tramai.engine.provider
 /**
  * Epic 8.2h — deterministic retry/fallback script generator.
  *
- * Produces full route scripts (admission + ordered attempt outcomes). The
- * REAL streaming coordinator consumes the same scripts through scripted
- * providers, so model and reality run the identical action lattice.
+ * The SCRIPT is the single independent specification of the scenario. Every
+ * action declares its OWN route index; the model never decides which provider
+ * a response belongs to (oracle-independence requirement, reviewer round 4).
+ * The generator reasons about the retry budget itself (a route can consume at
+ * most providerRetries + 1 attempts before exhaustion) so every script's
+ * declared route progression is consistent with the model's decisions; the
+ * property harness then validates that consistency with require() on every
+ * action.
  *
  * Forced archetypes (semantic coverage guard — never rely on random
- * probability): every seed batch includes retry->success, retry->retry->
- * exhausted, exhausted->fallback->success, exhausted->fallback->exhausted,
- * primary circuit-open->fallback, all routes circuit-open, retry-after,
- * cancellation during retry, streaming failure after token, and mixed
- * provider failure + later circuit-open.
+ * probability): retry->success, retry->retry->exhausted, exhausted->fallback->
+ * success, exhausted->fallback->exhausted, primary circuit-open->fallback, all
+ * routes circuit-open, retry-after, cancellation during retry, streaming
+ * failure after token, permanent failure, mixed provider failure + later
+ * circuit-open, explicit provider, fallback denial, retry->permanent neutral,
+ * double fallback traversal.
  */
 internal sealed interface RetryFallbackScriptAction {
     data class Admit(val routeIndex: Int, val circuitOpen: Boolean = false) : RetryFallbackScriptAction
-    data class Attempt(val outcome: AttemptOutcome) : RetryFallbackScriptAction
+    data class Attempt(val routeIndex: Int, val outcome: AttemptOutcome) : RetryFallbackScriptAction
     data class EmitToken(val tokenCount: Int = 1) : RetryFallbackScriptAction
 }
 
@@ -40,7 +46,9 @@ internal object ProviderRetryFallbackActionGenerator {
         val archetype = (seed % ARCHETYPES.size).toInt()
         return when (ARCHETYPES[archetype]) {
             "retry-success" -> script(providerRetries, routeCount) {
-                admit(0); attempt(0, Retryable); attempt(0, Success)
+                admit(0); attempt(0, Retryable)
+                if (providerRetries >= 1) attempt(0, Success)
+                else if (routeCount > 1) { admit(1); attempt(1, Success) }
             }
             "retry-retry-exhausted" -> script(providerRetries, 1) {
                 admit(0); attempt(0, Retryable); attempt(0, Retryable); attempt(0, Retryable); attempt(0, Retryable)
@@ -58,10 +66,14 @@ internal object ProviderRetryFallbackActionGenerator {
                 admitOpen(0); if (routeCount > 1) admitOpen(1)
             }
             "retry-after" -> script(providerRetries, routeCount) {
-                admit(0); attempt(0, RetryableAfter); attempt(0, Success)
+                admit(0); attempt(0, RetryableAfter)
+                if (providerRetries >= 1) attempt(0, Success)
+                else if (routeCount > 1) { admit(1); attempt(1, Success) }
             }
             "cancel-during-retry" -> script(providerRetries, routeCount) {
-                admit(0); attempt(0, Retryable); attempt(0, Cancellation)
+                admit(0); attempt(0, Retryable)
+                if (providerRetries >= 1) attempt(0, Cancellation)
+                else if (routeCount > 1) { admit(1); attempt(1, Cancellation) }
             }
             "token-then-failure" -> script(providerRetries, routeCount) {
                 admit(0); emitToken(); attempt(0, Retryable)
@@ -72,8 +84,11 @@ internal object ProviderRetryFallbackActionGenerator {
             "mixed-failure-then-open" -> script(providerRetries, routeCount) {
                 admit(0); repeat(providerRetries + 1) { attempt(0, Timeout) }; admitOpen(1)
             }
-            "explicit-provider" -> script(providerRetries, 1, explicit = true) {
-                admit(0); repeat(providerRetries + 1) { attempt(0, Retryable) }
+            "explicit-provider" -> script(1, 1, explicit = true) {
+                // The explicit-provider fixture (@Operation(provider = "p0",
+                // providerRetries = 1)) fixes the budget at 1 regardless of the
+                // requested corpus budget — the annotation cannot vary.
+                admit(0); attempt(0, Retryable); attempt(0, Retryable)
             }
             "fallback-denied" -> script(providerRetries, routeCount, denied = true) {
                 admit(0); repeat(providerRetries + 1) { attempt(0, Retryable) }
@@ -152,7 +167,7 @@ internal object ProviderRetryFallbackActionGenerator {
         val actions = mutableListOf<RetryFallbackScriptAction>()
         fun admit(routeIndex: Int) { actions += RetryFallbackScriptAction.Admit(routeIndex) }
         fun admitOpen(routeIndex: Int) { actions += RetryFallbackScriptAction.Admit(routeIndex, circuitOpen = true) }
-        fun attempt(routeIndex: Int, outcome: AttemptOutcome) { actions += RetryFallbackScriptAction.Attempt(outcome) }
+        fun attempt(routeIndex: Int, outcome: AttemptOutcome) { actions += RetryFallbackScriptAction.Attempt(routeIndex, outcome) }
         fun emitToken() { actions += RetryFallbackScriptAction.EmitToken(1) }
     }
 
