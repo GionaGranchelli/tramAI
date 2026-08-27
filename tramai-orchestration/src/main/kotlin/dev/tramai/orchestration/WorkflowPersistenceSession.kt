@@ -3,6 +3,7 @@ package dev.tramai.orchestration
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
+import java.time.Clock
 import java.time.Instant
 
 /**
@@ -18,6 +19,7 @@ internal class WorkflowPersistenceSession<S>(
     private val context: WorkflowContext,
     private val observer: WorkflowObserver,
     private val workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
+    private val clock: Clock,
     private var lease: WorkflowLease?,
     initialRevision: Long?,
     initialGeneration: String?,
@@ -41,6 +43,7 @@ internal class WorkflowPersistenceSession<S>(
                 lastCompletedStepName = lastCompletedStepName,
                 statePayload = persistence.stateCodec.encode(state),
                 metadata = workflowDefinitionCompatibility.toCheckpointMetadata() + extraMetadata,
+                savedAtEpochMillis = clock.millis(),
                 checkpointGeneration = currentGeneration,
             ),
             expectedRevision = currentRevision,
@@ -141,6 +144,7 @@ internal suspend fun <S> WorkflowPersistence<S>.session(
     context: WorkflowContext,
     observer: WorkflowObserver,
     workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
+    clock: Clock,
     initialRevision: Long? = null,
     initialGeneration: String? = null,
 ): WorkflowPersistenceSession<S> = WorkflowPersistenceSession(
@@ -149,6 +153,7 @@ internal suspend fun <S> WorkflowPersistence<S>.session(
     context = context,
     observer = observer,
     workflowDefinitionCompatibility = workflowDefinitionCompatibility,
+    clock = clock,
     lease = acquireLeaseIfConfigured(
         workflowName = workflowName,
         workflowId = context.workflowId,

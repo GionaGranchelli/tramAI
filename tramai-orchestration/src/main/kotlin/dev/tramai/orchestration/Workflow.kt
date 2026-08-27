@@ -33,7 +33,7 @@ class Workflow<S, R> internal constructor(
     private val steps: List<InternalWorkflowStep<S>>,
     private val resultSelector: (S) -> R,
     private val stopPolicy: StopPolicy,
-    private val clock: Clock,
+    internal val clock: Clock,
     private val externalStepExecutorResolver: ExternalStepExecutorResolver,
     private val httpClient: HttpClient = WorkflowHttpClients.default,
     private val httpTransport: HttpTransport? = null,

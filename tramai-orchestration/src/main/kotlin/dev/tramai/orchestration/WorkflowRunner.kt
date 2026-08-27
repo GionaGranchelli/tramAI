@@ -86,6 +86,7 @@ internal class WorkflowRunner<S, R>(
                 context = context,
                 observer = isolatedObserver,
                 workflowDefinitionCompatibility = definitionCompatibility,
+                clock = clock,
             )
             persistenceSession?.saveCheckpoint(
                 state = initialState,
@@ -176,6 +177,7 @@ internal class WorkflowRunner<S, R>(
             workflowName = name,
             context = context,
             observer = isolatedObserver,
+            clock = clock,
             initialRevision = checkpoint.revision,
             initialGeneration = checkpoint.checkpointGeneration,
             workflowDefinitionCompatibility = definitionCompatibility,

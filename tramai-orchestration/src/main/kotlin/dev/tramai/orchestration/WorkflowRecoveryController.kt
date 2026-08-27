@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import java.time.Clock
 
 /**
  * Raised when a recovery-resolution operation ([WorkflowRecoveryController.retryStep]
@@ -117,6 +118,7 @@ interface WorkflowRecoveryController {
 class InMemoryWorkflowRecoveryController(
     private val checkpointStore: WorkflowCheckpointStore,
     private val stepAttemptStore: StepAttemptRecordStore? = null,
+    private val clock: Clock = Clock.systemUTC(),
 ) : WorkflowRecoveryController {
 
     override suspend fun retryStep(
@@ -295,7 +297,7 @@ class InMemoryWorkflowRecoveryController(
             }
             return
         }
-        val resolvedAt = System.currentTimeMillis()
+        val resolvedAt = clock.millis()
         val updated = attempt.copy(
             resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
             resolutionReason = reason,
@@ -343,7 +345,7 @@ class InMemoryWorkflowRecoveryController(
             val attempt = store.listStepAttempts(workflowId).singleOrNull {
                 it.stepName == record.stepName && it.attemptId == record.attemptId
             } ?: return
-            val resolvedAt = System.currentTimeMillis()
+            val resolvedAt = clock.millis()
             store.updateStepAttempt(
                 attempt.copy(
                     status = StepAttemptStatus.FAILED,
