@@ -1178,31 +1178,53 @@ compared after each step.
 - H11 streaming neutral probe outcome cannot strand recovery
 - H12 sync coordinator DLP-neutral HALF_OPEN probe cannot strand recovery
 - H13 streaming token-budget exhaustion on the probe cannot strand recovery
+- H14 sync pre-route policy failure cannot strand the HALF_OPEN probe (structural scope guard)
+- H15 sync pre-try interceptor escape cannot strand the HALF_OPEN probe (structural scope guard)
+- H16 streaming pre-try observer escape cannot strand the HALF_OPEN probe (structural scope guard)
+- H17 scope-abandon fenced permit cannot disturb the replacement epoch
 
-### Mutation evidence (29 candidates, reachable set re-run in full on the post-P1 head)
+### Structural permit relinquishment (round-2 P1, sync + streaming)
+
+Permit ownership is enforced at the admission boundary, not at individual
+throw sites: both coordinators wrap the entire admitted route in
+`finally { circuitBreaker.onAbandoned(permit) }`. Admission creates an
+obligation; scope exit always discharges it. The guard is idempotent by
+construction — success leaves CLOSED (same generation → no-op), qualifying
+and neutral failures advance the generation (stale permit → no-op), and only
+an unrecorded neutral escape (pre-route policy/cancellation, pre-try
+observer/interceptor failure, cancellation during the retry delay) releases
+the probe. M30/M31 remove the sync/streaming guard and are killed by
+H14/H15/H17 and H16 respectively.
+
+### Mutation evidence (31 candidates, reachable set re-run in full on the structural-guard head)
 
 | Classification | Count |
 |---|---|
-| Total candidate mutations | 29 |
+| Total candidate mutations | 31 |
 | **Reachable, non-redundant, compile-valid** | **26** |
 | STRONG (killed by an 8.2g test) | **26 / 26** |
 | Unreachable by contract | 1 |
 | Invalid (compile-breaking) | 1 |
-| Redundant (corroborating) | 1 |
+| Redundant (corroborating) | 3 |
 | Reachable WEAK | **0** |
 
 Breakdown: the original campaign produced 24 candidates (21 STRONG + M03
 unreachable + M04 invalid + M15 redundant); the P1 round added five
-abandonment candidates M25–M29 → 29 total. The 26 reachable,
-non-redundant, compile-valid mutations were re-executed in full against the
-new neutral/abandon transition — all 26 killed, 0 weak. The re-run itself
+abandonment candidates M25–M29; the structural scope-guard round added
+M30 (remove the sync admitted-scope guard) and M31 (remove the streaming
+admitted-scope guard) → 31 total. The 26 reachable, non-redundant,
+compile-valid mutations were re-executed in full against the
+structural-guard implementation — all 26 killed, 0 weak. The re-run itself
 found two masked mutations: M17 (sync) and M24 (streaming) fresh-permit
 adoption survived because the `onAbandoned` fallback still released the
 probe — the remaining observable is the CIRCUIT_OPENED event, and H5/H7 were
 strengthened with event-count assertions so a qualifying trip and a neutral
-abandonment are distinguishable. Each STRONG result carries strict XML
-evidence (failures=1, XML present — a compile-error candidate is classified
-INVALID, never STRONG).
+abandonment are distinguishable. M30 kills H14/H15/H17, M31 kills H16.
+M28/M29 (removing the inner sync DLP / streaming budget abandonment calls)
+are REDUNDANT after the structural guard: the admitted-scope `finally`
+subsumes them, so the mutation changes no observable behavior. Each STRONG
+result carries strict XML evidence (failures=1, XML present — a
+compile-error candidate is classified INVALID, never STRONG).
 
 Every reachable, non-redundant, compile-valid mutation was killed by an 8.2g
 discriminator/property/regression test. **Zero reachable weak mutations.**

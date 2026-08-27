@@ -19,10 +19,21 @@
     previously skipped), a successful stream closes an open circuit, and both
     paths record a failing HALF_OPEN probe as an immediate reopen with a fresh
     deadline.
-  - Proven by 26/26 mutation kills over the reachable behavior (29 candidates:
-  26 reachable/non-redundant/compile-valid — all killed — plus 1
-  unreachable-by-contract, 1 invalid, 1 redundant; zero reachable weak
-  mutations) and a 13-property model/reality oracle suite.
+  - Proven by 26/26 mutation kills over the reachable behavior (31 candidates:
+  26 reachable/non-redundant/compile-valid — all killed — plus 3 redundant
+  (M15, M28, M29 — the last two subsumed by the structural scope guard), 1
+  unreachable-by-contract, 1 invalid; zero reachable weak mutations) and a
+  13-property model/reality oracle suite.
+  - **Permit relinquishment is structural.** After the round-2 P1 (a sync
+    `beforeRoute` policy/cancellation throw could strand an authoritative
+    HALF_OPEN probe forever), both coordinators now wrap the entire admitted
+    route in `finally { onAbandoned(permit) }` — admission creates an
+    obligation and scope exit always discharges it. The guard is idempotent
+    (success → CLOSED no-op; recorded failures → advanced generation, stale
+    no-op); only an unrecorded neutral escape releases the probe. New
+    discriminators H14 (pre-route policy escape), H15 (pre-try interceptor
+    escape), H16 (streaming pre-try observer escape), H17 (scope-abandon
+    fencing); mutations M30/M31 remove the guards and are killed.
 
 ### Added
 
