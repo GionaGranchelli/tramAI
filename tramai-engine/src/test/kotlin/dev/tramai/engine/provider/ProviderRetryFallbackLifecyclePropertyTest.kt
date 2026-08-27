@@ -67,9 +67,9 @@ import kotlin.test.Test
  * 32 × 3 budgets × 3 route counts = 288 model scripts.
  *
  * Deterministic only: injectable clock, zero retry jitter, no Thread.sleep.
- * "zero-delay" retry policy means jitterRatio = 0.0; timeout retries still use
- * the policy's normal backoff values (retryAfterMillis = 0 in the scripted
- * errors, so the delay resolves to 0 in practice).
+ * Retry jitter is deterministic (jitterRatio = 0.0); provider
+ * retryAfterMillis = 0 yields zero delay, while timeout failures retain the
+ * retry policy's deterministic exponential backoff.
  */
 class ProviderRetryFallbackLifecyclePropertyTest {
 
@@ -635,6 +635,35 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val fallbackReality = runReality(fallbackScript)
         assertThat(fallbackReality.breakerDispositions)
             .withFailMessage("P14 reality two route dispositions").containsExactly(BreakerDisposition.QUALIFYING_FAILURE, BreakerDisposition.SUCCESS)
+
+        // circuit-open route -> fallback gate invoked -> gate DENIES: the deny
+        // error is authoritative (FallbackDenied(CIRCUIT_OPEN_ONLY)); the gate
+        // transition WAS exercised before the denial threw, so it counts as a
+        // fallback transition in both model and reality (8.2h P0-O lane).
+        val circuitOpenDeniedScript = RetryFallbackScript(
+            providerRetries = 1,
+            routeCount = 2,
+            fallbackDenied = true,
+            actions = listOf(
+                RetryFallbackScriptAction.Admit(0, circuitOpen = true),
+            ),
+        )
+        val circuitOpenDeniedModel = runModel(circuitOpenDeniedScript)
+        assertThat(circuitOpenDeniedModel.terminalOutcome)
+            .withFailMessage("P14 denied circuit-open terminal").isEqualTo(TerminalOutcome.FallbackDenied(FailureKind.CIRCUIT_OPEN_ONLY))
+        assertThat(circuitOpenDeniedModel.fallbackTransitions)
+            .withFailMessage("P14 denied circuit-open counts the gate transition").isEqualTo(1)
+        assertThat(circuitOpenDeniedModel.breakerDispositions)
+            .withFailMessage("P14 denied circuit-open owns no permit").isEmpty()
+        assertThat(circuitOpenDeniedModel.fallbackEdges).containsExactly(0 to 1)
+        val circuitOpenDeniedReality = runReality(circuitOpenDeniedScript)
+        assertThat(circuitOpenDeniedReality.fallbackDenied).withFailMessage("P14 reality deny authoritative").isTrue()
+        assertThat(circuitOpenDeniedReality.fallbackEvents)
+            .withFailMessage("P14 reality gate invoked once on denied circuit-open").isEqualTo(1)
+        assertThat(circuitOpenDeniedReality.observedAttempts)
+            .withFailMessage("P14 denied circuit-open consumes zero attempts").isEmpty()
+        assertThat(circuitOpenDeniedReality.breakerDispositions)
+            .withFailMessage("P14 reality denied circuit-open owns no permit").isEmpty()
     }
 
     private fun recordLane(model: ModelTrace, script: RetryFallbackScript, lanes: MutableSet<String>) {

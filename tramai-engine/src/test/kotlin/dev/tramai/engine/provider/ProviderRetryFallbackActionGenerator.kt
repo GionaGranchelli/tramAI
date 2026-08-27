@@ -51,7 +51,7 @@ internal object ProviderRetryFallbackActionGenerator {
                 else if (routeCount > 1) { admit(1); attempt(1, Success) }
             }
             "retry-retry-exhausted" -> script(providerRetries, 1) {
-                admit(0); attempt(0, Retryable); attempt(0, Retryable); attempt(0, Retryable); attempt(0, Retryable)
+                admit(0); repeat(providerRetries + 1) { attempt(0, Retryable) }
             }
             "exhausted-fallback-success" -> script(providerRetries, routeCount) {
                 admit(0); repeat(providerRetries + 1) { attempt(0, Retryable) }; admit(1); attempt(1, Success)

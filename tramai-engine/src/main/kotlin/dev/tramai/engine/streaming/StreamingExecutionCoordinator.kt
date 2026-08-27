@@ -143,7 +143,7 @@ internal class StreamingExecutionCoordinator(
                             // permanently gone (handleFallbackResult's
                             // emittedAnyTokens gate).
                             val maxAttempts = operation.operation.providerRetries + 1
-                            repeat(maxAttempts) { retryIndex ->
+                            for (retryIndex in 0 until maxAttempts) {
                                 when (
                                     val result = executeStreamingRoute(
                                         StreamingExecutionRoute(
@@ -205,6 +205,13 @@ internal class StreamingExecutionCoordinator(
                                                 delay(decision.delayMillis)
                                             }
                                             ProviderRetryDecision.Stop -> {
+                                                // Stop is authoritative REGARDLESS of why it
+                                                // stopped (exhaustion OR classification): it
+                                                // permanently relinquishes same-route retry
+                                                // authority (8.2h P0-O). The fallback gate was
+                                                // already enforced above; break exits this
+                                                // route so the outer candidate loop advances
+                                                // exactly once.
                                                 recordCircuitBreakerFailure(permit, result.error, result.observation)
                                                 enforceStreamingFallbackAfterFailure(
                                                     error = result.error,
@@ -214,7 +221,7 @@ internal class StreamingExecutionCoordinator(
                                                     securityContext = securityContext,
                                                 )
                                                 lastFailure = result.error
-                                                return@repeat
+                                                break
                                             }
                                         }
                                     }

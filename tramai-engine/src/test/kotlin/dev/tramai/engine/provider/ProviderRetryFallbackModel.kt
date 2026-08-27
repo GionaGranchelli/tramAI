@@ -129,8 +129,12 @@ internal data class ProviderRetryFallbackModel(
         return if (hasNextRoute) {
             if (fallbackGateDenies) {
                 // Circuit-open route owns NO permit and NO breaker disposition;
-                // the denial still fails the invocation (deny error authoritative).
-                val next = copy(terminalOutcome = TerminalOutcome.FallbackDenied(FailureKind.CIRCUIT_OPEN_ONLY), lastCircuitOpen = true)
+                // the denial still fails the invocation (deny error
+                // authoritative). The fallback gate transition WAS invoked (its
+                // hook fires before the denial throws, mirroring reality's
+                // handleCircuitBreakerOpenRoute) — count it symmetrically
+                // (8.2h P0-O model lane).
+                val next = copy(terminalOutcome = TerminalOutcome.FallbackDenied(FailureKind.CIRCUIT_OPEN_ONLY), lastCircuitOpen = true, fallbackTransitions = fallbackTransitions + 1)
                 ModelStepResult(next, RouteDisposition.Failed(FailureKind.CIRCUIT_OPEN_ONLY), admission = admission)
             } else {
                 // The circuit-open skip advances through the fallback gate in

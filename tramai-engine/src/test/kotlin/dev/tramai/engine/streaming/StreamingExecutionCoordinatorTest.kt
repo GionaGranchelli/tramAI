@@ -92,6 +92,12 @@ class StreamingExecutionCoordinatorTest {
         fun stream(input: String): Flow<StreamChunk>
     }
 
+    @AiService
+    private interface StreamingServiceThreeRetries {
+        @Operation(prompt = "Answer", model = "logical-model", providerRetries = 3)
+        fun stream(input: String): Flow<StreamChunk>
+    }
+
     private val defaultBudget = TokenBudgetSettings(hardMaxTokensPerOperation = 20)
 
     private fun operation() = ServiceDefinitionCompiler(
@@ -109,6 +115,10 @@ class StreamingExecutionCoordinatorTest {
     private fun operationWithZeroRetries() = ServiceDefinitionCompiler(
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
     ).compile(StreamingServiceZeroRetries::class).operations.entries.single().value.definition
+
+    private fun operationWithThreeRetries() = ServiceDefinitionCompiler(
+        OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
+    ).compile(StreamingServiceThreeRetries::class).operations.entries.single().value.definition
 
     private class OrderedSink {
         val events = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -226,6 +236,9 @@ class StreamingExecutionCoordinatorTest {
 
     private fun requestWithZeroRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
         StreamingExecutionRequest(operationWithZeroRetries(), listOf("input"), budget.createTracker(), conversationId)
+
+    private fun requestWithThreeRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
+        StreamingExecutionRequest(operationWithThreeRetries(), listOf("input"), budget.createTracker(), conversationId)
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
@@ -663,6 +676,31 @@ class StreamingExecutionCoordinatorTest {
         assertThat(fallback.streamRequests).hasSize(1)
         assertThat(sink.events).contains("observation.engine-event:tramai.streaming.startup_retry", "policy.fallback")
         assertThat(sink.events).doesNotContain("observation.engine-event:tramai.retry.scheduled")
+        }
+    }
+
+    @Test fun `P0-O early Stop from circuit-open leaves the route once and advances exactly one fallback`() {
+        // CircuitBreakerOpenException is fallback-eligible (shouldFallbackFrom)
+        // but NOT retryable (ProviderRetryPolicy), so the policy returns Stop
+        // BEFORE the retry budget is exhausted. Stop must PERMANENTLY
+        // relinquish same-route retry authority: the primary route is invoked
+        // exactly ONCE, the fallback gate runs exactly ONCE, and the outer
+        // candidate loop advances to the fallback provider exactly once.
+        // Regression: return@repeat re-entered the same route on Stop.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(CircuitBreakerOpenException("primary", 0L))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val observer = AttemptRecordingObserver(sink)
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), observer, sink).execute(requestWithThreeRetries()).toList()
+        assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
+        assertThat(primary.streamRequests).withFailMessage("P0-O primary invoked once after Stop").hasSize(1)
+        assertThat(fallback.streamRequests).withFailMessage("P0-O fallback invoked exactly once").hasSize(1)
+        assertThat(sink.count("policy.fallback")).withFailMessage("P0-O gate invoked exactly once").isEqualTo(1)
+        assertThat(sink.count("observation.engine-event:tramai.retry.scheduled")).withFailMessage("P0-O no same-route retry").isZero()
+        assertThat(observer.attempts).withFailMessage("P0-O ordered attempt trace").containsExactly("primary" to 0, "fallback" to 1)
         }
     }
 

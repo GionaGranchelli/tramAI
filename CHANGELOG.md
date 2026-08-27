@@ -45,9 +45,14 @@
   (no retry, no fallback): output visibility permanently destroys recovery
   authority. Route-level circuit-breaker ownership is preserved: all retries
   of a route share the one admission permit, and only the route's terminal
-  outcome completes breaker authority. Proven by a 14-property independent
-  model/reality corpus (96 coordinator executions) and a 22-candidate mutation
-  campaign (19 STRONG, 3 REDUNDANT, 0 reachable WEAK).
+  outcome completes breaker authority. A `Stop` retry-policy decision now
+  permanently leaves the route even when it fires before budget exhaustion
+  (e.g. a fallback-eligible but non-retryable startup failure such as a
+  circuit-open exception from the stream) — the route is never re-entered and
+  the fallback gate runs exactly once. Proven by a 14-property independent
+  model/reality corpus (96 coordinator executions, plus a forced circuit-open
+  + gate-denial archetype) and a 23-candidate mutation campaign (20 STRONG, 3
+  REDUNDANT, 0 reachable WEAK).
 
 ### Added
 
