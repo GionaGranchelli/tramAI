@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #302).** The provider
+  circuit breaker now tracks the ownership of every admitted attempt instead
+  of only the breaker state:
+  - **No stampede at recovery expiry.** When the open window expires, exactly
+    one caller is admitted as the HALF_OPEN probe; all other callers keep
+    being rejected until the probe resolves.
+  - **Stale completions cannot corrupt newer state.** A provider call admitted
+    before a later breaker generation can no longer close, reopen, or extend a
+    newer OPEN/HALF_OPEN generation — completions carry the admission permit,
+    and a stale generation is rejected before any state change.
+  - **Synchronous and streaming executions now recover/reset breaker state
+    consistently.** A synchronous success is recorded by the breaker (it was
+    previously skipped), a successful stream closes an open circuit, and both
+    paths record a failing HALF_OPEN probe as an immediate reopen with a fresh
+    deadline.
+  - Proven by 26/26 mutation kills over the reachable behavior (31 candidates:
+  26 reachable/non-redundant/compile-valid — all killed — plus 3 redundant
+  (M15, M28, M29 — the last two subsumed by the structural scope guard), 1
+  unreachable-by-contract, 1 invalid; zero reachable weak mutations) and a
+  13-property model/reality oracle suite.
+  - **Permit relinquishment is structural.** After the round-2 P1 (a sync
+    `beforeRoute` policy/cancellation throw could strand an authoritative
+    HALF_OPEN probe forever), both coordinators now wrap the entire admitted
+    route in `finally { onAbandoned(permit) }` — admission creates an
+    obligation and scope exit always discharges it. The guard is idempotent
+    (success → CLOSED no-op; recorded failures → advanced generation, stale
+    no-op); only an unrecorded neutral escape releases the probe. New
+    discriminators H14 (pre-route policy escape), H15 (pre-try interceptor
+    escape), H16 (streaming pre-try observer escape), H17 (scope-abandon
+    fencing); mutations M30/M31 remove the guards and are killed.
+
 ### Added
 
 - **Docs: unified starter onboarding (H3 prep).** Consumer guides now present `tramai-spring-boot-starter` as the Spring Boot entry point, paired with one `tramai-spring-provider-*` adapter (OpenAI / Anthropic / Ollama) and optional `tramai-spring-secrets-*` adapters for `vault:` / `aws-secretsmanager:` secret references; `tramai-spring` is described only as the legacy facade. The sovereign quickstart selects the runtime solely via `tramai.profile` (the obsolete `tramai.sovereign.enabled` switch is no longer shown) and its minimal configuration includes the mandatory `allowed-models` / `allowed-providers` / `provider-zones` / `models` properties. Module-boundary rules now list only the sovereign module's actual direct dependencies.

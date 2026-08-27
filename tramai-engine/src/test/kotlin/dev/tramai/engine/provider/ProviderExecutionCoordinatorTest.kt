@@ -53,7 +53,7 @@ class ProviderExecutionCoordinatorTest {
     @Test
     fun `circuit open primary skips provider and invokes fallback`() {
         runBlocking {
-            var now = 0L; val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(true, 1, 60_000), { now }); breaker.onFailure("primary", ProviderException("down", retryable = true))
+            var now = 0L; val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(true, 1, 60_000), { now }); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
             var primaryCalls = 0; val coordinator = coordinator(plan(FakeProvider { primaryCalls++; ModelResponse("bad") }, FakeProvider { ModelResponse("fallback") }), RecordingObservation(), breaker)
             assertThat(coordinator.execute(executionRequest()).response.content).isEqualTo("fallback"); assertThat(primaryCalls).isZero()
         }

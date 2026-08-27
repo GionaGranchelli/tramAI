@@ -3,6 +3,7 @@ package dev.tramai.engine.provider
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ProviderRoutingPlan
+import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -49,9 +50,9 @@ class ProviderCancellationContractTest {
 
     private class CountingCircuitBreaker : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000)) {
         val failureCalls = AtomicInteger()
-        override fun onFailure(providerId: String, error: Throwable): Boolean {
+        override fun onFailure(permit: CircuitBreakerPermit, error: Throwable): Boolean {
             failureCalls.incrementAndGet()
-            return super.onFailure(providerId, error)
+            return super.onFailure(permit, error)
         }
     }
 

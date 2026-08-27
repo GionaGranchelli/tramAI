@@ -26,6 +26,8 @@ import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.resolveCandidates
+import dev.tramai.engine.CircuitBreakerAdmission
+import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.OperationDefinition
@@ -109,61 +111,78 @@ internal class StreamingExecutionCoordinator(
                     val attemptCounter = AttemptCounter()
 
                     for ((routeIndex, route) in candidates.withIndex()) {
-                        val circuitOpen = handleCircuitBreakerOpenRoute(
+                        val admission = handleCircuitBreakerOpenRoute(
                             route = route,
                             nextRoute = candidates.getOrNull(routeIndex + 1),
                             correlationId = correlationId,
                             securityContext = securityContext,
                         )
-                        if (circuitOpen != null) {
-                            lastCircuitOpen = circuitOpen
+                        if (admission is CircuitBreakerAdmission.Rejected) {
+                            lastCircuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
                             continue
                         }
+                        val permit = (admission as CircuitBreakerAdmission.Allowed).permit
 
-                        when (
-                            val result = executeStreamingRoute(
-                                StreamingExecutionRoute(
-                                    operation = operation,
-                                    route = route,
-                                    routeIndex = routeIndex,
-                                    attempt = attemptCounter.next(),
-                                    tokenBudgetTracker = tokenBudgetTracker,
-                                    memoryMessages = effectiveMessages,
-                                    historySize = history.size,
-                                    conversationId = conversationId,
-                                    emitChunk = { chunks.send(it) },
-                                ),
-                                correlationId = correlationId,
-                                securityContext = securityContext,
-                                arguments = arguments,
-                            )
-                        ) {
-                            is StreamingRouteResult.Completed -> {
-                                if (conversationId != null) {
-                                    val assistantMessage = Message(
-                                        role = MessageRole.ASSISTANT,
-                                        content = result.fullText,
-                                    )
-                                    conversationMemoryCoordinator.persistTurn(
-                                        PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
-                                    )
-                                }
-                                return@launch
-                            }
-                            is StreamingRouteResult.StartupFailure -> {
-                                enforceStreamingFallbackAfterFailure(
-                                    error = result.error,
-                                    route = route,
-                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                        try {
+                            when (
+                                val result = executeStreamingRoute(
+                                    StreamingExecutionRoute(
+                                        operation = operation,
+                                        route = route,
+                                        routeIndex = routeIndex,
+                                        attempt = attemptCounter.next(),
+                                        tokenBudgetTracker = tokenBudgetTracker,
+                                        memoryMessages = effectiveMessages,
+                                        historySize = history.size,
+                                        conversationId = conversationId,
+                                        emitChunk = { chunks.send(it) },
+                                        permit = permit,
+                                    ),
                                     correlationId = correlationId,
                                     securityContext = securityContext,
+                                    arguments = arguments,
                                 )
-                                lastFailure = result.error
+                            ) {
+                                is StreamingRouteResult.Completed -> {
+                                    if (conversationId != null) {
+                                        val assistantMessage = Message(
+                                            role = MessageRole.ASSISTANT,
+                                            content = result.fullText,
+                                        )
+                                        conversationMemoryCoordinator.persistTurn(
+                                            PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
+                                        )
+                                    }
+                                    return@launch
+                                }
+                                is StreamingRouteResult.StartupFailure -> {
+                                    enforceStreamingFallbackAfterFailure(
+                                        error = result.error,
+                                        route = route,
+                                        nextRoute = candidates.getOrNull(routeIndex + 1),
+                                        correlationId = correlationId,
+                                        securityContext = securityContext,
+                                    )
+                                    lastFailure = result.error
+                                }
+                                is StreamingRouteResult.TerminalError -> {
+                                    chunks.send(result.errorChunk)
+                                    return@launch
+                                }
                             }
-                            is StreamingRouteResult.TerminalError -> {
-                                chunks.send(result.errorChunk)
-                                return@launch
-                            }
+                        } finally {
+                            // Structural permit relinquishment (same invariant
+                            // as the sync coordinator): admission creates an
+                            // obligation and scope exit ALWAYS discharges it.
+                            // Covers the streaming pre-try escapes that manual
+                            // call-site cleanup could miss — startStreamingObservation
+                            // observer failures and collectStreamingRoute's
+                            // interceptRequest, both of which run before their
+                            // own try. Idempotent by construction: success and
+                            // recorded failures have already advanced the state
+                            // (CLOSED / OPEN gen+1), so this is a no-op there;
+                            // an unrecorded neutral escape releases the probe.
+                            circuitBreaker.onAbandoned(permit)
                         }
                     }
 
@@ -220,20 +239,33 @@ internal class StreamingExecutionCoordinator(
         val historySize: Int,
         val conversationId: String?,
         val emitChunk: suspend (StreamChunk) -> Unit,
+        val permit: CircuitBreakerPermit,
     )
 
     private suspend fun executeStreamingRoute(request: StreamingExecutionRoute, correlationId: String, securityContext: ExecutionSecurityContext, arguments: List<Any?>): StreamingRouteResult {
         val route = request.route
         val observation = startStreamingObservation(route, request.operation, request.attempt, request.routeIndex)
-        authorizeStreamingRoute(route, observation)
-        beforeResponseReturn.enforce(route, correlationId, securityContext)
-        toolExposureCoordinator.enforce(request.operation, correlationId, securityContext)
-        beforeInvocation.invoke(route.providerName, route.effectiveModelName, correlationId, securityContext)
+        try {
+            authorizeStreamingRoute(route, observation)
+            beforeResponseReturn.enforce(route, correlationId, securityContext)
+            toolExposureCoordinator.enforce(request.operation, correlationId, securityContext)
+            beforeInvocation.invoke(route.providerName, route.effectiveModelName, correlationId, securityContext)
+        } catch (error: CancellationException) {
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            circuitBreaker.onAbandoned(request.permit)
+            throw error
+        }
 
-        val streamCapable = route.provider as? StreamCapable ?: throw ProviderCapabilityException(route.providerName, "streaming")
+        val streamCapable = route.provider as? StreamCapable ?: run {
+            circuitBreaker.onAbandoned(request.permit)
+            throw ProviderCapabilityException(route.providerName, "streaming")
+        }
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
         val memoryInjectedRequest = request.memoryMessages?.let { modelRequest.copy(messages = it) } ?: modelRequest
-        return collectStreamingRoute(StreamingRouteCall(streamCapable, memoryInjectedRequest, request.operation, route, request.attempt, observation, request.tokenBudgetTracker, request.emitChunk))
+        return collectStreamingRoute(StreamingRouteCall(streamCapable, memoryInjectedRequest, request.operation, route, request.attempt, observation, request.tokenBudgetTracker, request.emitChunk, request.permit))
     }
 
     private suspend fun authorizeStreamingRoute(route: ResolvedProviderRoute, observation: OperationObservation) {
@@ -247,10 +279,10 @@ internal class StreamingExecutionCoordinator(
         }
     }
 
-    private suspend fun handleCircuitBreakerOpenRoute(route: ResolvedProviderRoute, nextRoute: ResolvedProviderRoute?, correlationId: String, securityContext: ExecutionSecurityContext): CircuitBreakerOpenException? {
-        val blockedUntil = circuitBreaker.beforeCall(route.providerName) ?: return null
-        val circuitOpen = CircuitBreakerOpenException(route.providerName, blockedUntil)
-        if (nextRoute != null) {
+    private suspend fun handleCircuitBreakerOpenRoute(route: ResolvedProviderRoute, nextRoute: ResolvedProviderRoute?, correlationId: String, securityContext: ExecutionSecurityContext): CircuitBreakerAdmission {
+        val admission = circuitBreaker.beforeCall(route.providerName)
+        if (admission is CircuitBreakerAdmission.Rejected && nextRoute != null) {
+            val circuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
             try {
                 fallbackGate.transition(correlationId, route.providerName, route.effectiveModelName, nextRoute.providerName, "circuit-breaker-open", securityContext)
             } catch (policyError: PolicyViolationException) {
@@ -258,7 +290,7 @@ internal class StreamingExecutionCoordinator(
                 throw policyError
             }
         }
-        return circuitOpen
+        return admission
     }
 
     private suspend fun enforceStreamingFallbackAfterFailure(error: Throwable, route: ResolvedProviderRoute, nextRoute: ResolvedProviderRoute?, correlationId: String, securityContext: ExecutionSecurityContext) {
@@ -285,8 +317,9 @@ internal class StreamingExecutionCoordinator(
         var emittedAnyTokens = false
         val callContext = streamingCallContext(operation, route.providerName, attempt)
         val interceptedRequest = request.copy(messages = operationInterceptor.interceptRequest(callContext, request.messages))
+        val permit = call.permit
         return try {
-            collectStreamingRouteChunks(streamCapable, interceptedRequest, request.timeoutMillis ?: operation.operation.timeoutMillis, StreamingRouteContext(route, operation, tokenBudgetTracker, callContext, observation, emitChunk), { emittedAnyTokens }, { chunk -> emittedAnyTokens = true; emitChunk(chunk) })
+            collectStreamingRouteChunks(streamCapable, interceptedRequest, request.timeoutMillis ?: operation.operation.timeoutMillis, StreamingRouteContext(route, operation, tokenBudgetTracker, callContext, observation, emitChunk, permit), { emittedAnyTokens }, { chunk -> emittedAnyTokens = true; emitChunk(chunk) })
             error("Streaming route completed without a terminal result")
         } catch (finished: StreamingRouteFinished) {
             finished.result
@@ -294,19 +327,20 @@ internal class StreamingExecutionCoordinator(
             currentCoroutineContext().ensureActive()
             val timeout = TimeoutException(message = buildTimeoutMessage(route.providerName, operation, request.timeoutMillis ?: operation.operation.timeoutMillis), cause = error)
             observation.onProviderFailure(timeout)
-            handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation)
+            handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation, permit)
         } catch (error: CancellationException) {
             observation.completeCancellation(error)
+            circuitBreaker.onAbandoned(permit)
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             val normalized = normalizeStreamingError(error, route.providerName, operation)
             observation.onProviderFailure(normalized)
-            handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation)
+            handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation, permit)
         }
     }
 
-    private data class StreamingRouteCall(val streamCapable: StreamCapable, val request: ModelRequest, val operation: OperationDefinition, val route: ResolvedProviderRoute, val attempt: Int, val observation: OperationObservation, val tokenBudgetTracker: TokenBudgetTracker, val emitChunk: suspend (StreamChunk) -> Unit)
+    private data class StreamingRouteCall(val streamCapable: StreamCapable, val request: ModelRequest, val operation: OperationDefinition, val route: ResolvedProviderRoute, val attempt: Int, val observation: OperationObservation, val tokenBudgetTracker: TokenBudgetTracker, val emitChunk: suspend (StreamChunk) -> Unit, val permit: CircuitBreakerPermit)
 
     private fun streamingCallContext(operation: OperationDefinition, providerId: String, attempt: Int) = OperationCallContext(serviceInterface = serviceTypeName, methodName = operation.method.name, providerId = providerId, requestedModel = operation.operation.model, attempt = attempt)
 
@@ -321,38 +355,38 @@ internal class StreamingExecutionCoordinator(
         )
     }
 
-    private data class StreamingRouteContext(val route: ResolvedProviderRoute, val operation: OperationDefinition, val tokenBudgetTracker: TokenBudgetTracker, val callContext: OperationCallContext, val observation: OperationObservation, val emitChunk: suspend (StreamChunk) -> Unit)
+    private data class StreamingRouteContext(val route: ResolvedProviderRoute, val operation: OperationDefinition, val tokenBudgetTracker: TokenBudgetTracker, val callContext: OperationCallContext, val observation: OperationObservation, val emitChunk: suspend (StreamChunk) -> Unit, val permit: CircuitBreakerPermit)
 
     private suspend fun collectStreamingRouteChunks(streamCapable: StreamCapable, request: ModelRequest, timeoutMillis: Long, ctx: StreamingRouteContext, hasEmittedTokens: () -> Boolean, onToken: suspend (StreamChunk.Token) -> Unit) {
         withTimeout(timeoutMillis) {
             streamCapable.stream(request).collect { chunk -> handleStreamingChunk(chunk, ctx, hasEmittedTokens(), onToken) }
-            handleStreamingTerminationWithoutTerminalChunk(ctx.route, ctx.operation, ctx.observation, hasEmittedTokens())
+            handleStreamingTerminationWithoutTerminalChunk(ctx.route, ctx.operation, ctx.observation, hasEmittedTokens(), ctx.permit)
         }
     }
 
     private suspend fun handleStreamingChunk(chunk: StreamChunk, ctx: StreamingRouteContext, emittedAnyTokens: Boolean, onToken: suspend (StreamChunk.Token) -> Unit) {
         when (chunk) {
             is StreamChunk.Token -> onToken(chunk)
-            is StreamChunk.Complete -> handleStreamingComplete(chunk, ctx.route, ctx.tokenBudgetTracker, ctx.callContext, ctx.observation, ctx.emitChunk)
-            is StreamChunk.Error -> { ctx.observation.onProviderFailure(chunk.cause); finishStreamingRoute(handleFallbackResult(chunk.cause, emittedAnyTokens, ctx.route.providerName, ctx.observation, chunk)) }
+            is StreamChunk.Complete -> handleStreamingComplete(chunk, ctx.route, ctx.tokenBudgetTracker, ctx.callContext, ctx.observation, ctx.emitChunk, ctx.permit)
+            is StreamChunk.Error -> { ctx.observation.onProviderFailure(chunk.cause); finishStreamingRoute(handleFallbackResult(chunk.cause, emittedAnyTokens, ctx.route.providerName, ctx.observation, ctx.permit, chunk)) }
         }
     }
 
-    private suspend fun handleStreamingComplete(chunk: StreamChunk.Complete, route: ResolvedProviderRoute, tokenBudgetTracker: TokenBudgetTracker, callContext: OperationCallContext, observation: OperationObservation, emitChunk: suspend (StreamChunk) -> Unit) {
+    private suspend fun handleStreamingComplete(chunk: StreamChunk.Complete, route: ResolvedProviderRoute, tokenBudgetTracker: TokenBudgetTracker, callContext: OperationCallContext, observation: OperationObservation, emitChunk: suspend (StreamChunk) -> Unit, permit: CircuitBreakerPermit) {
         val response = ModelResponse(content = chunk.fullText, inputTokens = chunk.usage.inputTokens, outputTokens = chunk.usage.outputTokens, thinkingTokens = chunk.usage.thinkingTokens, modelUsed = route.effectiveModelName, finishReason = FinishReason.STOP)
         val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
         observation.onProviderResponse(interceptedResponse)
-        try { tokenBudgetCoordinator.enforce(tokenBudgetTracker, interceptedResponse, observation, route.providerName, route.effectiveModelName) } catch (error: TokenBudgetExceededException) { observation.onCallCompleted(parseSuccess = null); throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error))) }
+        try { tokenBudgetCoordinator.enforce(tokenBudgetTracker, interceptedResponse, observation, route.providerName, route.effectiveModelName) } catch (error: TokenBudgetExceededException) { observation.onCallCompleted(parseSuccess = null); circuitBreaker.onAbandoned(permit); throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error))) }
         observation.onCallCompleted(parseSuccess = null)
-        circuitBreaker.onSuccess(route.providerName)
+        circuitBreaker.onSuccess(permit)
         emitChunk(if (interceptedResponse.content != chunk.fullText) chunk.copy(fullText = interceptedResponse.content) else chunk)
         throw StreamingRouteFinished(StreamingRouteResult.Completed(interceptedResponse.content))
     }
 
-    private fun handleStreamingTerminationWithoutTerminalChunk(route: ResolvedProviderRoute, operation: OperationDefinition, observation: OperationObservation, emittedAnyTokens: Boolean): Nothing {
+    private fun handleStreamingTerminationWithoutTerminalChunk(route: ResolvedProviderRoute, operation: OperationDefinition, observation: OperationObservation, emittedAnyTokens: Boolean, permit: CircuitBreakerPermit): Nothing {
         val error = ProviderException(message = "Provider ${route.providerName} ended streaming without a terminal chunk while invoking $qualifiedServiceName.${operation.method.name}")
         observation.onProviderFailure(error)
-        finishStreamingRoute(handleFallbackResult(error, emittedAnyTokens, route.providerName, observation))
+        finishStreamingRoute(handleFallbackResult(error, emittedAnyTokens, route.providerName, observation, permit))
     }
 
     private fun normalizeStreamingError(error: Throwable, providerName: String, operation: OperationDefinition): TramaiException = when (error) {
@@ -360,13 +394,19 @@ internal class StreamingExecutionCoordinator(
         else -> ProviderException(message = "Provider $providerName failed while streaming $qualifiedServiceName.${operation.method.name}", cause = error)
     }
 
-    private fun recordCircuitBreakerFailure(providerName: String, error: Throwable, observation: OperationObservation) {
-        val opened = circuitBreaker.onFailure(providerName, error)
-        if (opened) observation.emitRuntimeEvent(
-            RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
-                set(RuntimeAttributes.PROVIDER_ID, providerName)
-            },
-        )
+    private fun recordCircuitBreakerFailure(permit: CircuitBreakerPermit, error: Throwable, observation: OperationObservation) {
+        val opened = circuitBreaker.onFailure(permit, error)
+        if (opened) {
+            observation.emitRuntimeEvent(
+                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
+                    set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
+                },
+            )
+        } else {
+            // Non-qualifying failure: never a breaker failure, but a HALF_OPEN
+            // probe permit must still be released or recovery strands forever.
+            circuitBreaker.onAbandoned(permit)
+        }
     }
 
     private fun recordStartupRetryEvent(providerName: String, failureType: String, observation: OperationObservation) {
@@ -378,9 +418,9 @@ internal class StreamingExecutionCoordinator(
         )
     }
 
-    private fun handleFallbackResult(error: TramaiException, emittedAnyTokens: Boolean, providerName: String, observation: OperationObservation, terminalChunk: StreamChunk.Error = StreamChunk.Error(error)): StreamingRouteResult {
+    private fun handleFallbackResult(error: TramaiException, emittedAnyTokens: Boolean, providerName: String, observation: OperationObservation, permit: CircuitBreakerPermit, terminalChunk: StreamChunk.Error = StreamChunk.Error(error)): StreamingRouteResult {
         val result = if (!emittedAnyTokens && shouldFallbackFrom(error)) { recordStartupRetryEvent(providerName, error::class.simpleName ?: "unknown", observation); StreamingRouteResult.StartupFailure(error) } else StreamingRouteResult.TerminalError(terminalChunk)
-        recordCircuitBreakerFailure(providerName, error, observation)
+        recordCircuitBreakerFailure(permit, error, observation)
         observation.onCallCompleted(parseSuccess = null)
         return result
     }

@@ -39,6 +39,7 @@ import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.tool.ToolExposureCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +97,17 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    /** Observer whose [onCallStarted] throws on the N-th call — a pre-try escape. */
+    private class ThrowingOnStartObserver(private val sink: OrderedSink, private val throwOnCall: Int) : OperationObserver {
+        private var calls = 0
+        val observations = mutableListOf<RecordingObservation>()
+        override fun onCallStarted(context: OperationCallContext): OperationObservation {
+            calls++
+            if (calls == throwOnCall) throw CancellationException("pre-try observer escape")
+            return RecordingObservation(sink).also { observations += it; sink.record("observer.start") }
+        }
+    }
+
     private class RecordingMemory(private val sink: OrderedSink? = null) : ChatMemory {
         var history: List<Message> = emptyList()
         val stored = mutableListOf<Pair<String, List<Message>>>()
@@ -141,7 +153,7 @@ class StreamingExecutionCoordinatorTest {
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
-        observer: RecordingOperationObserver,
+        observer: OperationObserver,
         sink: OrderedSink? = null,
         memory: RecordingMemory = RecordingMemory(sink),
         circuitEnabled: Boolean = false,
@@ -266,9 +278,187 @@ class StreamingExecutionCoordinatorTest {
         assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java); assertThat(fallback.streamRequests).isEmpty()
     }
 
+    @Test fun `H6 streaming success reaches the breaker and closes an open circuit`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok"))
+        } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First streaming call fails retryably before any token -> breaker OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // While open, the provider is skipped (no stream request) and the breaker stays open.
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(1)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; a successful stream must reach
+        // onSuccess and CLOSE the circuit. The observable difference from a
+        // stuck HALF_OPEN: a subsequent call is ADMITTED and reaches the provider.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(2)
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isNull()
+        }
+    }
+
+    @Test fun `H11 streaming neutral probe outcome cannot strand recovery`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Error(ProviderException("permanent", retryable = false)))
+        } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; its NON-RETRYABLE error is a
+        // neutral outcome: not a breaker failure, but it must release probe
+        // ownership (reopen with a fresh deadline) instead of stranding the
+        // streaming recovery in HALF_OPEN.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
+    @Test fun `H7 streaming HALF_OPEN probe failure reopens and the next expiry admits again`() {
+        runBlocking {
+        var now = 0L
+        val sink = OrderedSink()
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), circuitEnabled = true, circuitBreaker = breaker)
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(1)
+
+        // At exact expiry the probe is admitted; its qualifying failure must
+        // immediately reopen with a fresh deadline (now + openDuration) — NOT
+        // get stuck in HALF_OPEN where every later call is rejected forever.
+        now = 100
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+        // A qualifying probe failure is a breaker TRIP: one more CIRCUIT_OPENED
+        // event. (An abandoned/neutral probe would reopen WITHOUT the event —
+        // this discriminates the two paths.)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(2)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(3)
+        }
+    }
+
+    @Test fun `H13 streaming token-budget exhaustion on the probe cannot strand recovery`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
+        } }
+        val tightBudget = TokenBudgetSettings(hardMaxTokensPerAttempt = 1)
+        val coordinator = coordinator(
+            plan("p" to provider),
+            RecordingOperationObserver(OrderedSink()),
+            circuitEnabled = true,
+            circuitBreaker = breaker,
+            budgetSettings = tightBudget,
+        )
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; its Complete chunk exceeds the
+        // token budget. The budget rejection is a NEUTRAL terminal outcome
+        // (never a breaker failure), but it must release probe ownership
+        // (reopen with fresh deadline) instead of stranding recovery.
+        now = 100
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe.
+        now = 200
+        coordinator.execute(request(budget = TokenBudgetCoordinator(tightBudget))).toList()
+        assertThat(provider.streamRequests).hasSize(3)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(300)
+        }
+    }
+
+    @Test fun `H16 streaming pre-try observer escape cannot strand the HALF_OPEN probe`() {
+        runBlocking {
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        var calls = 0
+        val provider = RecordingProvider("p") { flow {
+            calls++
+            if (calls == 1) emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+            else emit(StreamChunk.Complete("ok", usage = UsageMetrics(inputTokens = 0, outputTokens = 5)))
+        } }
+        // Observer throws on the SECOND onCallStarted — i.e. inside
+        // startStreamingObservation, BEFORE executeStreamingRoute's own try.
+        val coordinator = coordinator(
+            plan("p" to provider),
+            ThrowingOnStartObserver(OrderedSink(), throwOnCall = 2),
+            circuitEnabled = true,
+            circuitBreaker = breaker,
+        )
+
+        // First call fails retryably -> OPEN until t=100.
+        coordinator.execute(request()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+
+        // At exact expiry the probe is admitted; startStreamingObservation
+        // throws (pre-try escape). The structural scope guard must release the
+        // probe -> OPEN(gen+1, fresh deadline) instead of stranding HALF_OPEN.
+        now = 100
+        assertThatThrownBy { runBlocking { coordinator.execute(request()).toList() } }
+            .isInstanceOf(CancellationException::class.java)
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(200)
+
+        // At the new expiry a call is again admitted as the next probe and the
+        // stream completes: recovery was not stranded by the pre-try escape.
+        now = 200
+        coordinator.execute(request()).toList()
+        assertThat(provider.streamRequests).hasSize(2) // probe never reached the provider
+        assertThat(breaker.openUntilMillis("p")).isNull()
+        }
+    }
+
     @Test fun `open circuit skips route and uses next`() {
         runBlocking {
-        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure("primary", ProviderException("down", retryable = true))
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
         val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }; val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
         val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker).execute(request()).toList()
         assertThat(primary.streamRequests).isEmpty(); assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
@@ -277,7 +467,7 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `all routes open circuit emits no available route chunk with circuit error`() {
         runBlocking {
-        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure("p", ProviderException("down", retryable = true))
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1)); breaker.onFailure((breaker.beforeCall("p") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
         val provider = RecordingProvider("p") { flow { emit(StreamChunk.Complete("bad")) } }
         val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = breaker).execute(request()).toList()
         val error = chunks.single() as StreamChunk.Error

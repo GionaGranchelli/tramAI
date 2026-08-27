@@ -19,6 +19,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.security.DlpInspectionException
+import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -58,12 +59,17 @@ internal class ProviderAttemptExecutor(
                 val response = operationInterceptor.interceptResponse(attempt.context, callOnce(request.providerId, request.provider, attempt.request, request.operation))
                 val sanitized = responseSanitizer.sanitize(response, request.operation, request.providerId, request.request.model, request.correlationId, request.securityContext, attempt.observation)
                 attempt.observation.onProviderResponse(sanitized)
+                // Synchronous success must reach the breaker symmetrically with the
+                // streaming path: a healthy completion resets the failure history.
+                circuitBreaker.onSuccess(request.permit)
                 return ProviderCallResult(sanitized, attempt.observation, request.providerId, request.request.model, attempt.approvedModel)
             } catch (error: DlpInspectionException) {
                 attempt.observation.onCallCompleted(parseSuccess = null)
+                circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: CancellationException) {
                 attempt.observation.completeCancellation(error)
+                circuitBreaker.onAbandoned(request.permit)
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
@@ -82,12 +88,17 @@ internal class ProviderAttemptExecutor(
                         delay(decision.delayMillis)
                     }
                     ProviderRetryDecision.Stop -> {
-                        if (circuitBreaker.onFailure(request.providerId, error)) {
+                        if (circuitBreaker.onFailure(request.permit, error)) {
                             attempt.observation.emitRuntimeEvent(
                                 RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
                                     set(RuntimeAttributes.PROVIDER_ID, request.providerId)
                                 },
                             )
+                        } else {
+                            // Non-qualifying terminal failure: never a breaker
+                            // failure, but if this was the HALF_OPEN probe the
+                            // permit must still be released or recovery strands.
+                            circuitBreaker.onAbandoned(request.permit)
                         }
                         throw error
                     }
@@ -113,9 +124,11 @@ internal class ProviderAttemptExecutor(
             authorizationService.authorize(request.providerId, request.request.model)
         } catch (error: CancellationException) {
             observation.completeCancellation(error)
+            circuitBreaker.onAbandoned(request.permit)
             throw error
         } catch (error: ModelRegistryException) {
             observation.onCallCompleted(parseSuccess = null)
+            circuitBreaker.onAbandoned(request.permit)
             throw error
         }
         return ProviderRetryAttempt(context, intercepted, observation, approvedModel)
@@ -136,7 +149,7 @@ internal class ProviderAttemptExecutor(
     }
 }
 
-internal data class ProviderRetryRequest(val providerId: String, val provider: ModelProvider, val request: ModelRequest, val operation: OperationDefinition, val attemptCounter: AttemptCounter, val routeIndex: Int, val correlationId: String, val securityContext: ExecutionSecurityContext)
+internal data class ProviderRetryRequest(val providerId: String, val provider: ModelProvider, val request: ModelRequest, val operation: OperationDefinition, val attemptCounter: AttemptCounter, val routeIndex: Int, val correlationId: String, val securityContext: ExecutionSecurityContext, val permit: CircuitBreakerPermit)
 private data class ProviderRetryAttempt(val context: OperationCallContext, val request: ModelRequest, val observation: OperationObservation, val approvedModel: RegisteredModel?)
 
 private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
