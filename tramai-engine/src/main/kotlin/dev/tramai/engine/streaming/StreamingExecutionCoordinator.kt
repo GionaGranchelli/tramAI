@@ -176,6 +176,16 @@ internal class StreamingExecutionCoordinator(
                                         return@launch
                                     }
                                     is StreamingRouteResult.StartupFailure -> {
+                                        // STREAMING_STARTUP_RETRY: a retryable
+                                        // startup failure was observed before any
+                                        // token — the route has entered retry/
+                                        // fallback recovery. Emitted ONCE per
+                                        // route (first retryable startup failure),
+                                        // independent of how recovery resolves
+                                        // (retry, exhaustion, or terminal).
+                                        if (retryIndex == 0) {
+                                            recordStartupRetryEvent(route.providerName, result.error::class.simpleName ?: "unknown", result.observation)
+                                        }
                                         when (val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)) {
                                             is ProviderRetryDecision.Retry -> {
                                                 result.observation.emitRuntimeEvent(
@@ -462,8 +472,8 @@ internal class StreamingExecutionCoordinator(
             // retry-vs-exhausted via ProviderRetryPolicy. The breaker is NOT
             // touched here — an intermediate retry must not record a breaker
             // failure (8.2h P0-K); the terminal exhausted failure records in
-            // the route loop's Stop branch.
-            recordStartupRetryEvent(providerName, error::class.simpleName ?: "unknown", observation)
+            // the route loop's Stop branch. STREAMING_STARTUP_RETRY is emitted
+            // once per route by the route loop (retryIndex == 0), not here.
             StreamingRouteResult.StartupFailure(error, observation)
         } else {
             // Terminal: non-retryable, post-token failure, or fallback-disallowed.

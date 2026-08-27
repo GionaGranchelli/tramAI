@@ -121,6 +121,16 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    /** Observer recording (providerId, globalAttempt) per onCallStarted — 8.2h P0-J. */
+    private class AttemptRecordingObserver(private val sink: OrderedSink) : OperationObserver {
+        val attempts = mutableListOf<Pair<String, Int>>()
+        override fun onCallStarted(context: OperationCallContext): OperationObservation {
+            attempts += context.providerId to context.attempt
+            sink.record("observer.start:${context.providerId}:${context.attempt}")
+            return RecordingObservation(sink)
+        }
+    }
+
     private class RecordingMemory(private val sink: OrderedSink? = null) : ChatMemory {
         var history: List<Message> = emptyList()
         val stored = mutableListOf<Pair<String, List<Message>>>()
@@ -290,6 +300,109 @@ class StreamingExecutionCoordinatorTest {
         assertThat(fallback.streamRequests).isEmpty()
         assertThat(sink.events).doesNotContain("policy.fallback")
         assertThat(chunks).containsExactly(StreamChunk.Token("ok"), StreamChunk.Complete("ok"))
+        }
+    }
+
+    @Test fun `P0-B retry budget N means exactly N plus 1 provider attempts before fallback`() {
+        // providerRetries = 1 -> maxAttempts = 2. Both attempts fail retryably;
+        // fallback fires only AFTER the budget is exhausted. Event shape:
+        // startup_retry once (first retryable failure) + retry.scheduled once
+        // (the single retry) + fallback transition once (exhaustion).
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+        assertThat(primary.streamRequests).hasSize(2) // N + 1 attempts
+        assertThat(fallback.streamRequests).hasSize(1) // fallback only after exhaustion
+        assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.retry.scheduled" }).hasSize(1)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" }).hasSize(1)
+        assertThat(sink.events.filter { it == "policy.fallback" }).hasSize(1)
+        }
+    }
+
+    @Test fun `P0-C retry success short-circuits fallback completely`() {
+        // providerRetries = 1: attempt 1 fails retryably, retry succeeds.
+        // No fallback transition, no fallback provider call, retry.scheduled
+        // exactly once, startup_retry once.
+        runBlocking {
+        val sink = OrderedSink()
+        var attempts = 0
+        val primary = RecordingProvider("primary") {
+            attempts++
+            if (attempts == 1) flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+            else flow { emit(StreamChunk.Token("ok")); emit(StreamChunk.Complete("ok")) }
+        }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+        assertThat(chunks).containsExactly(StreamChunk.Token("ok"), StreamChunk.Complete("ok"))
+        assertThat(primary.streamRequests).hasSize(2)
+        assertThat(fallback.streamRequests).isEmpty()
+        assertThat(sink.events).doesNotContain("policy.fallback")
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.retry.scheduled" }).hasSize(1)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" }).hasSize(1)
+        }
+    }
+
+    @Test fun `P0-J global attempt numbering stays continuous across retries and route changes`() {
+        // providerRetries = 1 -> primary attempts 0 and 1, then the exhausted
+        // failure advances to the fallback route which runs as attempt 2.
+        // The engine-level attempt counter must never reset on fallback.
+        runBlocking {
+        val sink = OrderedSink()
+        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        val observer = AttemptRecordingObserver(sink)
+        coordinator(plan("primary" to primary, "fallback" to fallback), observer, sink).execute(requestWithRetries()).toList()
+        assertThat(observer.attempts).containsExactly(
+            "primary" to 0,
+            "primary" to 1,
+            "fallback" to 2,
+        )
+        }
+    }
+
+    @Test fun `P0-K breaker sees one terminal route outcome when retries succeed`() {
+        // failure -> retry -> success: the breaker records ZERO failures and
+        // ONE success. Intermediate retryable attempts never call onFailure
+        // (8.2g boundary); only the terminal success completes breaker
+        // authority via onSuccess.
+        runBlocking {
+        val sink = OrderedSink()
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+        var attempts = 0
+        val provider = RecordingProvider("p") {
+            attempts++
+            if (attempts == 1) flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+            else flow { emit(StreamChunk.Complete("ok")) }
+        }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = breaker)
+        coordinator.execute(requestWithRetries()).toList()
+        assertThat(breaker.openUntilMillis("p")).isNull() // never tripped
+        assertThat(sink.events).doesNotContain("observation.engine-event:tramai.circuit.opened")
+        }
+    }
+
+    @Test fun `P0-K breaker sees one terminal route outcome when retries exhaust`() {
+        // failure -> retry -> exhausted: the breaker records EXACTLY ONE
+        // terminal failure (on the exhausted attempt). Not two, not zero.
+        // The single qualifying onFailure trips -> OPEN with a fresh deadline.
+        runBlocking {
+        val sink = OrderedSink()
+        var now = 0L
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+        val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) } }
+        val coordinator = coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = breaker)
+        coordinator.execute(requestWithRetries()).toList()
+        assertThat(breaker.openUntilMillis("p")).isEqualTo(100)
+        assertThat(sink.events.filter { it == "observation.engine-event:tramai.circuit.opened" }).hasSize(1)
         }
     }
 
