@@ -15,6 +15,7 @@ kotlin {
 dependencies {
     implementation(kotlin("stdlib"))
     implementation(kotlin("reflect"))
+    implementation(kotlin("gradle-plugin", version = "2.3.0"))
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3")
     implementation("org.yaml:snakeyaml:2.3")
@@ -62,6 +63,18 @@ gradlePlugin {
         create("tramaiSovereignVerification") {
             id = "tramai.sovereign-verification"
             implementationClass = "dev.tramai.build.sovereign.TramaiSovereignVerificationPlugin"
+        }
+        create("tramaiKotlinLibrary") {
+            id = "tramai.kotlin-library"
+            implementationClass = "dev.tramai.build.conventions.TramaiKotlinLibraryPlugin"
+        }
+        create("tramaiJavaPlatform") {
+            id = "tramai.java-platform"
+            implementationClass = "dev.tramai.build.conventions.TramaiJavaPlatformPlugin"
+        }
+        create("tramaiTestFixtures") {
+            id = "tramai.test-fixtures"
+            implementationClass = "dev.tramai.build.conventions.TramaiTestFixturesPlugin"
         }
     }
 }

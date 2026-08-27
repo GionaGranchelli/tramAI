@@ -1,23 +1,11 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
+    id("tramai.kotlin-library")
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
-    withSourcesJar()
-}
 
-kotlin {
-    jvmToolchain(21)
-    compilerOptions {
-        jvmTarget.set(JvmTarget.fromTarget("21"))
-    }
-}
 
 dependencies {
     api(project(":tramai-core"))
@@ -39,7 +27,6 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
     // The runtime-event-catalogue architecture test scans every module's
     // production Kotlin sources repository-wide. Declare those files as task
     // inputs so a literal added to ANY module re-runs the guard (otherwise
