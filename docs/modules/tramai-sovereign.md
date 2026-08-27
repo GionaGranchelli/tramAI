@@ -1,7 +1,7 @@
 # Module: `tramai-sovereign`
 
 > **One-liner:** Secure embedded runtime profile that wires deny-by-default policy enforcement, approved-model registry enforcement, classification-aware provider routing, offline deployment validation, artifact-byte verification, and hash-chained policy-decision audit emission without requiring the SaaS platform.
-> **Module type:** `composition` + `secure profile`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ## Architecture
 

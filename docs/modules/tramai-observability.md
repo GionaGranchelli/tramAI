@@ -1,7 +1,7 @@
 # Module: `tramai-observability`
 
 > **One-liner:** Optional, opt-in OpenTelemetry integration — traces, metrics, and events for operations and workflows.
-> **Module type:** `observability`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -16,9 +16,7 @@ Optional, opt-in OpenTelemetry integration: spans, metrics and events for operat
 - `OpenTelemetryOperationObserver` — operation/engine observation
 - `OpenTelemetryTramaiWorkerObserver` — worker observation
 - `OpenTelemetryWorkflowObserver` — workflow observation
-- `OpenTelemetryAttributes` — semantic attribute constants
-
-Verify the full public surface against `tramai-observability/api/tramai-observability.api`.
+Verify the full public surface against `tramai-observability/api/tramai-observability.api` (`OpenTelemetryAttributes` is internal).
 
 ### Internal extension points
 

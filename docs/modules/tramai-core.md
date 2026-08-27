@@ -1,7 +1,7 @@
 # Module: `tramai-core`
 
 > **One-liner:** Annotations, data models, provider SPI, structured-output contracts, and exceptions for the Tramai AI library.
-> **Module type:** `core`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -25,9 +25,9 @@ Verify the full public surface against `tramai-core/api/tramai-core.api`.
 
 ### Internal extension points
 
-- `OperationInterceptor` / `OperationObserver` (observation SPI)
-- `DlpInterceptor` (security), `SecretValueResolver` (secrets), `ConversationIdProvider` (memory)
 - `StructuredOutputHandler` implementation slot (implemented by `tramai-structured`)
+
+Note: public extension SPIs such as `OperationInterceptor`, `OperationObserver`, `DlpInterceptor`, `SecretValueResolver`, and `ConversationIdProvider` are consumer-facing contracts (present in `tramai-core/api/tramai-core.api`), not internal seams — consumers implement them directly.
 
 ### Significant dependencies
 

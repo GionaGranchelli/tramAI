@@ -1,7 +1,7 @@
 # Module: `tramai-structured`
 
 > **One-liner:** Generates JSON schemas from Kotlin types, extracts and validates structured objects from LLM responses.
-> **Module type:** `core`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -122,7 +122,7 @@ The module pulls in:
 
 ### Quick usage
 
-The `JacksonStructuredOutputHandler` is the single implementation of `StructuredOutputHandler`. It is automatically wired by `TramaiEngine` when `tramai-structured` is on the classpath. You typically do not instantiate it directly — but here is how it works end to end.
+The `JacksonStructuredOutputHandler` is the single implementation of `StructuredOutputHandler`. The engine consumes the core `StructuredOutputHandler` SPI; `tramai-standalone` composes the Jackson handler directly when constructing its runtime. Here is how it works end to end.
 
 **1. Define a data class with annotations:**
 
@@ -419,8 +419,8 @@ tramai-structured
 
 `tramai-structured` is consumed by:
 - `tramai-engine` — invokes `createContract()` and `analyze()` during operation execution
-- `tramai-standalone` — transitively via engine
-- `tramai-spring-core` — transitively via engine (`tramai-spring` is the legacy facade)
+- `tramai-standalone` — direct dependency (`api(project(":tramai-structured"))`)
+- `tramai-spring-core` — transitively via `tramai-standalone` (`tramai-spring` is the legacy facade)
 - `tramai-mcp` — for structured output in MCP tool responses
 
 ### Inner mechanics

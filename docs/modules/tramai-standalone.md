@@ -1,7 +1,7 @@
 # Module: `tramai-standalone`
 
 > **One-liner:** Minimal framework-free entry point that wires core, engine, and structured output into a single `Tramai.create<T>()` call.
-> **Module type:** `composition`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -14,12 +14,13 @@ Framework-free entry point composing core, engine and structured output into a m
 ### Public entry points
 
 - `Tramai` — builder-style entry point for framework-free usage
+- `TramaiRuntime` — assembled runtime with lifecycle (public per `tramai-standalone/api/tramai-standalone.api`)
 
-Verify the full public surface against `tramai-standalone/api/tramai-standalone.api` (`TramaiRuntime` is internal).
+Verify the full public surface against `tramai-standalone/api/tramai-standalone.api`.
 
 ### Internal extension points
 
-- `TramaiRuntime` — assembled runtime (internal); engine/structured/provider wiring knobs through the `Tramai` builder
+- Engine/structured/provider wiring knobs through the `Tramai` builder
 
 ### Significant dependencies
 
@@ -305,10 +306,7 @@ tramai-standalone
 
   Depended on by:
     - Application code (end-user entry point)
-
-  Not depended on by:
-    - tramai-spring-core (profile-neutral auto-configuration; `tramai-spring` is the legacy facade)
-    - Any other Tramai module
+    - tramai-spring-core (api dependency — `api(project(":tramai-standalone"))`)
 ```
 
 ### What `create<T>()` does end-to-end
@@ -369,6 +367,6 @@ Package: dev.tramai.standalone
 
 ### Testing strategy
 
-- `tramai-standalone` has no tests of its own — it is a thin composition layer
+- `tramai-standalone` is a thin composition layer; its own tests cover runtime assembly (`Tramai` / `TramaiRuntime` wiring)
 - Correctness is verified through `tramai-engine` tests (proxy dispatch, routing, retry) and `tramai-structured` tests (schema generation, parsing, validation)
 - Integration tests in provider modules (`tramai-ollama`, `tramai-openai`, `tramai-anthropic`) cover the full `Tramai.builder()...create<T>()` path

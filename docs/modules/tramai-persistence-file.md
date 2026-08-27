@@ -1,7 +1,7 @@
 # Module: `tramai-persistence-file`
 
 > **One-liner:** Encrypted-at-rest, single-node file persistence for TramAI sovereign state — `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, and `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
-> **Module type:** `persistence` + `storage`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 > **Dependencies:** `tramai-core`, `tramai-engine`, `tramai-security`
 
 ## Architecture

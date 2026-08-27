@@ -1,7 +1,7 @@
 # Module: `tramai-testing`
 
 > **One-liner:** Mock providers, recording observers, and fluent assertions for deterministic Tramai integration tests.
-> **Module type:** `tooling`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 > **Dependency:** `tramai-core` (api), AssertJ (implementation)
 
 ---

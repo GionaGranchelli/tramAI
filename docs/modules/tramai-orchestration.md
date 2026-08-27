@@ -1,7 +1,7 @@
 # Module: `tramai-orchestration`
 
 > **One-liner:** Multi-step workflow engine with checkpoint/resume, distributed worker support, and a declarative DSL for composing AI, local, gate, branch, parallel, and delay steps.
-> **Module type:** `optional`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 > **Dependencies:** `tramai-core`
 
 ---
@@ -15,6 +15,7 @@ Multi-step workflow execution: workflow definitions, execution supervision, work
 ### Public entry points
 
 - `TramaiWorker` — worker entry point
+- `WorkflowRecoveryController` — recovery entry point (public per `tramai-orchestration/api/tramai-orchestration.api`)
 - Workflow definition/builder API (`Workflow`, `WorkflowBuilder`, `WorkflowBindingRegistry`)
 
 Verify the full public surface against `tramai-orchestration/api/tramai-orchestration.api` — the supervision/lifecycle coordinators below are internal.
@@ -23,7 +24,7 @@ Verify the full public surface against `tramai-orchestration/api/tramai-orchestr
 
 - `WorkflowExecutionSupervisor` — workflow execution ownership (internal)
 - `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown (internal)
-- `WorkflowRecoveryCoordinator` / `WorkflowRecoveryController` — recovery (internal)
+- `WorkflowRecoveryCoordinator` — recovery coordination (internal; `WorkflowRecoveryController` is the public face)
 - `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing (internal)
 - Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI, partition strategy (`PartitionAssignmentStrategy`)
 - Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
@@ -113,7 +114,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version managed via the BOM
+// Version from the canonical tramaiVersion Gradle property (see gradle.properties)
+implementation(platform("dev.tramai:tramai-bom:${tramaiVersion}"))
 implementation("dev.tramai:tramai-orchestration")
 ```
 
@@ -122,8 +124,8 @@ implementation("dev.tramai:tramai-orchestration")
 | Topic | Link |
 |-------|------|
 | Quickstart with all modules | `docs/guides/getting-started.md` |
-| Understanding workflow basics | `docs/specs/spec-005.md` |
-| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-009.md` |
+| Understanding workflow basics | `docs/specs/spec-005-standalone-java-api.md` |
+| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-009-streaming-responses.md` |
 | Governed workflow quickstart | `docs/guides/governed-workflow-quickstart.md` |
 
 ---
@@ -284,7 +286,7 @@ Each item runs in a `coroutineScope { async { ... } }`. The `StopPolicy.maxParal
 
 ### Checkpoint stores
 
-`tramai-orchestration` ships with three `WorkflowCheckpointStore` implementations:
+`tramai-orchestration` ships with four `WorkflowCheckpointStore` implementations:
 
 | Store | Backend | Features |
 |-------|---------|----------|

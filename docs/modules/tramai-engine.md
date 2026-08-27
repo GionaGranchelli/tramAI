@@ -1,7 +1,7 @@
 # Module: `tramai-engine`
 
 > **One-liner:** Runtime engine that turns annotated service interfaces into AI-backed proxies with retry, circuit-breaking, caching, and token budgeting.
-> **Module type:** `core`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -107,7 +107,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version managed via the BOM
+// Version from the canonical tramaiVersion Gradle property (see gradle.properties)
+implementation(platform("dev.tramai:tramai-bom:${tramaiVersion}"))
 implementation("dev.tramai:tramai-engine")
 ```
 
@@ -117,11 +118,11 @@ implementation("dev.tramai:tramai-engine")
 |-------|------|
 | Quickstart with all modules | `docs/guides/getting-started.md` |
 | Framework-free standalone setup | `docs/modules/tramai-standalone.md` |
-| Spring Boot auto-configuration | `docs/modules/tramai-spring-core.md` (`tramai-spring` is the legacy facade) |
+| Spring Boot auto-configuration | `docs/architecture/modules.md` (framework-integrations layer; `tramai-spring-core` card lands in a later 11.2b slice, `tramai-spring` is the legacy facade) |
 | Defining tools for the engine | `docs/modules/tramai-testing.md` |
-| Spec — Engine & Core design | `docs/specs/spec-001.md` |
-| Spec — Production hardening | `docs/specs/spec-011.md` |
-| Spec — Tool calling | `docs/specs/spec-010.md` |
+| Spec — Engine & Core design | `docs/specs/spec-001-core-engine.md` |
+| Spec — Production hardening | `docs/specs/spec-011-production-hardening.md` |
+| Spec — Tool calling | `docs/specs/spec-010-tool-calling.md` |
 
 ---
 
