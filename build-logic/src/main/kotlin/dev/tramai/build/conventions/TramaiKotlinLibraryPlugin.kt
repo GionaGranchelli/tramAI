@@ -13,30 +13,36 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
  *
  * Configures the standard JVM/Kotlin baseline for library modules: Java 21
  * toolchain, sources JAR, Kotlin 21 toolchain/jvmTarget, and JUnit Platform
- * for the test task. Reacts to `org.jetbrains.kotlin.jvm` (and `java-library`)
- * being applied by the module — the module keeps its base plugins; this plugin
- * only removes the repeated configuration blocks.
+ * for the `test` task only.
+ *
+ * The convention reacts to BOTH `java-library` and `org.jetbrains.kotlin.jvm`
+ * being applied (order-independent): java-library first, Kotlin first, or
+ * convention first all configure successfully. A Kotlin-only module gains
+ * nothing — the historical modules all had both base plugins.
  *
  * Behavior-preserving extraction: modules that already declare exactly this
  * configuration migrate to `id("tramai.kotlin-library")`; modules with
  * divergent configuration (extra compiler args, no sources JAR, no JUnit
  * Platform) keep their deltas locally — the convention never adds behavior a
- * module did not have.
+ * module did not have. Only the `test` task is configured — never future or
+ * custom Test tasks (integration-test source sets are deferred).
  */
 class TramaiKotlinLibraryPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
-        project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
-            project.extensions.configure(JavaPluginExtension::class.java) {
-                toolchain.languageVersion.set(JavaLanguageVersion.of(21))
-                withSourcesJar()
-            }
-            project.extensions.configure(KotlinJvmProjectExtension::class.java) {
-                jvmToolchain(21)
-                compilerOptions.jvmTarget.set(JvmTarget.fromTarget("21"))
-            }
-            project.tasks.withType(Test::class.java).configureEach {
-                useJUnitPlatform()
+        project.pluginManager.withPlugin("java-library") {
+            project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+                project.extensions.configure(JavaPluginExtension::class.java) {
+                    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+                    withSourcesJar()
+                }
+                project.extensions.configure(KotlinJvmProjectExtension::class.java) {
+                    jvmToolchain(21)
+                    compilerOptions.jvmTarget.set(JvmTarget.fromTarget("21"))
+                }
+                project.tasks.named("test", Test::class.java) {
+                    useJUnitPlatform()
+                }
             }
         }
     }
