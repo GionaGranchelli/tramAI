@@ -96,40 +96,15 @@ Workflows defined with `tramai-orchestration` run inside a JVM process. Without 
 | View schedule status | ✅ `GET /schedules`, `GET /schedules/events` (SSE) |
 | Audit API operations | ✅ `GET /audit` |
 
-### How to add
+### How to include (repository-internal)
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-server")  // version from the TramAI BOM
-}
-```
-
-**Bill of Materials:**
+`tramai-server` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (e.g. by `tramai-mcp`, `tramai-platform`, deployment packaging, and example applications). There is no external Maven coordinate and the BOM does not manage it. In-repo Spring Boot composition looks like:
 
 ```kotlin
-// tramaiVersion is the canonical version property (see gradle.properties)
-val tramaiVersion: String by project
-
+// within the TramAI monorepo (build.gradle.kts of a server host)
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-    implementation("dev.tramai:tramai-server")
-}
-```
-
-**Using the BOM with Spring Boot:**
-
-```kotlin
-plugins {
-    id("org.springframework.boot")
-}
-
-dependencies {
-    val tramaiVersion: String by project
-    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-    implementation("dev.tramai:tramai-server")
-    implementation("dev.tramai:tramai-orchestration")
+    implementation(project(":tramai-server"))
+    implementation(project(":tramai-orchestration"))
     // your workflow definitions
 }
 ```

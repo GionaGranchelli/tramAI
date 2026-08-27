@@ -22,7 +22,7 @@ Bill of materials — a `java-platform`/Maven BOM aligning versions of all Trama
 
 ### Significant dependencies
 
-- `api()` of every publishable project (platform constraints) — see [module-catalog.yml](../../config/quality/module-catalog.yml) and [module-matrix.md](../../docs/reference/module-matrix.md)
+- `api()` of the manifest-derived BOM member set (published + release-included, excluding `tramai-bom` itself) — see [module-catalog.yml](../../config/quality/module-catalog.yml) and [module-matrix.md](../../docs/reference/module-matrix.md)
 
 ### Lifecycle ownership
 
@@ -58,7 +58,7 @@ When a consumer imports the BOM, all Tramai dependencies resolve to the same ver
 
 ### Membership is manifest-derived
 
-BOM membership is **not hand-maintained**. It is computed from the authoritative manifest by `ModuleManifest.bomModulePaths(...)` in `build-logic/src/main/kotlin/dev/tramai/build/quality/ModuleManifest.kt`:
+BOM membership is derived from the same authoritative manifest represented by the generated module matrix. The matrix contains **all** manifest modules; BOM membership is the **published + release-included subset, excluding `tramai-bom`** — computed by `ModuleManifest.bomModulePaths(...)` in `build-logic/src/main/kotlin/dev/tramai/build/quality/ModuleManifest.kt`:
 
 ```kotlin
 fun bomModulePaths(entries: Collection<ModuleCatalog.ModuleEntry>): List<String> =
@@ -69,7 +69,7 @@ fun bomModulePaths(entries: Collection<ModuleCatalog.ModuleEntry>): List<String>
     }.map { it.path }.sorted()
 ```
 
-Every module whose manifest entry is `publishability: published` and `releaseInclusion: included` (excluding `tramai-bom` itself) is a BOM member — the same filter that drives the generated [module matrix](../../docs/reference/module-matrix.md). Adding or removing a module from the BOM is done by editing `module-catalog.yml`, never by editing this card or the constraints block by hand.
+Every module whose manifest entry is `publishability: published` and `releaseInclusion: included` (excluding `tramai-bom` itself) is a BOM member. Adding or removing a module from the BOM is done by editing `module-catalog.yml`, never by editing this card or the constraints block by hand. (Note: the generated module matrix renders *all* manifest modules; BOM membership is the published + release-included subset.)
 
 ### Why
 

@@ -93,31 +93,16 @@ Don't use this module when:
 - You want to avoid the MCP SDK dependency
 ```
 
-### How to add
+### How to include (repository-internal)
+
+`tramai-mcp` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (it depends on `tramai-server`). There is no external Maven coordinate and the BOM does not manage it:
 
 ```kotlin
-// build.gradle.kts
+// within the TramAI monorepo (build.gradle.kts of an MCP host)
 dependencies {
-    val tramaiVersion: String by project
-    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-    implementation("dev.tramai:tramai-server")  // required dependency
-    implementation("dev.tramai:tramai-mcp")
+    implementation(project(":tramai-mcp"))
 }
 ```
-
-```xml
-<!-- pom.xml -->
-<dependencyManagement>
-  <dependencies>
-    <dependency>
-      <groupId>dev.tramai</groupId>
-      <artifactId>tramai-bom</artifactId>
-      <version>${tramai.version}</version>
-      <type>pom</type>
-      <scope>import</scope>
-    </dependency>
-  </dependencies>
-</dependencyManagement>
 
 <dependencies>
   <dependency>

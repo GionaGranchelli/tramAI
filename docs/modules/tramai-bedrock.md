@@ -52,7 +52,7 @@ Provider adapter for AWS Bedrock: `ModelProvider` implementation using the Bedro
 
 ### What
 
-`tramai-bedrock` is a `ModelProvider` + `StreamCapable` implementation that connects Tramai to Amazon Bedrock. Non-streaming calls use the synchronous `invokeModel` API; streaming uses the async `invokeModelWithResponseStream` API. It translates TramAI's unified message model into the Claude Messages format (Anthropic) and back.
+`tramai-bedrock` is a `ModelProvider` + `StreamCapable` implementation that connects Tramai to Amazon Bedrock. Non-streaming calls use the non-streaming `invokeModel` operation; streaming uses `invokeModelWithResponseStream` — both on the async `BedrockRuntimeAsyncClient`. It translates TramAI's unified message model into the Claude Messages format (Anthropic) and back.
 
 ### Why
 
@@ -207,7 +207,7 @@ The provider translates TramAI's unified message model to the Claude Messages fo
 
 ### Inner mechanics
 
-**Non-streaming flow:** (uses the synchronous `invokeModel` API)
+**Non-streaming flow:** (uses the non-streaming `invokeModel` operation on the async client)
 
 ```
 1. Build Claude payload: { anthropic_version, max_tokens, messages, system?, tools?, temperature? }

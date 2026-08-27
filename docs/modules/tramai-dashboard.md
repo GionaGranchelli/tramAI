@@ -72,13 +72,9 @@ Don't use this module when:
 - You have your own monitoring solution (Grafana, Datadog, etc.)
 ```
 
-### How to add
-```kotlin
-// build.gradle.kts
-dependencies {
-    implementation("dev.tramai:tramai-dashboard")  // version from the TramAI BOM
-}
-```
+### How to include (repository-internal)
+
+`tramai-dashboard` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (e.g. by `tramai-server`/deployment packaging). There is no external Maven coordinate and the BOM does not manage it.
 
 ### Where to go next
 - [tramai-server](./tramai-server.md) — The REST API the dashboard consumes

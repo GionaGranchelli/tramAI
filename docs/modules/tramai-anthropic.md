@@ -228,26 +228,19 @@ Cancellation propagates: because the stream is a `kotlinx.coroutines.flow.Flow`,
 
 #### HTTP error responses
 
-Non-2xx status codes are handled by `providerHttpFailureObserved()`:
+Non-2xx status codes are handled by `rejectedProviderHttpResponse(...)` (from `dev.tramai.core.provider.transport`):
 
 ```kotlin
-logProviderHttpFailureDebug(
-    logger = providerLogger,
-    providerName = "anthropic",
-    statusCode = response.statusCode(),
-    body = errorBody.text,
-)
-throw providerHttpFailureObserved(
-    providerId = "anthropic",
-    statusCode = response.statusCode(),
-    body = errorBody.text,
-    bodyTruncated = errorBody.truncated,
-    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+throw rejectedProviderHttpResponse(
+    providerId = PROVIDER_ID,
+    providerAlias = null,
+    response = response,
     observer = providerFailureDiagnosticObserver,
+    logger = providerLogger,
 )
 ```
 
-Non-2xx bodies are read via `readErrorBodyPreview()` (at most 8 KiB plus one sentinel byte); only the retained bytes are decoded.
+The helper reads the response body (preview capped at 8 KiB plus one sentinel byte), logs trusted metadata only (never the body, headers, credentials, or cause), and raises the `ProviderException`. The same helper is used for the streaming path's `handleHttpError`.
 
 This produces a `ProviderException` with:
 

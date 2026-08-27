@@ -96,12 +96,7 @@ found in the `tramai-memory` module.
 
 ## Dependencies
 
-```kotlin
-// build.gradle.kts
-dependencies {
-    implementation("dev.tramai:tramai-memory-store")  // version from the TramAI BOM
-}
-```
+`tramai-memory-store` is **not published** — the implementations are composed inside the TramAI monorepo (e.g. by deployment packaging or example applications) as Gradle project dependencies. There is no external Maven coordinate and the BOM does not manage it.
 
 ## Quick Start: Using a Store
 
