@@ -9,7 +9,7 @@ Per-module architecture and navigation cards for TramAI. The authoritative modul
 
 ## Card contract
 
-Cards normalized under Epic 11.2b conform to the following architecture contract. C2b1 currently has **11 conforming cards**; remaining cards are migrated in subsequent slices.
+Cards normalized under Epic 11.2b conform to the following architecture contract. C2b1 normalized 11 core/governance/persistence/observability/testing cards; **C2b2 normalized 20 non-Spring cards** (provider adapters, higher capabilities, vector stores, operations/observability, BOM). Remaining cards are migrated in subsequent slices.
 
 Each conforming card starts with an `## Architecture` section using these headings:
 
@@ -34,8 +34,8 @@ Coverage is computed against the 58-module authoritative manifest (`module-catal
 |--------|-------|
 | Manifest modules | 58 |
 | Module cards | 32 |
-| Conforming cards (C2b1) | 11 |
-| Existing non-conforming | 21 |
+| Conforming cards (C2b1 + C2b2) | 31 |
+| Existing non-conforming | 1 (`tramai-spring`, Spring slice) |
 | Missing cards | 26 |
 | Orphans | 0 |
 

@@ -1,12 +1,54 @@
 # Module: `tramai-anthropic`
 
 > **One-liner:** Provider for Anthropic's Messages API (Claude models).
-> **Module type:** `provider`
-> **Source files:** 1 — `AnthropicProvider.kt` (192 LOC)
-> **Test files:** 1
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for Anthropic's Messages API (Claude models): `ModelProvider` implementation, request/response mapping, streaming, token accounting.
+
+### Public entry points
+
+- `AnthropicProvider` — `ModelProvider` implementation (verify against `tramai-anthropic/api/tramai-anthropic.api`)
+
+### Internal extension points
+
+- Provider transport internals (HTTP client, JSON mapping) — not consumer seams
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider owns its HTTP client lifecycle; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `AnthropicProviderTckTest` — enrolled in the provider TCK (tramai-testing)
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
+- [modules.md](../architecture/modules.md) — provider-adapters layer policy
 
 ## L1: Quick Start (30-second read)
 

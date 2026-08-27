@@ -1,12 +1,57 @@
 # Module: `tramai-scheduler`
 
 > **One-liner:** Time-based workflow triggers with cron expressions, delay wakeups, and a durable tick-claiming scheduler loop — backed by in-memory or JDBC stores.
-> **Module type:** `optional`
-> **Group:** `dev.tramai`
-> **Source files:** 5, **LOC:** 2,560
-> **Dependencies:** `tramai-orchestration`, `kotlinx-coroutines-core`, `HikariCP`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Workflow scheduling: cron/calendar rules, scheduled-workflow timer, workflow scheduler stores (in-memory, JDBC).
+
+### Public entry points
+
+- `CronSchedule` (+ builder), `CalendarRule` — schedule definitions
+- `ScheduledWorkflowTimer` — timer entry point
+- `InMemoryWorkflowSchedulerStore`, `JdbcWorkflowSchedulerStore` — scheduler stores
+- `ScheduleRecord`, `ScheduleStatusView`, `ClaimedScheduledTick`, `ClaimedDelayWakeup`
+
+Verify against `tramai-scheduler/api/tramai-scheduler.api`.
+
+### Internal extension points
+
+- New scheduler-store implementations (the public scheduler-store SPI is listed under Public entry points)
+
+### Significant dependencies
+
+- `api(tramai-orchestration)`; HikariCP, coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Timer lifecycle (start/stop) owned by the host; scheduler stores borrow caller resources
+
+### Thread-safety and concurrency
+
+- Timer must be safe for concurrent tick dispatch; stores manage their own locking
+
+### Failure semantics
+
+- Scheduling failures surface as typed errors; missed/claimed ticks are recoverable
+
+### Contract tests / TCKs
+
+- `SchedulerTest`, `JdbcSchedulerTest`, `SchedulerIsolationTest`
+
+### Do not
+
+- Do not add workflow-execution logic here — scheduling hands off to orchestration
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## L1: Quick Start (30-second read)
 
@@ -50,7 +95,7 @@ Do **not** use it for:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-scheduler:0.5.0")
+    implementation("dev.tramai:tramai-scheduler")  // version from the TramAI BOM
 }
 ```
 
@@ -60,14 +105,14 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-scheduler</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
 implementation("dev.tramai:tramai-scheduler")
 ```
 
@@ -75,8 +120,8 @@ implementation("dev.tramai:tramai-scheduler")
 
 | Topic | Link |
 |-------|------|
-| Workflow basics with checkpoints and delays | `docs/specs/spec-005.md` |
-| Agent CLI step types | `docs/specs/spec-009.md` |
+| Workflow basics with checkpoints and delays | `docs/specs/spec-012-orchestration-and-coordination.md` |
+| Agent CLI step types | `docs/specs/spec-015-agent-steps.md` |
 
 ---
 

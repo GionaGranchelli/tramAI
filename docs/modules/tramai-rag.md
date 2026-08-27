@@ -1,8 +1,56 @@
 # tramai-rag
 
-**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Retrieval-Augmented Generation context pipeline.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+RAG pipeline: chunking, document loading, retrieval, context injection — composing embeddings + vector stores.
+
+### Public entry points
+
+- `RagPipeline`, `RagRetriever`, `ContextInjector`, `Document`
+- Chunkers: `FixedSizeChunker`, `RecursiveCharacterChunker`, `TokenAwareChunker`
+- Loaders: `FileDocumentLoader`, `UrlDocumentLoader`
+- `RagPipelineException`
+
+Verify against `tramai-rag/api/tramai-rag.api`.
+
+### Internal extension points
+
+- New chunker/document-loader implementations (the public chunking / loading SPIs are listed under Public entry points)
+
+### Significant dependencies
+
+- `api(tramai-core)`, `api(tramai-embedding)`, `api(tramai-vectorstore-spi)`; coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Pipeline/retriever instances are caller-owned; no process lifecycle owned here
+
+### Thread-safety and concurrency
+
+- Components are safe for concurrent use (stateless beyond configuration)
+
+### Failure semantics
+
+- Pipeline failures as `RagPipelineException` with context
+
+### Contract tests / TCKs
+
+- `ChunkersTest`, `ContextInjectorTest`, `RagPipelineTest`, `RagRetrieverTest`
+
+### Do not
+
+- Do not couple RAG to a specific vector store/provider — use the SPIs
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -26,11 +74,11 @@ The `tramai-rag` module provides a comprehensive pipeline for injecting internal
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-rag:0.5.0")
+    implementation("dev.tramai:tramai-rag")  // version from the TramAI BOM
     
     // RAG pipelines usually require embedding and a vector store
-    implementation("dev.tramai:tramai-embedding:0.5.0")
-    implementation("dev.tramai:tramai-vectorstore-chroma:0.5.0") // Or pgvector
+    implementation("dev.tramai:tramai-embedding")  // version from the TramAI BOM
+    implementation("dev.tramai:tramai-vectorstore-chroma")  // version from the TramAI BOM // Or pgvector
 }
 ```
 

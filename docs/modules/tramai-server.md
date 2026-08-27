@@ -1,12 +1,58 @@
 # Module: `tramai-server`
 
 > **One-liner:** HTTP REST API surface for Tramai workflows — start, inspect, resume, cancel, and stream runs; receive webhooks; monitor workers and schedules; query audit logs.
-> **Module type:** `optional`
-> **Group:** `dev.tramai`
-> **Source files:** 12 main, **LOC:** ~1,927 (main)
-> **Dependencies:** `tramai-orchestration`, `tramai-scheduler`, `spring-boot-starter-web`, `spring-boot-starter-validation`, `jackson-module-kotlin`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Spring Boot server: workflow/worker/audit/schedule HTTP endpoints, webhook verification, request-size limits, in-memory stores.
+
+### Public entry points
+
+- `TramaiServerApplication` — server entry point
+- Controllers: `WorkflowController`, `WorkerController`, `AuditController`, `ScheduleController`
+- `GitHubWebhookSignatureVerifier`, `RequestBodySizeLimitFilter`, `ReplayCache`
+- Stores: `InMemoryAuditLogStore`, `InMemoryWorkerRegistry`
+- Exceptions: `BadWorkflowRequestException`, `InvalidWebhookSignatureException`, `RequestBodyTooLargeException`
+
+Verify against `tramai-server/api/tramai-server.api`.
+
+### Internal extension points
+
+- Audit/worker-registry store implementations
+
+### Significant dependencies
+
+- `api(tramai-orchestration)`; `implementation(tramai-scheduler)`; Spring web/validation, Jackson, coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle; server start/stop via the Spring Boot application
+
+### Thread-safety and concurrency
+
+- Spring singletons; controllers must be safe for concurrent HTTP requests
+
+### Failure semantics
+
+- Invalid requests surface as typed HTTP error responses; signature failures are explicit
+
+### Contract tests / TCKs
+
+- `WorkflowControllerTest`, `WorkerControllerTest`, `AuditControllerTest`, `ScheduleControllerTest`, `WorkerRegistryTest`, `AuditLogStoreTest`
+
+### Do not
+
+- Do not add provider adapters here — server is a hosting surface
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -56,14 +102,14 @@ Workflows defined with `tramai-orchestration` run inside a JVM process. Without 
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-server:0.5.0")
+    implementation("dev.tramai:tramai-server")  // version from the TramAI BOM
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
 implementation("dev.tramai:tramai-server")
 ```
 
@@ -75,7 +121,7 @@ plugins {
 }
 
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
     implementation("dev.tramai:tramai-server")
     implementation("dev.tramai:tramai-orchestration")
     // your workflow definitions
@@ -98,7 +144,7 @@ fun registerInvoiceWorkflow(): WorkflowRegistration = WorkflowRegistration { reg
 
 | Topic | Link |
 |---|---|
-| Workflow orchestration (steps, checkpointing, resume) | `docs/specs/spec-005.md` |
+| Workflow orchestration (steps, checkpointing, resume) | `docs/specs/spec-012-orchestration-and-coordination.md` |
 | Scheduling (cron, delays, business calendars) | `tramai-scheduler` module doc |
 | Dashboard (admin UI) | `docs/architecture/modules.md` |
 | Server spec | `docs/specs/spec-014-server.md` |

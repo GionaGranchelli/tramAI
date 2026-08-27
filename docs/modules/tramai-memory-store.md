@@ -1,8 +1,54 @@
 # tramai-memory-store
 
-**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Service Provider Interface (SPI) for persistent chat history.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Persistent chat-memory stores: `JdbcChatMemoryStore`, `RedisChatMemoryStore` implementing the core memory-store contract.
+
+### Public entry points
+
+- `JdbcChatMemoryStore`, `RedisChatMemoryStore` — `ChatMemoryStore` implementations
+- `JdbcChatMemoryTable` (schema)
+
+Verify against `tramai-memory-store/api/tramai-memory-store.api`.
+
+### Internal extension points
+
+- New memory-store implementations (the public core memory-store SPI is listed under Public entry points)
+
+### Significant dependencies
+
+- `api(tramai-core)`; Jedis, Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Stores borrow caller-supplied connections/pools; ownership remains with the caller
+
+### Thread-safety and concurrency
+
+- Stores must be safe for concurrent access; JDBC/Redis connection handling is store-scoped
+
+### Failure semantics
+
+- Store failures surface as typed errors; no silent partial writes
+
+### Contract tests / TCKs
+
+- `JdbcChatMemoryStoreTckTest`, `RedisChatMemoryStoreTckTest` — enrolled in the memory-store TCK
+
+### Do not
+
+- Do not add engine/Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -55,7 +101,7 @@ found in the `tramai-memory` module.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory-store:0.5.0")
+    implementation("dev.tramai:tramai-memory-store")  // version from the TramAI BOM
 }
 ```
 

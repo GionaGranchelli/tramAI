@@ -1,8 +1,55 @@
 # tramai-embedding
 
-**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Text embedding generation.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Embedding model integration: `EmbeddingModelRegistry`, `EmbeddingModel` SPI, concrete Ollama and OpenAI embedding models.
+
+### Public entry points
+
+- `EmbeddingModelRegistry` (+ builder), `EmbeddingModel` SPI
+- `OllamaEmbeddingModel`, `OpenAiEmbeddingModel`
+- `EmbeddingConfig`, `EmbeddingException`
+
+Verify against `tramai-embedding/api/tramai-embedding.api`.
+
+### Internal extension points
+
+- New embedding-provider implementations (the public model SPI is listed under Public entry points)
+
+### Significant dependencies
+
+- No project deps beyond coroutines + Jackson (implementation) — models use direct HTTP. See [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Registry/model instances are caller-owned; no process lifecycle owned here
+
+### Thread-safety and concurrency
+
+- Registry and models are safe for concurrent use (stateless beyond configuration)
+
+### Failure semantics
+
+- Embedding failures as `EmbeddingException` with context
+
+### Contract tests / TCKs
+
+- `EmbeddingModelRegistryTest`
+
+### Do not
+
+- Do not couple embedding models to the chat-provider SPI — this is a separate capability
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -23,7 +70,7 @@ This module bundles standard integrations natively:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-embedding:0.5.0")
+    implementation("dev.tramai:tramai-embedding")  // version from the TramAI BOM
 }
 ```
 

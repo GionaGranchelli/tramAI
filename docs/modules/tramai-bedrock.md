@@ -1,12 +1,52 @@
 # Module: `tramai-bedrock`
 
 > **One-liner:** Provider for Amazon Bedrock using the InvokeModel API — translates TramAI's unified message model to the Claude (Anthropic) format.
-> **Module type:** `provider`
-> **Source files:** 1 — `BedrockProvider.kt` (323 LOC)
-> **Test files:** 1 — `BedrockProviderTest.kt` (121 LOC)
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for AWS Bedrock: `ModelProvider` implementation using the Bedrock Runtime SDK (AWS SDK auth/regions).
+
+### Public entry points
+
+- `BedrockProvider` — `ModelProvider` implementation (verify against `tramai-bedrock/api/tramai-bedrock.api`)
+
+### Internal extension points
+
+- AWS SDK credential/auth wiring — not consumer seams
+
+### Significant dependencies
+
+- `api(tramai-core)`; AWS SDK (bedrock-runtime, auth, regions) + Jackson + coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider owns its SDK client lifecycle; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `BedrockProviderTckTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -30,14 +70,14 @@ Amazon Bedrock is AWS's managed AI service, providing access to Claude, Llama, a
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-bedrock:0.5.0")
+    implementation("dev.tramai:tramai-bedrock")  // version from the TramAI BOM
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
 implementation("dev.tramai:tramai-bedrock")
 ```
 

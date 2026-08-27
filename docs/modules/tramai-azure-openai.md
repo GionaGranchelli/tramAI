@@ -1,12 +1,55 @@
 # Module: `tramai-azure-openai`
 
 > **One-liner:** Provider for Azure OpenAI — deployment-based endpoints with dual API key / Entra ID authentication.
-> **Module type:** `provider`
-> **Source files:** 1 — `AzureOpenAiProvider.kt` (401 LOC)
-> **Test files:** 1 — `AzureOpenAiProviderTest.kt` (206 LOC)
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for Azure OpenAI: `ModelProvider` implementation with Entra ID token support (static token, token source).
+
+### Public entry points
+
+- `AzureOpenAiProvider` — `ModelProvider` implementation
+- `StaticAzureEntraAccessTokenSource` — access-token source implementation
+
+Verify against `tramai-azure-openai/api/tramai-azure-openai.api`.
+
+### Internal extension points
+
+- Access-token source seam for Entra ID authentication
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider owns its HTTP client lifecycle; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `AzureOpenAiProviderTckTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -30,14 +73,14 @@ Azure OpenAI is the primary AI platform for organizations operating in Microsoft
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-azure-openai:0.5.0")
+    implementation("dev.tramai:tramai-azure-openai")  // version from the TramAI BOM
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
 implementation("dev.tramai:tramai-azure-openai")
 ```
 

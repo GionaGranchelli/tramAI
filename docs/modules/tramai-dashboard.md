@@ -1,12 +1,52 @@
 # Module: `tramai-dashboard`
 
 > **One-liner:** Vue 3 admin UI for managing TramAI workflows, schedules, and workers.
-> **Module type:** `platform`
-> **Source files:** 3 — `DashboardAutoConfiguration.kt`, `DashboardMarker.kt`, `DashboardSettingsController.kt` (124 LOC)
-> **Test files:** 0
-> **Build:** `dev.tramai:tramai-dashboard:0.5.0`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Spring Boot dashboard module: settings UI/controller for runtime configuration surfaces (`DashboardAutoConfiguration`, `DashboardSettingsController`).
+
+### Public entry points
+
+- `DashboardAutoConfiguration`, `DashboardSettingsController`, `DashboardMarker` (verify against `tramai-dashboard/api/tramai-dashboard.api`)
+
+### Internal extension points
+
+- Dashboard settings/controller wiring (Spring beans)
+
+### Significant dependencies
+
+- `spring-boot-starter-web` (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle
+
+### Thread-safety and concurrency
+
+- Spring singletons; controller must be safe for concurrent HTTP requests
+
+### Failure semantics
+
+- Controller errors surface as HTTP error responses
+
+### Contract tests / TCKs
+
+- Covered via server/dashboard integration tests
+
+### Do not
+
+- Do not add engine/provider logic here — this is a presentation/ops surface
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -34,7 +74,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-dashboard:0.5.0")
+    implementation("dev.tramai:tramai-dashboard")  // version from the TramAI BOM
 }
 ```
 

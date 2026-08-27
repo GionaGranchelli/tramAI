@@ -1,11 +1,53 @@
 # Module: `tramai-bom`
 
 > **One-liner:** Bill of materials — a single-import Maven BOM (Gradle `java-platform`) that aligns versions of all Tramai publishable modules so consumers never worry about cross-module version mismatches.
-> **Module type:** `platform`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Module file:** `build.gradle.kts` (23 lines)
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Bill of materials — a `java-platform`/Maven BOM aligning versions of all Tramai publishable modules so consumers never worry about cross-module version mismatches.
+
+### Public entry points
+
+- BOM artifact only (`dev.tramai:tramai-bom`) — no code API
+
+### Internal extension points
+
+- None — publication-only module
+
+### Significant dependencies
+
+- `api()` of every publishable project (platform constraints) — see [module-catalog.yml](../../config/quality/module-catalog.yml) and [module-matrix.md](../../docs/reference/module-matrix.md)
+
+### Lifecycle ownership
+
+- No runtime resource lifecycle; publication artifact only
+
+### Thread-safety and concurrency
+
+- N/A — no runtime code
+
+### Failure semantics
+
+- N/A — no runtime code; BOM drift is caught by the module-manifest verifier
+
+### Contract tests / TCKs
+
+- BOM consistency verified by build-time platform checks (dependencyManagement completeness)
+
+### Do not
+
+- Do not add implementation code here — constraints only
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — core-contracts layer
+- [module-matrix.md](../../docs/reference/module-matrix.md)
 
 ## L1: Quick Start (30-second read)
 
@@ -23,7 +65,7 @@ Tramai has **11 publishable modules** (`tramai-core`, `tramai-engine`, `tramai-s
 - `tramai-spring` depends on several modules
 - `tramai-testing` depends on `tramai-core` and `tramai-engine`
 
-Without a BOM, a consumer who mixes versions (e.g., `tramai-core:0.5.0` with `tramai-engine:0.5.0`) risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
+Without a BOM, a consumer who mixes versions (e.g., `tramai-core` with `tramai-engine` (stale version example)`) risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
 
 ### When to use the BOM
 
@@ -40,7 +82,7 @@ Without a BOM, a consumer who mixes versions (e.g., `tramai-core:0.5.0` with `tr
 ```kotlin
 dependencies {
     // 1. Import the BOM
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
 
     // 2. Declare Tramai modules without versions
     implementation("dev.tramai:tramai-orchestration")
@@ -49,12 +91,12 @@ dependencies {
 }
 ```
 
-Gradle's `platform()` notation activates the version constraints from the BOM. All three modules resolve to `0.3.1` — the version declared in the BOM for each.
+Gradle's `platform()` notation activates the version constraints from the BOM. All three modules resolve to the version declared in the BOM for each.
 
 To **override** a single module version (e.g., to test a snapshot):
 
 ```kotlin
-implementation("dev.tramai:tramai-openai:0.5.0") // explicit version wins
+implementation("dev.tramai:tramai-openai")  // version from the TramAI BOM // explicit version wins
 ```
 
 ### Maven
@@ -65,7 +107,7 @@ implementation("dev.tramai:tramai-openai:0.5.0") // explicit version wins
         <dependency>
             <groupId>dev.tramai</groupId>
             <artifactId>tramai-bom</artifactId>
-            <version>0.5.0</version>
+            <version>${tramai.version}</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -119,7 +161,7 @@ dependencies {
 }
 ```
 
-When published, Gradle resolves each `project()` reference to the **current project version** (`tramaiVersion`, default `0.3.1`). The resulting POM contains a `<dependencyManagement>` block that lists every module with its resolved version.
+When published, Gradle resolves each `project()` reference to the **current project version** (`tramaiVersion`, see `gradle.properties`). The resulting POM contains a `<dependencyManagement>` block that lists every module with its resolved version.
 
 ### Versions it pins
 
