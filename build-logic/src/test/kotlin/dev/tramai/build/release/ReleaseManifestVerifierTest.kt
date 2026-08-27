@@ -95,11 +95,14 @@ class ReleaseManifestVerifierTest {
 
     @Test
     fun `empty artifacts fails`() {
-        writeManifest(validManifestJson().replace("  \"artifacts\": [", "  \"artifacts\": ["))
+        writeManifest(validManifestJson().replace(
+            Regex("\"artifacts\": \\[[\\s\\S]*?\"fileName\": \"[^\"]+\"[\\s\\S]*?\\]"),
+            "\"artifacts\": []",
+        ))
         val e = assertFailsWith<IllegalArgumentException> {
             ReleaseManifestVerifier.verify(manifestDir(), artifactsDir())
         }
-        assertTrue(e.message!!.isNotBlank())
+        assertTrue(e.message!!.contains("sovereign-release-manifest-empty-artifacts"))
     }
 
     @Test

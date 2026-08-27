@@ -9,6 +9,34 @@ import org.gradle.kotlin.dsl.register
 import org.gradle.api.tasks.Exec
 import java.io.File
 
+/** Execution args + human-readable display for the consumer smoke invocation. */
+data class ConsumerSmokeInvocation(
+    val gradleWrapper: String,
+    val args: List<String>,
+    val display: String,
+)
+
+/**
+ * Builds the consumer smoke invocation from the resolved verification repo
+ * path. Pure so it can be unit tested with paths containing spaces — the
+ * executable arguments must NEVER be derived by splitting the display string.
+ */
+fun consumerSmokeInvocation(verificationRepoAbsolutePath: String, tramaiVersion: String): ConsumerSmokeInvocation {
+    val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew"
+    val args = listOf(
+        "-p", "examples/sovereign-runtime-consumer-smoke",
+        "test",
+        "-PtramaiVersion=$tramaiVersion",
+        "-PsovereignRuntimeVerificationRepo=$verificationRepoAbsolutePath",
+        "--no-configuration-cache",
+    )
+    return ConsumerSmokeInvocation(
+        gradleWrapper = gradleWrapper,
+        args = args,
+        display = "$gradleWrapper ${args.joinToString(" ")}",
+    )
+}
+
 /**
  * Registers the sovereign release verification pipeline as typed DefaultTasks
  * (Epic 9.2b). Applied to the root project. Task names and observable
@@ -57,15 +85,15 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         val sovereignBundleRepoUrl = TramaiPublishingRepositories.sovereignBundleRepoUrl(project.rootProject).get()
-        val consumerSmokeCommand = consumerSmokeCommand(project)
+        val consumerSmoke = consumerSmokeInvocation(project)
 
         registerVerifySovereignRuntimePublication(project)
         registerVerifySovereignRuntimeSignedBundle(project, sovereignBundleRepoUrl)
         registerPrepareSovereignReleaseArtifacts(project)
         registerVerifySovereignReleaseManifest(project)
         registerVerifySovereignRuntimeVerificationRepoClosure(project)
-        registerVerifySovereignRuntimeConsumerSmoke(project, consumerSmokeCommand)
-        registerGenerateSovereignReleaseEvidenceIndex(project, consumerSmokeCommand)
+        registerVerifySovereignRuntimeConsumerSmoke(project, consumerSmoke)
+        registerGenerateSovereignReleaseEvidenceIndex(project, consumerSmoke)
     }
 
     /**
@@ -88,22 +116,14 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         }
     }
 
-    private fun consumerSmokeCommand(project: Project): String {
-        val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew"
+    private fun consumerSmokeInvocation(project: Project): ConsumerSmokeInvocation {
         val consumerSmokeVersion = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0").get()
         val verificationRepo = project.layout.buildDirectory
             .dir("sovereign-runtime-release-verification-repo")
             .get()
             .asFile
             .absolutePath
-        val consumerSmokeArgs = listOf(
-            "-p", "examples/sovereign-runtime-consumer-smoke",
-            "test",
-            "-PtramaiVersion=$consumerSmokeVersion",
-            "-PsovereignRuntimeVerificationRepo=$verificationRepo",
-            "--no-configuration-cache",
-        )
-        return "$gradleWrapper ${consumerSmokeArgs.joinToString(" ")}"
+        return dev.tramai.build.sovereign.consumerSmokeInvocation(verificationRepo, consumerSmokeVersion)
     }
 
     private fun registerVerifySovereignRuntimePublication(project: Project) {
@@ -257,26 +277,25 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         }
     }
 
-    private fun registerVerifySovereignRuntimeConsumerSmoke(project: Project, consumerSmokeCommand: String) {
-        val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew"
-        val consumerSmokeArgs = consumerSmokeCommand.removePrefix("$gradleWrapper ").split(" ")
-
+    private fun registerVerifySovereignRuntimeConsumerSmoke(project: Project, invocation: ConsumerSmokeInvocation) {
         project.tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
             group = "verification"
             description = "Runs the standalone sovereign runtime consumer smoke test against the dedicated verification repo."
             dependsOn("verifySovereignRuntimeVerificationRepoClosure")
             workingDir = project.projectDir
-            commandLine(listOf(gradleWrapper) + consumerSmokeArgs)
+            // Never derive executable args from a display string — a repo path
+            // containing spaces would be split into multiple arguments.
+            commandLine(listOf(invocation.gradleWrapper) + invocation.args)
         }
     }
 
-    private fun registerGenerateSovereignReleaseEvidenceIndex(project: Project, consumerSmokeCommand: String) {
+    private fun registerGenerateSovereignReleaseEvidenceIndex(project: Project, invocation: ConsumerSmokeInvocation) {
         project.tasks.register<GenerateSovereignReleaseEvidenceIndexTask>("generateSovereignReleaseEvidenceIndex") {
             group = "verification"
             description = "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."
 
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
-            this.consumerSmokeCommand.set(consumerSmokeCommand)
+            this.consumerSmokeCommand.set(invocation.display)
             bundleManifestFile.from(project.layout.buildDirectory.file("sovereign-runtime-release/bundle-manifest.json"))
             releaseManifestFile.from(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             verificationRepositoryDirectory.from(project.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo"))

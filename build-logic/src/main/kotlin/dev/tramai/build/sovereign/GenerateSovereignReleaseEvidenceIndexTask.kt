@@ -13,6 +13,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -21,6 +22,8 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import java.io.ByteArrayOutputStream
+import javax.inject.Inject
 
 /**
  * Generates a release evidence index (JSON + Markdown) tying together commit
@@ -84,6 +87,9 @@ abstract class GenerateSovereignReleaseEvidenceIndexTask : DefaultTask() {
 
     @get:OutputFile
     abstract val evidenceIndexMarkdown: RegularFileProperty
+
+    @get:Inject
+    abstract val execOperations: ExecOperations
 
     @TaskAction
     fun generate() {
@@ -282,9 +288,20 @@ abstract class GenerateSovereignReleaseEvidenceIndexTask : DefaultTask() {
     }
 
     private fun runGit(vararg args: String): String {
-        val process = ProcessBuilder(listOf("git") + args)
-            .redirectErrorStream(true)
-            .start()
-        return process.inputStream.bufferedReader().readText().trim()
+        val output = ByteArrayOutputStream()
+        execOperations.exec(
+            object : org.gradle.api.Action<org.gradle.process.ExecSpec> {
+                override fun execute(spec: org.gradle.process.ExecSpec) {
+                    // Pin to the repository root: the daemon's CWD is not guaranteed to
+                    // be the project directory, and git metadata in an evidence artifact
+                    // must describe THIS repository.
+                    spec.workingDir(project.projectDir)
+                    spec.commandLine("git", *args)
+                    spec.standardOutput = output
+                    spec.errorOutput = output
+                }
+            },
+        ).assertNormalExitValue()
+        return output.toString(Charsets.UTF_8).trim()
     }
 }

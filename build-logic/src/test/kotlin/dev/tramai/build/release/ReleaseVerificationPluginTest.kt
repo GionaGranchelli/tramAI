@@ -235,7 +235,7 @@ class ReleaseVerificationPluginTest {
         assertTrue(result.output.contains("only supports file://"))
         // Sentinel publish tasks must NOT have executed
         assertFalse(
-            File(dir, "tramai-core/build/publishMavenLocal.executed").exists(),
+            File(dir, "tramai-core/build/publishToMavenLocal.executed").exists(),
             "publishToMavenLocal must not execute",
         )
         assertFalse(
@@ -366,6 +366,15 @@ class ReleaseVerificationPluginTest {
     @Test
     fun `T10 evidence index fails when bundle manifest missing`() {
         val dir = baseFixture()
+        // The evidence task reads git metadata BEFORE validating artifacts, so
+        // the fixture must be a real git repo to reach the artifact checks.
+        git(dir, "init", "-q")
+        git(dir, "config", "user.email", "test@example.com")
+        git(dir, "config", "user.name", "Test")
+        writeFile(dir, "committed.txt", "hello")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "seed")
+        git(dir, "remote", "add", "origin", "https://github.com/GionaGranchelli/tramAI.git")
         // Seed a valid-looking stale evidence index from a previous PASS.
         val staleJson = File(dir, "build/sovereign-runtime-release/evidence-index.json")
         staleJson.parentFile.mkdirs()
@@ -508,6 +517,112 @@ class ReleaseVerificationPluginTest {
         assertTrue(
             real.output.contains("BUILD SUCCESSFUL"),
             "prepare must succeed on a clean workspace: ${real.output.take(800)}",
+        )
+    }
+
+    // ── T14: evidence git metadata via injected ExecOperations ──────────────
+
+    @Test
+    fun `T14a evidence records correct git HEAD and repository`() {
+        val dir = baseFixture()
+        seedEvidenceInputs(dir)
+        // Make the fixture a real git repository with a known commit and remote.
+        git(dir, "init", "-q")
+        git(dir, "config", "user.email", "test@example.com")
+        git(dir, "config", "user.name", "Test")
+        writeFile(dir, "committed.txt", "hello")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "seed")
+        git(dir, "remote", "add", "origin", "https://github.com/GionaGranchelli/tramAI.git")
+        val expectedSha = git(dir, "rev-parse", "HEAD").trim()
+
+        val result = runner(dir, "generateSovereignReleaseEvidenceIndex").build()
+        val json = File(dir, "build/sovereign-runtime-release/evidence-index.json")
+        assertTrue(json.isFile, "evidence index must be generated: ${result.output.take(800)}")
+        val text = json.readText()
+        assertTrue(text.contains("\"commitSha\": \"$expectedSha\""), "evidence must record HEAD $expectedSha: $text")
+        assertTrue(text.contains("\"repository\": \"GionaGranchelli/tramAI\""), "evidence must record repository: $text")
+    }
+
+    @Test
+    fun `T14b git failure fails evidence generation closed`() {
+        // Fixture is NOT a git repository: `git rev-parse HEAD` exits non-zero.
+        // The evidence generation must FAIL (never record empty/wrong metadata).
+        val dir = baseFixture()
+        seedEvidenceInputs(dir)
+        val result = runner(dir, "generateSovereignReleaseEvidenceIndex").buildAndFail()
+        assertTrue(
+            result.output.contains("non-zero exit") || result.output.contains("git"),
+            "git failure must surface as an execution failure: ${result.output.take(1200)}",
+        )
+        // No evidence file may be produced from a failed run.
+        assertFalse(
+            File(dir, "build/sovereign-runtime-release/evidence-index.json").exists(),
+            "no evidence index may survive a failed git resolution",
+        )
+    }
+
+    private fun seedEvidenceInputs(dir: File) {
+        writeFile(
+            dir,
+            "build/sovereign-runtime-release/bundle-manifest.json",
+            """{"schemaVersion":"sovereign-runtime-release-bundle-v1","modules":[]}""",
+        )
+        writeFile(
+            dir,
+            "build/sovereign-runtime-release-verification-repo/.keep",
+            "repo",
+        )
+        writeFile(
+            dir,
+            "build/sovereign-release/release-artifacts-v1.json",
+            """{"schemaVersion":1,"artifacts":[]}""",
+        )
+        writeFile(
+            dir,
+            "build/sovereign-release/artifacts/.keep",
+            "artifacts",
+        )
+        // Isolate the evidence task from upstream producers (proven by T9).
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins {
+                id("tramai.release-verification")
+                id("tramai.sovereign-verification")
+            }
+            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
+            tasks.register("verifySovereignOpsObservabilityDocs") {
+                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
+            }
+            tasks.named("generateSovereignReleaseEvidenceIndex") {
+                setDependsOn(emptyList<String>())
+            }
+            """.trimIndent(),
+        )
+    }
+
+    private fun git(dir: File, vararg args: String): String {
+        val process = ProcessBuilder(listOf("git", "-C", dir.absolutePath) + args)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exit = process.waitFor()
+        check(exit == 0) { "git ${args.joinToString(" ")} failed ($exit): $output" }
+        return output
+    }
+
+    // ── T15: presence-only properties must default to false ─────────────────
+
+    @Test
+    fun `T15 missing remote-publish properties produce the stable diagnostic`() {
+        val dir = baseFixture()
+        // No tramaiPublishReleaseUrl/username/password/signing properties set.
+        val result = runner(dir, "verifyReleasePublishInputs").buildAndFail()
+        assertTrue(
+            result.output.contains("Missing required Gradle property for remote release publishing: tramaiPublishReleaseUrl"),
+            "stable TramAI diagnostic required, got: ${result.output.take(1200)}",
         )
     }
 }

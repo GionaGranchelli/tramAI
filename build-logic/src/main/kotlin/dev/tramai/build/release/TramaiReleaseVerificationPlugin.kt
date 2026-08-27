@@ -100,11 +100,11 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             group = "verification"
             description = "Verifies that the properties required for a real remote release publish are present."
 
-            releaseUrlPresent.set(project.providers.gradleProperty("tramaiPublishReleaseUrl").map { it.isNotBlank() })
-            usernamePresent.set(project.providers.gradleProperty("tramaiPublishUsername").map { it.isNotBlank() })
-            passwordPresent.set(project.providers.gradleProperty("tramaiPublishPassword").map { it.isNotBlank() })
-            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() })
-            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() })
+            releaseUrlPresent.set(project.providers.gradleProperty("tramaiPublishReleaseUrl").map { it.isNotBlank() }.orElse(false))
+            usernamePresent.set(project.providers.gradleProperty("tramaiPublishUsername").map { it.isNotBlank() }.orElse(false))
+            passwordPresent.set(project.providers.gradleProperty("tramaiPublishPassword").map { it.isNotBlank() }.orElse(false))
+            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() }.orElse(false))
+            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() }.orElse(false))
             tramaiVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
         }
     }
@@ -119,8 +119,8 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             expectedGroup.set(project.providers.gradleProperty("tramaiGroup").orElse("dev.tramai"))
             this.publishableModules.set(publishableModuleNames)
-            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() })
-            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() })
+            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() }.orElse(false))
+            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() }.orElse(false))
 
             val version = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0")
             val releaseUrl = project.providers.gradleProperty("tramaiPublishReleaseUrl")
