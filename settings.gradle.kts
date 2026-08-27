@@ -61,4 +61,6 @@ include(
     "examples:governed-workflow",
     "examples:approval-resume",
     "examples:tool-governance",
+    "examples:java-consumer-smoke",
+    "examples:kotlin-consumer-smoke",
 )

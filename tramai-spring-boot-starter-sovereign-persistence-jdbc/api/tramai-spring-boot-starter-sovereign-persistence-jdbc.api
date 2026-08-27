@@ -124,6 +124,7 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOps
 }
 
 public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore {
+	public static final field CLAIM_BLOCKING_FALLBACK_LIMIT I
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;I)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -134,8 +135,8 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOps
 	public fun listByStatus (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listExpiredEmitting (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILjava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
