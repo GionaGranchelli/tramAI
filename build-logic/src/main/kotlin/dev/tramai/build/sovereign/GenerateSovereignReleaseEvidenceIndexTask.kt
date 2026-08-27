@@ -11,12 +11,14 @@ import dev.tramai.build.sovereign.evidence.SovereignReleaseEvidenceIndexV1
 import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -87,6 +89,15 @@ abstract class GenerateSovereignReleaseEvidenceIndexTask : DefaultTask() {
 
     @get:OutputFile
     abstract val evidenceIndexMarkdown: RegularFileProperty
+
+    /**
+     * Repository root for git metadata commands. Configured by the plugin from
+     * the project directory; tasks must NOT access `project` during execution
+     * (configuration-cache violation), so the working directory arrives as an
+     * injected task property instead.
+     */
+    @get:Internal
+    abstract val repositoryRoot: DirectoryProperty
 
     @get:Inject
     abstract val execOperations: ExecOperations
@@ -294,8 +305,9 @@ abstract class GenerateSovereignReleaseEvidenceIndexTask : DefaultTask() {
                 override fun execute(spec: org.gradle.process.ExecSpec) {
                     // Pin to the repository root: the daemon's CWD is not guaranteed to
                     // be the project directory, and git metadata in an evidence artifact
-                    // must describe THIS repository.
-                    spec.workingDir(project.projectDir)
+                    // must describe THIS repository. Configured at plugin time — task
+                    // execution must never read `project`.
+                    spec.workingDir(repositoryRoot.get().asFile)
                     spec.commandLine("git", *args)
                     spec.standardOutput = output
                     spec.errorOutput = output

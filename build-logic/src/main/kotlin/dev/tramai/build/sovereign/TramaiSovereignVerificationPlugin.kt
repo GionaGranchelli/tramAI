@@ -296,6 +296,7 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
 
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             this.consumerSmokeCommand.set(invocation.display)
+            repositoryRoot.set(project.layout.projectDirectory)
             bundleManifestFile.from(project.layout.buildDirectory.file("sovereign-runtime-release/bundle-manifest.json"))
             releaseManifestFile.from(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             verificationRepositoryDirectory.from(project.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo"))

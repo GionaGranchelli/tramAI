@@ -418,20 +418,46 @@ class ReleaseVerificationPluginTest {
     // ── T12: configuration cache proof ───────────────────────────────────────
 
     @Test
-    fun `T12 configuration cache reuse for typed verification tasks`() {
+    fun `T12 configuration cache reuse for the typed evidence task`() {
+        // The typed evidence task must be configuration-cache clean: it may not
+        // read `project` at execution time (runGit used to reference
+        // project.projectDir). Exercise the real task twice — the second run
+        // must REUSE the stored configuration cache, proving no execution-time
+        // project access and no cache-invalidation input.
         val dir = baseFixture()
+        seedEvidenceInputs(dir)
+        // Git metadata is read at execution time, so the fixture must be a repo.
+        git(dir, "init", "-q")
+        git(dir, "config", "user.email", "test@example.com")
+        git(dir, "config", "user.name", "Test")
+        writeFile(dir, "committed.txt", "hello")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "seed")
+        git(dir, "remote", "add", "origin", "https://github.com/GionaGranchelli/tramAI.git")
+
         val args = arrayOf(
-            "verifySovereignOpsObservabilityDocs",
+            "generateSovereignReleaseEvidenceIndex",
             "--configuration-cache",
             "--configuration-cache-problems=fail",
         )
         val first = runner(dir, *args).build()
-        assertTrue(first.task(":verifySovereignOpsObservabilityDocs") != null)
+        assertTrue(
+            first.task(":generateSovereignReleaseEvidenceIndex") != null,
+            "evidence task must execute: ${first.output.take(800)}",
+        )
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "first run must store the configuration cache: ${first.output.take(800)}",
+        )
         val second = runner(dir, *args).build()
-        // Second run must reuse the stored configuration cache, not rebuild it.
         assertTrue(
             second.output.contains("Reusing configuration cache"),
             "second run must reuse the configuration cache: ${second.output.take(800)}",
+        )
+        // Both runs must produce evidence (git metadata resolved at execution).
+        assertTrue(
+            File(dir, "build/sovereign-runtime-release/evidence-index.json").isFile,
+            "evidence index must be generated on both runs",
         )
     }
 
