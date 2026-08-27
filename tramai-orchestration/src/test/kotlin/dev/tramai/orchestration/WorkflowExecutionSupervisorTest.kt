@@ -272,9 +272,9 @@ class WorkflowExecutionSupervisorTest {
     fun `snapshot iteration is safe when the map shrinks between size and iteration`() {
         // Models ConcurrentHashMap.values in the observed shutdown race: the
         // collection reports size == 1, then the map empties before the
-        // iterator advances. Collection.toList() singleton fast-path calls
-        // iterator().next() -> NoSuchElementException; snapshot via map { it }
-        // uses the hasNext()/next() progression -> empty list. No stress loop.
+        // iterator advances. Executes the SAME snapshot function production
+        // uses (stableConcurrentSnapshot), so a regression back to
+        // Collection.toList() in the snapshot path makes this RED.
         val shrinking = object : Collection<ActiveExecution> {
             override val size: Int get() = 1
             override fun isEmpty(): Boolean = false
@@ -284,7 +284,7 @@ class WorkflowExecutionSupervisorTest {
         }
         assertThatThrownBy { shrinking.toList() }
             .isInstanceOf(NoSuchElementException::class.java)
-        assertThat(shrinking.map { it }).isEmpty()
+        assertThat(stableConcurrentSnapshot(shrinking)).isEmpty()
     }
 
     private data class TestState(val value: String)

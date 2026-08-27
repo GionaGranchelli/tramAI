@@ -626,10 +626,10 @@ class TramaiWorkerTest {
                 leaseStore.listActiveWorkers().singleOrNull()?.workerId == "worker-0"
             }
             // The heartbeat loop must keep the registry row current: after the
-            // clock advances past the poll cadence, the row's last-heartbeat
-            // catches up to the new time (a live heartbeat updated it) and the
-            // worker is NOT stale. The waitUntil guarantees the refresh landed
-            // before the staleness assertion runs.
+            // clock advances to the next heartbeat cadence, the row's
+            // last-heartbeat catches up to the new time (a live heartbeat
+            // updated it) and the worker is NOT stale. The waitUntil
+            // guarantees the refresh landed before the staleness assertion.
             now += 500
             waitUntil {
                 leaseStore.listActiveWorkers().single().lastHeartbeatEpochMillis == now
