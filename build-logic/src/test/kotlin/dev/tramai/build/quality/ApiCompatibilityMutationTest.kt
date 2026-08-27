@@ -180,12 +180,13 @@ class ApiCompatibilityMutationTest {
 
     @Test
     fun `B5 stable dump referencing preview owned type fails`() {
-        // preview module owns dev/tramai/preview-leak/Internal
+        // preview module owns dev/tramai/previewleak/Internal (valid JVM
+        // descriptor — no '-' in package/class segments)
         val previewDump =
-            "public final class dev/tramai/preview-leak/Internal {\n\tpublic fun a ()V\n}\n"
+            "public final class dev/tramai/previewleak/Internal {\n\tpublic fun a ()V\n}\n"
         val baseStable = dump(":tramai-core", "\tpublic fun a ()V")
         // current stable dump now references a class owned by the preview module
-        val currentStable = dump(":tramai-core", "\tpublic fun a ()V", "\tpublic fun f (Ldev/tramai/preview-leak/Internal;)V")
+        val currentStable = dump(":tramai-core", "\tpublic fun a ()V", "\tpublic fun f (Ldev/tramai/previewleak/Internal;)V")
         val committed = mapOf(
             ":tramai-core" to currentStable,
             ":tramai-preview-leak" to previewDump,
@@ -201,6 +202,28 @@ class ApiCompatibilityMutationTest {
                     it.message.contains("inversion") && it.message.contains(":tramai-core")
             },
             "stable→preview type leak must fail, got: $diagnostics"
+        )
+    }
+
+    @Test
+    fun `B5 descriptor prefix cannot create accidental inversion`() {
+        // Negative oracle: the owner descriptor is dev/tramai/previewleak/Internal.
+        // A stable dump referencing a DIFFERENT type whose package merely shares
+        // the textual prefix (dev/tramai/previewleak2/...) must NOT be flagged —
+        // the ownership match must be exact, not prefix-based. The stable module
+        // is UNCHANGED (base==current) so only the inversion scan is under test.
+        val previewDump =
+            "public final class dev/tramai/previewleak/Internal {\n\tpublic fun a ()V\n}\n"
+        // references dev/tramai/previewleak2/Internal — shares prefix, different package
+        val stableDump = dump(":tramai-core", "\tpublic fun a ()V", "\tpublic fun f (Ldev/tramai/previewleak2/Internal;)V")
+        val committed = mapOf(
+            ":tramai-core" to stableDump,
+            ":tramai-preview-leak" to previewDump,
+        )
+        val diagnostics = verifier().verify(evidence(committed = committed, base = committed), migrations = emptyList())
+        assertTrue(
+            diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "descriptor prefix must not create an inversion, got: $diagnostics"
         )
     }
 
@@ -304,9 +327,11 @@ class ApiCompatibilityMutationTest {
 
     @Test
     fun `B8 orphan migration entry for unchanged module fails`() {
+        // A true orphan: entry whose `to` does NOT match the current (unchanged)
+        // committed hash — base==current==A but entry claims A→deadbeef.
         val committed = mapOf(":tramai-engine" to dump(":tramai-engine", "\tpublic fun a ()V"))
         val diagnostics = verifier().verify(
-            evidence(committed = committed),
+            evidence(committed = committed, base = committed),
             migrations = listOf(
                 ApiMigrationEntry(
                     ":tramai-engine",
@@ -319,6 +344,86 @@ class ApiCompatibilityMutationTest {
             )
         )
         assertTrue(compatCodes(diagnostics).isNotEmpty(), "orphan entry must fail, got: $diagnostics")
+    }
+
+    @Test
+    fun `B8b landed migration entry does not poison unchanged module`() {
+        // PR N+1 after the migration landed: base==current==B, the A→B entry
+        // remains in the registry. It must PASS (LANDED retained history),
+        // not FAIL as an orphan — otherwise merging B3 poisons the next PR.
+        val baseB = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V")
+        val committedB = baseB
+        val entry = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(dump(":tramai-engine", "\tpublic fun a ()V")),
+            sha256(baseB),
+            "0.6.0",
+            "landed",
+            "m"
+        )
+        val diagnostics = verifier().verify(
+            evidence(committed = mapOf(":tramai-engine" to committedB), base = mapOf(":tramai-engine" to baseB)),
+            migrations = listOf(entry)
+        )
+        assertTrue(
+            diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "landed entry with unchanged module must pass, got: $diagnostics"
+        )
+    }
+
+    @Test
+    fun `B8b landed migration entry does not authorize a later change`() {
+        // PR N+1 makes a NEW change: base==B, current==C. The old A→B entry is
+        // LANDED history and must NOT authorize B→C; a new exact B→C entry is
+        // required.
+        val baseB = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V")
+        val currentC = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V", "\tpublic fun c ()V")
+        val oldEntry = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(dump(":tramai-engine", "\tpublic fun a ()V")),
+            sha256(baseB),
+            "0.6.0",
+            "landed",
+            "m"
+        )
+        val diagnostics = verifier().verify(
+            evidence(committed = mapOf(":tramai-engine" to currentC), base = mapOf(":tramai-engine" to baseB)),
+            migrations = listOf(oldEntry)
+        )
+        assertTrue(
+            compatCodes(diagnostics).isNotEmpty(),
+            "landed A→B entry must not authorize B→C, got: $diagnostics"
+        )
+    }
+
+    @Test
+    fun `B8b new exact entry authorizes the later change`() {
+        val baseB = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V")
+        val currentC = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V", "\tpublic fun c ()V")
+        val landed = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(dump(":tramai-engine", "\tpublic fun a ()V")),
+            sha256(baseB),
+            "0.6.0",
+            "landed",
+            "m"
+        )
+        val newEntry = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(baseB),
+            sha256(currentC),
+            "0.6.0",
+            "new change",
+            "m"
+        )
+        val diagnostics = verifier().verify(
+            evidence(committed = mapOf(":tramai-engine" to currentC), base = mapOf(":tramai-engine" to baseB)),
+            migrations = listOf(landed, newEntry)
+        )
+        assertTrue(
+            diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "landed + new exact entry must pass, got: $diagnostics"
+        )
     }
 
     @Test

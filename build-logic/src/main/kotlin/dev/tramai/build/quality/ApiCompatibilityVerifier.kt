@@ -173,17 +173,31 @@ class ApiCompatibilityVerifier(
                 )
             }
 
-        // orphans / wrong hashes / target version: entry must match a real transition
+        // Entry lifecycle (D1): a registry entry is valid evidence in exactly
+        // two states — ACTIVE (base→current transition it was written for is
+        // still the live one) or LANDED (its `to` hash has landed: either it is
+        // both base and current — the merged steady state — or it is the new
+        // base while a FURTHER change is in flight, so it is retained history
+        // that authorizes nothing). Any other state — orphan, stale, wrong
+        // hash, wrong version — FAILs. Authorization of a live base→current
+        // change is handled by Contract-2 (exact entry required); a landed
+        // entry must never block the next PR nor authorize a later change.
         migrations.forEach { entry ->
             val realTransition = actualTransition(evidence, entry.module)
-            val matches = realTransition != null &&
+            val base = evidence.base[entry.module]
+            val committed = evidence.committed[entry.module]
+            val active = realTransition != null &&
                 realTransition.first == entry.fromSha256 &&
                 realTransition.second == entry.toSha256 &&
                 entry.targetVersion == projectVersion
-            if (!matches) {
+            val landed = base != null && committed != null && (
+                (realTransition == null && sha256(committed) == entry.toSha256) ||
+                    (realTransition != null && sha256(base) == entry.toSha256)
+                )
+            if (!active && !landed) {
                 diagnostics += VerificationDiagnostic.failure(
                     DiagnosticCode.API_COMPATIBILITY_FAILED,
-                    "Migration entry for '${entry.module}' is stale, orphaned, or hash-mismatched " +
+                    "Migration entry for '${entry.module}' is stale, orphaned, hash-mismatched, or not yet landed " +
                         "(declared ${entry.fromSha256} → ${entry.toSha256} for ${entry.targetVersion}, " +
                         "actual ${realTransition?.first ?: "<no change>"} → ${realTransition?.second ?: "<no change>"} " +
                         "for $projectVersion)",
@@ -299,7 +313,7 @@ object ConsumerCompatibilityGuard {
             listOf(
                 VerificationDiagnostic.failure(
                     DiagnosticCode.API_COMPATIBILITY_FAILED,
-                    "Consumer fixture '$sourceDir' has no .$extension sources; " +
+                    "Consumer fixture '$sourceDir' has no .$fileExtension sources; " +
                         "an empty fixture proves nothing (zero-source trap)"
                 )
             )

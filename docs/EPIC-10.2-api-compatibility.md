@@ -125,6 +125,20 @@ Enforcement — every condition FAILs:
   (`0.6.0`)
 - Stable modules can never use entries (stable change = hard FAIL regardless).
 
+Entry lifecycle (D1) — a registry entry is valid evidence in exactly two states:
+
+| State | Condition | Effect |
+|-------|-----------|--------|
+| ACTIVE | base hash == `fromSha256` AND current hash == `toSha256` (and targetVersion matches) | authorizes THIS exact transition |
+| LANDED | its `to` hash has landed: `to` == current hash with no change (merged steady state), OR `to` == base hash while a further change is in flight (retained history) | valid retained evidence; authorizes nothing |
+| any other state | orphan / stale / wrong hash / wrong version | FAIL |
+
+A LANDED entry must NOT block the next PR (base==current — the "merged
+repository must be a valid steady state" invariant), and must NOT authorize a
+later base→current change (Contract-2 requires a new exact entry for the new
+transition). Old entries may be retained as history when the same module
+changes again.
+
 Sha256 = SHA-256 of the dump file's UTF-8 content. Both hashes must match
 *both* actual dumps — the entry authorizes that exact transition, nothing
 broader. (This also means the entry must be committed in the same PR as the

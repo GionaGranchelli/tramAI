@@ -1047,7 +1047,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             "kotlin",
         )
         project.tasks.named("verify060Architecture") {
-            dependsOn("verifyJavaConsumerCompatibility", "verifyKotlinConsumerCompatibility")
+            dependsOn(
+                ":examples:java-consumer-smoke:verifyJavaConsumerCompatibility",
+                ":examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility",
+            )
         }
 
         // ---- PR Verification (primary local check gate) ----
@@ -1487,9 +1490,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         extension: String,
     ) {
         val fixture = project.project(modulePath)
-        val markerFile = project.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
-        val classesDir = project.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
-        val sourcesProvider = project.provider {
+        // D6: the producer task belongs to the FIXTURE project, which owns its
+        // configurations. Resolving them inside the task action is therefore
+        // legal (project-owned, lazy, execution-phase) — a root task resolving
+        // a foreign project's configuration would trip the exclusive-lock rule.
+        val markerFile = fixture.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
+        val classesDir = fixture.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
+        val sourcesProvider = fixture.provider {
             File(fixture.projectDir, sourceRelPath)
                 .walkTopDown()
                 .filter { it.isFile && it.extension == (if (extension == "kotlin") "kt" else "java") }
@@ -1497,7 +1504,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 .toList()
         }
 
-        project.tasks.register(taskName) {
+        fixture.tasks.register(taskName) {
             group = "verification"
             description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"
 
@@ -1507,19 +1514,17 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             // before verify060Architecture's report is written (C3/C4).
             dependsOn(":tramai-core:jar")
 
-            // Resolve the Kotlin compiler classpath at configuration time
-            // (lazy, locked by Gradle); resolving inside the action would
-            // violate the exclusive-lock rule on configuration resolution.
-            val k2jvmClasspath = if (extension == "kotlin") {
-                fixture.configurations.getByName("kotlinCompilerClasspath").asPath
-            } else {
-                ""
-            }
-            val consumerClasspath = fixture.configurations.getByName("compileClasspath").asPath
-
             doLast {
                 val sources = sourcesProvider.get()
-                val classpath = consumerClasspath
+                // Project-owned configuration resolution at execution time:
+                // this task lives in the fixture project, so its own
+                // configurations are locked and resolvable here (D6).
+                val classpath = fixture.configurations.getByName("compileClasspath").asPath
+                val k2jvmClasspath = if (extension == "kotlin") {
+                    fixture.configurations.getByName("kotlinCompilerClasspath").asPath
+                } else {
+                    ""
+                }
                 val outDir = classesDir.get().asFile.apply { mkdirs() }
                 outDir.listFiles()?.forEach { it.deleteRecursively() }
                 var exitCode = -1
@@ -1620,8 +1625,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // C3/C4: consumer compile proofs are fail-soft producers. Read their
         // markers; a failed compile surfaces as typed evidence here, and the
         // report is written before the gate throws (B2 fail-closed contract).
-        listOf("java", "kotlin").forEach { language ->
-            val marker = File(project.layout.buildDirectory.get().asFile, "reports/maintainability/consumer-$language.json")
+        listOf(
+            "java" to ":examples:java-consumer-smoke",
+            "kotlin" to ":examples:kotlin-consumer-smoke",
+        ).forEach { (language, fixturePath) ->
+            val marker = File(
+                project.project(fixturePath).layout.buildDirectory.get().asFile,
+                "reports/maintainability/consumer-$language.json"
+            )
             if (!marker.isFile) {
                 checks.getValue("api-architecture") += VerificationDiagnostic.failure(
                     DiagnosticCode.API_COMPATIBILITY_FAILED,
