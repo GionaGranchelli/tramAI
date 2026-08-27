@@ -31,7 +31,7 @@ Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (framework-integrations
 ## NOT changed
 
 - **Engine retry/fallback/admission** — `ProviderExecutionCoordinator` owns these; provider adapters do transport/vendor translation only (see ADR-009).
-- **`ProviderTck` itself** — the conformance contract is an independent oracle; do not weaken it to make a store pass.
+- **`ProviderTck` itself** — the conformance contract is an independent oracle; do not weaken it to make a provider pass.
 - **Analyzer/baseline** — never edit `config/quality/0.6.0-baseline.json` in the same PR.
 - **`tramai-core` provider registry** — no changes needed unless the SPI itself is extended (that is a separate `public-api` change).
 

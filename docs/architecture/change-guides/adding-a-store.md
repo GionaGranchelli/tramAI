@@ -2,7 +2,9 @@
 
 ## Start here
 
-A store implementation (approval, continuation, credential, audit, suspended-invocation, checkpoint, lease) implements a **core SPI** and proves conformance by enrolling in the matching **shared TCK** in `tramai-testing` — enrollment is architecture-enforced, so a store without its TCK runner fails the build. The TCK is the contract, not a documentation exercise.
+A store implementation (approval, continuation, credential, audit, suspended-invocation, checkpoint, lease) implements an **authoritative store SPI in its owning module** (core, security, engine, or orchestration — see the Owning module section) and, where a shared TCK exists, proves conformance by enrolling in it — enrollment is architecture-enforced, so a store without its TCK runner fails the build. The TCK is the contract, not a documentation exercise.
+
+**Exception — no shared TCK today:** `ApprovalResumeCredentialStore` has **no** `ApprovalResumeCredentialStoreTck` and no architecture-enrolled TCK gate. It is covered only by implementation/module tests (e.g. `JdbcApprovalResumeCredentialStoreTest.kt` under `tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/`). Its contract obligations are: SPI methods (`create`/`get`/`delete`), encryption of the `SealedResumeToken` at rest, and module-level contract tests. Do not search for a shared TCK for this store — none exists.
 
 Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (persistence layer), read the relevant module card ([`tramai-persistence-file.md`](../../modules/tramai-persistence-file.md), [`tramai-persistence-jdbc.md`](../../modules/tramai-persistence-jdbc.md), [`tramai-security.md`](../../modules/tramai-security.md)), then follow this guide.
 
@@ -29,7 +31,9 @@ Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (persistence layer), re
 - New store implementation class + its TCK runner `<Store>TckTest.kt` in the owning module's `src/test/kotlin`.
 - Codecs (JDBC): `JdbcReplayEnvelopeCodec.kt:10-24`, `JdbcAuditPayloadCodec.kt:10-24`, `JdbcContinuationArgumentsCodec.kt` (JdbcApprovalContinuationStore.kt L992-1006), `JdbcOpsAuditOutboxPayloadCodec.kt` (spring starter).
 - Spring wiring (if auto-configurable): `@ConditionalOnMissingBean` store bean in `SovereignJdbcPersistenceAutoConfiguration.kt` (store beans L171-285) or `SovereignFilePersistenceAutoConfiguration.kt` (bundle `@Bean(destroyMethod="close")` L82-110), plus the `.imports` registration.
-- Ops stores under `tramai-spring-boot-starter-sovereign-ops/.../{lease,outbox}/` (no engine SPI — module tests only).
+- Ops stores under `tramai-spring-boot-starter-sovereign-ops/.../{lease,outbox,approval}/` (no engine SPI — they are starter-local):
+  - `SovereignOpsAuditOutboxStore` — **has** a shared TCK (`SovereignOpsAuditOutboxStoreTck` in tramai-testing) with an architecture-enforced enrollment gate (`SovereignOpsAuditOutboxStoreTckEnrollmentArchitectureTest`) and in-memory/file/JDBC runners.
+  - Other ops stores (`SovereignOpsWorkerLeaseStore`, `SovereignOpsApprovalMutationStore`, `SovereignOpsApprovalRequestMutationStore`, `ApprovedContinuationResumeQueueStatusStore`, `ApprovedContinuationResumeWorkerStatusStore`) — **no shared TCK**; covered by module-level tests only. Verify per store before assuming either situation.
 
 ## NOT changed
 
@@ -43,19 +47,22 @@ Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (persistence layer), re
 
 All TCKs in `tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/persistence/`:
 
-| Store | TCK | Enrollment shape |
+| Store family | Shared TCK? | Enrollment |
 |---|---|---|
-| ApprovalStore | `approval/ApprovalStoreTck.kt` | harness `approval/ApprovalStoreTckHarness.kt:13-18` (`createStore(clock: MutableClock)`, `closeStore`) |
-| ApprovalContinuationStore | `approval/continuation/ApprovalContinuationStoreTck.kt` | harness L15-20 |
-| AuditStore | `audit/AuditStoreTck.kt` | direct `createStore()` L38 |
-| SuspendedInvocationStore | `engine/SuspendedInvocationStoreTck.kt` | direct |
-| WorkflowCheckpointStore | `checkpoint/WorkflowCheckpointStoreTck.kt` | direct `createStore()` L32-35 |
-| WorkflowLeaseStore | `lease/WorkflowLeaseStoreTck.kt` | direct `createStore(clock: MutableMillisClock)` |
-| ChatMemoryStore | `memory/ChatMemoryStoreTck.kt` | harness |
+| ApprovalStore | ✅ `approval/ApprovalStoreTck.kt` | harness `approval/ApprovalStoreTckHarness.kt:13-18` (`createStore(clock: MutableClock)`, `closeStore`) |
+| ApprovalContinuationStore | ✅ `approval/continuation/ApprovalContinuationStoreTck.kt` | harness L15-20 |
+| AuditStore | ✅ `audit/AuditStoreTck.kt` | direct `createStore()` L38 |
+| SuspendedInvocationStore | ✅ `engine/SuspendedInvocationStoreTck.kt` | direct |
+| WorkflowCheckpointStore | ✅ `checkpoint/WorkflowCheckpointStoreTck.kt` | direct `createStore()` L32-35 |
+| WorkflowLeaseStore | ✅ `lease/WorkflowLeaseStoreTck.kt` | direct `createStore(clock: MutableMillisClock)` |
+| ChatMemoryStore | ✅ `memory/ChatMemoryStoreTck.kt` | harness |
+| SovereignOpsAuditOutboxStore | ✅ `outbox/SovereignOpsAuditOutboxStoreTck.kt` | `SovereignOpsAuditOutboxStoreTckEnrollmentArchitectureTest` + in-memory/file/JDBC runners |
+| ApprovalResumeCredentialStore | ❌ **no shared TCK today** | module-level tests only (`JdbcApprovalResumeCredentialStoreTest.kt`) — implement SPI + encryption-at-rest + module tests |
+| SovereignOpsWorkerLeaseStore | ❌ **no shared TCK** | module-level tests only (`JdbcSovereignOpsWorkerLeaseStoreTest.kt`) |
 
 Runner pattern: harness-style (`tramai-persistence-file/src/test/.../FileApprovalStoreTckTest.kt:22,40-60`), direct-style (`tramai-persistence-jdbc/src/test/.../JdbcSuspendedInvocationStoreTckTest.kt:30`), Markdown (`tramai-orchestration/src/test/.../MarkdownWorkflowCheckpointStoreTckTest.kt:18`).
 
-**Enforcement:** `tramai-testing/src/test/kotlin/dev/tramai/testing/StoreEnrollmentScanner.kt:13-98` + per-family `*EnrollmentArchitectureTest.kt` (e.g. `ApprovalStoreTckEnrollmentArchitectureTest.kt:31-71`: pinned runner allowlist + every concrete impl must have a valid runner).
+**Enforcement:** `tramai-testing/src/test/kotlin/dev/tramai/testing/StoreEnrollmentScanner.kt:13-98` + per-family `*EnrollmentArchitectureTest.kt` (e.g. `ApprovalStoreTckEnrollmentArchitectureTest.kt:31-71`: pinned runner allowlist + every concrete impl must have a valid runner). **Stores marked ❌ have no enrollment gate** — their obligation is SPI conformance + module-level contract tests.
 
 ## Compatibility
 
