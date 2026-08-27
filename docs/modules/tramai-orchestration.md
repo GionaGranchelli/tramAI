@@ -2,12 +2,9 @@
 
 > **One-liner:** Multi-step workflow engine with checkpoint/resume, distributed worker support, and a declarative DSL for composing AI, local, gate, branch, parallel, and delay steps.
 > **Module type:** `optional`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 18, **LOC:** 6,143
 > **Dependencies:** `tramai-core`
 
 ---
-
 
 ## Architecture
 
@@ -17,21 +14,24 @@ Multi-step workflow execution: workflow definitions, execution supervision, work
 
 ### Public entry points
 
-- `WorkflowExecutionSupervisor` — workflow execution ownership
-- `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown
-- `TramaiWorker` — worker entry point; observers (`FailureIsolatingTramaiWorkerObserver`, `LoggingTramaiWorkerObserver`)
-- `WorkflowRecoveryCoordinator` / `WorkflowRecoveryController` — recovery
-- `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing
-- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
-- Persistence: `WorkflowPersistenceSession`, `FileWorkflowCheckpointStore`, `JdbcWorkflowCheckpointStore`, `FileWorkflowLeaseStore`, `JdbcWorkflowLeaseStore`, step-attempt record stores
+- `TramaiWorker` — worker entry point
+- Workflow definition/builder API (`Workflow`, `WorkflowBuilder`, `WorkflowBindingRegistry`)
+
+Verify the full public surface against `tramai-orchestration/api/tramai-orchestration.api` — the supervision/lifecycle coordinators below are internal.
 
 ### Internal extension points
 
+- `WorkflowExecutionSupervisor` — workflow execution ownership (internal)
+- `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown (internal)
+- `WorkflowRecoveryCoordinator` / `WorkflowRecoveryController` — recovery (internal)
+- `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing (internal)
 - Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI, partition strategy (`PartitionAssignmentStrategy`)
+- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
+- Persistence: `WorkflowPersistenceSession`, file/JDBC checkpoint/lease/step-attempt stores
 
 ### Significant dependencies
 
-- `api(tramai-core)`; engine/testing in test scope (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+- `api(tramai-core)`; `implementation(kotlinx-coroutines-core)`, `implementation(mcp-sdk-client)`; engine/testing in test scope (see [module-catalog.yml](../../config/quality/module-catalog.yml))
 
 ### Lifecycle ownership
 
@@ -39,7 +39,7 @@ Multi-step workflow execution: workflow definitions, execution supervision, work
 
 ### Thread-safety and concurrency
 
-- Lease-based fencing prevents concurrent execution of the same lease; worker observers are failure-isolated
+- Lease/fencing prevents a stale owner from committing state after ownership changes; the local active-execution map prevents duplicate local registration (`putIfAbsent`). Those are distinct mechanisms: fencing is for distributed ownership, the local map is for in-process duplicates.
 
 ### Failure semantics
 
@@ -58,7 +58,6 @@ Multi-step workflow execution: workflow definitions, execution supervision, work
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
 - [execution-sequence.md](../architecture/execution-sequence.md) — workflow/worker flow
-
 ---
 
 ## L1: Quick Start (30-second read)
@@ -97,7 +96,7 @@ Do **not** use it for single-turn AI calls — `tramai-engine` with an `@AiServi
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-orchestration:0.5.0")
+    implementation("dev.tramai:tramai-orchestration")  // version from the TramAI BOM
 }
 ```
 
@@ -107,14 +106,14 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-orchestration</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+implementation(platform("dev.tramai:tramai-bom"))  // version managed via the BOM
 implementation("dev.tramai:tramai-orchestration")
 ```
 
@@ -634,7 +633,7 @@ tramai-orchestration
 **Does not own:**
 - AI provider execution — the `aiStep` builder receives its `invoke` lambda from the caller (typically backed by `tramai-engine` + a provider)
 - Annotations / provider SPIs — owned by `tramai-core`
-- Framework integration — owned by adapters (`tramai-spring`, `tramai-standalone`)
+- Framework integration — owned by adapters (`tramai-spring-core`, `tramai-standalone`; `tramai-spring` is the legacy facade)
 
 ### Dependency graph
 
@@ -644,7 +643,7 @@ tramai-orchestration
         └── kotlinx-coroutines-core
 
 tramai-standalone ─── tramai-orchestration (optional, for agent workflows)
-tramai-spring     ─── tramai-orchestration (optional, for agent workflows)
+tramai-spring-core ─── tramai-orchestration (optional, for agent workflows)
 ```
 
 ### Inner mechanics

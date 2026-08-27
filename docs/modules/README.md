@@ -9,7 +9,9 @@ Per-module architecture and navigation cards for TramAI. The authoritative modul
 
 ## Card contract
 
-Each module card starts with an `## Architecture` section using these headings:
+Cards normalized under Epic 11.2b conform to the following architecture contract. C2b1 currently has **11 conforming cards**; remaining cards are migrated in subsequent slices.
+
+Each conforming card starts with an `## Architecture` section using these headings:
 
 1. Responsibility
 2. Public entry points
@@ -28,10 +30,14 @@ Below the architecture section, cards may carry long-form usage/design content (
 
 Coverage is computed against the 58-module authoritative manifest (`module-catalog.yml`). `sovereign-runtime-module-matrix.md` is a reference document, not a module card, and is not counted.
 
-| Slice | Cards added | Total cards | Remaining |
-|-------|-------------|-------------|-----------|
-| Baseline (pre-11.2b) | — | 30 | 28 |
-| 11.2b1 (core/governance/persistence/observability/testing) | 2 | **32** | 26 |
+| Metric | Count |
+|--------|-------|
+| Manifest modules | 58 |
+| Module cards | 32 |
+| Conforming cards (C2b1) | 11 |
+| Existing non-conforming | 21 |
+| Missing cards | 26 |
+| Orphans | 0 |
 
 ### Cards (32)
 

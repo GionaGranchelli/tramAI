@@ -2,8 +2,6 @@
 
 > **One-liner:** Secure embedded runtime profile that wires deny-by-default policy enforcement, approved-model registry enforcement, classification-aware provider routing, offline deployment validation, artifact-byte verification, and hash-chained policy-decision audit emission without requiring the SaaS platform.
 > **Module type:** `composition` + `secure profile`
-> **Source files:** 3 files — `SovereignTramai.kt`, `SovereignProfileConfiguration.kt`, `SovereignDeploymentMode.kt`
-
 
 ## Architecture
 
@@ -15,7 +13,9 @@ Sovereign runtime: sealed, governed, offline-capable execution boundary composin
 
 - `SovereignTramai` — sovereign runtime entry point
 - `SovereignProfileConfiguration`, `SovereignDeploymentMode`, `SovereignRoutingValidationPolicy` — profile configuration
-- `dev.tramai.sovereign.evidence.*` — evidence models and generators (`SovereignEvidencePackGenerator`, `SovereignEvidencePackWriter`, `ReleaseBundleEvidenceLoader`, evidence V1 types)
+- `dev.tramai.sovereign.evidence.*` — evidence models and generators
+
+Verify the full public surface against `tramai-sovereign/api/tramai-sovereign.api`.
 
 ### Internal extension points
 
@@ -48,7 +48,6 @@ Sovereign runtime: sealed, governed, offline-capable execution boundary composin
 ### Related architecture
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — governance-security layer
-
 ---
 
 ## Purpose

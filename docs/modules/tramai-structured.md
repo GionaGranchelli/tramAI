@@ -2,10 +2,8 @@
 
 > **One-liner:** Generates JSON schemas from Kotlin types, extracts and validates structured objects from LLM responses.
 > **Module type:** `core`
-> **Build coordinates:** `dev.tramai:tramai-structured:0.5.0`
 
 ---
-
 
 ## Architecture
 
@@ -15,25 +13,27 @@ Structured output: compiles Kotlin/Java types into JSON schema descriptors, extr
 
 ### Public entry points
 
-- `JacksonStructuredOutputHandler` — `StructuredOutputHandler` implementation (engine integration point)
-- Descriptor compilers: `KotlinStructuredTypeCompiler`, `JacksonJavaBeanStructuredTypeCompiler`
-- Contracts: `StructuredTypeDescriptor`, `StructuredContractFingerprint`, `StructuredJsonShapeValidator`, `StructuredValueValidator`, `StructuredSchemaRenderer`, `StructuredDescriptorCache`
+- `JacksonStructuredOutputHandler` — the module's public `StructuredOutputHandler` implementation (engine integration point)
+
+Verify the full public surface against `tramai-structured/api/tramai-structured.api` — the descriptor compiler/cache types below are internal.
 
 ### Internal extension points
 
-- `StructuredTypeCompiler` — pluggable compiler per type kind
+- `StructuredTypeCompiler` — pluggable compiler per type kind (internal)
+- `KotlinStructuredTypeCompiler`, `JacksonJavaBeanStructuredTypeCompiler` (internal)
+- Descriptor machinery: `StructuredTypeDescriptor`, `StructuredContractFingerprint`, `StructuredJsonShapeValidator`, `StructuredValueValidator`, `StructuredSchemaRenderer`, `StructuredDescriptorCache` (all internal)
 
 ### Significant dependencies
 
-- `api(tramai-core)` only (see [module-catalog.yml](../../config/quality/module-catalog.yml)); Jackson for JSON codec
+- `api(tramai-core)`; `implementation(jackson-databind)`, `implementation(jackson-module-kotlin)`, `implementation(kotlin-reflect)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
 
 ### Lifecycle ownership
 
-- Stateless compilers; descriptor cache owns compiled-descriptor lifecycle
+- No process/runtime resource lifecycle owned by this module; compilers are stateless and the descriptor cache owns compiled-descriptor caching only.
 
 ### Thread-safety and concurrency
 
-- Compilers/handlers are immutable and safe for concurrent use; descriptor cache is synchronized
+- No blanket immutability contract is declared: the handler owns instance state and the descriptor cache uses concurrent maps. Treat compiler/handler instances as thread-confined unless the concrete type documents otherwise.
 
 ### Failure semantics
 
@@ -52,7 +52,6 @@ Structured output: compiles Kotlin/Java types into JSON schema descriptors, extr
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
 - `docs/adr/` — structured-output decisions
-
 ---
 
 ## L1: Quick Start (30-second read)
@@ -93,7 +92,7 @@ Without this module, every consumer would reimplement JSON extraction, schema ge
 **Gradle (Kotlin DSL):**
 
 ```kotlin
-implementation("dev.tramai:tramai-structured:0.5.0")
+implementation("dev.tramai:tramai-structured")  // version from the TramAI BOM
 ```
 
 **Maven:**
@@ -102,7 +101,7 @@ implementation("dev.tramai:tramai-structured:0.5.0")
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-structured</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -421,7 +420,7 @@ tramai-structured
 `tramai-structured` is consumed by:
 - `tramai-engine` — invokes `createContract()` and `analyze()` during operation execution
 - `tramai-standalone` — transitively via engine
-- `tramai-spring` — transitively via engine
+- `tramai-spring-core` — transitively via engine (`tramai-spring` is the legacy facade)
 - `tramai-mcp` — for structured output in MCP tool responses
 
 ### Inner mechanics

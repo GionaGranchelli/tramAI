@@ -2,12 +2,9 @@
 
 > **One-liner:** Mock providers, recording observers, and fluent assertions for deterministic Tramai integration tests.
 > **Module type:** `tooling`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 6, **LOC:** 448
 > **Dependency:** `tramai-core` (api), AssertJ (implementation)
 
 ---
-
 
 ## Architecture
 
@@ -23,13 +20,15 @@ Testing support: mock providers, recording observers, simulated failures, fluent
 - `MockTool` — tool fake
 - TCK fixtures: provider (`ProviderTck`, `ProviderTckHarness`), store TCKs (`ApprovalStoreTck`, `ApprovalContinuationStoreTck`, lifecycle models), Spring consumer tests
 
+Verify the full public surface against `tramai-testing/api/tramai-testing.api` and `tramai-testing/src/testFixtures`.
+
 ### Internal extension points
 
 - TCK harnesses for provider/store behavior; testFixtures surface for consumers
 
 ### Significant dependencies
 
-- `api(tramai-core)`; testFixtures surface across engine/security/orchestration/Spring starters (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+- `api(tramai-core)`; `implementation(assertj)`; testFixtures surface across engine/security/orchestration/Spring starters (see [module-catalog.yml](../../config/quality/module-catalog.yml))
 
 ### Lifecycle ownership
 
@@ -55,7 +54,6 @@ Testing support: mock providers, recording observers, simulated failures, fluent
 ### Related architecture
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — testing-support layer
-
 ---
 
 ## L1: Quick Start (30-second read)
@@ -101,7 +99,7 @@ Use `tramai-testing` **whenever you write integration tests for Tramai `@AiServi
 
 ```kotlin
 dependencies {
-    testImplementation("dev.tramai:tramai-testing:0.5.0")
+    testImplementation("dev.tramai:tramai-testing")  // version from the TramAI BOM
 }
 ```
 
@@ -111,7 +109,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-testing</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -419,7 +417,7 @@ fun `tool calls are captured and asserted`() {
 
 **What `tramai-testing` does NOT include:**
 - No test runner integration — use your framework of choice (JUnit 5, Kotlin Test)
-- No Spring Boot test slices — pair with `tramai-spring`'s `@EnableTramai` if needed
+- No Spring Boot test slices — pair with `tramai-spring-core`'s `@EnableTramai` if needed (`tramai-spring` is the legacy facade)
 - No HTTP mocking — Tramai's test model replaces the provider entirely, so no need for MockWebServer or WireMock
 
 ### Dependency graph

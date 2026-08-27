@@ -2,11 +2,8 @@
 
 > **One-liner:** Minimal framework-free entry point that wires core, engine, and structured output into a single `Tramai.create<T>()` call.
 > **Module type:** `composition`
-> **Source files:** 1 file — `Tramai.kt` (241 LOC)
-> **Build:** `dev.tramai:tramai-standalone:0.5.0`
 
 ---
-
 
 ## Architecture
 
@@ -17,15 +14,16 @@ Framework-free entry point composing core, engine and structured output into a m
 ### Public entry points
 
 - `Tramai` — builder-style entry point for framework-free usage
-- `TramaiRuntime` — assembled runtime with lifecycle
+
+Verify the full public surface against `tramai-standalone/api/tramai-standalone.api` (`TramaiRuntime` is internal).
 
 ### Internal extension points
 
-- Engine/structured/provider wiring knobs exposed through the `Tramai` builder
+- `TramaiRuntime` — assembled runtime (internal); engine/structured/provider wiring knobs through the `Tramai` builder
 
 ### Significant dependencies
 
-- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-structured)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-structured)`, `api(kotlin-reflect)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
 
 ### Lifecycle ownership
 
@@ -50,7 +48,6 @@ Framework-free entry point composing core, engine and structured output into a m
 ### Related architecture
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
-
 ---
 
 ## L1: Quick Start (30-second read)
@@ -79,9 +76,9 @@ Use this module when:
 - You want to understand exactly how core + engine + structured wire together
 
 Don't use this module when:
-- You need Spring Boot auto-configuration (use tramai-spring)
+- You need Spring Boot auto-configuration (use `tramai-spring-core` / `tramai-spring-boot-starter`; `tramai-spring` is the legacy facade)
 - You need the orchestration DSL with @AiService scanning (use tramai-orchestration)
-- You want DI-managed provider beans (use tramai-spring)
+- You want DI-managed provider beans (use `tramai-spring-core` / provider starters)
 ```
 
 ### How to add
@@ -89,8 +86,8 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.5.0")
-    implementation("dev.tramai:tramai-ollama:0.5.0") // or tramai-openai, tramai-anthropic
+    implementation("dev.tramai:tramai-standalone")  // version from the TramAI BOM
+    implementation("dev.tramai:tramai-ollama")  // version from the TramAI BOM // or tramai-openai, tramai-anthropic
 }
 ```
 
@@ -99,7 +96,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-standalone</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -110,7 +107,7 @@ dependencies {
 - [tramai-engine](./tramai-engine.md) — Orchestration, retry, routing internals
 - [tramai-structured](./tramai-structured.md) — How typed outputs are handled
 - [tramai-ollama](./tramai-ollama.md), [tramai-openai](./tramai-openai.md), [tramai-anthropic](./tramai-anthropic.md) — Provider modules
-- [tramai-spring](./tramai-spring.md) — Spring Boot alternative
+- `tramai-spring-core` — Spring Boot alternative (`tramai-spring` is the legacy facade; card lands in a later 11.2b slice)
 
 ---
 
@@ -310,7 +307,7 @@ tramai-standalone
     - Application code (end-user entry point)
 
   Not depended on by:
-    - tramai-spring (uses its own auto-configuration)
+    - tramai-spring-core (profile-neutral auto-configuration; `tramai-spring` is the legacy facade)
     - Any other Tramai module
 ```
 

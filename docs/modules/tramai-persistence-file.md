@@ -3,14 +3,14 @@
 > **One-liner:** Encrypted-at-rest, single-node file persistence for TramAI sovereign state — `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, and `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
 > **Module type:** `persistence` + `storage`
 > **Dependencies:** `tramai-core`, `tramai-engine`, `tramai-security`
-> **Source files:** 15 files + new files
-
 
 ## Architecture
 
 ### Responsibility
 
 Encrypted-at-rest, single-node file persistence for sovereign stores: `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
+
+Classification / maturity / publishability / release: see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md).
 
 ### Public entry points
 
@@ -19,17 +19,19 @@ Encrypted-at-rest, single-node file persistence for sovereign stores: `FileAppro
 - `FileApprovalStore`, `FileApprovalContinuationStore`, `FileAuditStore`, suspended-invocation store
 - `FileStoreException` hierarchy (configuration, lock-unavailable, permission, corruption, unsupported-format)
 
+Verify the full public surface against `tramai-persistence-file/api/tramai-persistence-file.api`.
+
 ### Internal extension points
 
 - Store SPI implementations (approval / continuation / audit / suspended invocation)
 
 ### Significant dependencies
 
-- `tramai-core`, `tramai-engine`, `tramai-security` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-security)`; Jackson + coroutines (implementation scope) (see [module-catalog.yml](../../config/quality/module-catalog.yml))
 
 ### Lifecycle ownership
 
-- Store open/close with exclusive POSIX file lock; exactly-once continuation claim semantics
+- Store open/close with exclusive POSIX file lock; the store root directory is owned by the store while open. Exactly-once continuation claim semantics are behavioral, not resource lifecycle.
 
 ### Thread-safety and concurrency
 
@@ -52,7 +54,6 @@ Encrypted-at-rest, single-node file persistence for sovereign stores: `FileAppro
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — persistence layer
 - `docs/adr/` — file persistence decisions
-
 ---
 
 ## Purpose
