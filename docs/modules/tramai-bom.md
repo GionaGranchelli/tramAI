@@ -48,24 +48,32 @@ Bill of materials — a `java-platform`/Maven BOM aligning versions of all Trama
 
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) — core-contracts layer
 - [module-matrix.md](../../docs/reference/module-matrix.md)
-
 ## L1: Quick Start (30-second read)
 
 ### What
 
-`tramai-bom` is a **Gradle `java-platform`** (published as a Maven BOM with `packaging=pom`) that declares version constraints for every Tramai module that ships a JAR. It contains no source code — only a single `dependencies.constraints` block that pins each module to the current project version.
+`tramai-bom` is a **Gradle `java-platform`** (published as a Maven BOM with `packaging=pom`) that declares version constraints for every Tramai module that ships a JAR. It contains no source code — only a constraints block that pins each module to the current project version.
 
 When a consumer imports the BOM, all Tramai dependencies resolve to the same version without the consumer needing to specify individual versions.
 
+### Membership is manifest-derived
+
+BOM membership is **not hand-maintained**. It is computed from the authoritative manifest by `ModuleManifest.bomModulePaths(...)` in `build-logic/src/main/kotlin/dev/tramai/build/quality/ModuleManifest.kt`:
+
+```kotlin
+fun bomModulePaths(entries: Collection<ModuleCatalog.ModuleEntry>): List<String> =
+    entries.filter {
+        it.path != ":tramai-bom" &&
+            it.publishability == ModulePublishability.PUBLISHED &&
+            it.releaseInclusion == ReleaseInclusion.INCLUDED
+    }.map { it.path }.sorted()
+```
+
+Every module whose manifest entry is `publishability: published` and `releaseInclusion: included` (excluding `tramai-bom` itself) is a BOM member — the same filter that drives the generated [module matrix](../../docs/reference/module-matrix.md). Adding or removing a module from the BOM is done by editing `module-catalog.yml`, never by editing this card or the constraints block by hand.
+
 ### Why
 
-Tramai has **11 publishable modules** (`tramai-core`, `tramai-engine`, `tramai-structured`, `tramai-anthropic`, `tramai-openai`, `tramai-ollama`, `tramai-observability`, `tramai-orchestration`, `tramai-standalone`, `tramai-spring`, `tramai-testing`). These modules have deep internal dependencies:
-
-- `tramai-orchestration` depends on `tramai-engine` and `tramai-structured`
-- `tramai-spring` depends on several modules
-- `tramai-testing` depends on `tramai-core` and `tramai-engine`
-
-Without a BOM, a consumer who mixes versions (e.g., `tramai-core` with `tramai-engine` (stale version example)`) risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
+Tramai modules have deep internal dependencies. Without a BOM, a consumer who mixes versions risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
 
 ### When to use the BOM
 
@@ -80,9 +88,12 @@ Without a BOM, a consumer who mixes versions (e.g., `tramai-core` with `tramai-e
 ### Gradle (Kotlin DSL)
 
 ```kotlin
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
     // 1. Import the BOM
-    implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 
     // 2. Declare Tramai modules without versions
     implementation("dev.tramai:tramai-orchestration")
@@ -91,12 +102,12 @@ dependencies {
 }
 ```
 
-Gradle's `platform()` notation activates the version constraints from the BOM. All three modules resolve to the version declared in the BOM for each.
+Gradle's `platform()` notation activates the version constraints from the BOM. All declared modules resolve to the version declared in the BOM.
 
-To **override** a single module version (e.g., to test a snapshot):
+To **override** a single module version (e.g., to test a snapshot), declare an explicit version on the module coordinate — the explicit version wins over the BOM constraint:
 
 ```kotlin
-implementation("dev.tramai:tramai-openai")  // version from the TramAI BOM // explicit version wins
+implementation("dev.tramai:tramai-openai:0.6.0-SNAPSHOT")
 ```
 
 ### Maven
@@ -131,62 +142,22 @@ The BOM's `packaging=pom` is verified at publication time — the CI pipeline ch
 
 ### How it works
 
-`tramai-bom` uses Gradle's **`java-platform`** plugin, which produces a Maven BOM POM with a `<dependencyManagement>` section.
-
-The `build.gradle.kts` is straightforward:
-
-```kotlin
-plugins {
-    `java-platform`
-}
-
-javaPlatform {
-    allowDependencies()  // permits the platform itself to have dependencies if needed
-}
-
-dependencies {
-    constraints {
-        api(project(":tramai-core"))
-        api(project(":tramai-engine"))
-        api(project(":tramai-structured"))
-        api(project(":tramai-anthropic"))
-        api(project(":tramai-openai"))
-        api(project(":tramai-ollama"))
-        api(project(":tramai-observability"))
-        api(project(":tramai-orchestration"))
-        api(project(":tramai-standalone"))
-        api(project(":tramai-spring"))
-        api(project(":tramai-testing"))
-    }
-}
-```
+`tramai-bom` uses Gradle's **`java-platform`** plugin, which produces a Maven BOM POM with a `<dependencyManagement>` section. The constraints block is generated from the manifest-derived membership (see above), not copied by hand.
 
 When published, Gradle resolves each `project()` reference to the **current project version** (`tramaiVersion`, see `gradle.properties`). The resulting POM contains a `<dependencyManagement>` block that lists every module with its resolved version.
 
-### Versions it pins
+### What it pins
 
-The BOM pins **all JAR-publishing Tramai modules** — that is, every publishable project except `tramai-bom` itself:
-
-- **`tramai-core`** — core: annotations, SPI, data models, exceptions
-- **`tramai-engine`** — orchestration: proxy dispatch, retry, provider resolution
-- **`tramai-structured`** — structured output: schema gen, extraction, deserialization, failure analysis
-- **`tramai-anthropic`** — provider: Anthropic Claude model provider
-- **`tramai-openai`** — provider: OpenAI / Azure OpenAI model provider
-- **`tramai-ollama`** — provider: Ollama local model provider
-- **`tramai-observability`** — observability: OpenTelemetry hooks (optional plugin)
-- **`tramai-orchestration`** — workflow: `@AiService` / `@Operation` / `@AiTool` DSL
-- **`tramai-standalone`** — runtime: minimal framework-free entry point
-- **`tramai-spring`** — adapter: Spring Boot auto-configuration
-- **`tramai-testing`** — testing: deterministic test utilities, mock providers
+The BOM pins every manifest entry with `publishability: published` and `releaseInclusion: included`, except `tramai-bom` itself. For the authoritative current list, see the generated [module matrix](../../docs/reference/module-matrix.md) — do not maintain a module list in this card.
 
 External (third-party) dependencies like OkHttp, Jackson, or OpenTelemetry SDK are **not** pinned by `tramai-bom` — those are managed by each module's own dependency declarations and the consumer's own platform constraints.
 
 ### Verification
 
-The root `build.gradle.kts` includes a **`verifyPublicationMetadata`** task that enforces:
+Build-time checks enforce:
 
 - The BOM POM has `packaging=pom`
-- The `<dependencyManagement>` section exists and contains exactly one `<dependency>` entry for each publishable JAR module
-- The set of managed artifact IDs matches `jarPublishingProjectNames` (all publishable modules minus `tramai-bom`)
+- The `<dependencyManagement>` section exists and contains exactly one `<dependency>` entry for each manifest-derived BOM member
+- The set of managed artifact IDs matches the publishable, release-included module set (minus `tramai-bom`)
 
 This prevents accidental omissions or extra entries during development. The BOM is also excluded from JAR/sources/javadoc publication — no `-sources.jar` or `-javadoc.jar` is emitted for it.

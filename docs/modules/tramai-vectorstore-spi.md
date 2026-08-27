@@ -1,7 +1,5 @@
 # tramai-vectorstore-spi
 
-**Status:** Stable  
-**Role:** Contract layer for Vector Database operations.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

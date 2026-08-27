@@ -1,7 +1,5 @@
 # tramai-memory
 
-**Status:** Stable  
-**Role:** In-memory context and token-aware multi-turn conversational chat persistence.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

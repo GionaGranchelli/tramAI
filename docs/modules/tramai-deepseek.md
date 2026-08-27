@@ -26,7 +26,7 @@ Provider adapter for DeepSeek's OpenAI-compatible API: `ModelProvider` implement
 
 ### Lifecycle ownership
 
-- Provider owns its HTTP client lifecycle; no engine state ownership
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
 
 ### Thread-safety and concurrency
 
@@ -77,7 +77,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-deepseek")
 ```
 

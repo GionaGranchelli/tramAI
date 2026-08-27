@@ -30,7 +30,7 @@ Verify against `tramai-openai/api/tramai-openai.api`.
 
 ### Lifecycle ownership
 
-- Provider owns its HTTP client lifecycle; no engine state ownership
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
 
 ### Thread-safety and concurrency
 
@@ -97,7 +97,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-openai")
 ```
 
@@ -106,7 +107,7 @@ implementation("dev.tramai:tramai-openai")
 | If you want to... | Go here |
 |---|---|
 | Wire a provider into a working app | `docs/modules/tramai-standalone.md` |
-| Use Spring Boot auto-configuration | `docs/modules/tramai-spring.md` |
+| Use Spring Boot auto-configuration | `docs/architecture/modules.md` (framework-integrations layer; `tramai-spring-core` / unified starter, `tramai-spring` is the legacy facade) |
 | Understand the provider SPI contract | `docs/modules/tramai-core.md` (L3: ModelProvider) |
 | Learn about streaming in general | `docs/modules/tramai-engine.md` (L2: Streaming) |
 | See the full OpenAI-compatible wire format spec | `docs/specs/spec-003-provider-integration.md` |
@@ -434,7 +435,7 @@ tramai-openai
 
   Depended on by:
     - tramai-standalone        — wired via Tramai.builder().provider()
-    - tramai-spring            — auto-configuration discovers OpenAiProvider beans
+    - tramai-spring-core     — auto-configuration discovers OpenAiProvider beans (`tramai-spring` is the legacy facade)
 ```
 
 ### Inner mechanics

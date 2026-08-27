@@ -1,7 +1,5 @@
 # tramai-vectorstore-chroma
 
-**Status:** Stable  
-**Role:** ChromaDB implementation of the vector store SPI.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

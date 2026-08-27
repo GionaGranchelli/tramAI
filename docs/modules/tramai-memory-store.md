@@ -1,7 +1,5 @@
 # tramai-memory-store
 
-**Status:** Stable  
-**Role:** Service Provider Interface (SPI) for persistent chat history.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
@@ -9,14 +7,14 @@
 
 ### Responsibility
 
-Persistent chat-memory stores: `JdbcChatMemoryStore`, `RedisChatMemoryStore` implementing the core memory-store contract.
+Durable memory-store implementations: `JdbcChatMemoryStore`, `RedisChatMemoryStore` implementing the `ChatMemoryStore` contract (the SPI lives in `tramai-core`; this module provides implementations, not the interface).
 
 ### Public entry points
 
+This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-memory-store/api/tramai-memory-store.api`, not for external consumption):
+
 - `JdbcChatMemoryStore`, `RedisChatMemoryStore` — `ChatMemoryStore` implementations
 - `JdbcChatMemoryTable` (schema)
-
-Verify against `tramai-memory-store/api/tramai-memory-store.api`.
 
 ### Internal extension points
 

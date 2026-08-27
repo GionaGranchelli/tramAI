@@ -15,12 +15,12 @@ MCP (Model Context Protocol) integration: expose TramAI tools via MCP and host a
 
 ### Public entry points
 
+This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-mcp/api/tramai-mcp.api`, not for external consumption):
+
 - `TramaiMcpServer` — MCP server entry point
 - `TramaiMcpAutoConfiguration`, `TramaiMcpProperties` (Stdio/Sse) — Spring auto-configuration
 - `McpToolHandlers` — tool-to-MCP handler mapping
 - `ToolExecutionException`
-
-Verify against `tramai-mcp/api/tramai-mcp.api`.
 
 ### Internal extension points
 
@@ -98,7 +98,8 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+    val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
     implementation("dev.tramai:tramai-server")  // required dependency
     implementation("dev.tramai:tramai-mcp")
 }

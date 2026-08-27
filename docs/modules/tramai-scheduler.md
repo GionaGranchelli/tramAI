@@ -112,7 +112,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-scheduler")
 ```
 

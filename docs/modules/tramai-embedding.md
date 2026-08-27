@@ -1,7 +1,5 @@
 # tramai-embedding
 
-**Status:** Stable  
-**Role:** Text embedding generation.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
@@ -33,7 +31,7 @@ Verify against `tramai-embedding/api/tramai-embedding.api`.
 
 ### Thread-safety and concurrency
 
-- Registry and models are safe for concurrent use (stateless beyond configuration)
+- The `EmbeddingModelRegistry` is immutable after build; concurrent reads are safe. Individual `EmbeddingModel` implementations have no blanket concurrency contract — check each model's documentation before sharing across threads.
 
 ### Failure semantics
 

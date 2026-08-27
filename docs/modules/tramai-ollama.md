@@ -26,7 +26,7 @@ Provider adapter for Ollama (local models): `ModelProvider` implementation.
 
 ### Lifecycle ownership
 
-- Provider owns its HTTP client lifecycle; no engine state ownership
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
 
 ### Thread-safety and concurrency
 

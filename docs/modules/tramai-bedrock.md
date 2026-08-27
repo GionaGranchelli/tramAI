@@ -26,7 +26,7 @@ Provider adapter for AWS Bedrock: `ModelProvider` implementation using the Bedro
 
 ### Lifecycle ownership
 
-- Provider owns its SDK client lifecycle; no engine state ownership
+- Provider creates a Bedrock SDK client per call (via the injected `BedrockRuntimeClientFactory`) and closes it in a `finally` block; no long-lived client or engine state ownership
 
 ### Thread-safety and concurrency
 
@@ -77,7 +77,8 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-bedrock")
 ```
 

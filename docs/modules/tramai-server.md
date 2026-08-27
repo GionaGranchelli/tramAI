@@ -14,13 +14,13 @@ Spring Boot server: workflow/worker/audit/schedule HTTP endpoints, webhook verif
 
 ### Public entry points
 
+This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-server/api/tramai-server.api`, not for external consumption):
+
 - `TramaiServerApplication` — server entry point
 - Controllers: `WorkflowController`, `WorkerController`, `AuditController`, `ScheduleController`
 - `GitHubWebhookSignatureVerifier`, `RequestBodySizeLimitFilter`, `ReplayCache`
 - Stores: `InMemoryAuditLogStore`, `InMemoryWorkerRegistry`
 - Exceptions: `BadWorkflowRequestException`, `InvalidWebhookSignatureException`, `RequestBodyTooLargeException`
-
-Verify against `tramai-server/api/tramai-server.api`.
 
 ### Internal extension points
 
@@ -109,7 +109,9 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-server")
 ```
 
@@ -121,7 +123,8 @@ plugins {
 }
 
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom"))  // version from the BOM
+    val tramaiVersion: String by project
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
     implementation("dev.tramai:tramai-server")
     implementation("dev.tramai:tramai-orchestration")
     // your workflow definitions
