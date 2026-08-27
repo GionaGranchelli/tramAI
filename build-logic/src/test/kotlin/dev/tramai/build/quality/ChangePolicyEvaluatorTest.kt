@@ -563,9 +563,25 @@ class ChangePolicyEvaluatorTest {
     }
 
     @Test
+    fun `root build script is build tooling not runtime`() {
+        assertEquals("build-logic", ChangePolicyEvaluator.detectChangeClass(
+            listOf("build.gradle.kts")))
+        assertEquals("build-logic", ChangePolicyEvaluator.detectChangeClass(
+            listOf("settings.gradle.kts")))
+        assertEquals("build-logic", ChangePolicyEvaluator.detectChangeClass(
+            listOf("build-logic/src/main/kotlin/Plugin.kt", "build.gradle.kts", "docs/EPIC-9.2.md")))
+    }
+
+    @Test
     fun `runtime with docs is runtime-behaviour`() {
         assertEquals("runtime-behaviour", ChangePolicyEvaluator.detectChangeClass(
             listOf("tramai-engine/src/main/kotlin/Engine.kt", "docs/guide.md")))
+    }
+
+    @Test
+    fun `runtime with root build script is runtime-behaviour`() {
+        assertEquals("runtime-behaviour", ChangePolicyEvaluator.detectChangeClass(
+            listOf("tramai-engine/src/main/kotlin/Engine.kt", "build.gradle.kts")))
     }
 
     // --- Helpers ---

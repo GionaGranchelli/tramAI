@@ -1,10 +1,4 @@
 import org.gradle.api.Project
-import org.gradle.api.plugins.JavaPluginExtension
-import org.gradle.api.publish.PublishingExtension
-import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.api.tasks.javadoc.Javadoc
-import org.gradle.kotlin.dsl.configure
-import org.gradle.plugins.signing.SigningExtension
 import org.gradle.util.GradleVersion
 import org.w3c.dom.Element
 import groovy.json.JsonOutput
@@ -12,6 +6,8 @@ import groovy.json.JsonSlurper
 import java.io.File
 import java.net.URI
 import javax.xml.parsers.DocumentBuilderFactory
+import dev.tramai.build.publishing.TramaiPublishingRepositories
+import dev.tramai.build.publishing.projectDescription
 import dev.tramai.build.quality.ModuleManifest
 
 plugins {
@@ -61,15 +57,8 @@ val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 // file-based Maven repository — never to a remote — preventing accidental remote
 // publication during dry-run validation.
 // The sovereign bundle is the published manifest set minus modules outside its signed runtime scope.
-val sovereignBundleExcludedProjectNames = setOf(
-    "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-deepseek", "tramai-embedding",
-    "tramai-gemini", "tramai-memory", "tramai-observability", "tramai-ollama", "tramai-openai",
-    "tramai-orchestration", "tramai-platform", "tramai-rag", "tramai-scheduler", "tramai-spring",
-    "tramai-spring-provider-anthropic", "tramai-spring-provider-ollama", "tramai-spring-provider-openai",
-    "tramai-spring-secrets-aws", "tramai-spring-secrets-file", "tramai-spring-secrets-vault", "tramai-testing",
-    "tramai-vectorstore-chroma", "tramai-vectorstore-pgvector", "tramai-vectorstore-spi"
-)
-val sovereignBundleModuleNames = publishableProjectNames - sovereignBundleExcludedProjectNames
+// Membership lives in TramaiPublishingRepositories (9.2a extraction, behavior-preserving).
+val sovereignBundleModuleNames = TramaiPublishingRepositories.sovereignBundleModuleNames(rootProject)
 
 // ──────────────────────────────────────────────
 // Sovereign Release Evidence Index - Typed Model
@@ -177,8 +166,7 @@ data class DevTramaiResolutionPolicy(
 // Always local file path for the sovereign bundle verification repository.
 // This is never a remote URL — it is only used for dry-run signing verification
 // and consumer smoke resolution. Do not use tramaiPublishReleaseUrl here.
-val sovereignBundleRepoUrl = rootProject.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo")
-    .map { "file://${it.asFile.absolutePath}" }
+val sovereignBundleRepoUrl = TramaiPublishingRepositories.sovereignBundleRepoUrl(rootProject)
 
 subprojects {
     group = tramaiGroup.get()
@@ -188,192 +176,10 @@ subprojects {
         mavenCentral()
     }
 
-    plugins.withId("java-library") {
-        apply(plugin = "maven-publish")
-        apply(plugin = "signing")
-
-        extensions.configure(JavaPluginExtension::class.java) {
-            withJavadocJar()
-        }
-
-        tasks.withType(Javadoc::class.java).configureEach {
-            isFailOnError = false
-        }
-
-        configureTramaiPublishing(
-            componentName = "java",
-            artifactDescription = projectDescription(name),
-            projectUrl = tramaiProjectUrl.get(),
-            scmUrl = tramaiScmUrl.get(),
-            scmConnection = tramaiScmConnection.get(),
-            scmDeveloperConnection = tramaiScmDeveloperConnection.get(),
-            licenseName = tramaiLicenseName.get(),
-            licenseUrl = tramaiLicenseUrl.get(),
-            developerId = tramaiDeveloperId.get(),
-            developerName = tramaiDeveloperName.get(),
-            developerEmail = tramaiDeveloperEmail.get(),
-        )
-
-        // Dedicated local-only Maven repository for the sovereign signed bundle dry-run.
-        // Added inside the plugin block so maven-publish has already registered
-        // PublishingExtension. This repo is always file:// (build-local by default)
-        // and is never configured with remote credentials.
-        if (project.name in sovereignBundleModuleNames) {
-            configureSovereignBundleLocalRepo()
-        }
-    }
-
-    plugins.withId("java-platform") {
-        apply(plugin = "maven-publish")
-        apply(plugin = "signing")
-
-        configureTramaiPublishing(
-            componentName = "javaPlatform",
-            artifactDescription = projectDescription(name),
-            projectUrl = tramaiProjectUrl.get(),
-            scmUrl = tramaiScmUrl.get(),
-            scmConnection = tramaiScmConnection.get(),
-            scmDeveloperConnection = tramaiScmDeveloperConnection.get(),
-            licenseName = tramaiLicenseName.get(),
-            licenseUrl = tramaiLicenseUrl.get(),
-            developerId = tramaiDeveloperId.get(),
-            developerName = tramaiDeveloperName.get(),
-            developerEmail = tramaiDeveloperEmail.get(),
-        )
-
-        // Dedicated local-only Maven repository for the sovereign signed bundle dry-run.
-        // Added inside the plugin block so maven-publish has already registered
-        // PublishingExtension. This repo is always file:// (build-local by default)
-        // and is never configured with remote credentials.
-        if (project.name in sovereignBundleModuleNames) {
-            configureSovereignBundleLocalRepo()
-        }
-    }
-}
-
-fun Project.configureTramaiPublishing(
-    componentName: String,
-    artifactDescription: String,
-    projectUrl: String,
-    scmUrl: String,
-    scmConnection: String,
-    scmDeveloperConnection: String,
-    licenseName: String,
-    licenseUrl: String,
-    developerId: String,
-    developerName: String,
-    developerEmail: String,
-) {
-    extensions.configure<PublishingExtension> {
-        val publication = publications.create("maven", MavenPublication::class.java)
-        publication.from(components.getByName(componentName))
-        publication.artifactId = project.name
-
-        publication.pom {
-            name.set(project.name)
-            description.set(artifactDescription)
-            url.set(projectUrl)
-
-            licenses {
-                license {
-                    name.set(licenseName)
-                    url.set(licenseUrl)
-                }
-            }
-
-            developers {
-                developer {
-                    id.set(developerId)
-                    name.set(developerName)
-                    email.set(developerEmail)
-                }
-            }
-
-            scm {
-                url.set(scmUrl)
-                connection.set(scmConnection)
-                developerConnection.set(scmDeveloperConnection)
-            }
-        }
-
-        val releaseRepositoryUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
-        val snapshotRepositoryUrl = providers.gradleProperty("tramaiPublishSnapshotUrl").orNull
-        val targetRepositoryUrl = when {
-            version.toString().endsWith("-SNAPSHOT") -> snapshotRepositoryUrl ?: releaseRepositoryUrl
-            else -> releaseRepositoryUrl ?: snapshotRepositoryUrl
-        }
-
-        if (!targetRepositoryUrl.isNullOrBlank()) {
-            repositories {
-                maven {
-                    name = "tramaiRemote"
-                    url = uri(targetRepositoryUrl)
-                    if (!targetRepositoryUrl.startsWith("file:")) {
-                        credentials {
-                            username = providers.gradleProperty("tramaiPublishUsername").orNull
-                            password = providers.gradleProperty("tramaiPublishPassword").orNull
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    extensions.configure<SigningExtension> {
-        val signingKey = providers.gradleProperty("signingKey").orNull
-        val signingPassword = providers.gradleProperty("signingPassword").orNull
-        if (!signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
-            useInMemoryPgpKeys(signingKey, signingPassword)
-            sign(extensions.getByType(PublishingExtension::class.java).publications)
-        }
-    }
-}
-
-/**
- * Adds the dedicated sovereignBundleLocal Maven repository to this project's
- * PublishingExtension. This repo is always file:// (build-local by default,
- * or overridden via -PtramaiPublishReleaseUrl=file://...) and is never
- * configured with remote credentials. The verifySovereignRuntimeSignedBundle
- * task publishes exclusively to this repo using the generated
- * *ToSovereignBundleLocalRepository tasks, never to tramaiRemote or :publish.
- */
-fun Project.configureSovereignBundleLocalRepo() {
-    extensions.configure<PublishingExtension> {
-        repositories {
-            maven {
-                name = "sovereignBundleLocal"
-                url = URI(sovereignBundleRepoUrl.get())
-            }
-        }
-    }
-}
-
-fun projectDescription(projectName: String): String = when (projectName) {
-    "tramai-core" -> "Core annotations, request models, provider registry, and exception types for Tramai."
-    "tramai-embedding" -> "Embedding model SPI with OpenAI and Ollama implementations for Tramai."
-    "tramai-engine" -> "Runtime engine that turns annotated Tramai service interfaces into executable proxies."
-    "tramai-structured" -> "Structured output schema generation, parsing, and validation support for Tramai."
-    "tramai-anthropic" -> "Anthropic provider integration for Tramai."
-    "tramai-gemini" -> "Google Gemini provider integration for Tramai."
-    "tramai-azure-openai" -> "Azure OpenAI provider integration for Tramai."
-    "tramai-bedrock" -> "AWS Bedrock provider integration for Tramai."
-    "tramai-deepseek" -> "Deepseek provider integration for Tramai."
-    "tramai-memory" -> "In-memory memory and state helpers for Tramai (memory primitives and adapters)."
-    "tramai-openai" -> "OpenAI and OpenAI-compatible provider integrations for Tramai."
-    "tramai-ollama" -> "Ollama provider integration for Tramai."
-    "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."
-    "tramai-orchestration" -> "Typed workflow orchestration and coordination layer for Tramai."
-    "tramai-platform" -> "Platform services for plugins, tenancy, API keys, rate limiting, and audit logging."
-    "tramai-standalone" -> "Minimal standalone runtime bundle for Tramai."
-    "tramai-sovereign" -> "Secure embedded runtime profile for sovereign TramAI deployments."
-    "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
-    "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."
-    "tramai-bom" -> "Bill of materials for aligning Tramai module versions."
-    "tramai-vectorstore-spi" -> "Vector store SPI with data models and in-memory implementation for Tramai."
-    "tramai-vectorstore-chroma" -> "ChromaDB vector store adapter for Tramai."
-    "tramai-vectorstore-pgvector" -> "PostgreSQL pgvector vector store adapter for Tramai."
-    "tramai-rag" -> "RAG pipeline: document loading, chunking, retrieval, and context injection for Tramai."
-    else -> "Tramai module ${projectName.removePrefix("tramai-")}."
+    // 9.2a: publishing/signing/repository/POM configuration moved into the
+    // tramai.publishing convention plugin. The plugin reacts to java-library
+    // and java-platform itself (no plugin ordering dependency).
+    apply(plugin = "tramai.publishing")
 }
 
 fun Element.directChild(name: String): Element? {
@@ -395,14 +201,17 @@ fun parseXml(file: File): Element {
     return documentBuilderFactory.newDocumentBuilder().parse(file).documentElement
 }
 
-fun releaseRepositoryUrlFor(version: String): String? {
-    val releaseRepositoryUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
-    val snapshotRepositoryUrl = providers.gradleProperty("tramaiPublishSnapshotUrl").orNull
-    return when {
-        version.endsWith("-SNAPSHOT") -> snapshotRepositoryUrl ?: releaseRepositoryUrl
-        else -> releaseRepositoryUrl ?: snapshotRepositoryUrl
-    }
-}
+/**
+ * Version-based remote repository selection for release verification tasks.
+ * Logic lives in TramaiPublishingRepositories (9.2a); this root-level helper
+ * keeps the 9.2b release tasks call-compatible until they are extracted.
+ */
+fun releaseRepositoryUrlFor(version: String): String? =
+    TramaiPublishingRepositories.selectRepositoryUrl(
+        version,
+        providers.gradleProperty("tramaiPublishReleaseUrl").orNull,
+        providers.gradleProperty("tramaiPublishSnapshotUrl").orNull,
+    )
 
 tasks.register("verifyPublicationMetadata") {
     group = "verification"
@@ -837,8 +646,9 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
     // Resolve the dedicated bundle repo URL (default or user-provided file://)
     val bundleRepoUrl = sovereignBundleRepoUrl.get()
 
-    // Signing key properties — evaluated at configuration time by the signing extension
-    // in configureTramaiPublishing, so .asc files are produced automatically during publish.
+    // Signing key properties — evaluated at configuration time by the
+    // tramai.publishing convention plugin, so .asc files are produced
+    // automatically during publish.
     val signingKey = providers.gradleProperty("signingKey").orNull
     val signingPassword = providers.gradleProperty("signingPassword").orNull
     val wantsSigning = !signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()

@@ -1416,6 +1416,23 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 **Goal:** Make Gradle configuration modular, typed, testable, and mostly declarative.
 
+> **Slicing:** see [docs/EPIC-9.2-build-logic.md](./EPIC-9.2-build-logic.md).
+> 9.2a (`tramai.publishing` convention plugin) is done; 9.2b–9.2d are planned slices.
+
+### Status: 🔄 In progress (9.2a ✅, 9.2b–9.2d planned)
+
+- **9.2a — `tramai.publishing` convention plugin** — ✅ PR #308: extracted
+  publication/signing/repository/POM configuration from the root
+  `build.gradle.kts` into a tested TestKit convention plugin
+  (`dev.tramai.build.publishing`), behavior-preserving: same publication
+  surface, POM metadata, repository precedence, credential rules, signing
+  semantics, and sovereignBundleLocal membership. Discriminator suite
+  P1–P10 + S1 in `TramaiPublishingPluginTest`; `verifyChangePolicy`
+  auto-classifies as `build-logic`.
+- **9.2b** — typed release/evidence tasks (`tramai.release-verification`).
+- **9.2c** — quality/test conventions + manifest-derived metadata.
+- **9.2d** — configuration-cache closure; root reduced to composition.
+
 ### Target convention plugins
 
 - `tramai.kotlin-library`
