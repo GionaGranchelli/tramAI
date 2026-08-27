@@ -1,11 +1,62 @@
 # Module: `tramai-spring`
 
-> **One-liner:** Spring Boot auto-configuration that wires Tramai's `Tramai` runtime, scans `@AiService` interfaces, discovers `@AiTool` beans, and binds `tramai.*` application properties — all with zero manual bean declarations.
-> **Module type:** `framework-adapter`
-> **Source files:** 9 — `EnableTramai.kt`, `TramaiAutoConfiguration.kt`, `TramaiProperties.kt`, `AiServiceBeanDefinitionRegistrar.kt`, `AiServiceFactoryBean.kt`, `AiToolScanner.kt`, `TramaiSecretResolutionAutoConfiguration.kt`, `SpringSecretResolution.kt`, `SpringBuiltInSecretValueResolver.kt`
-> **Test files:** 3 — `TramaiAutoConfigurationTest.kt`, `TramaiAutoConfigurationConditionsTest.kt`, `SecurityAutoConfigurationTest.kt`
-> **Build:** `dev.tramai:tramai-spring:0.5.0`
-> **Depends on:** `tramai-spring-core` (thin facade; provider and secret adapters are separate modules)
+> **One-liner:** Legacy Spring Boot facade over `tramai-spring-core`. Retained for back-compatibility; **not** the onboarding entry point — new applications use the unified `tramai-spring-boot-starter`.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+---
+
+## Architecture
+
+### Responsibility
+
+**Legacy facade** over `tramai-spring-core` (manifest rationale: "Legacy Spring facade over :tramai-spring-core retained for back-compatibility; not the onboarding entry point"). Provides the classic `@AutoConfiguration` wiring of the `Tramai` runtime with `@AiService` scanning, `@AiTool` discovery, and `tramai.*` property binding for existing 0.5.x applications.
+
+### Public entry points
+
+- `TramaiAutoConfiguration` — auto-configuration
+- `TramaiProperties` — configuration properties
+- `AiServiceBeanDefinitionRegistrar`, `AiServiceFactoryBean` — `@AiService` scanning/registration
+- `AiToolScanner` — tool discovery
+- `EnableTramai` — annotation opt-in
+- `SpringSecretResolution`, `SpringBuiltInSecretValueResolver` — secret resolution
+
+Verify against `tramai-spring/api/tramai-spring.api`.
+
+### Internal extension points
+
+- Secret-resolution chain slot (delegates to `tramai-spring-core`)
+
+### Significant dependencies
+
+- `api(tramai-spring-core)` (thin facade); provider and secret adapters are separate modules — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle; beans managed by the container
+
+### Thread-safety and concurrency
+
+- Spring singletons; proxies must be safe for concurrent invocation
+
+### Failure semantics
+
+- Misconfiguration surfaces at context startup; provider failures normalized per provider contracts
+
+### Contract tests / TCKs
+
+- `TramaiAutoConfigurationTest`, `TramaiAutoConfigurationConditionsTest`, `SecurityAutoConfigurationTest`
+
+### Do not
+
+- Do not present legacy APIs as canonical — new integrations use the unified starter
+- Do not add provider/secret adapters here — use the dedicated Spring starter modules
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — framework-integrations layer
+- [modules.md](../architecture/modules.md) — framework-integrations layer policy
+- [module-matrix.md](../../docs/reference/module-matrix.md)
 
 ---
 
@@ -13,7 +64,7 @@
 
 ### What
 
-`tramai-spring` is the 0.6.0 compatibility facade over `tramai-spring-core`. New applications should depend on the canonical [`tramai-spring-boot-starter`](sovereign-runtime-module-matrix.md) instead — one starter for both runtime profiles, profile selected via `tramai.profile`.
+`tramai-spring` is the 0.6.0 compatibility facade over `tramai-spring-core`. New applications should depend on the canonical [`tramai-spring-boot-starter`](tramai-spring-boot-starter.md) instead — one starter for both runtime profiles, profile selected via `tramai.profile`.
 
 `tramai-spring` is a thin Spring Boot `@AutoConfiguration` that takes the same `Tramai` runtime you'd build manually with `tramai-standalone` and makes it available through Spring's DI container. Add the dependency, define an `@AiService` interface, and it becomes an injectable bean — no `@Bean` factory methods, no manual `Tramai.builder()` chains. Under Spring Boot, `@EnableTramai` is normally unnecessary; in annotation-driven/non-Boot Spring contexts it is the explicit opt-in.
 
@@ -48,8 +99,11 @@ Don't use this module when:
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
     implementation("dev.tramai:tramai-spring")
     // 0.6.0: select adapters explicitly
     implementation("dev.tramai:tramai-spring-provider-openai") // or -anthropic, -ollama
@@ -65,7 +119,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
+      <version>${tramai.version}</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -103,7 +157,11 @@ Three steps: add `tramai-spring` **plus the adapter(s) you select**, define an `
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-spring-provider-openai") // 0.6.0: explicit adapter
 }
