@@ -91,14 +91,6 @@ Do **not** use it for:
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-scheduler")  // version from the TramAI BOM
-}
-```
-
 **Maven:**
 
 ```xml

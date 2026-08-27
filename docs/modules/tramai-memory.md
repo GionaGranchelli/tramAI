@@ -73,10 +73,14 @@ Connects a `ChatMemoryStore` (database) with an optional in-memory cache (`Messa
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-memory")  // version from the TramAI BOM
-    // If you need durable storage (Postgres, Redis, File):
-    implementation("dev.tramai:tramai-memory-store")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-memory")
+    // For durable storage (Postgres, Redis): also add tramai-memory-store
+    implementation("dev.tramai:tramai-memory-store")
 }
 ```
 

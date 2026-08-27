@@ -62,8 +62,12 @@ This module provides the core `VectorStore` interfaces required by `tramai-rag`.
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-spi")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-vectorstore-spi")
 }
 ```
 

@@ -56,8 +56,12 @@ This module provides a concrete implementation of `VectorStore` that connects to
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-chroma")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-vectorstore-chroma")
 }
 ```
 

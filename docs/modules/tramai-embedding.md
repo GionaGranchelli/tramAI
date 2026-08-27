@@ -67,8 +67,12 @@ This module bundles standard integrations natively:
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-embedding")  // version from the TramAI BOM
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-embedding")
 }
 ```
 

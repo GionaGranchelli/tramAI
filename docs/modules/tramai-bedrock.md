@@ -66,14 +66,6 @@ Amazon Bedrock is AWS's managed AI service, providing access to Claude, Llama, a
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-bedrock")  // version from the TramAI BOM
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin

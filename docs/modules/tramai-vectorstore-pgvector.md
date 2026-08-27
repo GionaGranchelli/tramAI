@@ -56,9 +56,13 @@ This module provides a concrete implementation of `VectorStore` that connects to
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-pgvector")  // version from the TramAI BOM
-    // Depending on your stack, you'll need a JDBC driver (e.g. org.postgresql:postgresql)
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-vectorstore-pgvector")
+    // Depending on your stack, you also need a JDBC driver (e.g. org.postgresql:postgresql)
 }
 ```
 

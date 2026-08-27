@@ -67,14 +67,6 @@ Gemini offers competitive pricing, a generous free tier, large context windows, 
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-gemini")  // version from the TramAI BOM
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin

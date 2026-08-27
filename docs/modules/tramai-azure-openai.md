@@ -69,14 +69,6 @@ Azure OpenAI is the primary AI platform for organizations operating in Microsoft
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-azure-openai")  // version from the TramAI BOM
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin

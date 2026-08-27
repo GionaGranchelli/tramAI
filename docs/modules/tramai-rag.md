@@ -71,12 +71,15 @@ The `tramai-rag` module provides a comprehensive pipeline for injecting internal
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-rag")  // version from the TramAI BOM
-    
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-rag")
     // RAG pipelines usually require embedding and a vector store
-    implementation("dev.tramai:tramai-embedding")  // version from the TramAI BOM
-    implementation("dev.tramai:tramai-vectorstore-chroma")  // version from the TramAI BOM // Or pgvector
+    implementation("dev.tramai:tramai-embedding")
+    implementation("dev.tramai:tramai-vectorstore-chroma") // or pgvector
 }
 ```
 

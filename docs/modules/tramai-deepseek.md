@@ -66,14 +66,6 @@ DeepSeek offers competitive pricing and strong performance on coding and reasoni
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-deepseek")  // version from the TramAI BOM
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin

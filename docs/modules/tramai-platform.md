@@ -85,14 +85,6 @@ Do **not** use it for library-embedded usage (a single process calling workflows
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-platform")  // version from the TramAI BOM
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin

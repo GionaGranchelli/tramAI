@@ -76,14 +76,6 @@ Don't use this module when you need a non-OpenAI-compatible provider — use `tr
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-openai")  // version from the TramAI BOM
-}
-```
-
 **Maven:**
 
 ```xml
