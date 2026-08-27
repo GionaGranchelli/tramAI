@@ -66,11 +66,21 @@ class StreamingExecutionCoordinatorTest {
         fun stream(input: String): Flow<StreamChunk>
     }
 
+    @AiService
+    private interface StreamingServiceWithRetries {
+        @Operation(prompt = "Answer", model = "logical-model", providerRetries = 1)
+        fun stream(input: String): Flow<StreamChunk>
+    }
+
     private val defaultBudget = TokenBudgetSettings(hardMaxTokensPerOperation = 20)
 
     private fun operation() = ServiceDefinitionCompiler(
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
     ).compile(StreamingService::class).operations.entries.single().value.definition
+
+    private fun operationWithRetries() = ServiceDefinitionCompiler(
+        OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
+    ).compile(StreamingServiceWithRetries::class).operations.entries.single().value.definition
 
     private class OrderedSink {
         val events = mutableListOf<String>()
@@ -150,6 +160,9 @@ class StreamingExecutionCoordinatorTest {
 
     private fun request(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
         StreamingExecutionRequest(operation(), listOf("input"), budget.createTracker(), conversationId)
+
+    private fun requestWithRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
+        StreamingExecutionRequest(operationWithRetries(), listOf("input"), budget.createTracker(), conversationId)
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
@@ -248,6 +261,31 @@ class StreamingExecutionCoordinatorTest {
         val c = coordinator(plan("p" to provider), observer, sink, denyBeforeResponseReturn = true)
         assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
         assertThat(provider.streamRequests).isEmpty(); assertThat(sink.events).contains("observation.engine-event:tramai.route.selected").doesNotContain("observation.provider-response")
+    }
+
+    @Test fun `P0-A streaming retryable startup failure honors providerRetries before fallback`() {
+        // Contract: providerRetries = 1 means exactly 2 provider attempts on the
+        // SAME route; a retryable startup failure on attempt 1 must retry the
+        // primary, and only the terminal attempt-2 success ends routing.
+        // Fallback must not fire. (Current master: single attempt, immediate
+        // fallback — this test is the 8.2h P0-A RED probe.)
+        runBlocking {
+        val sink = OrderedSink()
+        var primaryAttempts = 0
+        val primary = RecordingProvider("primary") {
+            primaryAttempts++
+            if (primaryAttempts == 1) flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) }
+            else flow { emit(StreamChunk.Token("ok")); emit(StreamChunk.Complete("ok")) }
+        }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Token("bad")); emit(StreamChunk.Complete("bad")) } }
+        fallback.sink = sink
+        val chunks = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+        assertThat(primary.streamRequests).hasSize(2)
+        assertThat(fallback.streamRequests).isEmpty()
+        assertThat(sink.events).doesNotContain("policy.fallback")
+        assertThat(chunks).containsExactly(StreamChunk.Token("ok"), StreamChunk.Complete("ok"))
+        }
     }
 
     @Test fun `retryable startup error before first token falls back to next route`() {
