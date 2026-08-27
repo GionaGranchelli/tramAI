@@ -53,6 +53,13 @@ data class WorkflowCheckpoint(
     val statePayload: String,
     val revision: Long = 0,
     val metadata: Map<String, String> = emptyMap(),
+    /**
+     * Wall-clock instant (epoch millis) at which this checkpoint revision was
+     * saved. 0L is the DECODED-LEGACY sentinel: a checkpoint read from a
+     * format that predates this field has NO historical save time — the value
+     * means "unavailable", never "1970-01-01". New saves always supply a real
+     * reading via the persistence coordinator's injected Clock.
+     */
     val savedAtEpochMillis: Long = System.currentTimeMillis(),
     val recoveryState: WorkflowRecoveryState = WorkflowRecoveryState.Normal,
     val checkpointGeneration: String? = null,

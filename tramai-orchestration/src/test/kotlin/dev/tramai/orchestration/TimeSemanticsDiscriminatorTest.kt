@@ -187,15 +187,17 @@ class TimeSemanticsDiscriminatorTest {
     }
 
     @Test
-    fun `P0-A default monotonic source measures positive elapsed time`() {
-        // Exercises the REAL nanoTime-backed source (all other discriminators
-        // inject fakes): elapsed must be positive and grow. Kills the M04
-        // sign-swap mutant (startNanos - now -> always 0).
-        val mark = MonotonicTimeSource.NanoTime.markNow()
-        Thread.sleep(50)
+    fun `P0-A monotonic elapsed arithmetic is deterministic`() {
+        // The NanoTimeSource elapsed calculation must be exactly
+        // (currentReading - startReading): controlled raw readings prove the
+        // arithmetic without depending on real elapsed time. Kills the M04
+        // sign-swap mutant (startReading - currentReading -> clamped to 0).
+        val readings = ArrayDeque(listOf(100_000_000L, 150_000_000L))
+        val source = NanoTimeSource(nanoTime = { readings.removeFirst() })
+        val mark = source.markNow()
         assertThat(mark.elapsedMillis())
-            .withFailMessage("P0-A default monotonic source must measure positive elapsed time")
-            .isGreaterThanOrEqualTo(10L)
+            .withFailMessage("P0-A monotonic elapsed must be currentReading - startReading (50ms)")
+            .isEqualTo(50L)
     }
 
     @Test

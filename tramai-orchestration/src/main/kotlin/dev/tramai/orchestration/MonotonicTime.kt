@@ -18,14 +18,25 @@ internal fun interface MonotonicTimeSource {
 
     companion object {
         /** nanoTime-backed monotonic source (JVM monotonic clock). */
-        val NanoTime: MonotonicTimeSource = object : MonotonicTimeSource {
-            override fun markNow(): MonotonicMark = object : MonotonicMark {
-                private val startNanos = System.nanoTime()
-                // coerceAtLeast(0): hypervisor/TSC jitter can make a single
-                // reading negative; an uptime/drain delta must never go below 0.
-                override fun elapsedMillis(): Long = ((System.nanoTime() - startNanos) / 1_000_000).coerceAtLeast(0L)
-            }
-        }
+        val NanoTime: MonotonicTimeSource = NanoTimeSource()
+    }
+}
+
+/**
+ * Monotonic source whose raw reading is supplied by [nanoTime]; production
+ * composes [System::nanoTime] at the boundary. The injected supplier makes
+ * the elapsed ARITHMETIC deterministically testable (8.3a rule: external
+ * entropy may exist at the boundary; every assertion about domain behavior
+ * consumes controlled values).
+ */
+internal class NanoTimeSource(
+    private val nanoTime: () -> Long = System::nanoTime,
+) : MonotonicTimeSource {
+    override fun markNow(): MonotonicMark = object : MonotonicMark {
+        private val startNanos = nanoTime()
+        // coerceAtLeast(0): hypervisor/TSC jitter can make a single
+        // reading negative; an uptime/drain delta must never go below 0.
+        override fun elapsedMillis(): Long = ((nanoTime() - startNanos) / 1_000_000).coerceAtLeast(0L)
     }
 }
 
