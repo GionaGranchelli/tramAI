@@ -1,9 +1,60 @@
 # Module: `tramai-persistence-file`
 
 > **One-liner:** Encrypted-at-rest, single-node file persistence for TramAI sovereign state — `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, and `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
-> **Module type:** `persistence` + `storage`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 > **Dependencies:** `tramai-core`, `tramai-engine`, `tramai-security`
-> **Source files:** 15 files + new files
+
+## Architecture
+
+### Responsibility
+
+Encrypted-at-rest, single-node file persistence for sovereign stores: `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
+
+Classification / maturity / publishability / release: see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md).
+
+### Public entry points
+
+- `FileBackedSovereignStores.open(...)` — composition root
+- `FileBackedStoreConfiguration`, `FileStoreEncryptionConfiguration`, `FileStoreEncryptionKeyProvider`
+- `FileApprovalStore`, `FileApprovalContinuationStore`, `FileAuditStore`, suspended-invocation store
+- `FileStoreException` hierarchy (configuration, lock-unavailable, permission, corruption, unsupported-format)
+
+Verify the full public surface against `tramai-persistence-file/api/tramai-persistence-file.api`.
+
+### Internal extension points
+
+- Store SPI implementations (approval / continuation / audit / suspended invocation)
+
+### Significant dependencies
+
+- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-security)`; Jackson + coroutines (implementation scope) (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Store open/close with exclusive POSIX file lock; the store root directory is owned by the store while open. Exactly-once continuation claim semantics are behavioral, not resource lifecycle.
+
+### Thread-safety and concurrency
+
+- Per-record and per-stream `ReentrantLock`; exclusive cross-process lock on the store root. Do not invent guarantees beyond the store documentation.
+
+### Failure semantics
+
+- Atomic writes with `ATOMIC_MOVE` (CREATE_NEW for immutable audit events); corruption/tampering detected via GCM tags and hash chains; safe reason-code-only exception messages
+
+### Contract tests / TCKs
+
+- `FileApprovalStoreTckTest`, `FileApprovalContinuationStoreTckTest`, `FileAuditStoreTckTest` — enrolled in the shared TCKs
+
+### Do not
+
+- Do not copy another store's behavior as the spec — the TCKs are authoritative
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — persistence layer
+- `docs/adr/` — file persistence decisions
+---
 
 ## Purpose
 

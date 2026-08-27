@@ -1,10 +1,54 @@
 # Module: `tramai-standalone`
 
 > **One-liner:** Minimal framework-free entry point that wires core, engine, and structured output into a single `Tramai.create<T>()` call.
-> **Module type:** `composition`
-> **Source files:** 1 file — `Tramai.kt` (241 LOC)
-> **Build:** `dev.tramai:tramai-standalone:0.5.0`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
+---
+
+## Architecture
+
+### Responsibility
+
+Framework-free entry point composing core, engine and structured output into a minimal runtime (`Tramai`, `TramaiRuntime`).
+
+### Public entry points
+
+- `Tramai` — builder-style entry point for framework-free usage
+- `TramaiRuntime` — assembled runtime with lifecycle (public per `tramai-standalone/api/tramai-standalone.api`)
+
+Verify the full public surface against `tramai-standalone/api/tramai-standalone.api`.
+
+### Internal extension points
+
+- Engine/structured/provider wiring knobs exposed by the builder (the public builder/runtime API is listed under Public entry points)
+
+### Significant dependencies
+
+- `api(tramai-core)`, `api(tramai-engine)`, `api(tramai-structured)`, `api(kotlin-reflect)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Owns the assembled runtime lifecycle (`close()`)
+
+### Thread-safety and concurrency
+
+- Runtime is concurrent-safe; delegates to engine coroutine scopes
+
+### Failure semantics
+
+- Surfaces engine/structured failures directly to callers
+
+### Contract tests / TCKs
+
+- `tramai-standalone/src/test`; consumed by framework adapters (e.g. `tramai-spring-core` depends on it)
+
+### Do not
+
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
 ---
 
 ## L1: Quick Start (30-second read)
@@ -33,9 +77,9 @@ Use this module when:
 - You want to understand exactly how core + engine + structured wire together
 
 Don't use this module when:
-- You need Spring Boot auto-configuration (use tramai-spring)
+- You need Spring Boot auto-configuration (use `tramai-spring-core` / `tramai-spring-boot-starter`; `tramai-spring` is the legacy facade)
 - You need the orchestration DSL with @AiService scanning (use tramai-orchestration)
-- You want DI-managed provider beans (use tramai-spring)
+- You want DI-managed provider beans (use `tramai-spring-core` / provider starters)
 ```
 
 ### How to add
@@ -43,8 +87,8 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.5.0")
-    implementation("dev.tramai:tramai-ollama:0.5.0") // or tramai-openai, tramai-anthropic
+    implementation("dev.tramai:tramai-standalone")  // version from the TramAI BOM
+    implementation("dev.tramai:tramai-ollama")  // version from the TramAI BOM // or tramai-openai, tramai-anthropic
 }
 ```
 
@@ -53,7 +97,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-standalone</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -64,7 +108,7 @@ dependencies {
 - [tramai-engine](./tramai-engine.md) — Orchestration, retry, routing internals
 - [tramai-structured](./tramai-structured.md) — How typed outputs are handled
 - [tramai-ollama](./tramai-ollama.md), [tramai-openai](./tramai-openai.md), [tramai-anthropic](./tramai-anthropic.md) — Provider modules
-- [tramai-spring](./tramai-spring.md) — Spring Boot alternative
+- `tramai-spring-core` — Spring Boot alternative (`tramai-spring` is the legacy facade; card lands in a later 11.2b slice)
 
 ---
 
@@ -262,10 +306,7 @@ tramai-standalone
 
   Depended on by:
     - Application code (end-user entry point)
-
-  Not depended on by:
-    - tramai-spring (uses its own auto-configuration)
-    - Any other Tramai module
+    - tramai-spring-core (api dependency — `api(project(":tramai-standalone"))`)
 ```
 
 ### What `create<T>()` does end-to-end
@@ -326,6 +367,6 @@ Package: dev.tramai.standalone
 
 ### Testing strategy
 
-- `tramai-standalone` has no tests of its own — it is a thin composition layer
+- `tramai-standalone` is a thin composition layer; its own tests cover runtime assembly (`Tramai` / `TramaiRuntime` wiring)
 - Correctness is verified through `tramai-engine` tests (proxy dispatch, routing, retry) and `tramai-structured` tests (schema generation, parsing, validation)
 - Integration tests in provider modules (`tramai-ollama`, `tramai-openai`, `tramai-anthropic`) cover the full `Tramai.builder()...create<T>()` path

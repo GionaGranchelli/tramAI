@@ -1,10 +1,61 @@
 # Module: `tramai-core`
 
 > **One-liner:** Annotations, data models, provider SPI, structured-output contracts, and exceptions for the Tramai AI library.
-> **Module type:** `core`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 26 (across 12 packages), **LOC:** 1,074
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
+---
+
+## Architecture
+
+### Responsibility
+
+Zero- to near-zero-dependency contracts and SPI surface: `@AiService`/`@Operation`/tool annotations, request/response models, provider SPI, structured-output contracts, policy contracts, approval contracts, memory contracts, observation contracts and the authoritative runtime event catalogue.
+
+### Public entry points
+
+- Annotations: `AiService`, `Operation`, `System`, `User`, `SystemPrompt`, `ConversationId`, `AiTool`, `AiDescription`, `AiRange`, `AiMinItems`
+- Provider SPI: `ModelProvider`, `ProviderRegistry`, `ProviderTransport`, `StreamCapable`
+- Structured output contracts: `StructuredOutputHandler`, `StructuredOutputResult`
+- Policy: `PolicyEngine`, `EnforcementPoint`, `PolicyDecision`
+- Approval: `ApprovalStore`, `ApprovalContinuationStore`, `ApprovalGateway`, `ApprovalToken`
+- Events: `RuntimeEventCatalogue` (authoritative event/reason-code catalogue)
+- Exceptions: `TramaiException` hierarchy
+
+Verify the full public surface against `tramai-core/api/tramai-core.api`.
+
+### Internal extension points
+
+- Implementation slot of the public structured-output SPI (implemented by `tramai-structured`)
+
+### Significant dependencies
+
+- `api(kotlinx-coroutines-core)` — coroutine contracts; otherwise JDK-only. `tramai-core` is the dependency root of the repository (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- `tramai-core` owns no process/runtime resource lifecycle. Lifecycle is owned by `tramai-engine` / `tramai-standalone` / framework adapters. If none is applicable, "none" is the correct answer for a given contract.
+
+### Thread-safety and concurrency
+
+- No blanket guarantee applies to all core contracts: `tramai-core` owns no execution lifecycle. Concurrency guarantees belong to each contract and its implementing module. Value types (messages, decisions) are immutable; registries/observers/stores make their own guarantees.
+
+### Failure semantics
+
+- Typed exception hierarchy rooted at `TramaiException`; policy violations as `PolicyViolationException`; approval gating as `ApprovalRequiredException`/`ApprovalSuspendedException`
+
+### Contract tests / TCKs
+
+- Core contract tests in `tramai-core/src/test`; TCK fixtures under `tramai-testing` (provider, store, lifecycle models)
+
+### Do not
+
+- Do not add provider/vendor, Spring, or framework dependencies here
+- Do not add new runtime event/reason-code string literals outside `RuntimeEventCatalogue`
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — core-contracts layer
+- `docs/adr/` — core design decisions
 ---
 
 ## L1: Quick Start (30-second read)
@@ -27,7 +78,7 @@ Without `tramai-core`, no two Tramai modules could communicate. It provides:
 
 ### When to use
 
-- **Always** — every Tramai application depends on `tramai-core`, either directly or transitively through `tramai-engine`, `tramai-standalone`, or `tramai-spring`.
+- **Always** — every Tramai application depends on `tramai-core`, either directly or transitively through `tramai-engine`, `tramai-standalone`, or `tramai-spring-core` (`tramai-spring` is the legacy facade).
 - **Directly** — when writing custom `ModelProvider` implementations, custom `SecretValueResolver` strategies, custom `OperationInterceptor` implementations, or custom tool implementations via `TramaiTool`.
 - **Never alone** — `tramai-core` has no execution engine. Pair it with `tramai-engine` for proxy-based invocation, `tramai-structured` for typed outputs, and a provider module (`tramai-openai`, `tramai-anthropic`, `tramai-ollama`) for actual model calls.
 
@@ -37,7 +88,7 @@ Without `tramai-core`, no two Tramai modules could communicate. It provides:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-core:0.5.0")
+    implementation("dev.tramai:tramai-core")  // version from the TramAI BOM
 }
 ```
 
@@ -47,7 +98,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-core</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -61,7 +112,7 @@ dependencies {
 | Call Anthropic models | `tramai-anthropic` |
 | Call Ollama models | `tramai-ollama` |
 | Get a framework-free entry point | `tramai-standalone` |
-| Use Spring Boot auto-configuration | `tramai-spring` |
+| Use Spring Boot auto-configuration | `tramai-spring-core` (or the unified `tramai-spring-boot-starter`); `tramai-spring` is the legacy facade |
 | Write tests with mock providers | `tramai-testing` |
 
 ---
@@ -445,7 +496,7 @@ The module carries **zero runtime dependencies** beyond `kotlinx-coroutines-core
 - No JSON parsing or schema generation — that lives in `tramai-structured`
 - No workflow/orchestration — that lives in `tramai-orchestration`
 - No observability runtime — that lives in `tramai-observability`
-- No framework integration — that lives in `tramai-spring` / `tramai-standalone`
+- No framework integration — that lives in `tramai-spring-core` / `tramai-standalone` (`tramai-spring` is the legacy facade)
 
 ### Dependency graph
 

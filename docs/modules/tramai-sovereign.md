@@ -1,8 +1,54 @@
 # Module: `tramai-sovereign`
 
 > **One-liner:** Secure embedded runtime profile that wires deny-by-default policy enforcement, approved-model registry enforcement, classification-aware provider routing, offline deployment validation, artifact-byte verification, and hash-chained policy-decision audit emission without requiring the SaaS platform.
-> **Module type:** `composition` + `secure profile`
-> **Source files:** 3 files — `SovereignTramai.kt`, `SovereignProfileConfiguration.kt`, `SovereignDeploymentMode.kt`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Sovereign runtime: sealed, governed, offline-capable execution boundary composing `tramai-standalone` with deny-by-default policy, approval gating, and evidence generation (attestation, audit chain, zero-egress, release bundle).
+
+### Public entry points
+
+- `SovereignTramai` — sovereign runtime entry point
+- `SovereignProfileConfiguration`, `SovereignDeploymentMode`, `SovereignRoutingValidationPolicy` — profile configuration
+- `dev.tramai.sovereign.evidence.*` — evidence models and generators
+
+Verify the full public surface against `tramai-sovereign/api/tramai-sovereign.api`.
+
+### Internal extension points
+
+- Evidence pack generator/writer seams; routing validation policy
+
+### Significant dependencies
+
+- `api(tramai-standalone)`, `api(tramai-security)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Sovereign runtime lifecycle; evidence pack generation tied to release/attestation lifecycle
+
+### Thread-safety and concurrency
+
+- Delegates to standalone/engine concurrency; evidence generation is deterministic per input
+
+### Failure semantics
+
+- Sealed-runtime failures surface as typed violations; evidence gaps are not silently skipped
+
+### Contract tests / TCKs
+
+- `tramai-sovereign/src/test`; sovereign E2E fixtures in `tramai-testing`
+
+### Do not
+
+- Do not bypass the sealed-runtime boundary or weaken deny-by-default policy
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — governance-security layer
+---
 
 ## Purpose
 

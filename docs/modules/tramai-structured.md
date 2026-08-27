@@ -1,9 +1,57 @@
 # Module: `tramai-structured`
 
 > **One-liner:** Generates JSON schemas from Kotlin types, extracts and validates structured objects from LLM responses.
-> **Module type:** `core`
-> **Build coordinates:** `dev.tramai:tramai-structured:0.5.0`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
+---
+
+## Architecture
+
+### Responsibility
+
+Structured output: compiles Kotlin/Java types into JSON schema descriptors, extracts and validates structured objects, renders schemas, and produces failure diagnostics with retry feedback.
+
+### Public entry points
+
+- `JacksonStructuredOutputHandler` — the module's public `StructuredOutputHandler` implementation (engine integration point)
+
+Verify the full public surface against `tramai-structured/api/tramai-structured.api` — the descriptor compiler/cache types below are internal.
+
+### Internal extension points
+
+- `StructuredTypeCompiler` — pluggable compiler per type kind (internal)
+- `KotlinStructuredTypeCompiler`, `JacksonJavaBeanStructuredTypeCompiler` (internal)
+- Descriptor machinery: `StructuredTypeDescriptor`, `StructuredContractFingerprint`, `StructuredJsonShapeValidator`, `StructuredValueValidator`, `StructuredSchemaRenderer`, `StructuredDescriptorCache` (all internal)
+
+### Significant dependencies
+
+- `api(tramai-core)`; `implementation(jackson-databind)`, `implementation(jackson-module-kotlin)`, `implementation(kotlin-reflect)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- No process/runtime resource lifecycle owned by this module; compilers are stateless and the descriptor cache owns compiled-descriptor caching only.
+
+### Thread-safety and concurrency
+
+- No blanket immutability contract is declared: the handler owns instance state and the descriptor cache uses concurrent maps. Treat compiler/handler instances as thread-confined unless the concrete type documents otherwise.
+
+### Failure semantics
+
+- Parse/validation failures produce `StructuredOutputResult.Failure` with `feedbackMessage` for retry; terminal failure as `StructuredOutputException`
+
+### Contract tests / TCKs
+
+- Descriptor + handler tests in `tramai-structured/src/test`; structured contract TCK in `tramai-testing`
+
+### Do not
+
+- Do not change schema generation and post-parse validation independently — the compiled descriptor is authoritative
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- `docs/adr/` — structured-output decisions
 ---
 
 ## L1: Quick Start (30-second read)
@@ -44,7 +92,7 @@ Without this module, every consumer would reimplement JSON extraction, schema ge
 **Gradle (Kotlin DSL):**
 
 ```kotlin
-implementation("dev.tramai:tramai-structured:0.5.0")
+implementation("dev.tramai:tramai-structured")  // version from the TramAI BOM
 ```
 
 **Maven:**
@@ -53,7 +101,7 @@ implementation("dev.tramai:tramai-structured:0.5.0")
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-structured</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -74,7 +122,7 @@ The module pulls in:
 
 ### Quick usage
 
-The `JacksonStructuredOutputHandler` is the single implementation of `StructuredOutputHandler`. It is automatically wired by `TramaiEngine` when `tramai-structured` is on the classpath. You typically do not instantiate it directly — but here is how it works end to end.
+The `JacksonStructuredOutputHandler` is the single implementation of `StructuredOutputHandler`. The engine consumes the core `StructuredOutputHandler` SPI; `tramai-standalone` composes the Jackson handler directly when constructing its runtime. Here is how it works end to end.
 
 **1. Define a data class with annotations:**
 
@@ -371,8 +419,8 @@ tramai-structured
 
 `tramai-structured` is consumed by:
 - `tramai-engine` — invokes `createContract()` and `analyze()` during operation execution
-- `tramai-standalone` — transitively via engine
-- `tramai-spring` — transitively via engine
+- `tramai-standalone` — direct dependency (`api(project(":tramai-structured"))`)
+- `tramai-spring-core` — transitively via `tramai-standalone` (`tramai-spring` is the legacy facade)
 - `tramai-mcp` — for structured output in MCP tool responses
 
 ### Inner mechanics

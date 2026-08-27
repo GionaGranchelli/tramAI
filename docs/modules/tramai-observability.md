@@ -1,10 +1,54 @@
 # Module: `tramai-observability`
 
 > **One-liner:** Optional, opt-in OpenTelemetry integration — traces, metrics, and events for operations and workflows.
-> **Module type:** `observability`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 3 (all in `dev.tramai.observability`), **LOC:** ~280
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
+---
+
+## Architecture
+
+### Responsibility
+
+Optional, opt-in OpenTelemetry integration: spans, metrics and events for operations, workers and workflows.
+
+### Public entry points
+
+- `OpenTelemetryOperationObserver` — operation/engine observation
+- `OpenTelemetryTramaiWorkerObserver` — worker observation
+- `OpenTelemetryWorkflowObserver` — workflow observation
+Verify the full public surface against `tramai-observability/api/tramai-observability.api` (`OpenTelemetryAttributes` is internal).
+
+### Internal extension points
+
+- Operation/worker/workflow observer implementations over the core observation SPI
+
+### Significant dependencies
+
+- `api(tramai-core)`; `implementation(tramai-orchestration)`, `implementation(opentelemetry-api)` (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Observer lifecycle follows the OpenTelemetry SDK; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Observers must be safe for concurrent callbacks from the engine
+
+### Failure semantics
+
+- Observability must not break the happy path (failure-isolated observers); OTel absence degrades gracefully
+
+### Contract tests / TCKs
+
+- Span/attribute tests in `tramai-observability/src/test`
+
+### Do not
+
+- Do not make observability a hard dependency of core/runtime modules
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 ---
 
 ## L1: Quick Start (30-second read)
@@ -39,7 +83,7 @@ Without this module, Tramai runs with no-op observers — operations and workflo
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-observability:0.5.0")
+    implementation("dev.tramai:tramai-observability")  // version from the TramAI BOM
     // You also need an OpenTelemetry SDK + exporter runtime dependency:
     runtimeOnly("io.opentelemetry:opentelemetry-exporter-otlp:...")
     runtimeOnly("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:...")
@@ -52,7 +96,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-observability</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
@@ -338,6 +382,6 @@ onWorkflowStarted(name, context)
 ### What `tramai-observability` does NOT include
 
 - **No OpenTelemetry SDK or exporter** — the module depends only on `opentelemetry-api`. SDK, exporters, and auto-configuration are the application's responsibility.
-- **No Spring Boot auto-configuration** — that lives in `tramai-spring`.
+- **No Spring Boot auto-configuration** — that lives in `tramai-spring-core` (`tramai-spring` is the legacy facade).
 - **No logging integration** — spans and metrics are the delivery mechanism, not log statements.
 - **No workflow span nesting** — operation spans (from the engine) and workflow spans (from orchestration) are independent. Workflow steps that make AI calls produce their own `ai.*` spans under the workflow step's context if propagation is configured.

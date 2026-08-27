@@ -1,8 +1,68 @@
 # Module: `tramai-engine`
 
 > **One-liner:** Runtime engine that turns annotated service interfaces into AI-backed proxies with retry, circuit-breaking, caching, and token budgeting.
-> **Module type:** `core`
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
+---
+
+## Architecture
+
+### Responsibility
+
+Runtime execution core: turns `@AiService` interfaces into provider-backed proxies and owns the full invocation pipeline — operation planning, governance enforcement, provider routing/retry/fallback, structured-output processing, streaming, tool-call orchestration, approval suspension/resume, caching, token budgets and observation.
+
+### Public entry points
+
+- `TramaiEngine` — engine entry point; `create<T>()` proxy factory
+- `EngineEventObserver` — engine observation hook
+- `DefaultApprovalGateway` — approval gateway integration point
+- Public settings/SPI surfaces intended for consumers (retry, circuit-breaker, token-budget settings; cache SPI `OperationResponseCache`)
+- Core extension SPIs consumed by the engine: `OperationInterceptor`, `OperationObserver` (contracts in `tramai-core`)
+
+Verify the full public surface against `tramai-engine/api/tramai-engine.api`.
+
+### Internal extension points
+
+- `InvocationExecutionCoordinator` — governed invocation pipeline (internal)
+- `TramaiInvocationHandler` — JDK proxy dispatch (internal)
+- `ProviderExecutionCoordinator` / `ProviderAttemptExecutor` — provider routing and admitted-attempt execution (internal)
+- `StreamingExecutionCoordinator` — streaming flow (internal)
+- `StructuredResponseCoordinator` — structured-output integration (internal)
+- `ToolExposureCoordinator` / `ToolAuthorizationCoordinator` / `ToolInvocationExecutor` — tool flow (internal)
+- `ApprovalSuspensionCoordinator` / `ApprovalResumeCoordinator` — approval flow (internal)
+
+### Significant dependencies
+
+- `api(tramai-core)`; `implementation(tramai-security)` — a real production edge (engine → security)
+- `implementation(kotlinx-coroutines-core)`, `implementation(kotlin-reflect)`
+- `tramai-structured` is test-only; `tramai-observability` is not a production dependency — structured output is consumed contract/injection-based (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Engine owns proxy lifecycle, provider route state, circuit/retry state, cache lifecycle, approval coordination; `close()` semantics per `AutoCloseable`
+
+### Thread-safety and concurrency
+
+- Concurrent invocation-safe. Invocation bridge uses the engine lifecycle job/scope and a synchronized active-invocation registry; suspend calls launch on the engine lifecycle scope, not a per-operation scope. Cancellation propagation per kotlinx.coroutines contracts in core.
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException`; retry/fallback driven by typed failure codes; structured failures as `StructuredOutputException`; approval gating as `ApprovalRequiredException`/`ApprovalSuspendedException`
+
+### Contract tests / TCKs
+
+- Engine behavioral tests in `tramai-engine/src/test`; provider TCK via `tramai-testing` (`ProviderTck`)
+
+### Do not
+
+- Do not implement provider-specific logic in the engine
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- [execution-sequence.md](../architecture/execution-sequence.md) — flow ownership
+- `docs/adr/` — engine design decisions
 ---
 
 ## L1: Quick Start (30-second read)
@@ -20,7 +80,7 @@ Without `tramai-engine`, you have only the raw SPI contracts in `tramai-core`. T
 Always. `tramai-engine` is the mandatory runtime for any Tramai-based application. It is automatically included by:
 
 - `tramai-standalone` (framework-free entry point)
-- `tramai-spring` (Spring Boot auto-configuration)
+- `tramai-spring-core` / `tramai-spring-boot-starter` (Spring Boot auto-configuration; `tramai-spring` is the legacy facade)
 
 You only interact with it directly if you are building a custom integration or need to configure engine-level settings (cache, circuit breaker, retry policy, token budgets).
 
@@ -30,7 +90,7 @@ You only interact with it directly if you are building a custom integration or n
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-engine:0.5.0")
+    implementation("dev.tramai:tramai-engine")  // version from the TramAI BOM
 }
 ```
 
@@ -40,14 +100,16 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-engine</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-engine")
 ```
 
@@ -57,11 +119,11 @@ implementation("dev.tramai:tramai-engine")
 |-------|------|
 | Quickstart with all modules | `docs/guides/getting-started.md` |
 | Framework-free standalone setup | `docs/modules/tramai-standalone.md` |
-| Spring Boot auto-configuration | `docs/modules/tramai-spring.md` |
+| Spring Boot auto-configuration | `docs/architecture/modules.md` (framework-integrations layer; `tramai-spring-core` card lands in a later 11.2b slice, `tramai-spring` is the legacy facade) |
 | Defining tools for the engine | `docs/modules/tramai-testing.md` |
-| Spec — Engine & Core design | `docs/specs/spec-001.md` |
-| Spec — Production hardening | `docs/specs/spec-011.md` |
-| Spec — Tool calling | `docs/specs/spec-010.md` |
+| Spec — Engine & Core design | `docs/specs/spec-001-core-engine.md` |
+| Spec — Production hardening | `docs/specs/spec-011-production-hardening.md` |
+| Spec — Tool calling | `docs/specs/spec-010-tool-calling.md` |
 
 ---
 
@@ -149,20 +211,7 @@ suspend fun analyze(id: String): String
 
 #### Circuit breaker
 
-Enable the circuit breaker to skip unhealthy provider routes for a cooldown period.
-
-```kotlin
-val engine = TramaiEngine(
-    provider = provider,
-    circuitBreakerSettings = CircuitBreakerSettings(
-        enabled = true,
-        failureThreshold = 3,         // 3 consecutive failures opens the circuit
-        openDurationMillis = 30_000,  // stay open for 30 seconds
-    ),
-)
-```
-
-When the circuit is open, the engine automatically falls through to the next configured route (see provider routing below) or throws `CircuitBreakerOpenException` if no fallback exists.
+Circuit-breaker admission and recovery are engine-owned. `CircuitBreakerSettings` exposes stable configuration knobs (enable, failure threshold, open duration); detailed OPEN/recovery probe semantics are being hardened under 8.2g and are intentionally not restated in this navigation card.
 
 #### Response cache
 
@@ -433,7 +482,7 @@ Requires adding `tramai-memory` to your dependencies:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.5.0")
+    implementation("dev.tramai:tramai-memory")  // version from the TramAI BOM
 }
 ```
 
@@ -542,7 +591,7 @@ The engine is **stateless** with respect to business logic: all state is either 
 - Model provider implementations — owned by provider modules (`tramai-openai`, `tramai-anthropic`, `tramai-ollama`)
 - Structured output schema/parsing — owned by `tramai-structured`
 - Multi-step workflows — owned by `tramai-orchestration`
-- Framework integration — owned by adapters (`tramai-spring`, `tramai-standalone`)
+- Framework integration — owned by adapters (`tramai-spring-core`, `tramai-standalone`; `tramai-spring` is the legacy facade)
 - Memory implementations — owned by `tramai-memory` (e.g., `MessageWindowChatMemory`, `MemoryInterceptor`)
 
 ### Dependency graph
@@ -668,16 +717,7 @@ All exceptions are in `dev.tramai.core.exception`:
 | `StructuredOutputException` | Structured parse failure after exhausting retries | No |
 | `ProviderCapabilityException` | Streaming requested but provider doesn't support it | No |
 
-**Circuit breaker state machine:**
-
-```
-CLOSED ──(consecutive failures >= threshold)──→ OPEN
-OPEN ──(openDurationMillis elapsed)──→ HALF_OPEN (next call probes)
-HALF_OPEN ──(success)──→ CLOSED
-HALF_OPEN ──(failure)──→ OPEN
-```
-
-The circuit breaker is per-provider (keyed by `providerId`), not per-model. On success, the circuit state is removed entirely. On failure, a counter increments until the threshold, then the circuit opens for `openDurationMillis`.
+**Circuit breaker state machine:** admission and recovery are engine-owned; detailed OPEN/HALF_OPEN generation and probe semantics are being hardened under 8.2g and are intentionally not restated here. The breaker is per-provider (keyed by `providerId`), not per-model.
 
 #### Testing strategy
 

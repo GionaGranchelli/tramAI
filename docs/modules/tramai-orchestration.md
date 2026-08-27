@@ -1,11 +1,65 @@
 # Module: `tramai-orchestration`
 
 > **One-liner:** Multi-step workflow engine with checkpoint/resume, distributed worker support, and a declarative DSL for composing AI, local, gate, branch, parallel, and delay steps.
-> **Module type:** `optional`
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 18, **LOC:** 6,143
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 > **Dependencies:** `tramai-core`
 
+---
+
+## Architecture
+
+### Responsibility
+
+Multi-step workflow execution: workflow definitions, execution supervision, worker lifecycle, checkpoints/leases/fencing, step execution (HTTP, shell, Codex, Hermes, MCP), replay policy and recovery.
+
+### Public entry points
+
+- `TramaiWorker` — worker entry point
+- `WorkflowRecoveryController` — recovery entry point (public per `tramai-orchestration/api/tramai-orchestration.api`)
+- Workflow definition/builder API (`Workflow`, `WorkflowBuilder`, `WorkflowBindingRegistry`)
+- Step types: `HttpStep`, `ShellStep`, `CodexStep`, `HermesStep`, `McpStep`
+- Persistence stores: `FileWorkflowCheckpointStore`, `JdbcWorkflowCheckpointStore`, `FileWorkflowLeaseStore`, `JdbcWorkflowLeaseStore`, `FileStepAttemptRecordStore`
+- `PartitionAssignmentStrategy` — partition strategy SPI
+
+Verify the full public surface against `tramai-orchestration/api/tramai-orchestration.api` — the supervision/lifecycle coordinators below are internal.
+
+### Internal extension points
+
+- `WorkflowExecutionSupervisor` — workflow execution ownership (internal)
+- `WorkerLifecycleController` / `WorkerShutdownCoordinator` — worker lifecycle and coordinated shutdown (internal)
+- `WorkflowRecoveryCoordinator` — recovery coordination (internal)
+- `LeaseCoordinator` / `LeaseRenewalLoop` — lease/fencing (internal)
+- Workflow observers (`WorkflowObservation`), step executor SPI (`WorkflowStepExecutor`), persistence session SPI (`WorkflowPersistenceSession`)
+
+### Significant dependencies
+
+- `api(tramai-core)`; `implementation(kotlinx-coroutines-core)`, `implementation(mcp-sdk-client)`; engine/testing in test scope (see [module-catalog.yml](../../config/quality/module-catalog.yml))
+
+### Lifecycle ownership
+
+- Owns workflow/worker lifecycle, lease renewal, checkpoint and step-attempt persistence
+
+### Thread-safety and concurrency
+
+- Lease/fencing prevents a stale owner from committing state after ownership changes; the local active-execution map prevents duplicate local registration (`putIfAbsent`). Those are distinct mechanisms: fencing is for distributed ownership, the local map is for in-process duplicates.
+
+### Failure semantics
+
+- Typed persistence failures (`PersistenceFailures`), step failures (`WorkflowStepFailures`, `WorkflowErrors`); replay decision policy governs resume
+
+### Contract tests / TCKs
+
+- Workflow/worker tests in `tramai-orchestration/src/test`; store TCKs via `tramai-testing` (checkpoint/lease/step-attempt)
+
+### Do not
+
+- Do not add new concrete-step dispatch to a central orchestrator god object — extend the step abstraction
+- Do not add provider or Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — runtime-execution layer
+- [execution-sequence.md](../architecture/execution-sequence.md) — workflow/worker flow
 ---
 
 ## L1: Quick Start (30-second read)
@@ -44,7 +98,7 @@ Do **not** use it for single-turn AI calls — `tramai-engine` with an `@AiServi
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-orchestration:0.5.0")
+    implementation("dev.tramai:tramai-orchestration")  // version from the TramAI BOM
 }
 ```
 
@@ -54,14 +108,16 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-orchestration</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
 implementation("dev.tramai:tramai-orchestration")
 ```
 
@@ -70,8 +126,8 @@ implementation("dev.tramai:tramai-orchestration")
 | Topic | Link |
 |-------|------|
 | Quickstart with all modules | `docs/guides/getting-started.md` |
-| Understanding workflow basics | `docs/specs/spec-005.md` |
-| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-009.md` |
+| Understanding workflow basics | `docs/specs/spec-012-orchestration-and-coordination.md` |
+| Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-015-agent-steps.md` |
 | Governed workflow quickstart | `docs/guides/governed-workflow-quickstart.md` |
 
 ---
@@ -232,7 +288,7 @@ Each item runs in a `coroutineScope { async { ... } }`. The `StopPolicy.maxParal
 
 ### Checkpoint stores
 
-`tramai-orchestration` ships with three `WorkflowCheckpointStore` implementations:
+`tramai-orchestration` ships with four `WorkflowCheckpointStore` implementations:
 
 | Store | Backend | Features |
 |-------|---------|----------|
@@ -581,7 +637,7 @@ tramai-orchestration
 **Does not own:**
 - AI provider execution — the `aiStep` builder receives its `invoke` lambda from the caller (typically backed by `tramai-engine` + a provider)
 - Annotations / provider SPIs — owned by `tramai-core`
-- Framework integration — owned by adapters (`tramai-spring`, `tramai-standalone`)
+- Framework integration — owned by adapters (`tramai-spring-core`, `tramai-standalone`; `tramai-spring` is the legacy facade)
 
 ### Dependency graph
 
@@ -591,7 +647,7 @@ tramai-orchestration
         └── kotlinx-coroutines-core
 
 tramai-standalone ─── tramai-orchestration (optional, for agent workflows)
-tramai-spring     ─── tramai-orchestration (optional, for agent workflows)
+tramai-spring-core ─── tramai-orchestration (optional, for agent workflows)
 ```
 
 ### Inner mechanics
