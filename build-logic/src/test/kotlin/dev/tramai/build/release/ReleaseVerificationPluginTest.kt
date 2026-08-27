@@ -432,8 +432,9 @@ class ReleaseVerificationPluginTest {
         git(dir, "config", "user.name", "Test")
         writeFile(dir, "committed.txt", "hello")
         git(dir, "add", ".")
-        git(dir, "commit", "-q", "-m", "seed")
+        git(dir, "commit", "-q", "-m", "commit A")
         git(dir, "remote", "add", "origin", "https://github.com/GionaGranchelli/tramAI.git")
+        val shaA = git(dir, "rev-parse", "HEAD").trim()
 
         val args = arrayOf(
             "generateSovereignReleaseEvidenceIndex",
@@ -449,16 +450,40 @@ class ReleaseVerificationPluginTest {
             first.output.contains("Configuration cache entry stored"),
             "first run must store the configuration cache: ${first.output.take(800)}",
         )
+        assertTrue(
+            evidenceCommitSha(dir) == shaA,
+            "evidence must record commit A: ${File(dir, "build/sovereign-runtime-release/evidence-index.json").readText()}",
+        )
+
+        // New git commit that does NOT touch any declared evidence input.
+        writeFile(dir, "unrelated.txt", "commit B content")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "commit B")
+        val shaB = git(dir, "rev-parse", "HEAD").trim()
+
         val second = runner(dir, *args).build()
         assertTrue(
             second.output.contains("Reusing configuration cache"),
             "second run must reuse the configuration cache: ${second.output.take(800)}",
         )
-        // Both runs must produce evidence (git metadata resolved at execution).
+        // The evidence task must EXECUTE again — never be skipped as UP-TO-DATE —
+        // so the freshly committed SHA B is recorded, not the stale SHA A.
+        val evidenceTask = second.task(":generateSovereignReleaseEvidenceIndex")
+        assertTrue(evidenceTask != null, "evidence task must execute on second run")
         assertTrue(
-            File(dir, "build/sovereign-runtime-release/evidence-index.json").isFile,
-            "evidence index must be generated on both runs",
+            !evidenceTask!!.outcome.name.contains("UP_TO_DATE") && !evidenceTask.outcome.name.contains("NO_SOURCE"),
+            "evidence task must NOT be skipped as up-to-date: ${second.output.take(800)}",
         )
+        assertTrue(
+            evidenceCommitSha(dir) == shaB,
+            "evidence must record commit B after a git-only change: ${File(dir, "build/sovereign-runtime-release/evidence-index.json").readText()}",
+        )
+    }
+
+    private fun evidenceCommitSha(dir: File): String {
+        val text = File(dir, "build/sovereign-runtime-release/evidence-index.json").readText()
+        val m = Regex("\"commitSha\"\\s*:\\s*\"([a-f0-9]{40})\"").find(text)
+        return m?.groupValues?.get(1) ?: error("no commitSha in evidence: $text")
     }
 
     // ── T13: clean-workspace producer graph for prepareSovereignReleaseArtifacts ──

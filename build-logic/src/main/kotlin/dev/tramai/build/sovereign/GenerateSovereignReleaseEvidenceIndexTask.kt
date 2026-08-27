@@ -43,6 +43,17 @@ import javax.inject.Inject
 @DisableCachingByDefault(because = "Release evidence is intentionally run-specific (timestamps, git metadata)")
 abstract class GenerateSovereignReleaseEvidenceIndexTask : DefaultTask() {
 
+    init {
+        // Evidence is run-specific: generatedAt, commitSha, refName, and
+        // repository can change between runs WITHOUT any declared input
+        // changing (e.g. a new git commit leaves the input files untouched).
+        // @DisableCachingByDefault only disables the build cache — Gradle's
+        // normal local up-to-date check is a separate mechanism and would
+        // legally skip the action, leaving stale commit metadata in the
+        // evidence artifact. Force execution every run.
+        outputs.upToDateWhen { false }
+    }
+
     @get:Input
     abstract val expectedVersion: Property<String>
 
