@@ -1,6 +1,6 @@
 # Module: `kotlin-consumer-smoke`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Kotlin consumer compilation proof (Epic 10.2) — proves the stable TramAI API compiles from a Kotlin consumer perspective.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

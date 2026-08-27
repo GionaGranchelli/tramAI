@@ -111,9 +111,11 @@ object ModuleDocContractVerifier {
             val text = file.readText()
             val entry = modules[name] ?: modules[":$name"]
 
-            // Headings
+            // Headings — exact Markdown heading lines ("### Responsibility" must
+            // be its own line; "### ResponsibilityXYZ" does not satisfy it).
             for (heading in REQUIRED_HEADINGS) {
-                if (!text.contains("### $heading")) {
+                val headingLine = Regex("""^### ${Regex.escape(heading)}\s*$""", RegexOption.MULTILINE)
+                if (!headingLine.containsMatchIn(text)) {
                     diagnostics += VerificationDiagnostic.failure(
                         DiagnosticCode.MODULE_CARD_HEADING_MISSING,
                         "Card '$name' is missing heading '### $heading'",
@@ -174,31 +176,41 @@ object ModuleDocContractVerifier {
                 }
             }
 
-            // Versionless dev.tramai deps: every standalone kotlin snippet with
-            // dev.tramai deps must import the BOM or use an explicit version.
+            // Versionless dev.tramai deps: every external dev.tramai:<artifact>
+            // declaration in a kotlin snippet must be either explicitly
+            // versioned, or covered by a VERSIONED TramAI BOM import in the
+            // same block. No block-wide exemptions: an explicit version on an
+            // unrelated artifact, or a project(":...") dependency, does not
+            // exempt a versionless Maven coordinate. An unversioned
+            // platform("dev.tramai:tramai-bom") is invalid coverage.
             val kotlinBlocks = Regex("""```kotlin\n(.*?)```""", setOf(RegexOption.DOT_MATCHES_ALL))
             for (block in kotlinBlocks.findAll(text)) {
                 val code = block.groupValues[1]
-                val deps = Regex("""implementation\("dev\.tramai:[a-z0-9-]+"\)""").findAll(code).map { it.value }.toList()
-                if (deps.isEmpty()) continue
-                val hasBom = code.contains("tramai-bom:") || code.contains("tramai-bom\"")
-                val hasExplicitVersion = Regex("""dev\.tramai:[a-z0-9-]+:\$""").containsMatchIn(code)
-                val hasProjectDep = code.contains("project(\":")
-                if (!hasBom && !hasExplicitVersion && !hasProjectDep) {
-                    diagnostics += VerificationDiagnostic.failure(
-                        DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
-                        "Card '$name' has versionless dependency snippet without BOM import or explicit version: ${deps.first()}",
-                        modulePath = name,
-                    )
+                val hasVersionedBom = Regex("""tramai-bom:[^\s"]+""").containsMatchIn(code)
+                val declarationRegex = Regex("""(?:implementation|api)\(\s*"dev\.tramai:([a-z0-9-]+)(?::([^"]*))?"\s*\)""")
+                for (decl in declarationRegex.findAll(code)) {
+                    val artifact = decl.groupValues[1]
+                    val version = decl.groupValues[2]
+                    if (artifact == "tramai-bom") continue // BOM import handled via hasVersionedBom
+                    if (version.isBlank() && !hasVersionedBom) {
+                        diagnostics += VerificationDiagnostic.failure(
+                            DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
+                            "Card '$name' has versionless dependency declaration without a versioned TramAI BOM import in the same snippet: dev.tramai:$artifact",
+                            modulePath = name,
+                        )
+                    }
                 }
             }
 
             // Internal/unpublished modules must not advertise external Maven consumption.
-            // Only the module's OWN artifact coordinate is rejected; mentioning
-            // other (published) TramAI dependencies is legitimate.
+            // Only the module's OWN artifact coordinate is rejected — in Gradle
+            // (implementation/api, with or without a version) or Maven XML —
+            // regardless of version. Mentioning other (published) TramAI
+            // dependencies is legitimate.
             if (entry != null && entry.publishability != ModulePublishability.PUBLISHED) {
-                val mavenAd = Regex("""implementation\("dev\.tramai:${Regex.escape(name)}"\)""").containsMatchIn(text)
-                if (mavenAd) {
+                val ownGradle = Regex("""(?:implementation|api)\(\s*"dev\.tramai:${Regex.escape(name)}(?::[^"]*)?"\s*\)""").containsMatchIn(text)
+                val ownMaven = Regex("""<artifactId>\s*${Regex.escape(name)}\s*</artifactId>""").containsMatchIn(text)
+                if (ownGradle || ownMaven) {
                     diagnostics += VerificationDiagnostic.failure(
                         DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
                         "Internal/unpublished module '$name' advertises external Maven consumption (dev.tramai:$name)",
@@ -208,35 +220,43 @@ object ModuleDocContractVerifier {
             }
         }
 
-        // 7. README coverage counts match reality
+        // 7. README coverage counts match reality — README absent is a failure.
         val readme = File(docsDir, README)
-        if (readme.isFile) {
+        if (!readme.isFile) {
+            diagnostics += VerificationDiagnostic.failure(
+                DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
+                "docs/modules/README.md is missing — coverage counts cannot be verified",
+            )
+        } else {
             val readmeText = readme.readText()
             val manifestCount = modules.size
-            val expected = "| Manifest modules | $manifestCount |"
-            if (expected !in readmeText) {
-                diagnostics += VerificationDiagnostic.failure(
-                    DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
-                    "README coverage table must state Manifest modules = $manifestCount",
-                )
+            // A card is conforming when it carries all required headings and no
+            // legacy header classification (the two per-card contract checks
+            // that define the conforming/non-conforming split in the README).
+            var conforming = 0
+            for (file in cardFiles) {
+                val cardText = file.readText()
+                val cardHeader = cardText.substringBefore("## ")
+                val allHeadings = REQUIRED_HEADINGS.all { Regex("""^### ${Regex.escape(it)}\s*$""", RegexOption.MULTILINE).containsMatchIn(cardText) }
+                val noLegacy = LEGACY_CLASSIFICATION_PATTERNS.none { it.containsMatchIn(cardHeader) }
+                if (allHeadings && noLegacy) conforming++
             }
-            val expectedCards = "| Module cards | ${cardNames.size} |"
-            if (expectedCards !in readmeText) {
-                diagnostics += VerificationDiagnostic.failure(
-                    DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
-                    "README coverage table must state Module cards = ${cardNames.size}",
-                )
-            }
-            // All cards conform => non-conforming 0, missing 0, orphans 0
-            if (diagnostics.none { it.code == DiagnosticCode.MODULE_CARD_HEADING_MISSING ||
-                    it.code == DiagnosticCode.MODULE_CARD_MISSING ||
-                    it.code == DiagnosticCode.MODULE_CARD_ORPHAN }) {
-                if ("| Existing non-conforming | 0 |" !in readmeText ||
-                    "| Missing cards | 0 |" !in readmeText ||
-                    "| Orphans | 0 |" !in readmeText) {
+            val missing = (manifestNames - cardNames).size
+            val orphans = (cardNames - manifestNames).size
+            val expected = mapOf(
+                "Manifest modules" to manifestCount,
+                "Module cards" to cardNames.size,
+                "Conforming cards" to conforming,
+                "Existing non-conforming" to (cardNames.size - conforming),
+                "Missing cards" to missing,
+                "Orphans" to orphans,
+            )
+            for ((label, count) in expected) {
+                val expectedLine = "| $label | $count |"
+                if (expectedLine !in readmeText) {
                     diagnostics += VerificationDiagnostic.failure(
                         DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
-                        "README coverage table must state non-conforming 0, missing 0, orphans 0 at 60/60 closure",
+                        "README coverage table must state '$label = $count' (found: $expectedLine not present)",
                     )
                 }
             }

@@ -34,7 +34,7 @@ Coverage is computed against the 60-module authoritative manifest (`module-catal
 |--------|-------|
 | Manifest modules | 60 |
 | Module cards | 60 |
-| Conforming cards (C2b1 + C2b2 + C2b3) | 60 |
+| Conforming cards | 60 |
 | Existing non-conforming | 0 |
 | Missing cards | 0 |
 | Orphans | 0 |

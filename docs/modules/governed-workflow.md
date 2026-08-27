@@ -1,6 +1,6 @@
 # Module: `governed-workflow`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Example application demonstrating governed workflows — claim classification and triage with security/governance constraints applied by the engine.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

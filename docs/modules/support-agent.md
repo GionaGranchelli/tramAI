@@ -1,6 +1,6 @@
 # Module: `support-agent`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Example support agent — a standalone application using tramai-standalone with the Ollama provider and custom tools.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

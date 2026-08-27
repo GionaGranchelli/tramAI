@@ -1,6 +1,6 @@
 # Module: `sovereign-offline-verification`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Example application proving zero-egress operation — loopback model server, loopback HTTP provider, and offline echo service generate a zero-egress verification report.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

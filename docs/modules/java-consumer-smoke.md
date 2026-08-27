@@ -1,6 +1,6 @@
 # Module: `java-consumer-smoke`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Java consumer compilation proof (Epic 10.2) — proves the stable TramAI API compiles from Java with a plain java-plugin consumer.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

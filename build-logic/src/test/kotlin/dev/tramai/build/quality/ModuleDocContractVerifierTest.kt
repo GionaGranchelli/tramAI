@@ -280,4 +280,119 @@ dependencies {
         val diags = verify(dir)
         assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH }, "coverage mismatch must be caught: $diags")
     }
+
+    // ---- Round-2 RED discriminators (review #311/#312) ----
+
+    @Test
+    fun `unversioned BOM with versionless module is caught`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-core") + """
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom"))
+    implementation("dev.tramai:tramai-core")
+}
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-core" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY }, "unversioned BOM must not exempt: $diags")
+    }
+
+    @Test
+    fun `explicit version on unrelated artifact does not exempt versionless dep`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-core") + """
+```kotlin
+dependencies {
+    implementation("dev.tramai:tramai-core")
+    implementation("dev.tramai:tramai-openai:${'$'}tramaiVersion")
+}
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-core" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY }, "unrelated explicit version must not exempt: $diags")
+    }
+
+    @Test
+    fun `project dep does not exempt versionless Maven dep`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-core") + """
+```kotlin
+dependencies {
+    implementation(project(":some-local-module"))
+    implementation("dev.tramai:tramai-core")
+}
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-core" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY }, "project() must not exempt: $diags")
+    }
+
+    @Test
+    fun `versionless api declaration without BOM is caught`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-core") + """
+```kotlin
+dependencies {
+    api("dev.tramai:tramai-core")
+}
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-core" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY }, "versionless api() must be caught: $diags")
+    }
+
+    @Test
+    fun `internal own coordinate with explicit version is caught`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-server") + """
+```kotlin
+dependencies {
+    implementation("dev.tramai:tramai-server:0.6.0")
+}
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-server" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT }, "internal own coordinate with version must be caught: $diags")
+    }
+
+    @Test
+    fun `internal own artifact in Maven XML is caught`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-server") + """
+```xml
+<dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-server</artifactId>
+</dependency>
+```
+"""
+        val dir = fixture(cards = mapOf("tramai-server" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT }, "internal Maven XML must be caught: $diags")
+    }
+
+    @Test
+    fun `missing README is caught`() {
+        val dir = fixture()
+        File(dir, "docs/modules/README.md").delete()
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH }, "missing README must be caught: $diags")
+    }
+
+    @Test
+    fun `wrong conforming cards count is caught`() {
+        val dir = fixture()
+        val readme = File(dir, "docs/modules/README.md").readText()
+        File(dir, "docs/modules/README.md").writeText(readme.replace("| Conforming cards | 2 |", "| Conforming cards | 1 |"))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH }, "wrong conforming count must be caught: $diags")
+    }
+
+    @Test
+    fun `heading prefix does not satisfy exact heading contract`() {
+        val bad = String.format(CARD_TEMPLATE, "tramai-core").replace("### Responsibility", "### ResponsibilityXYZ")
+        val dir = fixture(cards = mapOf("tramai-core" to bad))
+        val diags = verify(dir)
+        assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_HEADING_MISSING }, "heading prefix must not satisfy contract: $diags")
+    }
 }

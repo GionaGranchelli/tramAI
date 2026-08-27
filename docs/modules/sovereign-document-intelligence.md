@@ -1,6 +1,6 @@
 # Module: `sovereign-document-intelligence`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Example application for sovereign document intelligence — invoice analysis with a deterministic provider, payment scheduling tool, and sovereign security controls.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

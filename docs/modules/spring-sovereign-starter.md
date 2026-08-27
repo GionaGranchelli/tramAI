@@ -1,6 +1,6 @@
 # Module: `spring-sovereign-starter`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Reference example for the sovereign Spring Boot starter — invoice analysis wired with JDBC persistence, sovereign ops REST, and the local OpenAI-compatible provider under the sovereign-lab profile.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 

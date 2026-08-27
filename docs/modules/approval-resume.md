@@ -1,6 +1,6 @@
 # Module: `approval-resume`
 
-> **One-liner:** See the Architecture section below.
+> **One-liner:** Example application demonstrating the approved-resume lifecycle — expense-approval workflows suspend, resume through the approval control plane, and continue via the auto-resume worker.
 
 > **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
 
