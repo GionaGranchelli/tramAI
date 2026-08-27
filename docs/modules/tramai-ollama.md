@@ -1,12 +1,52 @@
 # Module: `tramai-ollama`
 
 > **One-liner:** Provider for locally-hosted Ollama models via the Ollama chat API.
-> **Module type:** `provider`
-> **Source files:** 1 file — `OllamaProvider.kt` (156 LOC)
-> **Test files:** 2 — `OllamaProviderTest.kt`, `NativeImageSmokeTest.kt`
-> **Build:** `dev.tramai:tramai-ollama:0.5.0`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for Ollama (local models): `ModelProvider` implementation.
+
+### Public entry points
+
+- `OllamaProvider` — `ModelProvider` implementation (verify against `tramai-ollama/api/tramai-ollama.api`)
+
+### Internal extension points
+
+- Provider transport internals (HTTP client, JSON mapping)
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `OllamaProviderTckTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -32,11 +72,16 @@ Don't use this module when:
 - Ollama is not installed on your machine or network
 ```
 
-### How to add
+## Dependencies
+
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-ollama:0.5.0")
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-ollama")
 }
 ```
 
@@ -45,7 +90,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-ollama</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 

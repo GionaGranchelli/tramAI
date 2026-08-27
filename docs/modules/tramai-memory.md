@@ -1,8 +1,52 @@
 # tramai-memory
 
-**Version:** 0.3.1  
-**Status:** Stable  
-**Role:** In-memory context and token-aware multi-turn conversational chat persistence.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Conversational memory: chat-memory implementations (`MessageWindowChatMemory`, `PersistentChatMemory`, `TokenAwareChatMemory`) and the `MemoryInterceptor` engine hook.
+
+### Public entry points
+
+- `MessageWindowChatMemory`, `PersistentChatMemory`, `TokenAwareChatMemory` — `ChatMemory` implementations
+- `MemoryInterceptor` — engine observation hook wiring memory
+
+Verify against `tramai-memory/api/tramai-memory.api`.
+
+### Internal extension points
+
+- New memory implementations (the public core memory SPI is listed under Public entry points)
+
+### Significant dependencies
+
+- `api(tramai-core)` only — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Memory instances are caller-owned; no process lifecycle owned here
+
+### Thread-safety and concurrency
+
+- Memory implementations must be safe for concurrent engine access
+
+### Failure semantics
+
+- Memory persistence failures surface as typed errors; injection must not break the happy path
+
+### Contract tests / TCKs
+
+- `MemoryInterceptorTest`, `MessageWindowChatMemoryTest`, `PersistentChatMemoryTest`, `TokenAwareChatMemoryTest`
+
+### Do not
+
+- Do not add provider/Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -29,10 +73,14 @@ Connects a `ChatMemoryStore` (database) with an optional in-memory cache (`Messa
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.5.0")
-    // If you need durable storage (Postgres, Redis, File):
-    implementation("dev.tramai:tramai-memory-store:0.5.0")
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-memory")
+    // For durable storage (Postgres, Redis): also add tramai-memory-store
+    implementation("dev.tramai:tramai-memory-store")
 }
 ```
 

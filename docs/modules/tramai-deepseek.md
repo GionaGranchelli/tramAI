@@ -1,12 +1,52 @@
 # Module: `tramai-deepseek`
 
 > **One-liner:** Provider for DeepSeek's OpenAI-compatible chat completion API — a thin wrapper around `OpenAiCompatibleProvider`.
-> **Module type:** `provider`
-> **Source files:** 1 — `DeepSeekProvider.kt` (63 LOC)
-> **Test files:** none (tested via `tramai-openai` coverage since the provider delegates entirely to `OpenAiCompatibleProvider`)
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for DeepSeek's OpenAI-compatible API: `ModelProvider` implementation.
+
+### Public entry points
+
+- `DeepSeekProvider` — `ModelProvider` implementation (verify against `tramai-deepseek/api/tramai-deepseek.api`)
+
+### Internal extension points
+
+- OpenAI-compatible transport internals (reuses `tramai-openai` infrastructure)
+
+### Significant dependencies
+
+- `api(tramai-core)`, `api(tramai-openai)` (compatibility base); coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `DeepSeekProviderTckTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not fork OpenAI transport logic — reuse `tramai-openai`
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -26,19 +66,15 @@ DeepSeek offers competitive pricing and strong performance on coding and reasoni
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-deepseek:0.5.0")
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-implementation("dev.tramai:tramai-deepseek")
+val tramaiVersion: String by project
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-deepseek")
+}
 ```
 
 ### Where to go next

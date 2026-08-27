@@ -1,12 +1,56 @@
 # Module: `tramai-openai`
 
 > **One-liner:** OpenAI-compatible model provider with support for OpenAI API, Together AI, Groq, vLLM, and any `/chat/completions` endpoint.
-> **Module type:** `provider`
-> **Source files:** 2 — `OpenAiProvider.kt` (430 LOC) + `ExperimentalCodexAuth.kt`
-> **Test files:** 2 — `OpenAiProviderTest.kt`, `OpenAiProviderIntegrationTest.kt`
-> **Build:** `dev.tramai:tramai-openai:0.5.0`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for OpenAI and OpenAI-compatible APIs: `OpenAiProvider`, `OpenAiCompatibleProvider`, access-token sources (static, Codex auth file).
+
+### Public entry points
+
+- `OpenAiProvider`, `OpenAiCompatibleProvider` — `ModelProvider` implementations
+- `StaticOpenAiAccessTokenSource`, `CodexAuthFileTokenSource` — access-token sources
+- `ExperimentalCodexAuth` annotation
+
+Verify against `tramai-openai/api/tramai-openai.api`.
+
+### Internal extension points
+
+- Access-token source seam; OpenAI-compatible base transport (reused by `tramai-deepseek`)
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `OpenAiProviderTckTest`, `OpenAiCompatibleProviderTckTest`, `OpenAiStreamingTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -32,29 +76,25 @@ Don't use this module when you need a non-OpenAI-compatible provider — use `tr
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-openai:0.5.0")
-}
-```
-
 **Maven:**
 
 ```xml
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-openai</artifactId>
-    <version>0.5.0</version>
+    <version>${tramai.version}</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-implementation("dev.tramai:tramai-openai")
+val tramaiVersion: String by project
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-openai")
+}
 ```
 
 ### Where to go next
@@ -62,10 +102,10 @@ implementation("dev.tramai:tramai-openai")
 | If you want to... | Go here |
 |---|---|
 | Wire a provider into a working app | `docs/modules/tramai-standalone.md` |
-| Use Spring Boot auto-configuration | `docs/modules/tramai-spring.md` |
+| Use Spring Boot auto-configuration | `docs/architecture/modules.md` (framework-integrations layer; `tramai-spring-core` / unified starter, `tramai-spring` is the legacy facade) |
 | Understand the provider SPI contract | `docs/modules/tramai-core.md` (L3: ModelProvider) |
 | Learn about streaming in general | `docs/modules/tramai-engine.md` (L2: Streaming) |
-| See the full OpenAI-compatible wire format spec | `docs/specs/spec-003.md` |
+| See the full OpenAI-compatible wire format spec | `docs/specs/spec-003-provider-integration.md` |
 
 ---
 
@@ -390,7 +430,7 @@ tramai-openai
 
   Depended on by:
     - tramai-standalone        — wired via Tramai.builder().provider()
-    - tramai-spring            — auto-configuration discovers OpenAiProvider beans
+    - tramai-spring-core     — auto-configuration discovers OpenAiProvider beans (`tramai-spring` is the legacy facade)
 ```
 
 ### Inner mechanics

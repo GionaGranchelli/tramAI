@@ -1,12 +1,58 @@
 # Module: `tramai-server`
 
 > **One-liner:** HTTP REST API surface for Tramai workflows — start, inspect, resume, cancel, and stream runs; receive webhooks; monitor workers and schedules; query audit logs.
-> **Module type:** `optional`
-> **Group:** `dev.tramai`
-> **Source files:** 12 main, **LOC:** ~1,927 (main)
-> **Dependencies:** `tramai-orchestration`, `tramai-scheduler`, `spring-boot-starter-web`, `spring-boot-starter-validation`, `jackson-module-kotlin`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Spring Boot server: workflow/worker/audit/schedule HTTP endpoints, webhook verification, request-size limits, in-memory stores.
+
+### Public entry points
+
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-server/api/tramai-server.api`, not for external consumption):
+
+- `TramaiServerApplication` — server entry point
+- Controllers: `WorkflowController`, `WorkerController`, `AuditController`, `ScheduleController`
+- `GitHubWebhookSignatureVerifier`, `RequestBodySizeLimitFilter`, `ReplayCache`
+- Stores: `InMemoryAuditLogStore`, `InMemoryWorkerRegistry`
+- Exceptions: `BadWorkflowRequestException`, `InvalidWebhookSignatureException`, `RequestBodyTooLargeException`
+
+### Internal extension points
+
+- Audit/worker-registry store implementations
+
+### Significant dependencies
+
+- `api(tramai-orchestration)`; `implementation(tramai-scheduler)`; Spring web/validation, Jackson, coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle; server start/stop via the Spring Boot application
+
+### Thread-safety and concurrency
+
+- Spring singletons; controllers must be safe for concurrent HTTP requests
+
+### Failure semantics
+
+- Invalid requests surface as typed HTTP error responses; signature failures are explicit
+
+### Contract tests / TCKs
+
+- `WorkflowControllerTest`, `WorkerControllerTest`, `AuditControllerTest`, `ScheduleControllerTest`, `WorkerRegistryTest`, `AuditLogStoreTest`
+
+### Do not
+
+- Do not add provider adapters here — server is a hosting surface
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -50,34 +96,15 @@ Workflows defined with `tramai-orchestration` run inside a JVM process. Without 
 | View schedule status | ✅ `GET /schedules`, `GET /schedules/events` (SSE) |
 | Audit API operations | ✅ `GET /audit` |
 
-### How to add
+### How to include (repository-internal)
 
-**Gradle (Kotlin DSL):**
+`tramai-server` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (e.g. by `tramai-mcp`, `tramai-platform`, deployment packaging, and example applications). There is no external Maven coordinate and the BOM does not manage it. In-repo Spring Boot composition looks like:
 
 ```kotlin
+// within the TramAI monorepo (build.gradle.kts of a server host)
 dependencies {
-    implementation("dev.tramai:tramai-server:0.5.0")
-}
-```
-
-**Bill of Materials:**
-
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-implementation("dev.tramai:tramai-server")
-```
-
-**Using the BOM with Spring Boot:**
-
-```kotlin
-plugins {
-    id("org.springframework.boot")
-}
-
-dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-server")
-    implementation("dev.tramai:tramai-orchestration")
+    implementation(project(":tramai-server"))
+    implementation(project(":tramai-orchestration"))
     // your workflow definitions
 }
 ```
@@ -98,7 +125,7 @@ fun registerInvoiceWorkflow(): WorkflowRegistration = WorkflowRegistration { reg
 
 | Topic | Link |
 |---|---|
-| Workflow orchestration (steps, checkpointing, resume) | `docs/specs/spec-005.md` |
+| Workflow orchestration (steps, checkpointing, resume) | `docs/specs/spec-012-orchestration-and-coordination.md` |
 | Scheduling (cron, delays, business calendars) | `tramai-scheduler` module doc |
 | Dashboard (admin UI) | `docs/architecture/modules.md` |
 | Server spec | `docs/specs/spec-014-server.md` |

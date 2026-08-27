@@ -1,8 +1,52 @@
 # tramai-memory-store
 
-**Version:** 0.3.1  
-**Status:** Stable  
-**Role:** Service Provider Interface (SPI) for persistent chat history.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Durable memory-store implementations: `JdbcChatMemoryStore`, `RedisChatMemoryStore` implementing the `ChatMemoryStore` contract (the SPI lives in `tramai-core`; this module provides implementations, not the interface).
+
+### Public entry points
+
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-memory-store/api/tramai-memory-store.api`, not for external consumption):
+
+- `JdbcChatMemoryStore`, `RedisChatMemoryStore` — `ChatMemoryStore` implementations
+- `JdbcChatMemoryTable` (schema)
+
+### Internal extension points
+
+- New memory-store implementations; the `ChatMemoryStore` contract itself lives in `tramai-core` (not this module's public surface)
+
+### Significant dependencies
+
+- `api(tramai-core)`; Jedis, Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Stores borrow caller-supplied connections/pools; ownership remains with the caller
+
+### Thread-safety and concurrency
+
+- Stores must be safe for concurrent access; JDBC/Redis connection handling is store-scoped
+
+### Failure semantics
+
+- Store failures surface as typed errors; no silent partial writes
+
+### Contract tests / TCKs
+
+- `JdbcChatMemoryStoreTckTest`, `RedisChatMemoryStoreTckTest` — enrolled in the memory-store TCK
+
+### Do not
+
+- Do not add engine/Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -52,12 +96,7 @@ found in the `tramai-memory` module.
 
 ## Dependencies
 
-```kotlin
-// build.gradle.kts
-dependencies {
-    implementation("dev.tramai:tramai-memory-store:0.5.0")
-}
-```
+`tramai-memory-store` is **not published** — the implementations are composed inside the TramAI monorepo (e.g. by deployment packaging or example applications) as Gradle project dependencies. There is no external Maven coordinate and the BOM does not manage it.
 
 ## Quick Start: Using a Store
 

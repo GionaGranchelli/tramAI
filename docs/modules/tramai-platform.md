@@ -1,12 +1,56 @@
 # Module: `tramai-platform`
 
 > **One-liner:** Multi-tenant operational layer above the workflow server with API key authentication, token-bucket rate limiting, JDBC audit logging, and a runtime plugin system.
-> **Module type:** `application` (Spring Boot)
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
-> **Source files:** 9, **LOC:** 1,469
-> **Dependencies:** `tramai-orchestration`, `tramai-server`, `spring-boot-starter-web`, `spring-boot-starter-security`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Platform services: API-key auth/rate limiting, audit log, plugin manager, workflow services — the control plane layered over `tramai-server`/`tramai-orchestration`.
+
+### Public entry points
+
+- `ApiKeyService` / `ApiKeyAuthenticator` / `ApiKeyRateLimiter` / `ApiKeyRepository` — API-key auth and rate limiting
+- `AuditLogService` / `AuditLogRepository` / `AuditLogEntry` — audit
+- `PlatformConfiguration`, `PlatformController`, `PlatformWorkflowService`, `PluginManager`
+
+Verify against `tramai-platform/api/tramai-platform.api`.
+
+### Internal extension points
+
+- Repository implementations (JDBC); plugin lifecycle internals behind the public plugin manager
+
+### Significant dependencies
+
+- `api(tramai-orchestration)`; `implementation(tramai-server)`; Spring JDBC/web/security-crypto, Flyway, Jackson, coroutines (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle; plugin lifecycle via `PluginManager`
+
+### Thread-safety and concurrency
+
+- Spring singletons; controllers must be safe for concurrent HTTP requests
+
+### Failure semantics
+
+- Auth/rate-limit failures surface as typed HTTP responses; audit failures are not silent
+
+### Contract tests / TCKs
+
+- `PlatformControllerTest`, `SecurityTest`, `PluginStateRepositoryTest`, `PluginWorkflowStartupValidatorTest`
+
+### Do not
+
+- Do not add provider adapters here — platform is a control plane
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -41,19 +85,15 @@ Do **not** use it for library-embedded usage (a single process calling workflows
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-platform:0.5.0")
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-implementation("dev.tramai:tramai-platform")
+val tramaiVersion: String by project
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-platform")
+}
 ```
 
 `tramai-platform` is a Spring Boot application (`@SpringBootApplication` on `TramaiPlatformApplication`). It auto-configures all beans via `PlatformConfiguration` — see the [configuration reference](../reference/configuration.md) for property overrides.

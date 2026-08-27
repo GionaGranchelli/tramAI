@@ -1,12 +1,54 @@
 # Module: `tramai-anthropic`
 
 > **One-liner:** Provider for Anthropic's Messages API (Claude models).
-> **Module type:** `provider`
-> **Source files:** 1 — `AnthropicProvider.kt` (192 LOC)
-> **Test files:** 1
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for Anthropic's Messages API (Claude models): `ModelProvider` implementation, request/response mapping, streaming, token accounting.
+
+### Public entry points
+
+- `AnthropicProvider` — `ModelProvider` implementation (verify against `tramai-anthropic/api/tramai-anthropic.api`)
+
+### Internal extension points
+
+- Provider transport internals (HTTP client, JSON mapping) — not consumer seams
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `AnthropicProviderTckTest` — enrolled in the provider TCK (tramai-testing)
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+- Do not add Spring dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
+- [modules.md](../architecture/modules.md) — provider-adapters layer policy
 
 ## L1: Quick Start (30-second read)
 
@@ -146,7 +188,7 @@ The response is parsed from the JSON body:
 }
 ```
 
-If the response contains no `type: "text"` content block (e.g., only `tool_use` blocks), a `ProviderException` is thrown with a clear message: *"Anthropic response did not contain a text content block"*.
+If the response contains neither `text` nor `tool_use` content blocks, a `ProviderException` is thrown with a clear message: *"Anthropic response did not contain a text or tool_use content block"*. A `tool_use`-only response is valid — tool calls are returned via `ModelResponse.toolCalls`.
 
 Stop reason mapping:
 
@@ -186,26 +228,19 @@ Cancellation propagates: because the stream is a `kotlinx.coroutines.flow.Flow`,
 
 #### HTTP error responses
 
-Non-2xx status codes are handled by `providerHttpFailureObserved()`:
+Non-2xx status codes are handled by `rejectedProviderHttpResponse(...)` (from `dev.tramai.core.provider.transport`):
 
 ```kotlin
-logProviderHttpFailureDebug(
-    logger = providerLogger,
-    providerName = "anthropic",
-    statusCode = response.statusCode(),
-    body = errorBody.text,
-)
-throw providerHttpFailureObserved(
-    providerId = "anthropic",
-    statusCode = response.statusCode(),
-    body = errorBody.text,
-    bodyTruncated = errorBody.truncated,
-    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+throw rejectedProviderHttpResponse(
+    providerId = PROVIDER_ID,
+    providerAlias = null,
+    response = response,
     observer = providerFailureDiagnosticObserver,
+    logger = providerLogger,
 )
 ```
 
-Non-2xx bodies are read via `readErrorBodyPreview()` (at most 8 KiB plus one sentinel byte); only the retained bytes are decoded.
+The helper reads the response body (preview capped at 8 KiB plus one sentinel byte), logs trusted metadata only (never the body, headers, credentials, or cause), and raises the `ProviderException`. The same helper is used for the streaming path's `handleHttpError`.
 
 This produces a `ProviderException` with:
 
@@ -233,7 +268,7 @@ Transport-layer failures are caught and mapped by `providerTransportFailureObser
 
 #### Response parsing errors
 
-If the API returns a successful HTTP status but the content array contains no `type: "text"` block (for example, a `tool_use`-only response), the provider throws a `ProviderException` with message *"Anthropic response did not contain a text content block"* and `retryable = false`.
+If the API returns a successful HTTP status but the content array contains neither `text` nor `tool_use` blocks, the provider throws a `ProviderException` with message *"Anthropic response did not contain a text or tool_use content block"* and `retryable = false`. A `tool_use`-only response is valid and surfaces its calls through `ModelResponse.toolCalls`.
 
 #### Streaming error propagation
 

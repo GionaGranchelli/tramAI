@@ -1,12 +1,52 @@
 # Module: `tramai-gemini`
 
 > **One-liner:** Provider for Google Gemini API — translates TramAI's unified message model to Gemini's `generateContent` / `streamGenerateContent` endpoints.
-> **Module type:** `provider`
-> **Source files:** 1 — `GeminiProvider.kt` (406 LOC)
-> **Test files:** 1 — `GeminiProviderTest.kt` (426 LOC)
-> **Group:** `dev.tramai`, **Version:** `0.3.1`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Provider adapter for Google Gemini API: `ModelProvider` implementation.
+
+### Public entry points
+
+- `GeminiProvider` — `ModelProvider` implementation (verify against `tramai-gemini/api/tramai-gemini.api`)
+
+### Internal extension points
+
+- Provider transport internals (HTTP client, JSON mapping)
+
+### Significant dependencies
+
+- `api(tramai-core)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Provider retains an injected/default `HttpClient` (constructor default `HttpClient.newHttpClient()`) and exposes no close contract; no engine state ownership
+
+### Thread-safety and concurrency
+
+- Provider must be safe for concurrent invocation by the engine
+
+### Failure semantics
+
+- Provider failures normalized to `ProviderException` per core contracts
+
+### Contract tests / TCKs
+
+- `GeminiProviderTckTest` — enrolled in the provider TCK
+
+### Do not
+
+- Do not implement retry/fallback/circuit logic here — the engine owns that
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — provider-adapters layer
 
 ## L1: Quick Start (30-second read)
 
@@ -27,19 +67,15 @@ Gemini offers competitive pricing, a generous free tier, large context windows, 
 
 ### How to add
 
-**Gradle (Kotlin DSL):**
-
-```kotlin
-dependencies {
-    implementation("dev.tramai:tramai-gemini:0.5.0")
-}
-```
-
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-implementation("dev.tramai:tramai-gemini")
+val tramaiVersion: String by project
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-gemini")
+}
 ```
 
 ### Where to go next

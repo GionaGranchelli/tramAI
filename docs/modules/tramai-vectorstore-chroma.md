@@ -1,8 +1,52 @@
 # tramai-vectorstore-chroma
 
-**Version:** 0.3.1  
-**Status:** Stable  
-**Role:** ChromaDB implementation of the vector store SPI.
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Chroma vector-store adapter: `ChromaVectorStore` implementing the vector-store SPI.
+
+### Public entry points
+
+- `ChromaVectorStore` — `VectorStore` implementation
+- `ChromaException`
+
+Verify against `tramai-vectorstore-chroma/api/tramai-vectorstore-chroma.api`.
+
+### Internal extension points
+
+- Vector-store SPI implementation slot
+
+### Significant dependencies
+
+- `api(tramai-vectorstore-spi)`; coroutines + Jackson (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Store borrows caller-supplied HTTP client; no process lifecycle owned here
+
+### Thread-safety and concurrency
+
+- Store must be safe for concurrent access
+
+### Failure semantics
+
+- Store failures as `ChromaException` with context
+
+### Contract tests / TCKs
+
+- Covered via vector-store SPI TCK where enrolled; integration tests in module
+
+### Do not
+
+- Do not add provider/engine dependencies here
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — higher-capabilities layer
 
 ## Purpose
 
@@ -12,8 +56,12 @@ This module provides a concrete implementation of `VectorStore` that connects to
 
 ```kotlin
 // build.gradle.kts
+// tramaiVersion is the canonical version property (see gradle.properties)
+val tramaiVersion: String by project
+
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-chroma:0.5.0")
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-vectorstore-chroma")
 }
 ```
 

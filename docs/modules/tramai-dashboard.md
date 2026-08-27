@@ -1,12 +1,54 @@
 # Module: `tramai-dashboard`
 
 > **One-liner:** Vue 3 admin UI for managing TramAI workflows, schedules, and workers.
-> **Module type:** `platform`
-> **Source files:** 3 — `DashboardAutoConfiguration.kt`, `DashboardMarker.kt`, `DashboardSettingsController.kt` (124 LOC)
-> **Test files:** 0
-> **Build:** `dev.tramai:tramai-dashboard:0.5.0`
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+Spring Boot dashboard module: settings UI/controller for runtime configuration surfaces (`DashboardAutoConfiguration`, `DashboardSettingsController`).
+
+### Public entry points
+
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-dashboard/api/tramai-dashboard.api`, not for external consumption):
+
+- `DashboardAutoConfiguration`, `DashboardSettingsController`, `DashboardMarker`
+
+### Internal extension points
+
+- Dashboard settings/controller wiring (Spring beans)
+
+### Significant dependencies
+
+- `spring-boot-starter-web` (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Spring context lifecycle
+
+### Thread-safety and concurrency
+
+- Spring singletons; controller must be safe for concurrent HTTP requests
+
+### Failure semantics
+
+- Controller errors surface as HTTP error responses
+
+### Contract tests / TCKs
+
+- Covered via server/dashboard integration tests
+
+### Do not
+
+- Do not add engine/provider logic here — this is a presentation/ops surface
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -30,13 +72,9 @@ Don't use this module when:
 - You have your own monitoring solution (Grafana, Datadog, etc.)
 ```
 
-### How to add
-```kotlin
-// build.gradle.kts
-dependencies {
-    implementation("dev.tramai:tramai-dashboard:0.5.0")
-}
-```
+### How to include (repository-internal)
+
+`tramai-dashboard` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (e.g. by `tramai-server`/deployment packaging). There is no external Maven coordinate and the BOM does not manage it.
 
 ### Where to go next
 - [tramai-server](./tramai-server.md) — The REST API the dashboard consumes

@@ -1,13 +1,58 @@
 # Module: `tramai-mcp`
 
 > **One-liner:** Exposes registered Tramai workflows as MCP (Model Context Protocol) tools — `list_workflows`, `run_workflow`, `resume_workflow`, `get_workflow_status` — over stdio or SSE transport, so AI agents can discover and invoke workflows through the standard MCP contract.
-> **Module type:** `adapter`
-> **Source files:** 3 — `TramaiMcpServer.kt`, `McpToolHandlers.kt`, `TramaiMcpAutoConfiguration.kt`
-> **Test files:** 1 — `TramaiMcpServerTest.kt`
-> **Build:** `dev.tramai:tramai-mcp:0.5.0`
 > **Depends on:** `tramai-server` (required), `tramai-structured` (required), `spring-boot-autoconfigure`, `spring-context`, MCP Kotlin SDK, Ktor CIO
 
 ---
+
+> **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)
+
+## Architecture
+
+### Responsibility
+
+MCP (Model Context Protocol) integration: expose TramAI tools via MCP and host an MCP server (stdio/SSE) backed by `tramai-server`.
+
+### Public entry points
+
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-mcp/api/tramai-mcp.api`, not for external consumption):
+
+- `TramaiMcpServer` — MCP server entry point
+- `TramaiMcpAutoConfiguration`, `TramaiMcpProperties` (Stdio/Sse) — Spring auto-configuration
+- `McpToolHandlers` — tool-to-MCP handler mapping
+- `ToolExecutionException`
+
+### Internal extension points
+
+- MCP transport selection (stdio/SSE) via properties
+
+### Significant dependencies
+
+- `api(tramai-server)`; `implementation(tramai-structured)`; MCP SDK server, Ktor CIO, Spring autoconfigure/context, Okio (implementation) — see [module-catalog.yml](../../config/quality/module-catalog.yml)
+
+### Lifecycle ownership
+
+- Server lifecycle (start/stop) owned by the host; Spring beans by the context
+
+### Thread-safety and concurrency
+
+- MCP server must handle concurrent tool invocations
+
+### Failure semantics
+
+- Tool failures surface as `ToolExecutionException` mapped to MCP error responses
+
+### Contract tests / TCKs
+
+- `TramaiMcpServerTest`
+
+### Do not
+
+- Do not add provider adapters here — MCP is a protocol surface, not a provider
+
+### Related architecture
+
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — operations-observability layer
 
 ## L1: Quick Start (30-second read)
 
@@ -48,41 +93,15 @@ Don't use this module when:
 - You want to avoid the MCP SDK dependency
 ```
 
-### How to add
+### How to include (repository-internal)
+
+`tramai-mcp` is **not published** — it is composed inside the TramAI monorepo as a Gradle project dependency (it depends on `tramai-server`). There is no external Maven coordinate and the BOM does not manage it:
 
 ```kotlin
-// build.gradle.kts
+// within the TramAI monorepo (build.gradle.kts of an MCP host)
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
-    implementation("dev.tramai:tramai-server")  // required dependency
-    implementation("dev.tramai:tramai-mcp")
+    implementation(project(":tramai-mcp"))
 }
-```
-
-```xml
-<!-- pom.xml -->
-<dependencyManagement>
-  <dependencies>
-    <dependency>
-      <groupId>dev.tramai</groupId>
-      <artifactId>tramai-bom</artifactId>
-      <version>0.5.0</version>
-      <type>pom</type>
-      <scope>import</scope>
-    </dependency>
-  </dependencies>
-</dependencyManagement>
-
-<dependencies>
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-server</artifactId>
-  </dependency>
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-mcp</artifactId>
-  </dependency>
-</dependencies>
 ```
 
 ### Configuration
@@ -229,7 +248,7 @@ tramai-mcp
   ├── api: tramai-server
   │     └── WorkflowRegistry, WorkflowRunStore, WorkflowController
   │
-  ├── api: tramai-structured
+  ├── impl: tramai-structured
   │     └── JacksonStructuredOutputHandler (schema generation)
   │
   ├── impl: MCP Kotlin SDK (io.modelcontextprotocol:kotlin-sdk-server:0.11.1)
@@ -259,7 +278,7 @@ class TramaiMcpServer(
 ```
 
 **Server construction (init block):** Creates an MCP SDK `Server` with:
-- `serverInfo` — name `"tramai-mcp"`, version `"0.3.1"`
+- `serverInfo` — name `"tramai-mcp"`, version (module version)
 - `capabilities` — tools support (`listChanged = false`)
 - Four `addTool(...)` registrations, each wiring a tool definition to its handler via `handleCall { ... }`
 
