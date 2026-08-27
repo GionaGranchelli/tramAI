@@ -44,3 +44,19 @@ internal class NanoTimeSource(
 internal interface MonotonicMark {
     fun elapsedMillis(): Long
 }
+
+/**
+ * Drain-budget authority (8.3a P0-B): the residual budget remaining after the
+ * first drain phase is `timeoutMillis - monotonic elapsed since the budget
+ * started`, clamped to a minimum of 1ms. Never wall-clock derived — the
+ * calculation is exact and deterministically testable with a fake source.
+ */
+internal class MonotonicDrainBudget(
+    private val timeoutMillis: Long,
+    timeSource: MonotonicTimeSource,
+) {
+    private val startedAt = timeSource.markNow()
+
+    fun remainingMillis(): Long =
+        (timeoutMillis - startedAt.elapsedMillis()).coerceAtLeast(1L)
+}

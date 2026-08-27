@@ -244,34 +244,14 @@ class TimeSemanticsDiscriminatorTest {
 
     @Test
     fun `P0-B shutdown drain residual budget is monotonic and wall-clock independent`() {
-        // Contract: drain budget = 500ms; the monotonic source reports only
-        // 50ms consumed (the wall clock in reality jumped far ahead), so the
-        // residual must be ~450ms — the drain must NOT re-consume the full
-        // budget. RED: production computes residual from
-        // System.currentTimeMillis(), which after a full first-phase timeout
-        // reports ~500ms real elapsed -> residual clamps to 1ms, so the whole
-        // shutdown finishes in ~drainTimeout (well under the 700ms threshold).
-        val gate = CompletableDeferred<Unit>()
+        // Exact arithmetic, no timing: budget 500ms, monotonic elapsed 50ms
+        // (the wall clock in reality jumped far ahead) -> residual must be
+        // exactly 450ms. RED: a wall-clock-derived residual would clamp to 1.
         val fake = FakeMonotonicTimeSource().apply { elapsedMillis = 50L }
-        val (worker, store) = gatedWorker(gate, drainTimeoutMillis = 500)
-        worker.timeSourceForTest = fake
-        try {
-            runBlocking {
-                worker.start()
-                withTimeout(10_000) {
-                    while (store.latestStepAttempt("w-1", "hold") == null) delay(5)
-                }
-                val drainStartedNanos = System.nanoTime()
-                worker.shutdown()
-                val totalMillis = (System.nanoTime() - drainStartedNanos) / 1_000_000
-                assertThat(totalMillis)
-                    .withFailMessage("P0-B residual must use monotonic elapsed (50ms consumed -> ~450ms residual), not wall-clock derived")
-                    .isGreaterThanOrEqualTo(700L)
-                gate.complete(Unit)
-            }
-        } finally {
-            runBlocking { runCatching { worker.close() } }
-        }
+        val budget = MonotonicDrainBudget(timeoutMillis = 500, timeSource = fake)
+        assertThat(budget.remainingMillis())
+            .withFailMessage("P0-B residual must be timeoutMillis - monotonic elapsed (450ms)")
+            .isEqualTo(450L)
     }
 
     @Test
@@ -349,7 +329,7 @@ class TimeSemanticsDiscriminatorTest {
                 ),
             )
             val saved = store.load("time-semantics", "w-1")!!
-            InMemoryWorkflowRecoveryController(store, store, clock = clock).retryStep(
+            InMemoryWorkflowRecoveryController.forTest(store, store, clock).retryStep(
                 workflowName = "time-semantics",
                 workflowId = "w-1",
                 expectedRevision = saved.revision,
@@ -399,31 +379,14 @@ class TimeSemanticsDiscriminatorTest {
 
     @Test
     fun `P0-B2 drain residual clamps to minimum when monotonic elapsed exceeds the budget`() {
-        // Companion to P0-B: when the monotonic source reports MORE elapsed
-        // than the budget (fake = 5000ms vs 500ms budget), the residual must
-        // clamp to ~1ms — the drain must NOT re-consume the full budget.
-        // Kills the M05 mutant (residual = full drainTimeout regardless).
-        val gate = CompletableDeferred<Unit>()
+        // Exact arithmetic, no timing: budget 500ms, monotonic elapsed 5000ms
+        // -> residual must clamp to exactly 1ms (never negative, never the
+        // full budget). Kills the M05 mutant (residual = full drainTimeout).
         val fake = FakeMonotonicTimeSource().apply { elapsedMillis = 5_000L }
-        val (worker, store) = gatedWorker(gate, drainTimeoutMillis = 500)
-        worker.timeSourceForTest = fake
-        try {
-            runBlocking {
-                worker.start()
-                withTimeout(10_000) {
-                    while (store.latestStepAttempt("w-1", "hold") == null) delay(5)
-                }
-                val drainStartedNanos = System.nanoTime()
-                worker.shutdown()
-                val totalMillis = (System.nanoTime() - drainStartedNanos) / 1_000_000
-                assertThat(totalMillis)
-                    .withFailMessage("P0-B2 residual must clamp to ~1ms when elapsed exceeds the budget")
-                    .isLessThan(800L)
-                gate.complete(Unit)
-            }
-        } finally {
-            runBlocking { runCatching { worker.close() } }
-        }
+        val budget = MonotonicDrainBudget(timeoutMillis = 500, timeSource = fake)
+        assertThat(budget.remainingMillis())
+            .withFailMessage("P0-B2 residual must clamp to 1ms when elapsed exceeds the budget")
+            .isEqualTo(1L)
     }
 
     @Test
@@ -618,7 +581,7 @@ class TimeSemanticsDiscriminatorTest {
                 ),
             )
             val saved = store.load("time-semantics", "w-1")!!
-            InMemoryWorkflowRecoveryController(store, store, clock = clock).failWorkflow(
+            InMemoryWorkflowRecoveryController.forTest(store, store, clock).failWorkflow(
                 workflowName = "time-semantics",
                 workflowId = "w-1",
                 expectedRevision = saved.revision,

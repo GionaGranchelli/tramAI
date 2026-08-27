@@ -117,7 +117,7 @@ internal class WorkerShutdownCoordinator(
         observability.onShutdownStarted(config.workerId)
         pollJob?.cancelAndJoin()
         val executions = executionSupervisor.activeExecutionsSnapshot()
-        val drainStartedMark = timeSource.markNow()
+        val drainBudget = MonotonicDrainBudget(config.drainTimeoutMillis, timeSource)
         val drainTimeoutMillis = config.drainTimeoutMillis
         val drained = withTimeoutOrNull(drainTimeoutMillis) {
             executions.mapNotNull { it.executionJob }.joinAll()
@@ -127,7 +127,7 @@ internal class WorkerShutdownCoordinator(
             executions.forEach { execution ->
                 execution.executionJob?.cancel(CancellationException("Worker drain timeout exceeded"))
             }
-            val residualTimeoutMillis = (drainTimeoutMillis - drainStartedMark.elapsedMillis()).coerceAtLeast(1L)
+            val residualTimeoutMillis = drainBudget.remainingMillis()
             withTimeoutOrNull(residualTimeoutMillis) {
                 executions.mapNotNull { it.executionJob }.joinAll()
             }

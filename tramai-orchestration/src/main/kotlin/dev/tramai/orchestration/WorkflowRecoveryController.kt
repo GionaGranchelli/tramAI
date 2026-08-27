@@ -118,8 +118,21 @@ interface WorkflowRecoveryController {
 class InMemoryWorkflowRecoveryController(
     private val checkpointStore: WorkflowCheckpointStore,
     private val stepAttemptStore: StepAttemptRecordStore? = null,
-    private val clock: Clock = Clock.systemUTC(),
 ) : WorkflowRecoveryController {
+
+    // Determinism seam (8.3a P0-C): injected only via [forTest] so the public
+    // constructor and its JVM ABI remain EXACTLY the original two-argument form.
+    private var clock: Clock = Clock.systemUTC()
+
+    internal companion object {
+        /** Determinism seam for tests: injects the clock without expanding the public API. */
+        fun forTest(
+            checkpointStore: WorkflowCheckpointStore,
+            stepAttemptStore: StepAttemptRecordStore?,
+            clock: Clock,
+        ): InMemoryWorkflowRecoveryController =
+            InMemoryWorkflowRecoveryController(checkpointStore, stepAttemptStore).also { it.clock = clock }
+    }
 
     override suspend fun retryStep(
         workflowName: String,
