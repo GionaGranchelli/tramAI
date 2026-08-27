@@ -51,5 +51,9 @@ gradlePlugin {
             id = "tramai.maintainability-baseline"
             implementationClass = "dev.tramai.build.quality.MaintainabilityBaselinePlugin"
         }
+        create("tramaiPublishing") {
+            id = "tramai.publishing"
+            implementationClass = "dev.tramai.build.publishing.TramaiPublishingPlugin"
+        }
     }
 }

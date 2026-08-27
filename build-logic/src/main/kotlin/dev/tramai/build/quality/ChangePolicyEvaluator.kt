@@ -51,11 +51,25 @@ object ChangePolicyEvaluator {
 
     /** Auto-detected change class when -PchangeClass is not provided. */
     fun detectChangeClass(changedFiles: List<String>): String = when {
-        // If the only changes are in build-logic, it's a build-logic PR
-        changedFiles.all { it.startsWith("build-logic/") || it.startsWith("docs/") || it.endsWith(".md") } -> "build-logic"
+        // If the only changes are build tooling (build-logic, root build scripts,
+        // docs), it's a build-logic PR. Root build scripts are configuration, not
+        // runtime production code.
+        changedFiles.all {
+            it.startsWith("build-logic/") ||
+                it.startsWith("docs/") ||
+                it.endsWith(".md") ||
+                isBuildScriptPath(it)
+        } -> "build-logic"
         // Default to runtime
         else -> "runtime-behaviour"
     }
+
+    /** Root-level build configuration files count as build tooling, not runtime. */
+    fun isBuildScriptPath(path: String): Boolean =
+        path == "build.gradle.kts" ||
+            path == "settings.gradle.kts" ||
+            path == "gradle.properties" ||
+            path.startsWith("gradle/")
 
     fun evaluate(input: ChangePolicyInput): ChangePolicyResult {
         val violations = mutableListOf<PolicyViolation>()
