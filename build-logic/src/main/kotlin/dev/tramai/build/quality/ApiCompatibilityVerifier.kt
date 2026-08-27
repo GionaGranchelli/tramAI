@@ -66,7 +66,21 @@ class ApiCompatibilityVerifier(
     // ── Contract 1: source ↔ committed dump ────────────────────────────────
 
     private fun verifyContract1(evidence: ApiDumpEvidence, diagnostics: MutableList<VerificationDiagnostic>) {
-        evidence.committed.keys.intersect(evidence.generated.keys).sorted().forEach { module ->
+        // Fail-closed (A12/A13 doctrine): every module with a committed dump MUST
+        // also have generated (apiBuild) evidence. A silent skip would let a
+        // clean workspace false-PASS because the intersection is empty.
+        val expected = evidence.committed.keys
+        val missing = expected - evidence.generated.keys
+        missing.sorted().forEach { module ->
+            diagnostics += VerificationDiagnostic.failure(
+                DiagnosticCode.API_COMPATIBILITY_FAILED,
+                "Contract-1: generated (apiBuild) API dump for '$module' is unavailable; " +
+                    "cannot verify the committed dump represents current source. " +
+                    "Ensure the architecture gate runs apiBuild for every applicable module.",
+                modulePath = module
+            )
+        }
+        expected.intersect(evidence.generated.keys).sorted().forEach { module ->
             val generated = evidence.generated.getValue(module)
             val committed = evidence.committed.getValue(module)
             if (generated != committed) {
@@ -394,24 +408,90 @@ object ApiCompatibilityEvidenceReader {
         return output
     }
 
-    /** Parse config/quality/api-migrations.yml into typed entries. Empty file → empty list. */
-    fun parseMigrations(file: File): List<ApiMigrationEntry> {
-        if (!file.isFile) return emptyList()
-        val raw = FileInputStream(file).use { input ->
-            val options = LoaderOptions().apply { maxAliasesForCollections = 200 }
-            Yaml(SafeConstructor(options)).load<Map<String, Any>>(input)
+    /** Parse config/quality/api-migrations.yml into typed entries + parse diagnostics. */
+    fun parseMigrations(file: File): ApiMigrationParseResult {
+        if (!file.isFile) return ApiMigrationParseResult(emptyList(), emptyList())
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val raw: Map<String, Any>? = try {
+            FileInputStream(file).use { input ->
+                val options = LoaderOptions().apply { maxAliasesForCollections = 200 }
+                Yaml(SafeConstructor(options)).load<Map<String, Any>>(input)
+            }
+        } catch (e: Exception) {
+            diagnostics += VerificationDiagnostic.failure(
+                DiagnosticCode.API_COMPATIBILITY_FAILED,
+                "Malformed api-migrations.yml: ${e.message}",
+            )
+            return ApiMigrationParseResult(emptyList(), diagnostics)
         }
-        val entries = raw?.get("migrations") as? List<*> ?: return emptyList()
-        return entries.mapNotNull { item ->
-            val entry = item as? Map<*, *> ?: return@mapNotNull null
-            ApiMigrationEntry(
-                module = entry["module"]?.toString() ?: return@mapNotNull null,
-                fromSha256 = entry["fromSha256"]?.toString() ?: "",
-                toSha256 = entry["toSha256"]?.toString() ?: "",
-                targetVersion = entry["targetVersion"]?.toString() ?: "",
-                rationale = entry["rationale"]?.toString().orEmpty(),
-                migration = entry["migration"]?.toString().orEmpty(),
+
+        val entries = raw?.get("migrations")
+        if (entries == null) {
+            diagnostics += VerificationDiagnostic.failure(
+                DiagnosticCode.API_COMPATIBILITY_FAILED,
+                "api-migrations.yml must contain a 'migrations' list",
+            )
+            return ApiMigrationParseResult(emptyList(), diagnostics)
+        }
+        if (entries !is List<*>) {
+            diagnostics += VerificationDiagnostic.failure(
+                DiagnosticCode.API_COMPATIBILITY_FAILED,
+                "api-migrations.yml 'migrations' must be a list, got ${entries.javaClass.simpleName}",
+            )
+            return ApiMigrationParseResult(emptyList(), diagnostics)
+        }
+
+        val parsed = mutableListOf<ApiMigrationEntry>()
+        entries.forEachIndexed { index, item ->
+            if (item !is Map<*, *>) {
+                diagnostics += VerificationDiagnostic.failure(
+                    DiagnosticCode.API_COMPATIBILITY_FAILED,
+                    "api-migrations.yml entry #$index is not a map (${item?.javaClass?.simpleName ?: "null"})",
+                )
+                return@forEachIndexed
+            }
+            val module = item["module"]?.toString().orEmpty()
+            val fromSha256 = item["fromSha256"]?.toString().orEmpty()
+            val toSha256 = item["toSha256"]?.toString().orEmpty()
+            val targetVersion = item["targetVersion"]?.toString().orEmpty()
+            val rationale = item["rationale"]?.toString().orEmpty()
+            val migration = item["migration"]?.toString().orEmpty()
+
+            if (module.isBlank() || targetVersion.isBlank() || rationale.isBlank() || migration.isBlank()) {
+                diagnostics += VerificationDiagnostic.failure(
+                    DiagnosticCode.API_COMPATIBILITY_FAILED,
+                    "api-migrations.yml entry #$index ($module) has blank required fields " +
+                        "(module/targetVersion/rationale/migration)",
+                    modulePath = module.ifBlank { null },
+                )
+            }
+            if (fromSha256.isBlank() || toSha256.isBlank() ||
+                !SHA256_HEX.matches(fromSha256) || !SHA256_HEX.matches(toSha256)
+            ) {
+                diagnostics += VerificationDiagnostic.failure(
+                    DiagnosticCode.API_COMPATIBILITY_FAILED,
+                    "api-migrations.yml entry #$index ($module) has invalid sha256 " +
+                        "(expected 64-char hex, got from='$fromSha256' to='$toSha256')",
+                    modulePath = module.ifBlank { null },
+                )
+            }
+            if (module.isBlank()) return@forEachIndexed
+            parsed += ApiMigrationEntry(
+                module = module,
+                fromSha256 = fromSha256,
+                toSha256 = toSha256,
+                targetVersion = targetVersion,
+                rationale = rationale,
+                migration = migration,
             )
         }
+        return ApiMigrationParseResult(parsed, diagnostics)
     }
+
+    data class ApiMigrationParseResult(
+        val entries: List<ApiMigrationEntry>,
+        val diagnostics: List<VerificationDiagnostic>,
+    )
+
+    private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
 }

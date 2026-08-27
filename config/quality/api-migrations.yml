@@ -19,4 +19,24 @@
 # Entries are committed in the same PR as the dump change and become stale
 # the moment the dump changes again (update the hashes in the next PR).
 
-migrations: []
+migrations:
+  - module: ":tramai-spring-sovereign"
+    fromSha256: "f12e62c4f071649426d58e7c962046105eaa97bae2bc6239059dc21096a7bafd"
+    toSha256: "cd625ae543e873cbe4ba858bc3b44f933758fcf4516e6f8b46b7b22f38cc1160"
+    targetVersion: "0.5.0"
+    rationale: "Refresh committed API dump to match current source; pre-existing drift predating API-compatibility enforcement. No new API surface introduced by this PR."
+    migration: "No consumer action required; dump refresh only."
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    fromSha256: "5bc9017a274bd0f85682ddb81f1a07d40ee73c4a0212f0a51aac0bfe4ee5d2c4"
+    toSha256: "e992d59be9f21e441843cfda66ec9037b8a9c7b324c814afe378e0017c18273c"
+    targetVersion: "0.5.0"
+    rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
+    migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
+
+  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    fromSha256: "a362d955e271d5318ba65359f090dd3410b5a5e0af79836ff39ff36aec314bf3"
+    toSha256: "c12710086064ec051631dfef7fdadf268daf9ae1f43aedb1f7e00d90ed2d1da7"
+    targetVersion: "0.5.0"
+    rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
+    migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."

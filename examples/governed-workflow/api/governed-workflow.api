@@ -77,6 +77,7 @@ public final class dev/tramai/examples/governed/ClaimTriageState {
 
 public final class dev/tramai/examples/governed/ClaimTriageWorkflowKt {
 	public static final fun buildClaimTriageWorkflow (Ldev/tramai/examples/governed/ClaimClassifier;)Ldev/tramai/orchestration/Workflow;
+	public static final fun buildGovernedNetworkPolicyWorkflow ()Ldev/tramai/orchestration/Workflow;
 }
 
 public final class dev/tramai/examples/governed/DeterministicClaimClassifier : dev/tramai/examples/governed/ClaimClassifier {

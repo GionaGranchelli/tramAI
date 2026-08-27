@@ -91,6 +91,25 @@ class ApiCompatibilityMutationTest {
         )
     }
 
+    // ── B0b: Contract 1 — missing generated evidence cannot PASS ───────────
+
+    @Test
+    fun `B0b missing generated evidence fails fail-closed`() {
+        val committed = mapOf(":tramai-core" to dump(":tramai-core", "\tpublic fun a ()V"))
+        // generated evidence entirely absent (clean workspace before apiBuild)
+        val diagnostics = verifier().verify(
+            evidence(committed = committed, generated = emptyMap()),
+            migrations = emptyList()
+        )
+        assertTrue(
+            diagnostics.any {
+                it.code == DiagnosticCode.API_COMPATIBILITY_FAILED &&
+                    it.message.contains("generated (apiBuild) API dump") && it.message.contains(":tramai-core")
+            },
+            "missing generated evidence must fail, not silently pass, got: $diagnostics"
+        )
+    }
+
     // ── B1: Contract 2 — stable base→current change fails, additive too ──
 
     @Test
@@ -372,6 +391,90 @@ class ApiCompatibilityMutationTest {
             diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
             "consumer guard must pass with sources and classes present, got: $diagnostics"
         )
+    }
+
+    // ── C6: malformed migration registry produces typed FAIL diagnostics ───
+
+    @Test
+    fun `C6 non-map migration entry fails parse`() {
+        val f = File(tempDir, "migrations.yml")
+        f.writeText("migrations:\n  - definitely-not-a-valid-entry\n")
+        val result = ApiCompatibilityEvidenceReader.parseMigrations(f)
+        assertTrue(
+            result.diagnostics.any { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "non-map entry must produce a parse diagnostic, got: ${result.diagnostics}"
+        )
+    }
+
+    @Test
+    fun `C6 missing required fields fails parse`() {
+        val f = File(tempDir, "migrations.yml")
+        f.writeText(
+            """
+            migrations:
+              - module: ":tramai-engine"
+                fromSha256: "${"a".repeat(64)}"
+                toSha256: "${"b".repeat(64)}"
+            """.trimIndent()
+        )
+        val result = ApiCompatibilityEvidenceReader.parseMigrations(f)
+        assertTrue(
+            result.diagnostics.any { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "blank required fields must produce a parse diagnostic, got: ${result.diagnostics}"
+        )
+    }
+
+    @Test
+    fun `C6 non-hex sha256 fails parse`() {
+        val f = File(tempDir, "migrations.yml")
+        f.writeText(
+            """
+            migrations:
+              - module: ":tramai-engine"
+                fromSha256: "not-a-hash"
+                toSha256: "${"b".repeat(64)}"
+                targetVersion: "0.6.0"
+                rationale: "r"
+                migration: "m"
+            """.trimIndent()
+        )
+        val result = ApiCompatibilityEvidenceReader.parseMigrations(f)
+        assertTrue(
+            result.diagnostics.any {
+                it.code == DiagnosticCode.API_COMPATIBILITY_FAILED && it.message.contains("invalid sha256")
+            },
+            "non-hex hash must produce a parse diagnostic, got: ${result.diagnostics}"
+        )
+    }
+
+    @Test
+    fun `C6 migrations not a list fails parse`() {
+        val f = File(tempDir, "migrations.yml")
+        f.writeText("migrations: not-a-list\n")
+        val result = ApiCompatibilityEvidenceReader.parseMigrations(f)
+        assertTrue(
+            result.diagnostics.any { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "non-list migrations must produce a parse diagnostic, got: ${result.diagnostics}"
+        )
+    }
+
+    @Test
+    fun `C6 valid entry parses without diagnostics`() {
+        val f = File(tempDir, "migrations.yml")
+        f.writeText(
+            """
+            migrations:
+              - module: ":tramai-engine"
+                fromSha256: "${"a".repeat(64)}"
+                toSha256: "${"b".repeat(64)}"
+                targetVersion: "0.6.0"
+                rationale: "r"
+                migration: "m"
+            """.trimIndent()
+        )
+        val result = ApiCompatibilityEvidenceReader.parseMigrations(f)
+        assertTrue(result.diagnostics.isEmpty(), "valid entry must parse clean, got: ${result.diagnostics}")
+        assertEquals(1, result.entries.size)
     }
 
     private fun repoRoot(): File =

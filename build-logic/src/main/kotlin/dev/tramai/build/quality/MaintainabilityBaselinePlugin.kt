@@ -6,6 +6,9 @@ import org.gradle.api.GradleException
 import org.gradle.api.Action
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.JavaExec
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
@@ -925,6 +928,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "build(quality): add unified 0.6.0 architecture gate"
             dependsOn(*architectureProbeTasks.toTypedArray())
             dependsOn(enrollmentTest)
+            // C1: regenerate every applicable BCV dump from current source so
+            // Contract-1 runs on a clean workspace instead of silently skipping
+            // missing build/api/*.api artifacts (fail-closed: absence → FAIL).
+            val apiBuildTasks = project.allprojects
+                .filter { sub -> sub != project && sub.tasks.findByName("apiBuild") != null }
+                .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
+                .map { "${it.path}:apiBuild" }
+            dependsOn(*apiBuildTasks.toTypedArray())
             doLast {
                 val architectureDiagnostics = ArchitectureReportAggregator.checkIds
                     .associateWith { mutableListOf<VerificationDiagnostic>() }
@@ -1015,24 +1026,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         }
 
         // ---- Consumer compile proofs (Epic 10.2): real sources, real classes ----
+        // C3/C4: these are FAIL-SOFT producers. They never throw, so they can
+        // never terminate the task graph before verify060Architecture's report
+        // is written. Each task runs the real compiler (javac / K2JVMCompiler)
+        // with ignoreExitValue=true and writes a marker file; the gate reads
+        // the markers as typed api-architecture evidence (B2 fail-closed model).
 
         registerConsumerCompatibilityTask(
             project,
             "verifyJavaConsumerCompatibility",
             ":examples:java-consumer-smoke",
             "src/main/java",
-            "classes/java/main",
             "java",
-            dependsOnTask = "compileJava",
         )
         registerConsumerCompatibilityTask(
             project,
             "verifyKotlinConsumerCompatibility",
             ":examples:kotlin-consumer-smoke",
             "src/main/kotlin",
-            "classes/kotlin/main",
             "kotlin",
-            dependsOnTask = "compileKotlin",
         )
         project.tasks.named("verify060Architecture") {
             dependsOn("verifyJavaConsumerCompatibility", "verifyKotlinConsumerCompatibility")
@@ -1454,36 +1466,117 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
     }
 
     /**
-     * Registers a consumer-compatibility verify task: depends on the fixture's
-     * real compile task, then asserts real sources were compiled into real
-     * classes on the fixture's minimal consumer classpath. Fails the task
-     * (and thereby verify060Architecture) on any guard diagnostic.
+     * Registers a consumer-compatibility PRODUCER task (Epic 10.2, C3/C4).
+     *
+     * Unlike the original throwing verify task, this task NEVER throws: it
+     * invokes the real compiler (javac via toolchain for java, K2JVMCompiler
+     * via kotlinCompilerClasspath for kotlin) with ignoreExitValue=true, then
+     * writes a marker file. The verify060Architecture gate depends on these
+     * producers (they cannot abort the graph) and reads the markers as typed
+     * api-architecture evidence — preserving the B2 fail-closed contract that
+     * the report is always written before the terminal GradleException.
+     *
+     * Marker shape (build/reports/maintainability/consumer-<lang>.json):
+     *   { "sources": N, "classes": M, "exitCode": E, "ok": bool }
      */
     private fun registerConsumerCompatibilityTask(
         project: Project,
         taskName: String,
         modulePath: String,
         sourceRelPath: String,
-        classesRelPath: String,
         extension: String,
-        dependsOnTask: String,
     ) {
         val fixture = project.project(modulePath)
+        val markerFile = project.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
+        val classesDir = project.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
+        val sourcesProvider = project.provider {
+            File(fixture.projectDir, sourceRelPath)
+                .walkTopDown()
+                .filter { it.isFile && it.extension == (if (extension == "kotlin") "kt" else "java") }
+                .map { it.absolutePath }
+                .toList()
+        }
+
         project.tasks.register(taskName) {
             group = "verification"
-            description = "Compiles the $extension consumer smoke fixture against the stable API and proves real sources + real classes (Epic 10.2)"
-            dependsOn("$modulePath:$dependsOnTask")
+            description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"
+
+            // Only the dependency's jar must exist for the classpath. The
+            // fixture's own compile tasks are deliberately NOT dependencies:
+            // compileKotlin has no failOnError and would abort the graph
+            // before verify060Architecture's report is written (C3/C4).
+            dependsOn(":tramai-core:jar")
+
+            // Resolve the Kotlin compiler classpath at configuration time
+            // (lazy, locked by Gradle); resolving inside the action would
+            // violate the exclusive-lock rule on configuration resolution.
+            val k2jvmClasspath = if (extension == "kotlin") {
+                fixture.configurations.getByName("kotlinCompilerClasspath").asPath
+            } else {
+                ""
+            }
+            val consumerClasspath = fixture.configurations.getByName("compileClasspath").asPath
+
             doLast {
-                val sourceDir = File(fixture.projectDir, sourceRelPath)
-                val classesDir = File(fixture.layout.buildDirectory.get().asFile, classesRelPath)
-                val diagnostics = ConsumerCompatibilityGuard.validate(sourceDir, classesDir, extension)
-                if (diagnostics.isNotEmpty()) {
-                    throw GradleException(
-                        "$taskName FAILED: ${diagnostics.joinToString("; ") { it.message }}"
+                val sources = sourcesProvider.get()
+                val classpath = consumerClasspath
+                val outDir = classesDir.get().asFile.apply { mkdirs() }
+                outDir.listFiles()?.forEach { it.deleteRecursively() }
+                var exitCode = -1
+                if (extension == "java") {
+                    val toolchains = fixture.extensions.getByType(JavaToolchainService::class.java)
+                    val compiler = toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                    val javac = compiler.get().executablePath.toString()
+                    exitCode = runProcess(
+                        listOf(javac, "-cp", classpath, "-d", outDir.absolutePath) + sources,
+                        project.rootDir,
+                        project,
                     )
+                } else {
+                    exitCode = runProcess(
+                        listOf(
+                            javaLauncherExecutable(fixture),
+                            "-cp", k2jvmClasspath,
+                            "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+                            "-classpath", classpath,
+                            "-d", outDir.absolutePath,
+                        ) + sources,
+                        project.rootDir,
+                        project,
+                    )
+                }
+                val classCount = outDir.walkTopDown().count { it.isFile && it.extension == "class" }
+                val marker = mapOf(
+                    "sources" to sources.size,
+                    "classes" to classCount,
+                    "exitCode" to exitCode,
+                    "ok" to (sources.isNotEmpty() && classCount > 0 && exitCode == 0),
+                )
+                markerFile.get().asFile.apply {
+                    parentFile.mkdirs()
+                    writeText(ReportNormalizer.toJson(marker))
                 }
             }
         }
+    }
+
+    private fun runProcess(command: List<String>, workDir: File, project: Project): Int {
+        val process = ProcessBuilder(command)
+            .directory(workDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exit = process.waitFor()
+        if (exit != 0) {
+            project.logger.warn("consumer compile failed (exit $exit):\n${output.take(1500)}")
+        }
+        return exit
+    }
+
+    private fun javaLauncherExecutable(project: Project): String {
+        val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
+        val launcher = toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+        return launcher.get().executablePath.toString()
     }
 
     /**
@@ -1509,9 +1602,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         val generated = ApiCompatibilityEvidenceReader.readGeneratedDumps(project)
         val baseRef = project.findProperty("changePolicyBase")?.toString() ?: "origin/master"
         val base = ApiCompatibilityEvidenceReader.readBaseDumps(project.rootDir, baseRef, committed.keys)
-        val migrations = ApiCompatibilityEvidenceReader.parseMigrations(
+        val migrationResult = ApiCompatibilityEvidenceReader.parseMigrations(
             File(project.rootDir, "config/quality/api-migrations.yml")
         )
+        checks.getValue("api-architecture") += migrationResult.diagnostics
         val projectVersion = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0").get()
         val verifier = ApiCompatibilityVerifier(
             catalogModules = catalog.modules,
@@ -1519,10 +1613,35 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         )
         val diagnostics = verifier.verify(
             ApiDumpEvidence(generated = generated, committed = committed, base = base),
-            migrations = migrations,
+            migrations = migrationResult.entries,
         )
         // Contract-1/2 and migration diagnostics flow straight to api-architecture.
         checks.getValue("api-architecture") += diagnostics
+        // C3/C4: consumer compile proofs are fail-soft producers. Read their
+        // markers; a failed compile surfaces as typed evidence here, and the
+        // report is written before the gate throws (B2 fail-closed contract).
+        listOf("java", "kotlin").forEach { language ->
+            val marker = File(project.layout.buildDirectory.get().asFile, "reports/maintainability/consumer-$language.json")
+            if (!marker.isFile) {
+                checks.getValue("api-architecture") += VerificationDiagnostic.failure(
+                    DiagnosticCode.API_COMPATIBILITY_FAILED,
+                    "Consumer compile proof for '$language' produced no marker evidence at ${marker.path}",
+                )
+                return@forEach
+            }
+            val state = ReportNormalizer.readJson(marker, Map::class.java)
+            val ok = state?.get("ok") == true
+            if (!ok) {
+                checks.getValue("api-architecture") += VerificationDiagnostic.failure(
+                    DiagnosticCode.API_COMPATIBILITY_FAILED,
+                    "Consumer compile proof FAILED for '$language': " +
+                        "sources=${state?.get("sources")} classes=${state?.get("classes")} " +
+                        "exitCode=${state?.get("exitCode")} — the stable API is not usable from this consumer",
+                    baselineValue = state?.get("sources")?.toString(),
+                    currentValue = state?.get("classes")?.toString(),
+                )
+            }
+        }
     }
 
     private companion object {
