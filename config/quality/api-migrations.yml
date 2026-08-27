@@ -1,4 +1,4 @@
-# TramAI 0.6.0 API migration registry.
+# TramAI API migration registry.
 #
 # Each entry authorizes ONE exact API transition for ONE module:
 #   module        — Gradle project path
@@ -8,16 +8,27 @@
 #   rationale     — why the API changed
 #   migration     — what downstream consumers must do
 #
-# Enforcement (all FAIL unless the entry is exact and current):
-#   - preview/experimental module dump changed without an entry          → FAIL
+# Entry lifecycle (ACTIVE / LANDED):
+#   ACTIVE — base hash == fromSha256 AND current hash == toSha256 AND
+#            targetVersion == current project version → authorizes THIS
+#            exact transition.
+#   LANDED — the entry's toSha256 has landed: it is now the base and/or
+#            current dump hash. Valid retained history; authorizes nothing;
+#            targetVersion stays the historical release that shipped it
+#            (it may differ from the current project version).
+#   anything else — orphan / stale / wrong hash / wrong version → FAIL.
+#
+# Enforcement (all FAIL unless the entry is ACTIVE or LANDED):
+#   - preview/experimental module dump changed without an ACTIVE entry   → FAIL
 #   - duplicate (module, fromSha256, toSha256) entries                   → FAIL
 #   - entry whose hashes match no actual module transition (orphan)      → FAIL
 #   - entry hashes mismatch the real base/current dumps (stale/wrong)    → FAIL
-#   - entry.targetVersion != project version                             → FAIL
+#   - ACTIVE-candidate entry.targetVersion != project version            → FAIL
 #   - stable modules can NEVER use entries (stable is frozen)            → FAIL
 #
-# Entries are committed in the same PR as the dump change and become stale
-# the moment the dump changes again (update the hashes in the next PR).
+# Entries are committed in the same PR as the dump change. After merge they
+# become LANDED retained history; a further dump change requires a NEW ACTIVE
+# entry for the new transition (the old LANDED entry stays as history).
 
 migrations:
   - module: ":tramai-spring-sovereign"

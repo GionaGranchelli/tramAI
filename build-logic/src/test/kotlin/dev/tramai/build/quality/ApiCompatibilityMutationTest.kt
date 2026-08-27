@@ -427,6 +427,57 @@ class ApiCompatibilityMutationTest {
     }
 
     @Test
+    fun `B8c landed entry with historical targetVersion passes at new project version`() {
+        // E1/E2: LANDED entries keep the historical targetVersion of the release
+        // they documented. After a version bump (project now 0.6.0), a landed
+        // A→B entry targeting 0.5.0 with base==current==B must PASS — the
+        // version check applies to ACTIVE authorizations only. This avoids
+        // recreating the "registry poisons future builds" problem.
+        val baseB = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V")
+        val landedHistorical = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(dump(":tramai-engine", "\tpublic fun a ()V")),
+            sha256(baseB),
+            "0.5.0", // historical release, project is now 0.6.0
+            "landed in 0.5.0",
+            "m"
+        )
+        val diagnostics = verifier().verify(
+            evidence(committed = mapOf(":tramai-engine" to baseB), base = mapOf(":tramai-engine" to baseB)),
+            migrations = listOf(landedHistorical)
+        )
+        assertTrue(
+            diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "landed entry with historical targetVersion must pass, got: $diagnostics"
+        )
+    }
+
+    @Test
+    fun `B8c historical landed entry does not authorize a new transition`() {
+        // E2: with project at 0.6.0, only the historical 0.5.0 A→B entry
+        // present, and a NEW B→C transition → FAIL; a new ACTIVE entry for
+        // 0.6.0 is required.
+        val baseB = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V")
+        val currentC = dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V", "\tpublic fun c ()V")
+        val landedHistorical = ApiMigrationEntry(
+            ":tramai-engine",
+            sha256(dump(":tramai-engine", "\tpublic fun a ()V")),
+            sha256(baseB),
+            "0.5.0",
+            "landed in 0.5.0",
+            "m"
+        )
+        val diagnostics = verifier().verify(
+            evidence(committed = mapOf(":tramai-engine" to currentC), base = mapOf(":tramai-engine" to baseB)),
+            migrations = listOf(landedHistorical)
+        )
+        assertTrue(
+            compatCodes(diagnostics).isNotEmpty(),
+            "historical landed entry must not authorize a new transition, got: $diagnostics"
+        )
+    }
+
+    @Test
     fun `B8 targetVersion mismatch fails`() {
         val base = mapOf(":tramai-engine" to dump(":tramai-engine", "\tpublic fun a ()V"))
         val current = mapOf(":tramai-engine" to dump(":tramai-engine", "\tpublic fun a ()V", "\tpublic fun b ()V"))

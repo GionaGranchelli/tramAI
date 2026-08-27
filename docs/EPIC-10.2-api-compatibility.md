@@ -121,28 +121,35 @@ Enforcement — every condition FAILs:
   base→current pair)
 - **wrong-hash**: entry exists but fromSha256/toSha256 ≠ computed hashes of
   the actual base/current dump content
-- **targetVersion mismatch**: entry.targetVersion ≠ project version
-  (`0.6.0`)
+- **targetVersion mismatch**: ACTIVE candidate entry with targetVersion ≠
+  current project version (enforced for ACTIVE authorizations; LANDED entries
+  keep their historical version — E1)
 - Stable modules can never use entries (stable change = hard FAIL regardless).
 
-Entry lifecycle (D1) — a registry entry is valid evidence in exactly two states:
+Entry lifecycle (D1/E1) — a registry entry is valid evidence in exactly two states:
 
 | State | Condition | Effect |
 |-------|-----------|--------|
-| ACTIVE | base hash == `fromSha256` AND current hash == `toSha256` (and targetVersion matches) | authorizes THIS exact transition |
-| LANDED | its `to` hash has landed: `to` == current hash with no change (merged steady state), OR `to` == base hash while a further change is in flight (retained history) | valid retained evidence; authorizes nothing |
-| any other state | orphan / stale / wrong hash / wrong version | FAIL |
+| ACTIVE | base hash == `fromSha256` AND current hash == `toSha256` AND `targetVersion` == current project version | authorizes THIS exact transition |
+| LANDED | its `to` hash has landed: `to` == current hash with no change (merged steady state), OR `to` == base hash while a further change is in flight (retained history) | valid retained evidence; authorizes nothing; `targetVersion` is historical metadata for the release it documented and MAY differ from the current project version |
+| any other state | orphan / stale / wrong hash / wrong version (for ACTIVE) | FAIL |
+
+`targetVersion` is enforced for ACTIVE authorizations only. A LANDED entry
+keeps the historical version of the release that shipped it — requiring it to
+equal the current project version would recreate the "registry poisons future
+builds" problem after every version bump.
 
 A LANDED entry must NOT block the next PR (base==current — the "merged
 repository must be a valid steady state" invariant), and must NOT authorize a
-later base→current change (Contract-2 requires a new exact entry for the new
-transition). Old entries may be retained as history when the same module
-changes again.
+later base→current change (Contract-2 requires a new ACTIVE entry for the new
+transition at the current project version). Old entries may be retained as
+history when the same module changes again.
 
 Sha256 = SHA-256 of the dump file's UTF-8 content. Both hashes must match
 *both* actual dumps — the entry authorizes that exact transition, nothing
-broader. (This also means the entry must be committed in the same PR as the
-dump change, and becomes stale the moment the dump changes again.)
+broader. (The entry must be committed in the same PR as the dump change;
+after it lands it becomes LANDED retained history — see the lifecycle table —
+and a further dump change requires a new ACTIVE entry.)
 
 ### 3.3 Taxonomy closure
 
@@ -190,24 +197,26 @@ New fixture `examples/java-consumer-smoke`:
 - `src/main/java/...` with real Java sources exercising `:tramai-core`
   stable surface (annotations, core entrypoints) via
   `implementation(project(":tramai-core"))` — the minimal consumer classpath.
-- `verifyJavaConsumerCompatibility` asserts: source set non-empty (>0 `.java`
-  files) AND compiled class files exist in the build output after
-  compilation. Empty source set → FAIL (zero-source trap guard, mirrors
-  A-series); compile failure → FAIL; no classes → FAIL.
+- Normal Gradle compilation is strict (`java` plugin, no failOnError
+  override): a broken Java source fails `compileJava` like any module.
+- `verifyJavaConsumerCompatibility` is a **fail-soft producer owned by the
+  fixture project**: it invokes the real toolchain `javac` itself (the
+  fixture's compile task is deliberately NOT a dependency — `compileKotlin`
+  has no failOnError and would abort the graph before the report), records
+  the exit code, and writes marker JSON. Empty source set → FAIL (zero-source
+  trap guard); compiler exit ≠ 0 or no classes → marker records failure. The
+  task itself never throws.
 
 ### 3.6 Kotlin consumer proof (real compilation)
 
-New fixture `examples/kotlin-consumer-smoke` (or reuse existing example if
-its classpath is already minimal — decision at implementation: prefer a
-minimal fixture so the classpath assertion is honest):
+New fixture `examples/kotlin-consumer-smoke`:
 - `src/main/kotlin/...` real Kotlin sources against `:tramai-core` on the
   minimal consumer classpath.
-- `verifyKotlinConsumerCompatibility` asserts: >0 `.kt` sources AND compiled
-  classes present. Same guards as 3.5.
-
-Both compile tasks are wired as dependencies of the `api-architecture`
-evidence collection (they feed `verify060Architecture`); failures surface as
-task failures inside the gate run, not as new check IDs.
+- `verifyKotlinConsumerCompatibility` is a fail-soft producer owned by the
+  fixture project: it runs `K2JVMCompiler` (via the fixture's own
+  `kotlinCompilerClasspath` configuration, resolved at execution time —
+  project-owned and lazy), records the exit code, and writes marker JSON.
+  Same guards as 3.5.
 
 ### 3.7 Wiring into the B2 gate
 
@@ -220,12 +229,15 @@ source: `ApiCompatibilityVerifier` (pure, testable) fed by:
   `origin/master`), fail-closed on resolution failure
 - `api-migrations.yml` registry
 - module catalog (stability classes for policy + matrix)
+- consumer compile markers (`consumer-java.json`, `consumer-kotlin.json`)
+  written by the fixture-owned producers — read as typed evidence
 
 All emissions are `API_*` codes routed by the existing exhaustive
 `baselineCheckFor` → `api-architecture`. The 10 check IDs and the report
 schema are unchanged. No new release gate. Consumer compile tasks are
-dependencies of the check (fail fast as task failures, report still written
-for the diagnostic evidence).
+**fail-soft producers**: they never throw, never terminate the graph before
+the report; their markers are read as typed api-architecture evidence and the
+façade fails only after the report is written.
 
 ## 4. RED discriminators (mutation suite, B-series)
 
@@ -256,13 +268,19 @@ before the implementation and PASS after (written RED-first):
   `MODULE_CATALOG_INVALID_COMBINATION`; `preview` + `experimental` rejected.
 - **B8 — malformed/duplicate/orphan/hash-mismatched migration fails**:
   registry with wrong hashes, duplicate (module,from,to), orphan entry for an
-  unchanged module, and targetVersion mismatch all FAIL.
+  unchanged module, and ACTIVE targetVersion mismatch all FAIL.
+- **B8b — landed migration entry lifecycle**: landed A→B with base/current B
+  PASSes (steady state); landed A→B does NOT authorize a later B→C; a new
+  exact entry authorizes B→C.
+- **B8c — landed entries keep historical targetVersion**: landed A→B targeting
+  0.5.0 with project now 0.6.0, base==current==B → PASS; that historical entry
+  does NOT authorize a new B→C at 0.6.0 (new ACTIVE entry required).
 - **B9 — Java real-source consumer compile proof**: fixture has >0 `.java`
-  sources and compiles against `:tramai-core` only; deleting the sources
-  fails the guard.
+  sources; the producer compiles them against `:tramai-core` only and the
+  marker records success; deleting the sources fails the guard.
 - **B10 — Kotlin real-source consumer compile proof**: fixture has >0 `.kt`
-  sources and compiles against `:tramai-core` only; deleting the sources
-  fails the guard.
+  sources; the producer compiles them against `:tramai-core` only and the
+  marker records success; deleting the sources fails the guard.
 
 Hardware rule: B0/B1/B2/B5/B8 are the release-critical REDs. B3/B4 prove the
 gate does not over-fire. B6/B7 pin the taxonomy. B9/B10 protect the fixtures.
@@ -297,7 +315,7 @@ gate does not over-fire. B6/B7 pin the taxonomy. B9/B10 protect the fixtures.
 3. `verify060Architecture` — PASS, report byte-identical across two runs (determinism; api-architecture still 10-check schema).
 4. Deliberate failure: tamper `tramai-core/api/tramai-core.api` (add a line) → gate FAILs, report written, `api-architecture` red with `API_COMPATIBILITY_FAILED`; revert, re-run → PASS.
 5. Deliberate failure: `apiDump`-style stale dump (edit source, don't update dump) → Contract-1 FAIL; revert → PASS.
-6. `verifyJavaConsumerCompatibility` + `verifyKotlinConsumerCompatibility` PASS with real sources; deleting fixture sources fails them.
+6. Consumer producers: `verifyJavaConsumerCompatibility` + `verifyKotlinConsumerCompatibility` write `ok:true` markers with real sources; deleting fixture sources makes the markers record failure and `verify060Architecture` FAILs via api-architecture while still writing the report (fail-soft marker contract).
 7. Full `verifyPr` — PASS.
 8. Zero runtime production diffs (`git diff` on `tramai-*/src/main`).
 
