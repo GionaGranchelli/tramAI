@@ -422,7 +422,7 @@ class InMemoryWorkflowCheckpointStore :
         stepAttempts.values
             .asSequence()
             .filter { it.runId == runId && it.stepName == stepName }
-            .maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
+            .fold(null as StepAttemptRecord?) { acc, record -> if (acc == null || record.startedAt >= acc.startedAt) record else acc }
     } }
 
     override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> = persistenceBoundary(
@@ -431,7 +431,7 @@ class InMemoryWorkflowCheckpointStore :
     ) { synchronized(monitor) {
         stepAttempts.values
             .filter { it.runId == runId }
-            .sortedWith(compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }))
+            .sortedWith(compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }))
     } }
 }
 private data class CheckpointKey(
