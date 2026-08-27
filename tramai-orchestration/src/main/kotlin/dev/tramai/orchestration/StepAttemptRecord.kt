@@ -73,9 +73,14 @@ internal fun decodeResolutionAction(name: String?): StepAttemptResolutionAction?
  *
  * Ordering and retrieval:
  * - [listStepAttempts] returns records for one run ordered deterministically by
- *   `startedAt`, then `stepName`, then `attemptId`.
+ *   `startedAt`, then `stepName`. For attempts with EQUAL persisted `startedAt`,
+ *   the tie-break must be a stable creation-order authority, never the random
+ *   `attemptId` (the in-memory implementation preserves insertion order; the
+ *   file/JDBC implementations still use `attemptId` pending a durable sequence
+ *   column — tracked as a cross-store contract follow-up).
  * - [latestStepAttempt] returns the record for the given run and step with the maximum
- *   `startedAt`, then `attemptId` (ties broken by `attemptId`), or `null` when absent.
+ *   `startedAt`; ties resolve to the LAST-created attempt (in-memory: insertion order;
+ *   file/JDBC pending the same follow-up), or `null` when absent.
  *
  * Durability and failure behaviour:
  * - Persistent implementations must survive store recreation and process restart, and

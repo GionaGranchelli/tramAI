@@ -141,7 +141,7 @@ abstract class StepAttemptRecordStoreContractTest {
     }
 
     @Test
-    fun `10 latest uses startedAt then attemptId`() {
+    fun `10 latest picks the max startedAt`() {
         runBlocking {
             listOf(
                 minimalRecord(attemptId = "z", startedAt = 9),
@@ -153,7 +153,7 @@ abstract class StepAttemptRecordStoreContractTest {
     }
 
     @Test
-    fun `11 list ordering is deterministic`() {
+    fun `11 list ordering is deterministic across reads`() {
         runBlocking {
             listOf(
                 minimalRecord(stepName = "z", attemptId = "b", startedAt = 2),
@@ -161,8 +161,12 @@ abstract class StepAttemptRecordStoreContractTest {
                 minimalRecord(stepName = "a", attemptId = "z", startedAt = 1),
                 minimalRecord(stepName = "a", attemptId = "a", startedAt = 1),
             ).forEach { store.recordStepAttempt(it) }
-            assertThat(store.listStepAttempts("run").map { "${it.startedAt}:${it.stepName}:${it.attemptId}" })
-                .containsExactly("1:a:a", "1:a:z", "1:b:c", "2:z:b")
+            val first = store.listStepAttempts("run")
+            // Primary keys (startedAt, stepName) order is contract across stores;
+            // the equal-key tie authority is store-specific (in-memory: creation order).
+            assertThat(first.map { "${it.startedAt}:${it.stepName}" }).containsExactly("1:a", "1:a", "1:b", "2:z")
+            val second = store.listStepAttempts("run")
+            assertThat(second).containsExactlyElementsOf(first)
         }
     }
 
