@@ -35,6 +35,20 @@
     escape), H16 (streaming pre-try observer escape), H17 (scope-abandon
     fencing); mutations M30/M31 remove the guards and are killed.
 
+- **Streaming provider resilience honors `@Operation.providerRetries` (Epic
+  8.2h).** Streaming previously executed exactly one attempt per route and
+  fell back immediately on any retryable startup failure, ignoring the
+  annotation's retry budget. Retryable streaming startup failures (before any
+  token) now retry the same provider within the budget — `providerRetries = N`
+  permits at most `N + 1` physical attempts — and fall back only after the
+  route exhausts that authority. Failures after emitted output remain terminal
+  (no retry, no fallback): output visibility permanently destroys recovery
+  authority. Route-level circuit-breaker ownership is preserved: all retries
+  of a route share the one admission permit, and only the route's terminal
+  outcome completes breaker authority. Proven by a 14-property independent
+  model/reality corpus (96 coordinator executions) and a 22-candidate mutation
+  campaign (19 STRONG, 3 REDUNDANT, 0 reachable WEAK).
+
 ### Added
 
 - **Docs: unified starter onboarding (H3 prep).** Consumer guides now present `tramai-spring-boot-starter` as the Spring Boot entry point, paired with one `tramai-spring-provider-*` adapter (OpenAI / Anthropic / Ollama) and optional `tramai-spring-secrets-*` adapters for `vault:` / `aws-secretsmanager:` secret references; `tramai-spring` is described only as the legacy facade. The sovereign quickstart selects the runtime solely via `tramai.profile` (the obsolete `tramai.sovereign.enabled` switch is no longer shown) and its minimal configuration includes the mandatory `allowed-models` / `allowed-providers` / `provider-zones` / `models` properties. Module-boundary rules now list only the sovereign module's actual direct dependencies.

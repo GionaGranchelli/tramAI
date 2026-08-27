@@ -87,11 +87,15 @@ This is relevant mainly for methods returning structured types rather than `Stri
 
 #### `providerRetries`
 
-Maximum number of provider retries after transient provider/API failures.
+Maximum number of retries of the same provider route after retryable provider/API failures. A value of `N` permits at most `N + 1` physical attempts for that route.
 
 Default: `3`
 
 This is different from structured-output retry. Provider retry handles transient transport or API failure paths.
+
+For **streaming operations**, `providerRetries` applies only while the provider is still in startup recovery, before any token has been emitted to the caller. Once any token becomes externally visible, TramAI does not retry that provider and does not fall back to another provider for that invocation.
+
+When the retry budget is exhausted, TramAI may advance to the next configured fallback route when the failure is fallback-eligible and policy allows the transition.
 
 #### `timeoutMillis`
 
