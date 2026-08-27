@@ -1,49 +1,60 @@
 # Change Guide: Adding a Workflow Step
 
-**Applies to:** `tramai-orchestration` step types, the `WorkflowBuilder` DSL, and the workflow persistence/execution seams.
-
-## TL;DR
+## Start here
 
 Workflow steps are a **builder DSL over a sealed internal step contract** — there is no public `WorkflowStep` interface for external implementation. Adding a built-in step means: a new sealed subclass + a DSL function + exhaustive-`when` updates + tests. Adding an *external* step means the `ExternalStepExecutorRegistry`.
 
-## 1. Understand the step model
+Start from [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) (workflow/worker ownership → `tramai-orchestration`), read the module card [`docs/modules/tramai-orchestration.md`](../../modules/tramai-orchestration.md), then follow this guide.
 
-- Runtime contract: `InternalWorkflowStep<S>` (sealed) — `tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowStepExecution.kt:80-89`: `val name`, `suspensionMode` (default `NONE`), `suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>` (sealed `Completed(state)` / `Suspended`, L26-32).
-- Built-in impls are sealed subclasses: `LocalWorkflowStep` (:93), `AiWorkflowStep` (:104), `GateWorkflowStep` (:123), `PluginWorkflowStep` (:140), `DelayWorkflowStep` (`WorkflowDelayCoordinator.kt:23`, the only built-in with `suspensionMode = TOP_LEVEL_CHECKPOINT`, :28); Shell/Http/Hermes/Codex/Mcp/Branch/Parallel in their own files.
-- DSL: `WorkflowBuilder.kt:16` extends `AbstractWorkflowBuilder<S>` (:71, owns the step list :72, `appendStep` :377, `stepsSnapshot` :384). Step functions: `localStep` :75, `aiStep` ×4 :96-161, `httpStep` :180, `shellStep` :190, `hermesStep` :206/220, `codexStep` :235/249, `mcpStep` :264/280, `pluginStep` :297/310, `gateStep` :324, `delayStep` :334, `branchStep` :349, `parallelStep` :363. Entry: `workflow(name, definitionVersion)` (`Workflow.kt:98-114`), `build(...)` (`WorkflowBuilder.kt:26-37`), build-time validation (duplicate names, static command policies, nested-suspension rejection) at `WorkflowBuilder.kt:470-496`.
+## Owning module
 
-## 2. External/plugin steps (no new sealed type needed)
+- `tramai-orchestration` — layer `runtime-execution`, `publishability: published`, `apiStability: preview` (`config/quality/module-catalog.yml:196-201`).
+- Contracts and TCK fixtures additionally live in `tramai-testing`.
 
-- `ExternalStepExecutorRegistry.register(factory)` — `WorkflowStepExecution.kt:195`; interfaces `ExternalStepExecutorFactory` :173, `ExternalStepExecutor` :178, `ExternalStepExecutorResolver` :186-190. Consumed via `pluginStep` + `Workflow.requiredExternalStepTypes()` (`Workflow.kt:78`). Missing executor → `ExternalStepExecutorNotRegisteredException` (:182).
+## Authoritative contracts
 
-## 3. Wiring points for a new BUILT-IN step (beyond class + DSL)
+- Runtime step contract: `InternalWorkflowStep<S>` (sealed) — `tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowStepExecution.kt:80-89`: `val name`, `suspensionMode` (default `NONE`), `suspend fun execute(request: WorkflowStepExecutionRequest<S>): WorkflowStepExecutionResult<S>` (sealed `Completed(state)` / `Suspended`, L26-32).
+- Builder DSL: `WorkflowBuilder.kt:16` extends `AbstractWorkflowBuilder<S>` (:71, owns step list :72, `appendStep` :377, `stepsSnapshot` :384). Step functions: `localStep` :75, `aiStep` ×4 :96-161, `httpStep` :180, `shellStep` :190, `hermesStep` :206/220, `codexStep` :235/249, `mcpStep` :264/280, `pluginStep` :297/310, `gateStep` :324, `delayStep` :334, `branchStep` :349, `parallelStep` :363.
+- External step SPI: `ExternalStepExecutorRegistry.register(factory)` (`WorkflowStepExecution.kt:195`); `ExternalStepExecutorFactory` :173, `ExternalStepExecutor` :178, `ExternalStepExecutorResolver` :186-190. Missing executor → `ExternalStepExecutorNotRegisteredException` (:182).
 
-| Point | File | Why |
-|---|---|---|
-| `replayDescriptor` exhaustive `when` | `Workflow.kt:120-136` | replay of the new step must round-trip |
-| Definition digest | `WorkflowDefinitionCompatibility.kt:19-46` | sha256 over canonical definition — new fields change digests (golden test must be updated deliberately) |
-| Worker binding | `WorkflowBindingRegistry.bind(workflow, persistence)` `WorkflowBindingRegistry.kt:82` | step execution needs the persistence session |
-| Suspension rule | `WorkflowBuilder.kt:484-496` + ASM guard `WorkflowStepExecutionArchitectureTest.kt:29` | only `TOP_LEVEL_CHECKPOINT` steps may suspend, top-level only |
+## Files normally changed
 
-## 4. Execution path + stores you integrate with (usually unchanged)
+- New step class (sealed subclass of `InternalWorkflowStep<S>`) in `tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/` (template: `LocalWorkflowStep` :93, `AiWorkflowStep` :104, `GateWorkflowStep` :123, `PluginWorkflowStep` :140; `DelayWorkflowStep` in `WorkflowDelayCoordinator.kt:23`).
+- DSL function in `AbstractWorkflowBuilder` (`WorkflowBuilder.kt`).
+- **Exhaustive-`when` wiring points (compiler-enforced):**
+  - `replayDescriptor` `when` — `Workflow.kt:120-136`
+  - definition digest — `WorkflowDefinitionCompatibility.kt:19-46` (sha256 over canonical definition)
+  - worker binding — `WorkflowBindingRegistry.bind(workflow, persistence)` `WorkflowBindingRegistry.kt:82`
+  - suspension rule — `WorkflowBuilder.kt:484-496` (nested suspension rejected)
+- Tests in `tramai-orchestration/src/test/kotlin/.../` (step-level + replay/failure boundary).
+- `docs/workflow-api-stability-boundary.md` — new public DSL additions must be classified (guarded by `verifyWorkflowApiStabilityBoundary`).
 
-- All steps route through the shared wrapper `WorkflowStepExecutor.executeStep` (`WorkflowStepExecutor.kt:36-54`): `StepCounter` budget (:67), observer events, failure sanitisation, `CancellationException` passthrough.
-- Stores (SPIs in `tramai-orchestration`): `WorkflowCheckpointStore` (`WorkflowPersistence.kt:72-171`, `WorkflowStateCodec<S>` :63), `WorkflowLeaseStore` (`WorkflowLease.kt:33-51`, `WorkflowLeaseCheckpointFence` :56-72), `StepAttemptRecordStore` (`StepAttemptRecord.kt:93-121`). A new step type does not change these; a new *store implementation* is the `adding-a-store` guide.
-- Lifecycle ownership: `WorkflowExecutionSupervisor` (:37), `WorkerLifecycleController` (:67), `WorkerShutdownCoordinator` — steps execute through the runner, they don't touch these directly.
+## NOT changed
 
-## 5. Mandatory contract tests
+- **`WorkflowExecutionSupervisor`** (:37), **`WorkerLifecycleController`** (:67), **`WorkerShutdownCoordinator`** — steps execute through the runner; they don't touch these directly.
+- **Store SPIs** — `WorkflowCheckpointStore`, `WorkflowLeaseStore`, `StepAttemptRecordStore` only change when you add a *store implementation* (see `adding-a-store.md`).
+- **Suspension semantics** — only `suspensionMode = TOP_LEVEL_CHECKPOINT` steps may suspend, top-level only; ASM-guarded by `WorkflowStepExecutionArchitectureTest.kt:29` (checks the getter returns the constant directly).
+- **Analyzer/baseline** — `config/quality/0.6.0-baseline.json` never changes in the same PR.
 
-- Step-level test following the pattern of `WorkflowStepFailureBoundaryTest.kt`, `WorkflowReplayDecisionPolicyTest.kt`.
-- Replay/failure boundary + digest: `WorkflowDefinitionDigestGoldenTest.kt`, `BinaryCompatibilityFixtureTest.kt` (fixture `src/test/resources/binary-compat/BinaryCompatFixture.kt`), `WorkflowCheckpointLegacyMigrationContractTest.kt`.
+## Required tests / TCK
+
+- Step-level test following `WorkflowStepFailureBoundaryTest.kt` / `WorkflowReplayDecisionPolicyTest.kt` patterns.
+- Replay/digest: `WorkflowDefinitionDigestGoldenTest.kt` (digest changes must be deliberate), `BinaryCompatibilityFixtureTest.kt` (fixture `src/test/resources/binary-compat/BinaryCompatFixture.kt`), `WorkflowCheckpointLegacyMigrationContractTest.kt`.
 - Store TCKs only if you also add a store: `WorkflowCheckpointStoreTck.kt:32`, `WorkflowLeaseStoreTck.kt`, `WorkflowLeaseCheckpointFenceTck.kt` (tramai-testing) + enrollment guards (`WorkflowLeaseStoreTckEnrollmentArchitectureTest.kt` etc.).
+- Cancellation: `verifyCancellationSafety` (cancellation scanner) + `WorkflowCancellationContractTest.kt`.
 
-## 6. Module boundaries
+## Compatibility
 
-- `:tramai-orchestration` = layer `runtime-execution`, published, preview — `config/quality/module-catalog.yml:196-201`.
-- `config/quality/module-boundaries.yml` forbidden edges: `published → internal` (:69-72), `published → applications-examples` (:60-62), `published → excluded` (:65-67), self-edges (:75), cycles (programmatic). A step inside orchestration may depend on any **published** module in an allowed layer; **not** internal/excluded/application/example modules, and no cycles.
-- New public DSL additions must be classified in `docs/workflow-api-stability-boundary.md` (guarded by `verifyWorkflowApiStabilityBoundary`, wired into `check`).
+- **Definition digest changes are breaking:** the sha256 canonical digest (`WorkflowDefinitionCompatibility.kt:19-46`) drives recovery/fencing — a new step with different digest semantics invalidates in-flight checkpoints. Update the golden test deliberately.
+- **Public DSL = public API:** new DSL functions are covered by `docs/workflow-api-stability-boundary.md` and `verifyWorkflowApiStabilityBoundary` (wired into `check`); `apiCheck` enforces the BCV dump.
+- **Replay compatibility:** the `replayDescriptor` `when` must round-trip the new step, or replay of in-flight workflows fails.
 
-## 7. Mandatory verification
+## Failure / cancellation / lifecycle
+
+- All steps route through `WorkflowStepExecutor.executeStep` (`WorkflowStepExecutor.kt:36-54`): `StepCounter` budget (:67), observer events, **failure sanitisation** (safe public errors, no internal exception leakage), `CancellationException` passthrough.
+- Lifecycle: step execution is bounded by the worker lifecycle (supervisor → lease → recovery); a suspending step creates a durable checkpoint before suspension (checkpoint store semantics in `adding-a-store.md`).
+
+## Verification
 
 ```bash
 ./gradlew :tramai-orchestration:test
@@ -56,4 +67,15 @@ Workflow steps are a **builder DSL over a sealed internal step contract** — th
 ./gradlew publishToMavenLocal && ./gradlew -p examples/kotlin-springboot-example test -PtramaiVersion=$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)
 ```
 
-**Guardrails:** `verifyMaintainabilityBaseline` must stay green with **no** baseline/deviation edits; adding a step type forces exhaustive-`when` updates (compiler will tell you where); suspension mode is frozen by the ASM architecture guard — do not add new suspending steps casually.
+## Common mistakes
+
+- Adding a step without updating the exhaustive-`when` wiring — the compiler will tell you, but only after you touch the right file.
+- New suspending steps — suspension mode is frozen by the ASM architecture guard; don't add them casually.
+- Depending on internal/excluded/application modules — `config/quality/module-boundaries.yml` forbids `published → internal` (:69-72), `published → applications-examples` (:60-62), `published → excluded` (:65-67), self-edges (:75), cycles (programmatic).
+- Forgetting `docs/workflow-api-stability-boundary.md` classification — `verifyWorkflowApiStabilityBoundary` fails.
+
+## Related ADRs / specs
+
+- [ADR-017](../../adr/adr-017.md) — keep orchestration typed, workflow-owned, optional above tramai-engine
+- [spec-001-core-engine.md](../../specs/spec-001-core-engine.md) — core + engine contract
+- [`docs/workflow-api-stability-boundary.md`](../../workflow-api-stability-boundary.md) — public DSL stability rules

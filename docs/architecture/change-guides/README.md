@@ -2,7 +2,7 @@
 
 Step-by-step guides for the most common modifications in the TramAI repository. Each guide names the exact extension point (interface/SPI/builder), the files that must change, the mandatory contract tests (TCKs), and the verification commands.
 
-**Start here:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md) for the module map and ownership pointers; then open the guide for the change you are making; then follow [`AGENTS.md`](../../AGENTS.md) for the execution protocol (change classification, stop conditions, gates).
+**Start here:** [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) for the module map and ownership pointers; then open the guide for the change you are making; then follow [`AGENTS.md`](../../../AGENTS.md) for the execution protocol (change classification, stop conditions, gates).
 
 ## Guides
 
@@ -21,6 +21,6 @@ Every guide was written against the current source tree (verified file:line refe
 
 ## Related navigation
 
-- Module cards with per-module responsibilities: [`docs/modules/`](../modules/README.md)
+- Module cards with per-module responsibilities: [`docs/modules/`](../../modules/README.md)
 - Runtime execution ownership map: [`execution-sequence.md`](../execution-sequence.md)
-- Machine-readable module catalog / boundaries: [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml), [`config/quality/module-boundaries.yml`](../../config/quality/module-boundaries.yml)
+- Machine-readable module catalog / boundaries: [`config/quality/module-catalog.yml`](../../../config/quality/module-catalog.yml), [`config/quality/module-boundaries.yml`](../../../config/quality/module-boundaries.yml)
