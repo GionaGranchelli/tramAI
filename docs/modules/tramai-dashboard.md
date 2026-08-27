@@ -14,7 +14,7 @@ Spring Boot dashboard module: settings UI/controller for runtime configuration s
 
 ### Public entry points
 
-This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-dashboard/api/tramai-dashboard.api`, not for external consumption):
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-dashboard/api/tramai-dashboard.api`, not for external consumption):
 
 - `DashboardAutoConfiguration`, `DashboardSettingsController`, `DashboardMarker`
 

@@ -107,7 +107,7 @@ Gradle's `platform()` notation activates the version constraints from the BOM. A
 To **override** a single module version (e.g., to test a snapshot), declare an explicit version on the module coordinate — the explicit version wins over the BOM constraint:
 
 ```kotlin
-implementation("dev.tramai:tramai-openai:0.6.0-SNAPSHOT")
+implementation("dev.tramai:tramai-openai:0.5.0")  // explicit version wins
 ```
 
 ### Maven

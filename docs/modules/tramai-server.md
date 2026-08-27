@@ -14,7 +14,7 @@ Spring Boot server: workflow/worker/audit/schedule HTTP endpoints, webhook verif
 
 ### Public entry points
 
-This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-server/api/tramai-server.api`, not for external consumption):
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-server/api/tramai-server.api`, not for external consumption):
 
 - `TramaiServerApplication` — server entry point
 - Controllers: `WorkflowController`, `WorkerController`, `AuditController`, `ScheduleController`
@@ -111,8 +111,11 @@ dependencies {
 ```kotlin
 // tramaiVersion is the canonical version property (see gradle.properties)
 val tramaiVersion: String by project
-implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-implementation("dev.tramai:tramai-server")
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-server")
+}
 ```
 
 **Using the BOM with Spring Boot:**

@@ -78,8 +78,11 @@ dependencies {
 
 ```kotlin
 val tramaiVersion: String by project
+
+dependencies {
     implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-implementation("dev.tramai:tramai-deepseek")
+    implementation("dev.tramai:tramai-deepseek")
+}
 ```
 
 ### Where to go next

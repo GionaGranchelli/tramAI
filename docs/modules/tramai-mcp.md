@@ -15,7 +15,7 @@ MCP (Model Context Protocol) integration: expose TramAI tools via MCP and host a
 
 ### Public entry points
 
-This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-mcp/api/tramai-mcp.api`, not for external consumption):
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-mcp/api/tramai-mcp.api`, not for external consumption):
 
 - `TramaiMcpServer` — MCP server entry point
 - `TramaiMcpAutoConfiguration`, `TramaiMcpProperties` (Stdio/Sse) — Spring auto-configuration

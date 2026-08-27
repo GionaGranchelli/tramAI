@@ -109,8 +109,11 @@ dependencies {
 ```kotlin
 // tramaiVersion is the canonical version property (see gradle.properties)
 val tramaiVersion: String by project
-implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-implementation("dev.tramai:tramai-engine")
+
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
+    implementation("dev.tramai:tramai-engine")
+}
 ```
 
 ### Where to go next

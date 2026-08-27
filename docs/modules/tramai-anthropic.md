@@ -188,7 +188,7 @@ The response is parsed from the JSON body:
 }
 ```
 
-If the response contains no `type: "text"` content block (e.g., only `tool_use` blocks), a `ProviderException` is thrown with a clear message: *"Anthropic response did not contain a text content block"*.
+If the response contains neither `text` nor `tool_use` content blocks, a `ProviderException` is thrown with a clear message: *"Anthropic response did not contain a text or tool_use content block"*. A `tool_use`-only response is valid — tool calls are returned via `ModelResponse.toolCalls`.
 
 Stop reason mapping:
 
@@ -275,7 +275,7 @@ Transport-layer failures are caught and mapped by `providerTransportFailureObser
 
 #### Response parsing errors
 
-If the API returns a successful HTTP status but the content array contains no `type: "text"` block (for example, a `tool_use`-only response), the provider throws a `ProviderException` with message *"Anthropic response did not contain a text content block"* and `retryable = false`.
+If the API returns a successful HTTP status but the content array contains neither `text` nor `tool_use` blocks, the provider throws a `ProviderException` with message *"Anthropic response did not contain a text or tool_use content block"* and `retryable = false`. A `tool_use`-only response is valid and surfaces its calls through `ModelResponse.toolCalls`.
 
 #### Streaming error propagation
 

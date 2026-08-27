@@ -97,8 +97,11 @@ dependencies {
 
 ```kotlin
 val tramaiVersion: String by project
+
+dependencies {
     implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-implementation("dev.tramai:tramai-platform")
+    implementation("dev.tramai:tramai-platform")
+}
 ```
 
 `tramai-platform` is a Spring Boot application (`@SpringBootApplication` on `TramaiPlatformApplication`). It auto-configures all beans via `PlatformConfiguration` — see the [configuration reference](../reference/configuration.md) for property overrides.

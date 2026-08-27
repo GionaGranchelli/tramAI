@@ -81,8 +81,11 @@ dependencies {
 
 ```kotlin
 val tramaiVersion: String by project
+
+dependencies {
     implementation(platform("dev.tramai:tramai-bom:$tramaiVersion"))
-implementation("dev.tramai:tramai-azure-openai")
+    implementation("dev.tramai:tramai-azure-openai")
+}
 ```
 
 ### Where to go next

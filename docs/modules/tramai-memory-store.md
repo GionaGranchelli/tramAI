@@ -11,14 +11,14 @@ Durable memory-store implementations: `JdbcChatMemoryStore`, `RedisChatMemorySto
 
 ### Public entry points
 
-This module is **internal** (manifest: `publishability: internal`, `apiStability: internal`, `releaseInclusion: internal_only`) — there is **no published consumer API**. The following are repository-facing JVM-public entry points only (visible in `tramai-memory-store/api/tramai-memory-store.api`, not for external consumption):
+This module is **not published for external consumption** — there is **no published consumer API**. Authoritative classification (layer, maturity, publishability, release) is in `module-catalog.yml` / the module matrix. The following are repository-facing JVM-public entry points only (visible in `tramai-memory-store/api/tramai-memory-store.api`, not for external consumption):
 
 - `JdbcChatMemoryStore`, `RedisChatMemoryStore` — `ChatMemoryStore` implementations
 - `JdbcChatMemoryTable` (schema)
 
 ### Internal extension points
 
-- New memory-store implementations (the public core memory-store SPI is listed under Public entry points)
+- New memory-store implementations; the `ChatMemoryStore` contract itself lives in `tramai-core` (not this module's public surface)
 
 ### Significant dependencies
 
