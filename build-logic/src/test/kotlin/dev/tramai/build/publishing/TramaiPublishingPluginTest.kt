@@ -248,7 +248,7 @@ class TramaiPublishingPluginTest {
             """.trimIndent(),
         )
         val noKeysProbe = runProbe(noKeys)
-        assertFalse(noKeysProbe["signTasks"]!!.contains("Sign"), "no signing tasks must exist without signing material")
+        assertEquals("", noKeysProbe["signTasks"].orEmpty(), "no signing tasks must exist without signing material")
 
         // Case 2: keys present → signing tasks exist. No real credentials in test data.
         val withKeys = File(tempDir, "p7-keys")
