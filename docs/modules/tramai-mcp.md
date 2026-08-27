@@ -104,18 +104,6 @@ dependencies {
 }
 ```
 
-<dependencies>
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-server</artifactId>
-  </dependency>
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-mcp</artifactId>
-  </dependency>
-</dependencies>
-```
-
 ### Configuration
 
 The adapter activates automatically via Spring Boot auto-configuration when the workflow server beans (`WorkflowRegistry`, `WorkflowRunStore`, `WorkflowController`) are present. It binds under the `tramai.mcp.*` namespace:
@@ -260,7 +248,7 @@ tramai-mcp
   ├── api: tramai-server
   │     └── WorkflowRegistry, WorkflowRunStore, WorkflowController
   │
-  ├── api: tramai-structured
+  ├── impl: tramai-structured
   │     └── JacksonStructuredOutputHandler (schema generation)
   │
   ├── impl: MCP Kotlin SDK (io.modelcontextprotocol:kotlin-sdk-server:0.11.1)
