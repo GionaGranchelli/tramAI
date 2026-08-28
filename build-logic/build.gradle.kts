@@ -80,5 +80,9 @@ gradlePlugin {
             id = "tramai.testing"
             implementationClass = "dev.tramai.build.conventions.TramaiTestingPlugin"
         }
+        create("tramaiDocsGuards") {
+            id = "tramai.docs-guards"
+            implementationClass = "dev.tramai.build.docs.TramaiDocsGuardsPlugin"
+        }
     }
 }
