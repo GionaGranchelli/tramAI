@@ -40,4 +40,4 @@ Tests use `tramai-testing` with `MockAiProvider` — no Ollama needed.
 | Multiple tools | `lookupOrder` (parametrized) + `getCurrentTime` (no-input) |
 | Failure/retry | `maxRetries = 2` with structured parse retry |
 | Deterministic testing | `MockAiProvider` + `RecordingOperationObserver` + `TramaiAssertions` |
-| Standalone | In-composite build — consumes `:tramai-standalone` and `:tramai-ollama` from the current source tree |
+| Root-build project | Consumes `:tramai-standalone` and `:tramai-ollama` from the current source tree |
