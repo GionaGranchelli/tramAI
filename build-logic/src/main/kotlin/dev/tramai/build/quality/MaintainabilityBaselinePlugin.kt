@@ -93,6 +93,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 outputFile.set(
                     sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json")
                 )
+                val probePath = sub.path
+                val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                    .mapNotNull { name -> sub.configurations.findByName(name) }
+                consumerPath.set(probePath)
+                records.set(sub.provider { collectResolvedDependencies(probePath, probeConfigs) })
             }
             perProjectProbeTasks.add("${sub.path}:$taskName")
         }
@@ -151,6 +156,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 outputFile.set(
                     sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json")
                 )
+                val probePath = sub.path
+                val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                    .mapNotNull { name -> sub.configurations.findByName(name) }
+                consumerPath.set(probePath)
+                records.set(sub.provider { collectResolvedDependencies(probePath, probeConfigs) })
             }
             architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
         }
@@ -816,6 +826,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
             group = "maintainability"
             description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
+            rootDir.set(project.rootDir)
 
             // Override base ref for CI: ./gradlew verifyChangePolicy -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
             val ciBase = project.findProperty("changePolicyBase")?.toString()

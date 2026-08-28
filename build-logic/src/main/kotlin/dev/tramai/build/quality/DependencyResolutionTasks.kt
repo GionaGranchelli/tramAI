@@ -1,7 +1,7 @@
 package dev.tramai.build.quality
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.Project
+import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
@@ -9,11 +9,21 @@ import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.GradleException
 import java.io.File
 
+/**
+ * Generates a resolved dependency baseline for one consumer project.
+ *
+ * Configuration-cache compatible: no Task.project access at execution time;
+ * all state is declared as task inputs.
+ */
 abstract class GenerateResolvedDependencyBaselineTask : DefaultTask() {
 
     init {
@@ -23,9 +33,15 @@ abstract class GenerateResolvedDependencyBaselineTask : DefaultTask() {
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
+    @get:Input
+    abstract val consumerPath: Property<String>
+
+    @get:Internal
+    abstract val records: ListProperty<ResolvedDependency>
+
     @TaskAction
     fun collect() {
-        val normalized = DependencyEdgeNormalizer.normalize(collectResolvedDependencies(project))
+        val normalized = DependencyEdgeNormalizer.normalize(records.get())
         outputFile.get().asFile.let { file ->
             file.parentFile.mkdirs()
             ReportNormalizer.writeJson(normalized, file)
@@ -34,33 +50,39 @@ abstract class GenerateResolvedDependencyBaselineTask : DefaultTask() {
 }
 
 /**
- * Resolves [project]'s compile/runtime classpath and returns raw dependency
+ * Resolves a consumer's compile/runtime classpath and returns raw dependency
  * records. Shared by [GenerateResolvedDependencyBaselineTask] (per-project
  * probe files) and the architecture gate (in-process aggregate generation).
  * Throws [GradleException] on an unresolved dependency — callers decide whether
  * that aborts the build (probe task) or becomes fail-closed evidence (gate).
  */
-internal fun collectResolvedDependencies(project: Project): List<ResolvedDependency> {
+internal fun collectResolvedDependencies(
+    consumerPath: String,
+    configurations: Collection<Configuration>,
+): List<ResolvedDependency> {
     val records = mutableListOf<ResolvedDependency>()
 
     // Only resolve configurations owned by THIS project (Gradle 9 lock rule)
-    listOf("compileClasspath", "runtimeClasspath").forEach { configName ->
-        val config = project.configurations.findByName(configName)
-        if (config == null || !config.isCanBeResolved) return@forEach
+    configurations
+        .filter { it.name in listOf("compileClasspath", "runtimeClasspath") }
+        
+        .forEach { config ->
+            val configName = config.name
+            if (!config.isCanBeResolved) return@forEach
 
-        val resolutionResult = config.incoming.resolutionResult
-        val root = resolutionResult.rootComponent.get()
+            val resolutionResult = config.incoming.resolutionResult
+            val root = resolutionResult.rootComponent.get()
 
-        traverseDependencyTree(
-            consumer = project.path,
-            configuration = configName,
-            component = root,
-            path = listOf(project.path),
-            depth = 0,
-            ancestry = mutableSetOf(root.id.displayName),
-            records = records
-        )
-    }
+            traverseDependencyTree(
+                consumer = consumerPath,
+                configuration = configName,
+                component = root,
+                path = listOf(consumerPath),
+                depth = 0,
+                ancestry = mutableSetOf(root.id.displayName),
+                records = records
+            )
+        }
     return records
 }
 
@@ -70,6 +92,9 @@ internal fun collectResolvedDependencies(project: Project): List<ResolvedDepende
  * dependencies: a resolution failure is written into the output file as a
  * typed marker, so the gate can report fail-closed evidence instead of the
  * task graph aborting before the report is written.
+ *
+ * Configuration-cache compatible: no Task.project access at execution time;
+ * all state is declared as task inputs.
  */
 abstract class ArchitectureDependencyProbeTask : DefaultTask() {
 
@@ -80,12 +105,18 @@ abstract class ArchitectureDependencyProbeTask : DefaultTask() {
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
+    @get:Input
+    abstract val consumerPath: Property<String>
+
+    @get:Internal
+    abstract val records: ListProperty<ResolvedDependency>
+
     @TaskAction
     fun collect() {
         val file = outputFile.get().asFile
         file.parentFile.mkdirs()
         try {
-            val normalized = DependencyEdgeNormalizer.normalize(collectResolvedDependencies(project))
+            val normalized = DependencyEdgeNormalizer.normalize(records.get())
             ReportNormalizer.writeJson(normalized, file)
         } catch (exception: Exception) {
             ReportNormalizer.writeJson(
@@ -162,3 +193,5 @@ private fun traverseDependencyTree(
         }
     }
 }
+
+// touch-1
