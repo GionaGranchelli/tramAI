@@ -1,5 +1,7 @@
 package dev.tramai.build.publishing
 
+import dev.tramai.build.quality.ModuleCatalog
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPluginExtension
@@ -52,7 +54,7 @@ class TramaiPublishingPlugin : Plugin<Project> {
 
             publication.pom {
                 name.set(project.name)
-                description.set(projectDescription(project.name))
+                catalogDescription(project)?.let { description.set(it) }
                 url.set(metadata.projectUrl)
 
                 licenses {
@@ -107,6 +109,21 @@ class TramaiPublishingPlugin : Plugin<Project> {
                 sign(project.extensions.getByType(PublishingExtension::class.java).publications)
             }
         }
+    }
+
+    /**
+     * Reads the publication description from the module catalog (9.2c-c).
+     *
+     * Published modules must carry a non-blank description (enforced by the
+     * catalog parser via MODULE_CATALOG_MISSING_DESCRIPTION), so a missing
+     * description here is a real regression — but the parser already reported
+     * it, so this lookup returns null and the POM simply omits the element
+     * rather than throwing a second, confusing error. Internal/excluded
+     * modules may legitimately have no description and also get null.
+     */
+    private fun catalogDescription(project: Project): String? {
+        val catalog = ModuleCatalog(project.rootProject.projectDir).parse()
+        return catalog.modules[":${project.name}"]?.description?.takeIf { it.isNotBlank() }
     }
 
     private fun configureSovereignBundleLocalRepo(project: Project) {

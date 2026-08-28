@@ -54,6 +54,7 @@ class ModuleCatalogMutationTest {
     /** The exact committed block for :tramai-core (merge-anchor form). */
     private val coreBlock = """
         |  - path: ":tramai-core"
+        |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
         |    <<: *core
         |    layer: core-contracts
         |    publishability: published
@@ -265,6 +266,7 @@ class ModuleCatalogMutationTest {
             coreBlock,
             """
             |  - path: ":tramai-core"
+            |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
             |    layer: core-contracts
             |    publishability: published
@@ -287,6 +289,7 @@ class ModuleCatalogMutationTest {
             coreBlock,
             """
             |  - path: ":tramai-core"
+            |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
             |    layer: core-contracts
             |    publishability: published
@@ -312,6 +315,7 @@ class ModuleCatalogMutationTest {
             coreBlock,
             """
             |  - path: ":tramai-core"
+            |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
             |    layer: core-contracts
             |    publishability: published
@@ -332,5 +336,124 @@ class ModuleCatalogMutationTest {
             result.errors.any { it.message.contains("banana") },
             "error must name the unknown policy"
         )
+    }
+
+    // ─── D1 — schema v3 accepted, v2 rejected ───
+
+    @Test
+    fun `D1 schema v3 accepted and v2 rejected`() {
+        fixtureDir()
+        val result = ModuleCatalog(tempDir).parse()
+        assertEquals(
+            emptySet(),
+            codes(result),
+            "committed schema v3 catalog must parse clean, got ${codes(result)}"
+        )
+
+        val v2 = realCatalogText().replace("schemaVersion: \"3\"", "schemaVersion: \"2\"")
+        assertNotEquals(realCatalogText(), v2, "schema downgrade must change content")
+        writeCatalog(v2)
+        val downgraded = ModuleCatalog(tempDir).parse()
+        assertTrue(
+            codes(downgraded).contains(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA),
+            "schema v2 must be rejected, got ${codes(downgraded)}"
+        )
+    }
+
+    // ─── D2/D3 — published module missing/blank description ───
+
+    @Test
+    fun `D2 published module missing description is rejected`() {
+        fixtureDir()
+        val mutated = realCatalogText().replace(
+            coreBlock,
+            """
+            |  - path: ":tramai-core"
+            |    <<: *core
+            |    layer: core-contracts
+            |    publishability: published
+            |    apiStability: stable
+            |
+            """.trimMargin()
+        )
+        assertNotEquals(realCatalogText(), mutated, "description-removal must change content")
+        writeCatalog(mutated)
+
+        val result = ModuleCatalog(tempDir).parse()
+        assertTrue(
+            codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
+            "expected MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}"
+        )
+    }
+
+    @Test
+    fun `D3 published module blank description is rejected with same code`() {
+        fixtureDir()
+        val mutated = realCatalogText().replace(
+            coreBlock,
+            """
+            |  - path: ":tramai-core"
+            |    description: "   "
+            |    <<: *core
+            |    layer: core-contracts
+            |    publishability: published
+            |    apiStability: stable
+            |
+            """.trimMargin()
+        )
+        writeCatalog(mutated)
+
+        val result = ModuleCatalog(tempDir).parse()
+        assertTrue(
+            codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
+            "blank description must produce MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}"
+        )
+    }
+
+    // ─── D4 — internal/excluded module may omit description ───
+
+    @Test
+    fun `D4 internal module without description parses clean`() {
+        fixtureDir()
+        val mutated = realCatalogText().replace(
+            coreBlock,
+            """
+            |  - path: ":tramai-core"
+            |    <<: *internal
+            |    layer: core-contracts
+            |    publishability: internal
+            |    apiStability: internal
+            |
+            """.trimMargin()
+        )
+        assertNotEquals(realCatalogText(), mutated, "internal mutation must change content")
+        writeCatalog(mutated)
+
+        val result = ModuleCatalog(tempDir).parse()
+        assertTrue(
+            !codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
+            "internal module must not require a description, got ${codes(result)}"
+        )
+    }
+
+    // ─── D5 — exact legacy parity for every publishable module ───
+
+    @Test
+    fun `D5 published descriptions exactly match the legacy projectDescription policy`() {
+        fixtureDir()
+        val catalog = ModuleCatalog(tempDir).parse()
+        assertEquals(emptySet(), codes(catalog), "catalog must parse clean, got ${codes(catalog)}")
+
+        val legacy = LegacyPublicationDescriptions.byModule()
+        catalog.modules.values
+            .filter { it.publishability == ModulePublishability.PUBLISHED }
+            .forEach { entry ->
+                val moduleName = entry.path.removePrefix(":")
+                assertEquals(
+                    legacy[moduleName],
+                    entry.description,
+                    "catalog description for $moduleName must exactly match the pre-B8 policy",
+                )
+            }
     }
 }

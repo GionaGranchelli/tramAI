@@ -1,6 +1,5 @@
 package dev.tramai.build.release
 
-import dev.tramai.build.publishing.projectDescription
 import java.io.File
 import org.w3c.dom.Element
 
@@ -22,15 +21,21 @@ data class ExpectedPublicationMetadata(
 /**
  * Pure verifier for generated Maven POM metadata (9.2b).
  *
- * Checks groupId, artifactId, version, name, description (via the 9.2a
- * compatibility policy), project URL, license, developer, SCM, normal-module
- * packaging, BOM packaging=pom, and the exact BOM managed artifact set.
- * Every violation throws [IllegalStateException] with a stable diagnostic.
+ * Checks groupId, artifactId, version, name, description (from the module
+ * catalog via the independent [expectedDescriptions] input — 9.2c-c), project
+ * URL, license, developer, SCM, normal-module packaging, BOM packaging=pom,
+ * and the exact BOM managed artifact set. Every violation throws
+ * [IllegalStateException] with a stable diagnostic.
+ *
+ * The verifier never derives descriptions from the same code path as the
+ * publisher: it receives them as a map input, so a broken catalog lookup
+ * cannot make both sides agree on the same wrong value.
  */
 object PublicationMetadataVerifier {
 
     fun verify(
         expected: ExpectedPublicationMetadata,
+        expectedDescriptions: Map<String, String>,
         publishableModules: List<String>,
         jarPublicationModules: List<String>,
         pomFileFor: (moduleName: String) -> File,
@@ -44,7 +49,10 @@ object PublicationMetadataVerifier {
             require(project.directChildText("artifactId") == projectName) { "Unexpected artifactId in $projectName POM" }
             require(project.directChildText("version") == expected.version) { "Unexpected version in $projectName POM" }
             require(project.directChildText("name") == projectName) { "Unexpected name in $projectName POM" }
-            require(project.directChildText("description") == projectDescription(projectName)) {
+            val expectedDescription = requireNotNull(expectedDescriptions[projectName]) {
+                "No expected description for $projectName — catalog must provide a non-blank description for every published module"
+            }
+            require(project.directChildText("description") == expectedDescription) {
                 "Unexpected description in $projectName POM"
             }
             require(project.directChildText("url") == expected.projectUrl) { "Unexpected project URL in $projectName POM" }

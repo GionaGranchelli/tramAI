@@ -38,7 +38,8 @@ class ApiCompatibilityMutationTest {
         owner = "test",
         dependencyPolicy = "core",
         releaseInclusion = ReleaseInclusion.fromYaml("included") ?: error("bad rel"),
-        rationale = "Test fixture entry."
+        rationale = "Test fixture entry.",
+        description = "Test fixture description."
     )
 
     private val catalog = mapOf(
@@ -266,7 +267,7 @@ class ApiCompatibilityMutationTest {
             parentFile.mkdirs()
             writeText(
                 """
-                schemaVersion: "2"
+                schemaVersion: "3"
                 description: "test"
                 dependencyPolicies:
                   core: { allowedLayers: [core-contracts] }
@@ -281,6 +282,7 @@ class ApiCompatibilityMutationTest {
                     releaseInclusion: included
                     publishability: published
                     apiStability: stable
+                    description: "Bad combination fixture."
                 """.trimIndent()
             )
         }

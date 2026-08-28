@@ -19,7 +19,7 @@ published module) is extracted first.
 | 9.2c | language, test-fixture, and testing conventions | in progress |
 | 9.2c-a | `tramai.kotlin-library` / `tramai.java-platform` / `tramai.test-fixtures` | ✅ done — PR #319 |
 | 9.2c-b | `tramai.testing` convention — common test-dependency baseline | ✅ done — PR #322 |
-| 9.2c-c | manifest-derived publication metadata (module-catalog.yml schema + analyzer/parser + publication verifier) | planned |
+| 9.2c-c | manifest-derived publication descriptions (module-catalog.yml schema v3 `description` + analyzer/parser + independent publication verifier input) | ✅ done — PR #324 |
 | 9.2d | configuration-cache closure; root build reduced to composition | planned |
 
 The `tramai.integration-test` convention is **deferred** until a dedicated
@@ -175,11 +175,14 @@ cleanly as `build-logic` with no baseline-migration exemption.
   module-level quality policy — Sonar, BCV, maintainability, compiler policy,
   and test logging are root-owned or module-specific. Recording this in the
   roadmap instead of preserving a speculative plugin name.
-- Manifest-derived project descriptions / publication metadata (9.2c-c): adds a
-  `description` field to module-catalog.yml and moves the hand-written
-  `projectDescription()` map into the catalog. This is an analyzer/schema change
-  (ModuleCatalog parser + PublicationMetadataVerifier expectations) and is kept
-  in its own PR.
+- Manifest-derived project descriptions / publication metadata (9.2c-c, PR #324):
+  module-catalog.yml moves to schema v3 and gains a `description` field for every
+  published module (exact legacy parity with the removed `projectDescription()`
+  policy — no copy editing). The publishing plugin reads the catalog description;
+  the typed `verifyPublicationMetadata` task receives an independent
+  `expectedDescriptions` map input so publisher and verifier cannot share a
+  broken lookup. Published modules fail closed when the description is missing
+  (`MODULE_CATALOG_MISSING_DESCRIPTION`); internal/excluded modules may omit it.
 - `tramai.integration-test`: **deferred** — no production module currently
   defines a dedicated integration-test source set; integration tests live in the
   normal `test` source set as `*IntegrationTest` classes.

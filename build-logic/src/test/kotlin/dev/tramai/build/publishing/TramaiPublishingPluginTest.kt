@@ -356,17 +356,80 @@ class TramaiPublishingPluginTest {
         assertTrue(pomFile.isFile, "generated POM must exist")
         val pom = pomFile.readText()
 
-        // group / artifactId / version / name / description / URL / license / developer / SCM / packaging
+        // group / artifactId / version / name / URL / license / developer / SCM / packaging
         assertTrue(pom.contains("<groupId>dev.tramai</groupId>"), "POM must carry groupId")
         assertTrue(pom.contains("<artifactId>sample</artifactId>"), "POM must carry artifactId")
         assertTrue(pom.contains("<version>0.6.0</version>"), "POM must carry version")
         assertTrue(pom.contains("<name>sample</name>"), "POM must carry name")
-        assertTrue(pom.contains("<description>Tramai module sample.</description>"), "POM must carry compatibility description")
+        // 9.2c-c: no catalog in this fixture → no compatibility fallback. The
+        // description element must be omitted, never synthesized as
+        // "Tramai module sample." (D8 — no fallback remains).
+        assertFalse(pom.contains("<description>"), "POM must not synthesize a fallback description: ${pom.take(400)}")
         assertTrue(pom.contains("<url>https://github.com/GionaGranchelli/tramAI</url>"), "POM must carry project URL")
         assertTrue(pom.contains("<name>Apache-2.0</name>"), "POM must carry license name")
         assertTrue(pom.contains("<id>GionaGranchelli</id>"), "POM must carry developer id")
         assertTrue(pom.contains("<connection>scm:git:https://github.com/GionaGranchelli/tramAI.git</connection>"), "POM must carry SCM")
         assertFalse(pom.contains("<packaging>pom</packaging>"), "library POM must not be pom-packaged")
+    }
+
+    // ── D6 — publishing consumes the catalog description (9.2c-c) ───────────
+
+    @Test
+    fun `D6 generated POM description comes from the module catalog`(@TempDir tempDir: File) {
+        val dir = File(tempDir, "d6")
+        dir.mkdirs()
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            """
+            schemaVersion: "3"
+            dependencyPolicies:
+              core: { allowedLayers: [core-contracts] }
+            entryDefaults:
+              core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture core." }
+            modules:
+              - path: ":sample"
+                <<: *core
+                layer: core-contracts
+                publishability: published
+                apiStability: stable
+                description: "Fixture module description."
+            """.trimIndent(),
+        )
+        singleProjectFixture(dir, plugins = "java-library")
+
+        runner(dir, "generatePomFileForMavenPublication", "--quiet").build()
+        val pomFile = File(dir, "build/publications/maven/pom-default.xml")
+        assertTrue(pomFile.isFile, "generated POM must exist")
+        assertTrue(
+            pomFile.readText().contains("<description>Fixture module description.</description>"),
+            "POM must carry the catalog description",
+        )
+
+        // mutate the catalog description → regenerated POM must change
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            """
+            schemaVersion: "3"
+            dependencyPolicies:
+              core: { allowedLayers: [core-contracts] }
+            entryDefaults:
+              core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture core." }
+            modules:
+              - path: ":sample"
+                <<: *core
+                layer: core-contracts
+                publishability: published
+                apiStability: stable
+                description: "Mutated catalog description."
+            """.trimIndent(),
+        )
+        runner(dir, "generatePomFileForMavenPublication", "--quiet").build()
+        assertTrue(
+            pomFile.readText().contains("<description>Mutated catalog description.</description>"),
+            "mutated catalog description must flow into the POM",
+        )
     }
 
     // ── P10 — configuration cache at the convention boundary ─────────────────
