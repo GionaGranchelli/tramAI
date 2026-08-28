@@ -1,7 +1,6 @@
 package dev.tramai.build.conventions
 
 import org.gradle.testkit.runner.GradleRunner
-import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -17,6 +16,11 @@ import kotlin.test.assertTrue
  * reading coordinates from the root version catalog. It must never add
  * production dependencies, never add `junit-jupiter` implicitly, and be safe
  * under plugin-order and double-application.
+ *
+ * T1 and T3 inspect the declared direct-dependency model (via the fixture's
+ * `printDirectDeps` task) rather than parsing the human-readable dependency
+ * report, so a stray fourth dependency or a lost `platform(...)` wrapper
+ * cannot slip through.
  */
 class TramaiTestingPluginTest {
 
@@ -58,6 +62,9 @@ class TramaiTestingPluginTest {
             dir,
             "build.gradle.kts",
             """
+            import org.gradle.api.artifacts.ModuleDependency
+            import org.gradle.api.attributes.Category
+
             plugins {
                 `java`
                 id("tramai.testing")
@@ -65,6 +72,20 @@ class TramaiTestingPluginTest {
             }
             repositories { mavenCentral() }
             $extraDeps
+
+            // dumps the declared direct dependencies of testImplementation —
+            // group:name plus the dependency category attribute
+            tasks.register("printDirectDeps") {
+                doLast {
+                    configurations.testImplementation.get().dependencies
+                        .sortedBy { "${'$'}{it.group}:${'$'}{it.name}" }
+                        .forEach { d ->
+                            val category = (d as? ModuleDependency)
+                                ?.attributes?.getAttribute(Category.CATEGORY_ATTRIBUTE)?.name ?: "none"
+                            println("DIRECTDEP ${'$'}{d.group}:${'$'}{d.name} category=${'$'}category")
+                        }
+                }
+            }
             """.trimIndent(),
         )
         return dir
@@ -73,15 +94,29 @@ class TramaiTestingPluginTest {
     private fun resolvedDeps(dir: File): String =
         runner(dir, "dependencies", "--configuration", "testRuntimeClasspath").build().output
 
+    private fun directDeps(dir: File): List<String> =
+        runner(dir, "printDirectDeps").build().output
+            .lineSequence()
+            .filter { it.startsWith("DIRECTDEP ") }
+            .map { it.removePrefix("DIRECTDEP ") }
+            .toList()
+
     // ── T1: exactly the three expected test dependencies ─────────────────────
 
     @Test
     fun `T1 adds exactly junit-bom assertj and kotlin-test-junit5`() {
         val dir = fixture(File(tempDir, "fixture").apply { mkdirs() })
-        val out = resolvedDeps(dir)
-        assertTrue(out.contains("org.junit:junit-bom:"), "junit-bom missing: ${out.take(800)}")
-        assertTrue(out.contains("org.assertj:assertj-core:"), "assertj-core missing: ${out.take(800)}")
-        assertTrue(out.contains("org.jetbrains.kotlin:kotlin-test-junit5:"), "kotlin-test-junit5 missing: ${out.take(800)}")
+        val deps = directDeps(dir)
+        val coords = deps.map { it.substringBefore(" category=") }.sorted()
+        assertEquals(
+            listOf(
+                "org.assertj:assertj-core",
+                "org.jetbrains.kotlin:kotlin-test-junit5",
+                "org.junit:junit-bom",
+            ),
+            coords,
+            "direct testImplementation deps must be exactly the trio: $deps",
+        )
     }
 
     // ── T2: scopes are testImplementation only ───────────────────────────────
@@ -89,42 +124,48 @@ class TramaiTestingPluginTest {
     @Test
     fun `T2 dependencies are added only to testImplementation`() {
         val dir = fixture(File(tempDir, "fixture").apply { mkdirs() })
-        // testImplementation carries the trio
         val testOut = runner(dir, "dependencies", "--configuration", "testImplementation").build().output
-        assertTrue(testOut.contains("junit-bom"), "junit-bom missing from testImplementation: ${testOut.take(600)}")
+        assertTrue(testOut.contains("junit-bom"), "junit-bom missing from testImplementation")
         assertTrue(testOut.contains("assertj"), "assertj missing from testImplementation")
         assertTrue(testOut.contains("kotlin-test"), "kotlin-test missing from testImplementation")
-        // main configurations must be empty of the trio
         val mainOut = runner(dir, "dependencies", "--configuration", "runtimeClasspath").build().output
         assertFalse(mainOut.contains("junit-bom"), "junit-bom leaked to main runtime classpath")
         assertFalse(mainOut.contains("assertj"), "assertj leaked to main runtime classpath")
         assertFalse(mainOut.contains("kotlin-test"), "kotlin-test leaked to main runtime classpath")
     }
 
-    // ── T3: JUnit BOM remains a platform dependency ──────────────────────────
+    // ── T3: JUnit BOM is a platform dependency, not a plain jar ──────────────
 
     @Test
-    fun `T3 junit-bom is a platform constraint not a plain jar`() {
+    fun `T3 junit-bom is a platform dependency`() {
         val dir = fixture(File(tempDir, "fixture").apply { mkdirs() })
-        val out = resolvedDeps(dir)
-        // A platform dependency renders with "(n)" marker / is consumed as BOM metadata.
-        assertTrue(out.contains("junit-bom") && (out.contains("(n)") || out.contains("junit-bom:")), "junit-bom must be platform: ${out.take(900)}")
+        val bomLine = directDeps(dir).first { it.startsWith("org.junit:junit-bom") }
+        assertTrue(
+            bomLine.contains("category=platform"),
+            "junit-bom must carry the platform category attribute: $bomLine",
+        )
     }
 
-    // ── T4: no junit-jupiter added implicitly ────────────────────────────────
+    // ── T4: no junit-jupiter added as a direct dependency ────────────────────
 
     @Test
     fun `T4 does not add junit-jupiter implicitly`() {
         val dir = fixture(File(tempDir, "fixture").apply { mkdirs() })
-        val out = resolvedDeps(dir)
-        assertFalse(
-            out.contains("org.junit.jupiter:junit-jupiter") && !out.contains("org.junit.jupiter:junit-jupiter-api"),
-            "plugin must not pull junit-jupiter engine: ${out.take(900)}",
+        // T1 proves the direct deps are exactly the trio; here we additionally
+        // prove no org.junit.jupiter coordinate is declared directly. The
+        // engine on the runtime classpath comes transitively from
+        // kotlin-test-junit5 (which is how JUnit5 tests run) — that is
+        // intended, not plugin-added.
+        val direct = directDeps(dir).map { it.substringBefore(" category=") }
+        assertTrue(
+            direct.none { it.startsWith("org.junit.jupiter:") },
+            "plugin must not add any junit-jupiter dependency directly: $direct",
         )
-        // The BOM platform itself may list junit-jupiter as a managed module,
-        // but the plugin must not ADD it as a direct dependency.
-        val pluginDeps = runner(dir, "dependencies", "--configuration", "testImplementation").build().output
-        assertFalse(pluginDeps.contains("org.junit.jupiter:junit-jupiter:"), "plugin added junit-jupiter directly")
+        val out = resolvedDeps(dir)
+        assertTrue(
+            out.contains("org.jetbrains.kotlin:kotlin-test-junit5:"),
+            "sanity: kotlin-test-junit5 present on runtime classpath",
+        )
     }
 
     // ── T5: no production implementation/api dependencies ────────────────────

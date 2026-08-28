@@ -1,5 +1,6 @@
 package dev.tramai.build.conventions
 
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.VersionCatalogsExtension
@@ -25,13 +26,17 @@ class TramaiTestingPlugin : Plugin<Project> {
         project.pluginManager.withPlugin("java") {
             val libs = project.extensions.getByType(VersionCatalogsExtension::class.java)
                 .named("libs")
-            val junitBom = libs.findLibrary("junit-bom").get().get()
-            val assertj = libs.findLibrary("assertj-core").get().get()
-            val kotlinTestJunit5 = libs.findLibrary("kotlin-test-junit5").get().get()
 
-            project.dependencies.add("testImplementation", project.dependencies.platform(junitBom))
-            project.dependencies.add("testImplementation", assertj)
-            project.dependencies.add("testImplementation", kotlinTestJunit5)
+            fun catalogLibrary(alias: String) =
+                libs.findLibrary(alias).orElseThrow {
+                    GradleException(
+                        "tramai.testing requires version-catalog alias '$alias' in gradle/libs.versions.toml",
+                    )
+                }
+
+            project.dependencies.add("testImplementation", project.dependencies.platform(catalogLibrary("junit-bom")))
+            project.dependencies.add("testImplementation", catalogLibrary("assertj-core"))
+            project.dependencies.add("testImplementation", catalogLibrary("kotlin-test-junit5"))
         }
     }
 }
