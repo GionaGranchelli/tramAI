@@ -29,6 +29,7 @@ import dev.tramai.core.provider.resolveCandidates
 import dev.tramai.engine.CircuitBreakerAdmission
 import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.EngineIdentitySource
 import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -62,6 +63,7 @@ internal fun interface StreamingBeforeResponseReturnGate {
 }
 
 internal class StreamingExecutionCoordinator(
+    private val identitySource: EngineIdentitySource,
     private val routingPlan: ProviderRoutingPlan,
     private val circuitBreaker: ProviderCircuitBreaker,
     private val lifecycleScope: CoroutineScope,
@@ -107,7 +109,8 @@ internal class StreamingExecutionCoordinator(
             val collectFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
             val collectJob = lifecycleScope.launch {
                 try {
-                    val correlationId = java.util.UUID.randomUUID().toString()
+                    val correlationId = identitySource.newCorrelationId()
+                    require(correlationId.isNotBlank()) { "Engine correlationId must not be blank" }
                     beforeResolution.beforeResolution(operation, correlationId, securityContext)
                     val candidates = routingPlan.resolveCandidates(operation.operation)
                     var lastFailure: Throwable? = null
@@ -517,4 +520,3 @@ internal class StreamingExecutionCoordinator(
         }
     }
 }
-

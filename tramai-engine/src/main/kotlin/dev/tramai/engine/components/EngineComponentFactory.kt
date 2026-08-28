@@ -34,6 +34,7 @@ internal object EngineComponentFactory {
         toolArgumentsDigester: ToolArgumentsDigester?, approvalGateCoordinator: ApprovalGateCoordinator?,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter, clock: Clock,
         retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
+        identitySource: EngineIdentitySource = DefaultEngineIdentitySource,
         structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     ): EngineComponents {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
@@ -59,6 +60,7 @@ internal object EngineComponentFactory {
                 retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings, retryJitterSource),
                 tokenBudgetSettings = tokenBudgetSettings,
                 clock = clock,
+                identitySource = identitySource,
             ),
         )
     }

@@ -6,6 +6,7 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
+import dev.tramai.engine.EngineIdentitySource
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.observation.OperationInterceptor
@@ -107,4 +108,5 @@ internal data class ExecutionComponents(
     val retryDelayPolicy: ProviderRetryDelayPolicy,
     val tokenBudgetSettings: TokenBudgetSettings,
     val clock: Clock,
+    val identitySource: EngineIdentitySource,
 )
