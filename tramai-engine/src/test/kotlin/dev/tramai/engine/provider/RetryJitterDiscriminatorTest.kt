@@ -63,6 +63,18 @@ class RetryJitterDiscriminatorTest {
     // ── P0-B — one sample per retry decision ────────────────────────────────
 
     @Test
+    fun `P0-B one sample per retry decision - decision policy samples once per authorized retry`() {
+        val source = QueuedJitterSource(0.25, 0.75)
+        val retryPolicy = ProviderRetryPolicy(
+            ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.20), source),
+        )
+        val decision = retryPolicy.decide(retryableError(), retryIndex = 0, maxAttempts = 2)
+        // Authorized retry at index 0: fallback base = minOf(50 shl 0, 1000) = 50; 50 + 50*.2*.25 = 52.5 -> 52.
+        assertThat((decision as ProviderRetryDecision.Retry).delayMillis).isEqualTo(52L)
+        assertThat(source.calls).isEqualTo(1)
+    }
+
+    @Test
     fun `P0-B one sample per retry delay - injected sequence is authoritative`() {
         val source = QueuedJitterSource(0.25, 0.75)
         val policy = ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.20), source)
@@ -197,8 +209,8 @@ class RetryJitterDiscriminatorTest {
             }
         }
         check(outcome.first == "retry") {
-            "expected RETRY_SCHEDULED, got invocation failure: " +
-                (if (capture.invocationFailure.isCompleted) capture.invocationFailure.getCompleted() else "timeout")
+            "expected RETRY_SCHEDULED, got invocation failure " +
+                "(completed=${capture.invocationFailure.isCompleted}, timeout=10s)"
         }
         val attributes = outcome.second!!
         // fallback base for retryIndex 0 = minOf(50 shl 0, 1000) = 50; jitter .20, sample .25:
