@@ -7,6 +7,9 @@ import java.sql.SQLException
 import java.sql.Types
 import javax.sql.DataSource
 
+private const val ATTEMPT_SEQUENCE_COLUMN = "attempt_sequence"
+private const val SEQUENCE_TABLE = "tramai_attempt_sequence"
+
 class JdbcStepAttemptRecordStore(
     private val dataSource: DataSource,
     private val table: JdbcStepAttemptTable = JdbcStepAttemptTable(),
@@ -26,12 +29,12 @@ class JdbcStepAttemptRecordStore(
     override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
         record.requirePersistableIdentity()
         return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
-            executeJdbcCancellable(dataSource) { conn ->
-                if (update(conn, record, requireHash = null) == 0) {
+            executeJdbcCancellable(dataSource, transactional = true) { conn ->
+                if (update(conn, record, expected = null) == 0) {
                     try {
-                        insert(conn, record)
+                        insert(conn, record, allocateSequence(conn, record.runId))
                     } catch (error: SQLException) {
-                        if (update(conn, record, requireHash = null) == 0) throw error
+                        if (update(conn, record, expected = null) == 0) throw error
                     }
                 }
                 record
@@ -42,14 +45,14 @@ class JdbcStepAttemptRecordStore(
     override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
         record.requirePersistableIdentity()
         return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
-            executeJdbcCancellable(dataSource) { conn ->
-                if (update(conn, record, requireHash = null) == 0) {
+            executeJdbcCancellable(dataSource, transactional = true) { conn ->
+                if (update(conn, record, expected = null) == 0) {
                     if (!exists(conn, record)) {
                         throw IllegalStateException("Step attempt does not exist")
                     }
                     // A concurrent recordStepAttempt inserted the row between our UPDATE and the
                     // existence check — retry so the update is not silently dropped.
-                    update(conn, record, requireHash = null)
+                    update(conn, record, expected = null)
                 }
                 record
             }
@@ -63,8 +66,8 @@ class JdbcStepAttemptRecordStore(
         if (expected.key() != updated.key()) return false
         updated.requirePersistableIdentity()
         return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.COMPARE_AND_SET, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
-            executeJdbcCancellable(dataSource) { conn ->
-                update(conn, updated, StepAttemptRecordCodec.fingerprint(expected)) > 0
+            executeJdbcCancellable(dataSource, transactional = true) { conn ->
+                update(conn, updated, expected) > 0
             }
         }
     }
@@ -118,27 +121,81 @@ class JdbcStepAttemptRecordStore(
             ${table.resolutionAtEpochMillisColumn} BIGINT NULL,
             ${table.resolutionActionColumn} VARCHAR(64) NULL,
             ${table.approvedIdempotencyKeyColumn} VARCHAR(1024) NULL,
+            $ATTEMPT_SEQUENCE_COLUMN BIGINT NOT NULL,
             ${table.recordSchemaVersionColumn} VARCHAR(16) NOT NULL,
             ${table.recordHashColumn} VARCHAR(64) NOT NULL,
             PRIMARY KEY (${table.runIdColumn}, ${table.stepNameColumn}, ${table.attemptIdColumn})
+        );
+        CREATE TABLE $SEQUENCE_TABLE (
+            run_id VARCHAR(255) NOT NULL PRIMARY KEY,
+            next_value BIGINT NOT NULL
         )
     """.trimIndent()
 
-    private fun insert(conn: Connection, record: StepAttemptRecord) {
+    private fun insert(conn: Connection, record: StepAttemptRecord, sequence: Long) {
         conn.prepareStatement(insertSql()).use { statement ->
-            statement.bindAll(record, 1)
+            statement.bindAll(record, sequence, 1)
             statement.executeUpdate()
         }
     }
 
-    private fun update(conn: Connection, record: StepAttemptRecord, requireHash: String?): Int =
-        conn.prepareStatement(updateSql(requireHash != null)).use { statement ->
-            var index = statement.bindMutable(record, 1)
+    private fun update(conn: Connection, record: StepAttemptRecord, expected: StepAttemptRecord?): Int {
+        val sequence = readSequence(conn, record.runId, record.stepName, record.attemptId) ?: return 0
+        return conn.prepareStatement(updateSql(expected != null)).use { statement ->
+            var index = statement.bindMutable(record, sequence, 1)
             statement.setString(index++, record.runId)
             statement.setString(index++, record.stepName)
             statement.setString(index++, record.attemptId)
-            if (requireHash != null) statement.setString(index, requireHash)
+            if (expected != null) statement.setString(index, StepAttemptRecordCodec.fingerprint(expected, sequence))
             statement.executeUpdate()
+        }
+    }
+
+    private fun allocateSequence(conn: Connection, runId: String): Long {
+        val updated = conn.prepareStatement(
+            "UPDATE $SEQUENCE_TABLE SET next_value = next_value + 1 WHERE run_id = ?",
+        ).use { statement ->
+            statement.setString(1, runId)
+            statement.executeUpdate()
+        }
+        if (updated == 0) {
+            try {
+                conn.prepareStatement(
+                    "INSERT INTO $SEQUENCE_TABLE (run_id, next_value) VALUES (?, 1)",
+                ).use { statement ->
+                    statement.setString(1, runId)
+                    statement.executeUpdate()
+                }
+            } catch (_: SQLException) {
+                conn.prepareStatement(
+                    "UPDATE $SEQUENCE_TABLE SET next_value = next_value + 1 WHERE run_id = ?",
+                ).use { statement ->
+                    statement.setString(1, runId)
+                    statement.executeUpdate()
+                }
+            }
+        }
+        return conn.prepareStatement("SELECT next_value FROM $SEQUENCE_TABLE WHERE run_id = ?").use { statement ->
+            statement.setString(1, runId)
+            statement.executeQuery().use { resultSet ->
+                if (resultSet.next()) resultSet.getLong(1)
+                else throw IllegalStateException("Step-attempt sequence does not exist")
+            }
+        }
+    }
+
+    private fun readSequence(conn: Connection, runId: String, stepName: String, attemptId: String): Long? =
+        conn.prepareStatement(
+            "SELECT $ATTEMPT_SEQUENCE_COLUMN FROM ${table.tableName} " +
+                "WHERE ${table.runIdColumn} = ? AND ${table.stepNameColumn} = ? AND ${table.attemptIdColumn} = ?",
+        ).use { statement ->
+            statement.setString(1, runId)
+            statement.setString(2, stepName)
+            statement.setString(3, attemptId)
+            statement.executeQuery().use { resultSet ->
+                if (resultSet.next()) resultSet.nullableLong(ATTEMPT_SEQUENCE_COLUMN)
+                else null
+            }
         }
 
     private fun exists(conn: Connection, record: StepAttemptRecord): Boolean =
@@ -151,7 +208,7 @@ class JdbcStepAttemptRecordStore(
 
     private fun insertSql(): String = """
         INSERT INTO ${table.tableName} (${allColumns()})
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
 
     private fun updateSql(compareHash: Boolean): String = buildString {
@@ -169,13 +226,13 @@ class JdbcStepAttemptRecordStore(
     private fun listSql(): String = """
         SELECT ${allColumns()} FROM ${table.tableName}
         WHERE ${table.runIdColumn} = ?
-        ORDER BY ${table.startedAtColumn}, ${table.stepNameColumn}, ${table.attemptIdColumn}
+        ORDER BY ${table.startedAtColumn}, ${table.stepNameColumn}, $ATTEMPT_SEQUENCE_COLUMN, ${table.attemptIdColumn}
     """.trimIndent()
 
     private fun latestSql(): String = """
         SELECT ${allColumns()} FROM ${table.tableName}
         WHERE ${table.runIdColumn} = ? AND ${table.stepNameColumn} = ?
-        ORDER BY ${table.startedAtColumn} DESC, ${table.attemptIdColumn} DESC
+        ORDER BY ${table.startedAtColumn} DESC, $ATTEMPT_SEQUENCE_COLUMN DESC, ${table.attemptIdColumn} DESC
         LIMIT 1
     """.trimIndent()
 
@@ -187,6 +244,7 @@ class JdbcStepAttemptRecordStore(
     ).joinToString(", ")
 
     private fun mutableColumns(): List<String> = listOf(
+        ATTEMPT_SEQUENCE_COLUMN,
         table.workerIdColumn,
         table.leaseTokenColumn,
         table.statusColumn,
@@ -204,15 +262,16 @@ class JdbcStepAttemptRecordStore(
         table.recordHashColumn,
     )
 
-    private fun PreparedStatement.bindAll(record: StepAttemptRecord, start: Int) {
+    private fun PreparedStatement.bindAll(record: StepAttemptRecord, sequence: Long, start: Int) {
         setString(start, record.runId)
         setString(start + 1, record.stepName)
         setString(start + 2, record.attemptId)
-        bindMutable(record, start + 3)
+        bindMutable(record, sequence, start + 3)
     }
 
-    private fun PreparedStatement.bindMutable(record: StepAttemptRecord, start: Int): Int {
+    private fun PreparedStatement.bindMutable(record: StepAttemptRecord, sequence: Long, start: Int): Int {
         var index = start
+        setLong(index++, sequence)
         setString(index++, record.workerId)
         setString(index++, record.leaseToken)
         setString(index++, record.status.name)
@@ -227,7 +286,7 @@ class JdbcStepAttemptRecordStore(
         setNullableString(index++, record.resolutionAction?.name)
         setNullableString(index++, record.approvedIdempotencyKey)
         setString(index++, StepAttemptRecordCodec.SCHEMA_VERSION)
-        setString(index++, StepAttemptRecordCodec.fingerprint(record))
+        setString(index++, StepAttemptRecordCodec.fingerprint(record, sequence))
         return index
     }
 
@@ -269,9 +328,16 @@ class JdbcStepAttemptRecordStore(
         if (storedVersion != StepAttemptRecordCodec.SCHEMA_VERSION) {
             throw CorruptStepAttemptException("Unsupported step-attempt schema version", storedVersion)
         }
+        val sequence = try {
+            nullableLong(ATTEMPT_SEQUENCE_COLUMN) ?: corruptColumn(ATTEMPT_SEQUENCE_COLUMN)
+        } catch (error: CorruptStepAttemptException) {
+            throw error
+        } catch (error: Exception) {
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", "JDBC storage", error)
+        }
         val storedHash = getString(table.recordHashColumn)
             ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", table.recordHashColumn)
-        StepAttemptRecordCodec.requireValidFingerprint(record, storedHash, "JDBC storage")
+        StepAttemptRecordCodec.requireValidFingerprint(record, sequence, storedHash, "JDBC storage")
         return record
     }
 

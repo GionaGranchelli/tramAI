@@ -5,11 +5,16 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
 
+internal data class DecodedStepAttemptRecord(
+    val record: StepAttemptRecord,
+    val attemptSequence: Long?,
+)
+
 internal object StepAttemptRecordCodec {
     /** Current persisted-format version. Persisted stores must write and validate this. */
     internal const val SCHEMA_VERSION = "1"
 
-    fun encode(record: StepAttemptRecord): String = buildString {
+    fun encode(record: StepAttemptRecord, attemptSequence: Long? = null): String = buildString {
         property("schemaVersion", SCHEMA_VERSION)
         property("runId", encodeString(record.runId))
         property("stepName", encodeString(record.stepName))
@@ -27,6 +32,7 @@ internal object StepAttemptRecordCodec {
         nullableLong("resolutionAtEpochMillis", record.resolutionAtEpochMillis)
         nullableString("resolutionAction", record.resolutionAction?.name)
         nullableString("approvedIdempotencyKey", record.approvedIdempotencyKey)
+        if (attemptSequence != null) property("attemptSequence", attemptSequence.toString())
     }
 
     fun decode(payload: String): StepAttemptRecord = try {
@@ -59,15 +65,36 @@ internal object StepAttemptRecordCodec {
         throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload, error)
     }
 
-    fun fingerprint(record: StepAttemptRecord): String = MessageDigest.getInstance("SHA-256")
-        .digest(encode(record).toByteArray(StandardCharsets.UTF_8))
+    fun decodeWithSequence(payload: String): DecodedStepAttemptRecord = try {
+        val properties = Properties().apply { load(payload.reader()) }
+        val attemptSequence = properties.getProperty("attemptSequence")?.let { value ->
+            value.toLongOrNull()
+                ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload)
+        }
+        DecodedStepAttemptRecord(decode(payload), attemptSequence)
+    } catch (error: CorruptStepAttemptException) {
+        throw error
+    } catch (error: Exception) {
+        throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload, error)
+    }
+
+    fun fingerprint(record: StepAttemptRecord, attemptSequence: Long? = null): String = MessageDigest.getInstance("SHA-256")
+        .digest(encode(record, attemptSequence).toByteArray(StandardCharsets.UTF_8))
         .joinToString("") { byte -> "%02x".format(byte) }
 
-    fun requireValidFingerprint(record: StepAttemptRecord, storedFingerprint: String, context: String) {
-        if (storedFingerprint != fingerprint(record)) {
+    fun requireValidFingerprint(
+        record: StepAttemptRecord,
+        attemptSequence: Long?,
+        storedFingerprint: String,
+        context: String,
+    ) {
+        if (storedFingerprint != fingerprint(record, attemptSequence)) {
             throw CorruptStepAttemptException("Persisted step-attempt record is invalid", context)
         }
     }
+
+    fun requireValidFingerprint(record: StepAttemptRecord, storedFingerprint: String, context: String) =
+        requireValidFingerprint(record, null, storedFingerprint, context)
 
     private fun StringBuilder.property(name: String, value: String) {
         append(name).append('=').append(value).append('\n')

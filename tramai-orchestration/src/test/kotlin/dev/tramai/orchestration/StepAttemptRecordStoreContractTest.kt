@@ -257,6 +257,120 @@ abstract class StepAttemptRecordStoreContractTest {
         }
     }
 
+    // ── #318 — durable creation-order authority (cross-store contract) ──────
+
+    @Test
+    fun `21 equal-time latest uses creation order`() {
+        runBlocking {
+            // Lexical attemptId order intentionally opposes creation order.
+            store.recordStepAttempt(minimalRecord(attemptId = "z", startedAt = 10))
+            store.recordStepAttempt(minimalRecord(attemptId = "a", startedAt = 10))
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("a")
+        }
+    }
+
+    @Test
+    fun `22 equal-key list preserves creation order across recreation`() {
+        runBlocking {
+            store.recordStepAttempt(minimalRecord(attemptId = "z", startedAt = 10))
+            store.recordStepAttempt(minimalRecord(attemptId = "a", startedAt = 10))
+            assertThat(store.listStepAttempts("run").map { it.attemptId }).containsExactly("z", "a")
+            val recreated = harness.recreate()
+            assertThat(recreated.listStepAttempts("run").map { it.attemptId }).containsExactly("z", "a")
+        }
+    }
+
+    @Test
+    fun `23 update preserves creation order`() {
+        runBlocking {
+            store.recordStepAttempt(minimalRecord(attemptId = "z", startedAt = 10))
+            store.recordStepAttempt(minimalRecord(attemptId = "a", startedAt = 10))
+            store.updateStepAttempt(minimalRecord(attemptId = "z", startedAt = 10).copy(status = StepAttemptStatus.COMPLETED, completedAt = 20L))
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("a")
+            assertThat(store.listStepAttempts("run").map { it.attemptId }).containsExactly("z", "a")
+        }
+    }
+
+    @Test
+    fun `24 CAS preserves creation order`() {
+        runBlocking {
+            val first = minimalRecord(attemptId = "z", startedAt = 10)
+            store.recordStepAttempt(first)
+            store.recordStepAttempt(minimalRecord(attemptId = "a", startedAt = 10))
+            assertThat(store.compareAndSetStepAttempt(first, first.copy(status = StepAttemptStatus.FAILED))).isTrue()
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("a")
+            assertThat(store.listStepAttempts("run").map { it.attemptId }).containsExactly("z", "a")
+        }
+    }
+
+    @Test
+    fun `25 re-record preserves creation order`() {
+        runBlocking {
+            val first = minimalRecord(attemptId = "z", startedAt = 10)
+            store.recordStepAttempt(first)
+            store.recordStepAttempt(minimalRecord(attemptId = "a", startedAt = 10))
+            // The contract allows recordStepAttempt to replace an existing identity;
+            // a replacement is NOT a new attempt creation.
+            store.recordStepAttempt(first.copy(workerId = "replacement"))
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("a")
+            assertThat(store.listStepAttempts("run").map { it.attemptId }).containsExactly("z", "a")
+        }
+    }
+
+    @Test
+    fun `26 concurrent creates get distinct durable chronology`() {
+        runBlocking {
+            val ids = (1..4).map { "id$it" }
+            val start = java.util.concurrent.CountDownLatch(1)
+            val finished = java.util.concurrent.CountDownLatch(ids.size)
+            val deferreds = ids.map { id ->
+                async(Dispatchers.Default) {
+                    start.await()
+                    store.recordStepAttempt(minimalRecord(attemptId = id, startedAt = 10))
+                    finished.countDown()
+                }
+            }
+            start.countDown()
+            assertThat(withContext(Dispatchers.IO) { finished.await(10, TimeUnit.SECONDS) }).isTrue()
+            deferreds.joinAll()
+            val listed = store.listStepAttempts("run")
+            assertThat(listed.map { it.attemptId }).containsExactlyInAnyOrderElementsOf(ids)
+            assertThat(listed.map { it.attemptId }.distinct()).hasSize(ids.size)
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo(listed.last().attemptId)
+            val sequences = ids.map { harness.readSequence("run", "step", it) }
+            if (sequences.all { it != null }) {
+                assertThat(sequences.distinct()).hasSize(ids.size)
+            }
+        }
+    }
+
+    @Test
+    fun `27 legacy records fall back deterministically`() {
+        runBlocking {
+            if (!harness.supportsLegacyRecords) return@runBlocking
+            harness.writeLegacyRecord(minimalRecord(attemptId = "b", startedAt = 10))
+            harness.writeLegacyRecord(minimalRecord(attemptId = "a", startedAt = 10))
+            // Legacy-vs-legacy ties keep the deterministic attemptId fallback.
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("b")
+            assertThat(store.listStepAttempts("run").map { it.attemptId }).containsExactly("a", "b")
+            // A new sequenced record with equal startedAt outranks legacy chronology.
+            store.recordStepAttempt(minimalRecord(attemptId = "new", startedAt = 10))
+            assertThat(store.latestStepAttempt("run", "step")?.attemptId).isEqualTo("new")
+        }
+    }
+
+    @Test
+    fun `28 sequence corruption fails closed`() {
+        runBlocking {
+            if (!harness.supportsSequenceCorruption) return@runBlocking
+            val record = minimalRecord()
+            store.recordStepAttempt(record)
+            harness.corruptSequence(record)
+            assertThatThrownBy { runBlocking { store.listStepAttempts(record.runId) } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+        }
+    }
+
     protected fun minimalRecord(
         runId: String = "run",
         stepName: String = "step",
@@ -299,8 +413,19 @@ abstract class StepAttemptRecordStoreContractTest {
 interface AttemptStoreHarness {
     val store: StepAttemptRecordStore
     val supportsPersistentCorruption: Boolean get() = false
+    val supportsLegacyRecords: Boolean get() = false
+    val supportsSequenceCorruption: Boolean get() = false
     fun recreate(): StepAttemptRecordStore = store
     fun close() = Unit
+
+    /** Writes a legacy (pre-sequence) payload for [record] directly to storage. */
+    suspend fun writeLegacyRecord(record: StepAttemptRecord) = Unit
+
+    /** Corrupts the persisted creation sequence of [record] without touching record fields. */
+    suspend fun corruptSequence(record: StepAttemptRecord) = Unit
+
+    /** Reads the persisted creation sequence of [record], or null when legacy/absent. */
+    suspend fun readSequence(runId: String, stepName: String, attemptId: String): Long? = null
 
     fun assertMalformedFailsClosed(field: String, replacement: String?) {
         val lines = StepAttemptRecordCodec.encode(testCodecRecord()).lines().toMutableList()
@@ -403,8 +528,33 @@ private class FileAttemptStoreHarness(private val root: Path) : AttemptStoreHarn
         },
     )
     override val supportsPersistentCorruption = true
+    override val supportsLegacyRecords = true
+    override val supportsSequenceCorruption = true
 
     override fun recreate(): StepAttemptRecordStore = FileStepAttemptRecordStore(root)
+
+    override suspend fun writeLegacyRecord(record: StepAttemptRecord) {
+        val path = root.resolve(base64UrlEncodeNoPadding(record.runId))
+            .resolve(base64UrlEncodeNoPadding(record.stepName))
+            .resolve(base64UrlEncodeNoPadding(record.attemptId) + ".attempt.properties")
+        Files.createDirectories(path.parent)
+        Files.writeString(path, StepAttemptRecordCodec.encode(record) + "record_hash=${StepAttemptRecordCodec.fingerprint(record)}\n")
+    }
+
+    override suspend fun corruptSequence(record: StepAttemptRecord) {
+        val path = root.resolve(base64UrlEncodeNoPadding(record.runId))
+            .resolve(base64UrlEncodeNoPadding(record.stepName))
+            .resolve(base64UrlEncodeNoPadding(record.attemptId) + ".attempt.properties")
+        Files.writeString(path, Files.readString(path).replace(Regex("attemptSequence=.*"), "attemptSequence=999"))
+    }
+
+    override suspend fun readSequence(runId: String, stepName: String, attemptId: String): Long? {
+        val path = root.resolve(base64UrlEncodeNoPadding(runId))
+            .resolve(base64UrlEncodeNoPadding(stepName))
+            .resolve(base64UrlEncodeNoPadding(attemptId) + ".attempt.properties")
+        if (!Files.exists(path)) return null
+        return Regex("attemptSequence=(\\d+)").find(Files.readString(path))?.groupValues?.get(1)?.toLongOrNull()
+    }
 
     override suspend fun corruptFingerprint(record: StepAttemptRecord) {
         val path = root.resolve(base64UrlEncodeNoPadding(record.runId))
@@ -431,12 +581,42 @@ private class JdbcAttemptStoreHarness : AttemptStoreHarness {
     private val dataSource: DataSource = pool
     override val store = JdbcStepAttemptRecordStore(dataSource)
     override val supportsPersistentCorruption = true
+    override val supportsSequenceCorruption = true
 
     init {
         dataSource.connection.use { conn -> conn.createStatement().use { it.execute(store.createTableSql()) } }
     }
 
     override fun recreate(): StepAttemptRecordStore = JdbcStepAttemptRecordStore(dataSource)
+
+    override suspend fun corruptSequence(record: StepAttemptRecord) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE tramai_workflow_step_attempt SET attempt_sequence = ? WHERE run_id = ? AND step_name = ? AND attempt_id = ?",
+            ).use { statement ->
+                statement.setLong(1, 999)
+                statement.setString(2, record.runId)
+                statement.setString(3, record.stepName)
+                statement.setString(4, record.attemptId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    override suspend fun readSequence(runId: String, stepName: String, attemptId: String): Long? = try {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT attempt_sequence FROM tramai_workflow_step_attempt WHERE run_id = ? AND step_name = ? AND attempt_id = ?",
+            ).use { statement ->
+                statement.setString(1, runId)
+                statement.setString(2, stepName)
+                statement.setString(3, attemptId)
+                statement.executeQuery().use { resultSet -> if (resultSet.next()) resultSet.getLong(1) else null }
+            }
+        }
+    } catch (_: java.sql.SQLException) {
+        null
+    }
 
     override suspend fun corruptFingerprint(record: StepAttemptRecord) {
         dataSource.connection.use { conn ->
