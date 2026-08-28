@@ -40,6 +40,10 @@ internal class ProviderRetryDelayPolicy(
         val cappedBaseDelay = if (error is ProviderException && error.retryAfterMillis != null) {
             minOf(requireNotNull(error.retryAfterMillis), settings.maxRetryAfterMillis)
         } else fallbackDelayMillis
-        return cappedBaseDelay + (cappedBaseDelay * settings.jitterRatio * retryJitterSource.nextDouble()).toLong()
+        val jitterSample = retryJitterSource.nextDouble()
+        require(jitterSample >= 0.0 && jitterSample < 1.0) {
+            "Retry jitter sample must be in [0.0, 1.0), got $jitterSample"
+        }
+        return cappedBaseDelay + (cappedBaseDelay * settings.jitterRatio * jitterSample).toLong()
     }
 }

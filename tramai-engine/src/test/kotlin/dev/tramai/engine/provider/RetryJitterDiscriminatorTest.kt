@@ -19,6 +19,7 @@ import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.components.EngineComponentFactory
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -32,14 +33,15 @@ import org.junit.jupiter.api.Test
  */
 class RetryJitterDiscriminatorTest {
 
-    /** Queued source: deterministic nextDouble() sequence, counts calls. */
+    /** Queued source: deterministic nextDouble() sequence, counts SUCCESSFUL samples. */
     private class QueuedJitterSource(vararg samples: Double) : RetryJitterSource {
         private val queue = ArrayDeque(samples.toList())
         var calls = 0
             private set
         override fun nextDouble(): Double {
+            val sample = queue.removeFirst()
             calls++
-            return queue.removeFirst()
+            return sample
         }
     }
 
@@ -121,6 +123,22 @@ class RetryJitterDiscriminatorTest {
             .isEqualTo(1_100L)
     }
 
+    // ── P0-F — invalid jitter samples fail closed ────────────────────────────
+
+    @Test
+    fun `P0-F invalid jitter sample fails closed`() {
+        for (sample in listOf(-0.1, 1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
+            val policy = ProviderRetryDelayPolicy(
+                RetryPolicySettings(jitterRatio = 0.20),
+                QueuedJitterSource(sample),
+            )
+            org.assertj.core.api.Assertions.assertThatThrownBy {
+                policy.delayMillis(retryableError(), fallbackDelayMillis = 100L)
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("Retry jitter sample must be in [0.0, 1.0)")
+        }
+    }
+
     // ── P0-E — whole-engine composition consumes the injected source ─────────
 
     @AiService
@@ -160,7 +178,7 @@ class RetryJitterDiscriminatorTest {
 
     @Test
     fun `P0-E engine composition graph consumes the injected jitter source`() = runBlocking {
-        val source = QueuedJitterSource(0.25, 0.75)
+        val source = QueuedJitterSource(0.25)
         val capture = RetryEventCapture()
         val registry = ProviderRegistry.singleProvider(FailingProvider())
         val components = EngineComponentFactory.create(
@@ -214,10 +232,16 @@ class RetryJitterDiscriminatorTest {
         }
         val attributes = outcome.second!!
         // fallback base for retryIndex 0 = minOf(50 shl 0, 1000) = 50; jitter .20, sample .25:
-        // 50 + 50*.2*.25 = 52.5 -> 52. One sample consumed for the first authorized retry.
+        // 50 + 50*.2*.25 = 52.5 -> 52.
         assertThat(attributes[RuntimeAttributes.DELAY_MILLIS.name]).isEqualTo(52L)
+
+        // Freeze the invocation before asserting entropy consumption: the engine-owned
+        // coroutine must be definitively terminated, not merely signalled to cancel.
+        // The source carries exactly ONE sample, so no later attempt can mint a second
+        // call even if cancellation delivery races the engine's retry delay.
+        job.cancelAndJoin()
+
         assertThat(source.calls).isEqualTo(1)
-        job.cancel()
         engine.close()
     }
 }
