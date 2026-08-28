@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -17,11 +18,8 @@ dependencies {
 
     implementation(libs.spring.boot.autoconfigure)
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.coroutines.core)
-    testImplementation(libs.kotlin.test.junit5)
-    testImplementation(libs.spring.boot.starter.test)
+            testImplementation(libs.coroutines.core)
+        testImplementation(libs.spring.boot.starter.test)
     testImplementation(project(":tramai-spring-provider-openai"))
     testImplementation("org.junit.jupiter:junit-jupiter")
 }

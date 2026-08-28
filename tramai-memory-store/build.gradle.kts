@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -16,11 +17,8 @@ dependencies {
 
     testImplementation(project(":tramai-testing"))
     testImplementation(testFixtures(project(":tramai-testing")))
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.h2database)
-    testImplementation(libs.kotlin.test.junit5)
-    testImplementation(platform(libs.testcontainers.bom))
+            testImplementation(libs.h2database)
+        testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.testcontainers.core)
     testImplementation(libs.testcontainers.junit.jupiter)
 }

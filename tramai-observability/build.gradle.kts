@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -21,10 +22,7 @@ dependencies {
     testImplementation(libs.opentelemetry.sdk.metrics)
     testImplementation(libs.opentelemetry.sdk.trace)
     testImplementation(libs.opentelemetry.sdk.testing)
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.kotlin.test.junit5)
-}
+            }
 
 tasks.test {
     // The runtime-event-catalogue architecture test scans every module's
