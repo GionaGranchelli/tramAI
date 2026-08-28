@@ -177,7 +177,8 @@ class RetryJitterDiscriminatorTest {
     }
 
     @Test
-    fun `P0-E engine composition graph consumes the injected jitter source`() = runBlocking {
+    fun `P0-E engine composition graph consumes the injected jitter source`() {
+        runBlocking {
         val source = QueuedJitterSource(0.25)
         val capture = RetryEventCapture()
         val registry = ProviderRegistry.singleProvider(FailingProvider())
@@ -243,5 +244,6 @@ class RetryJitterDiscriminatorTest {
 
         assertThat(source.calls).isEqualTo(1)
         engine.close()
+        }
     }
 }
