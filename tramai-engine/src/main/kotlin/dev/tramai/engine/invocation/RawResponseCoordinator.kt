@@ -36,8 +36,6 @@ internal class RawResponseCoordinator(
         val conversationId = request.conversationId
         val identity = request.identity
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
-        val correlationId = java.util.UUID.randomUUID().toString()
-        val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments)
         val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, conversationId)
         val history = prepared?.history ?: emptyList()
@@ -59,7 +57,7 @@ internal class RawResponseCoordinator(
         )
         if (cacheKey != null) {
             when (val cached = operationCacheCoordinator.lookup(
-                OperationCacheLookupRequest(cacheKey, securityContext, correlationId, conversationId),
+                OperationCacheLookupRequest(cacheKey, securityContext, identity.correlationId, conversationId),
             )) {
                 is OperationCacheLookupResult.Hit -> return cached.value as String
                 is OperationCacheLookupResult.Miss -> Unit
@@ -73,9 +71,9 @@ internal class RawResponseCoordinator(
                 operation = operation,
                 messages = effectiveMutableMessages,
                 tokenBudgetTracker = tokenBudgetTracker,
-                correlationId = correlationId,
+                correlationId = identity.correlationId,
                 securityContext = securityContext,
-                identity = effectiveIdentity,
+                identity = identity,
                 conversationId = conversationId,
                 historySize = history.size,
             ),
@@ -87,7 +85,7 @@ internal class RawResponseCoordinator(
         policyHelper.enforce(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                correlationId = correlationId,
+                correlationId = identity.correlationId,
             ).providerId(result.providerId)
                 .modelName(result.modelName)
                 .applySecurityContext(securityContext)

@@ -23,6 +23,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.engine.CircuitBreakerAdmission
+import dev.tramai.engine.DefaultEngineIdentitySource
 import dev.tramai.engine.CircuitBreakerPermit
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ModelRegistryEnforcer
@@ -201,22 +202,28 @@ class ProviderRetryFallbackLifecyclePropertyTest {
     ): StreamingExecutionCoordinator {
         val policy = PolicyEngine { PolicyDecision.Allow }
         return StreamingExecutionCoordinator(
-            routingPlan, breaker, CoroutineScope(Dispatchers.Default), AtomicBoolean(false), "test.Service", "test.Service",
-            observer,
-            object : dev.tramai.core.observation.OperationInterceptor {},
-            ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
-            ConversationMemoryCoordinator(object : ChatMemory {
+            identitySource = DefaultEngineIdentitySource,
+            routingPlan = routingPlan,
+            circuitBreaker = breaker,
+            lifecycleScope = CoroutineScope(Dispatchers.Default),
+            isClosed = AtomicBoolean(false),
+            serviceTypeName = "test.Service",
+            qualifiedServiceName = "test.Service",
+            operationObserver = observer,
+            operationInterceptor = object : dev.tramai.core.observation.OperationInterceptor {},
+            toolExposureCoordinator = ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
+            conversationMemoryCoordinator = ConversationMemoryCoordinator(object : ChatMemory {
                 override fun get(conversationId: String): List<Message> = emptyList()
                 override fun add(conversationId: String, messages: List<Message>) = Unit
                 override fun add(conversationId: String, message: Message) = Unit
                 override fun clear(conversationId: String) = Unit
             }, ConversationIdProvider { "cid" }),
-            TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)),
-            ModelRegistryEnforcer(object : ModelRegistry { override suspend fun findApprovedModel(providerId: String, modelName: String) = null }, ModelRegistrySettings(enabled = false)),
-            ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
-            ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
-            ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
-            ProviderFallbackGate { _, previousProviderId, _, nextProviderId, _, _ ->
+            tokenBudgetCoordinator = TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)),
+            modelRegistryEnforcer = ModelRegistryEnforcer(object : ModelRegistry { override suspend fun findApprovedModel(providerId: String, modelName: String) = null }, ModelRegistrySettings(enabled = false)),
+            retryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+            beforeResolution = ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
+            beforeInvocation = ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
+            fallbackGate = ProviderFallbackGate { _, previousProviderId, _, nextProviderId, _, _ ->
                 sink.record("policy.fallback")
                 sink.record("fallback-edge:$previousProviderId->$nextProviderId")
                 if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))

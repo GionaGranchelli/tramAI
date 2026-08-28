@@ -29,6 +29,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.engine.CircuitBreakerSettings
+import dev.tramai.engine.DefaultEngineIdentitySource
 import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.PolicyEnforcementHelper
 import dev.tramai.engine.ProviderCircuitBreaker
@@ -258,16 +259,24 @@ class StreamingExecutionCoordinatorTest {
         val policy = PolicyEngine { PolicyDecision.Allow }
         fun denied() = PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
         return StreamingExecutionCoordinator(
-            routingPlan, circuitBreaker, CoroutineScope(Dispatchers.Default), closed, "test.StreamingService", qualifiedServiceName, observer,
-            NoOpOperationInterceptor,
-            ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
-            ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }), TokenBudgetCoordinator(budgetSettings),
-            ModelRegistryEnforcer(object : ModelRegistry { override suspend fun findApprovedModel(providerId: String, modelName: String) = null }, ModelRegistrySettings(enabled = false)),
-            retryPolicy,
-            ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
-            ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
-            ProviderFallbackGate { _, _, _, _, _, _ -> recordingSink.record("policy.fallback"); if (denyFallback) throw denied() },
-            StreamingBeforeResponseReturnGate { _, _, _ -> recordingSink.record("policy.before-response-return"); if (denyBeforeResponseReturn) throw denied() },
+            identitySource = DefaultEngineIdentitySource,
+            routingPlan = routingPlan,
+            circuitBreaker = circuitBreaker,
+            lifecycleScope = CoroutineScope(Dispatchers.Default),
+            isClosed = closed,
+            serviceTypeName = "test.StreamingService",
+            qualifiedServiceName = qualifiedServiceName,
+            operationObserver = observer,
+            operationInterceptor = NoOpOperationInterceptor,
+            toolExposureCoordinator = ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
+            conversationMemoryCoordinator = ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }),
+            tokenBudgetCoordinator = TokenBudgetCoordinator(budgetSettings),
+            modelRegistryEnforcer = ModelRegistryEnforcer(object : ModelRegistry { override suspend fun findApprovedModel(providerId: String, modelName: String) = null }, ModelRegistrySettings(enabled = false)),
+            retryPolicy = retryPolicy,
+            beforeResolution = ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
+            beforeInvocation = ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
+            fallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> recordingSink.record("policy.fallback"); if (denyFallback) throw denied() },
+            beforeResponseReturn = StreamingBeforeResponseReturnGate { _, _, _ -> recordingSink.record("policy.before-response-return"); if (denyBeforeResponseReturn) throw denied() },
         )
     }
 

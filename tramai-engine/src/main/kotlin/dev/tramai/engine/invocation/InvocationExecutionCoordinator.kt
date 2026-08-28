@@ -1,6 +1,7 @@
 package dev.tramai.engine.invocation
 
 import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.IdempotencyKeyUtil
@@ -164,6 +165,7 @@ internal class InvocationExecutionCoordinator(
     )
     private val tokenBudgetCoordinator = TokenBudgetCoordinator(tokenBudgetSettings)
     private val streamingExecutionCoordinator = StreamingExecutionCoordinator(
+        identitySource = components.execution.identitySource,
         routingPlan = routingPlan,
         circuitBreaker = circuitBreaker,
         lifecycleScope = lifecycleScope,
@@ -339,15 +341,7 @@ internal class InvocationExecutionCoordinator(
         val arguments = context.arguments
         val conversationId = context.conversationId
         val tokenBudgetTracker = tokenBudgetCoordinator.createTracker()
-        val workflowRunId = java.util.UUID.randomUUID().toString()
         val workflowDigest = WorkflowDigestHelper.compute(operation, serviceDefinition)
-        val identity = EngineExecutionIdentity(
-            workflowRunId = workflowRunId,
-            correlationId = "", // Will be set in executeRaw/the structured coordinator
-            workflowDigest = workflowDigest,
-            policyVersion = policyHelper.getPolicyVersion(),
-            actorId = PolicyEnforcementHelper.ACTOR_ANONYMOUS,
-        )
         return when (operation.returnKind) {
             ReturnKind.STRING -> rawResponseCoordinator.execute(
                 RawResponseRequest(
@@ -355,7 +349,7 @@ internal class InvocationExecutionCoordinator(
                     arguments = arguments,
                     tokenBudgetTracker = tokenBudgetTracker,
                     conversationId = conversationId,
-                    identity = identity,
+                    identity = invocationIdentity(workflowDigest),
                 ),
             )
             ReturnKind.UNIT -> {
@@ -365,7 +359,7 @@ internal class InvocationExecutionCoordinator(
                         arguments = arguments,
                         tokenBudgetTracker = tokenBudgetTracker,
                         conversationId = conversationId,
-                        identity = identity,
+                        identity = invocationIdentity(workflowDigest),
                     ),
                 )
                 Unit
@@ -376,7 +370,7 @@ internal class InvocationExecutionCoordinator(
                     arguments = arguments,
                     tokenBudgetTracker = tokenBudgetTracker,
                     conversationId = conversationId,
-                    identity = identity,
+                    identity = invocationIdentity(workflowDigest),
                     operationFingerprint = context.plan.fingerprint,
                 ),
             )
@@ -389,6 +383,27 @@ internal class InvocationExecutionCoordinator(
                 ),
             )
         }
+    }
+
+    /**
+     * 8.3b2a: samples the complete invocation identity exactly once at the
+     * invocation boundary. Streaming never had a workflowRunId and stays lazy —
+     * a never-collected flow consumes zero identities, so its correlation is
+     * sampled inside the flow body (StreamingExecutionCoordinator).
+     */
+    private fun invocationIdentity(workflowDigest: Sha256Digest): EngineExecutionIdentity {
+        val identitySource = components.execution.identitySource
+        val workflowRunId = identitySource.newWorkflowRunId()
+        val correlationId = identitySource.newCorrelationId()
+        require(workflowRunId.isNotBlank()) { "Engine workflowRunId must not be blank" }
+        require(correlationId.isNotBlank()) { "Engine correlationId must not be blank" }
+        return EngineExecutionIdentity(
+            workflowRunId = workflowRunId,
+            correlationId = correlationId,
+            workflowDigest = workflowDigest,
+            policyVersion = policyHelper.getPolicyVersion(),
+            actorId = PolicyEnforcementHelper.ACTOR_ANONYMOUS,
+        )
     }
     override suspend fun execute(request: ClaimedResumeExecutionRequest): Any? =
         claimedResumeCoordinator.execute(request)

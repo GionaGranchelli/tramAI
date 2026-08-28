@@ -8,7 +8,6 @@ import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -72,7 +71,7 @@ internal class PolicyEnforcementHelper(
      */
     fun buildContext(
         enforcementPoint: EnforcementPoint,
-        correlationId: String = UUID.randomUUID().toString(),
+        correlationId: String,
         base: ContextDefaults = ContextDefaults(),
     ): PolicyContextBuilder = PolicyContextBuilder(enforcementPoint, correlationId, policyVersion, base)
 

@@ -57,8 +57,6 @@ internal class StructuredResponseCoordinator(
             failure.rethrowIfCancellation()
             rethrowContractFailure(operation, failure)
         }
-        val correlationId = java.util.UUID.randomUUID().toString()
-        val effectiveIdentity = request.identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(request.arguments, contract.schemaJson)
         val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, request.conversationId)
         val history = prepared?.history ?: emptyList()
@@ -80,7 +78,7 @@ internal class StructuredResponseCoordinator(
         )
         if (cacheKey != null) {
             when (val cached = operationCacheCoordinator.lookup(
-                OperationCacheLookupRequest(cacheKey, securityContext, correlationId, request.conversationId),
+                OperationCacheLookupRequest(cacheKey, securityContext, request.identity.correlationId, request.conversationId),
             )) {
                 is OperationCacheLookupResult.Hit -> return cached.value
                 is OperationCacheLookupResult.Miss -> Unit
@@ -100,9 +98,9 @@ internal class StructuredResponseCoordinator(
                 historySize = initialTurnCount,
                 tokenBudgetTracker = request.tokenBudgetTracker,
                 conversationId = request.conversationId,
-                correlationId = correlationId,
+                correlationId = request.identity.correlationId,
                 securityContext = securityContext,
-                identity = effectiveIdentity,
+                identity = request.identity,
             ),
         )
     }
