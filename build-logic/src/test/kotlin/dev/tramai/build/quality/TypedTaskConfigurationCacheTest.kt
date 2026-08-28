@@ -64,7 +64,11 @@ class TypedTaskConfigurationCacheTest {
         assertTrue(report.isFile, "report must exist after first run: $reportPath")
         val firstContent = report.readText()
         val parsed = com.fasterxml.jackson.databind.ObjectMapper().readTree(firstContent)
-        assertTrue(parsed.isArray && parsed.size() == 0, "fixture has no external deps, report must be empty array: $firstContent")
+        assertTrue(parsed.isArray && parsed.size() >= 1, "fixture :sample resolves com.example:fake:1.0, report must contain records: $firstContent")
+        assertTrue(
+            parsed.any { it.get("group").asText() == "com.example" && it.get("artifact").asText() == "fake" },
+            "report must contain the fake module: $firstContent"
+        )
         assertTrue(!firstContent.contains("resolutionFailed"), "probe must not report a swallowed failure: $firstContent")
 
         val second = runner(dir, *args).build()
@@ -89,7 +93,11 @@ class TypedTaskConfigurationCacheTest {
         writeFile(dir, "build.gradle.kts", """
             plugins { id("tramai.maintainability-baseline") }
         """.trimIndent())
-        writeFile(dir, "sample/build.gradle.kts", "plugins { `java-library` }")
+        writeFile(dir, "sample/build.gradle.kts", """
+            plugins { `java-library` }
+            repositories { maven { url = uri(rootDir.resolve("repo")) } }
+            dependencies { implementation("com.example:fake:1.0") }
+        """.trimIndent())
         writeFile(dir, "tramai-core/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, "examples/java-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, "examples/kotlin-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
@@ -134,6 +142,26 @@ class TypedTaskConfigurationCacheTest {
                   targetClasses: ["example.*"]
                   targetTests: ["example.*"]
         """.trimIndent())
+
+        // Minimal local Maven repo so :sample resolves a real external module.
+        // Deliberately a file repo (not mavenCentral): the test must be
+        // deterministic and offline. The jar is empty; resolution metadata is
+        // what the baseline records.
+        val repoModule = File(dir, "repo/com/example/fake/1.0")
+        repoModule.mkdirs()
+        writeFile(
+            repoModule,
+            "fake-1.0.pom",
+            """
+            <project xmlns="http://maven.apache.org/POM/4.0.0">
+              <modelVersion>4.0.0</modelVersion>
+              <groupId>com.example</groupId>
+              <artifactId>fake</artifactId>
+              <version>1.0</version>
+            </project>
+            """.trimIndent()
+        )
+        java.util.zip.ZipOutputStream(File(repoModule, "fake-1.0.jar").outputStream()).use { it.close() }
         return dir
     }
 

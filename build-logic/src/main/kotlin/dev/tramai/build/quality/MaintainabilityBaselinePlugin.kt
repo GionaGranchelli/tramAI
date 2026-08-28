@@ -94,10 +94,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json")
                 )
                 val probePath = sub.path
-                val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
-                    .mapNotNull { name -> sub.configurations.findByName(name) }
                 consumerPath.set(probePath)
                 resolution.set(sub.provider {
+                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                        .mapNotNull { name -> sub.configurations.findByName(name) }
                     runCatching { collectResolvedDependencies(probePath, probeConfigs) }
                         .fold(
                             onSuccess = { DependencyResolutionResult(it) },
@@ -168,10 +168,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json")
                 )
                 val probePath = sub.path
-                val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
-                    .mapNotNull { name -> sub.configurations.findByName(name) }
                 consumerPath.set(probePath)
                 resolution.set(sub.provider {
+                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                        .mapNotNull { name -> sub.configurations.findByName(name) }
                     runCatching { collectResolvedDependencies(probePath, probeConfigs) }
                         .fold(
                             onSuccess = { DependencyResolutionResult(it) },
