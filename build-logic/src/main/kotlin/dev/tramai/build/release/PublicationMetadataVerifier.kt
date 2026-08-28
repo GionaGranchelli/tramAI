@@ -53,7 +53,7 @@ object PublicationMetadataVerifier {
                 "No expected description for $projectName — catalog must provide a non-blank description for every published module"
             }
             require(project.directChildText("description") == expectedDescription) {
-                "Unexpected description in $projectName POM"
+                "Unexpected description in $projectName POM: expected '$expectedDescription' but found '${project.directChildText("description")}'"
             }
             require(project.directChildText("url") == expected.projectUrl) { "Unexpected project URL in $projectName POM" }
 

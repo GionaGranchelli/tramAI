@@ -117,10 +117,11 @@ class TramaiPublishingPlugin : Plugin<Project> {
      *
      * Published modules must carry a non-blank description (enforced by the
      * catalog parser via MODULE_CATALOG_MISSING_DESCRIPTION). The publisher
-     * fails closed too: a PUBLISHED module whose catalog entry is missing or
-     * blank aborts configuration rather than silently publishing a POM with
-     * no description. Internal/excluded modules may legitimately have no
-     * description and return null (element omitted).
+     * fails closed too: a module whose catalog entry IS marked PUBLISHED but
+     * has a missing/blank description aborts configuration rather than
+     * silently publishing a POM with no description. A module with no catalog
+     * entry at all (TestKit fixtures, internal/excluded modules) returns null
+     * and the POM omits the description element.
      */
     private fun catalogDescription(project: Project): String? {
         val catalog = ModuleCatalog(project.rootProject.projectDir).parse()

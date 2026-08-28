@@ -211,14 +211,28 @@ class ReleaseVerificationPluginTest {
 
     @Test
     fun `W1 wired expectedDescriptions passes when POM matches the catalog description`() {
-        val dir = baseFixture()
+        val dir = baseFixture(extra = """
+            project(":tramai-core") {
+                afterEvaluate {
+                    tasks.named("generatePomFileForMavenPublication") {
+                        doLast {
+                            val pom = layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile
+                            val text = pom.readText().replace("<description>Test module</description>", "<description>Expected description for :tramai-core.</description>")
+                            pom.writeText(text)
+                        }
+                    }
+                }
+            }
+        """.trimIndent())
         writeFile(
             dir,
             "config/quality/module-catalog.yml",
-            wiredCatalog.replace("DESCRIPTION_PLACEHOLDER", "Test module"),
+            wiredCatalog.replace("DESCRIPTION_PLACEHOLDER", "Expected description for :tramai-core."),
         )
-        // The fixture's sentinel POM carries <description>Test module</description>,
-        // so the catalog-derived expected map and the generated POM agree.
+        // The sentinel POM is explicitly rewritten to carry the same unique
+        // description as the catalog, so the catalog-derived expected map and
+        // the generated POM agree on an obviously-intentional value (not a
+        // string coincidence with the default fixture POM).
         runner(dir, "verifyPublicationMetadata").build()
     }
 
