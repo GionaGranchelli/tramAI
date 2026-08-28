@@ -17,12 +17,20 @@ class TypedTaskConfigurationCacheTest {
 
     @Test
     fun `generate resolved dependency baseline reuses configuration cache`() {
-        assertConfigurationCacheReuse(maintainabilityFixture(), ":sample:generateResolvedDependencyBaseline")
+        assertConfigurationCacheReuse(
+            maintainabilityFixture(),
+            ":sample:generateResolvedDependencyBaseline",
+            "sample/build/reports/maintainability/resolved-dependencies.json",
+        )
     }
 
     @Test
     fun `architecture dependency probe reuses configuration cache`() {
-        assertConfigurationCacheReuse(maintainabilityFixture(), ":sample:architectureDependencyProbe")
+        assertConfigurationCacheReuse(
+            maintainabilityFixture(),
+            ":sample:architectureDependencyProbe",
+            "sample/build/reports/maintainability/architecture-dependencies.json",
+        )
     }
 
     @Test
@@ -46,14 +54,24 @@ class TypedTaskConfigurationCacheTest {
         assertTrue(second.output.contains("Reusing configuration cache"), "second run must reuse cache: ${second.output.take(800)}")
     }
 
-    private fun assertConfigurationCacheReuse(dir: File, task: String) {
+    private fun assertConfigurationCacheReuse(dir: File, task: String, reportPath: String) {
         val args = configurationCacheArguments(task)
         val first = runner(dir, *args).build()
         assertTrue(first.task(task) != null, "$task must execute: ${first.output.take(800)}")
         assertTrue(first.output.contains("Configuration cache entry stored"), "first run must store cache: ${first.output.take(800)}")
 
+        val report = File(dir, reportPath)
+        assertTrue(report.isFile, "report must exist after first run: $reportPath")
+        val firstContent = report.readText()
+        val parsed = com.fasterxml.jackson.databind.ObjectMapper().readTree(firstContent)
+        assertTrue(parsed.isArray && parsed.size() == 0, "fixture has no external deps, report must be empty array: $firstContent")
+        assertTrue(!firstContent.contains("resolutionFailed"), "probe must not report a swallowed failure: $firstContent")
+
         val second = runner(dir, *args).build()
         assertTrue(second.output.contains("Reusing configuration cache"), "second run must reuse cache: ${second.output.take(800)}")
+        assertTrue(second.task(task)?.outcome == org.gradle.testkit.runner.TaskOutcome.SUCCESS, "task must succeed on warm run")
+        val secondContent = File(dir, reportPath).readText()
+        assertTrue(firstContent == secondContent, "cold and warm outputs must be byte-identical")
     }
 
     private fun configurationCacheArguments(task: String) = arrayOf(

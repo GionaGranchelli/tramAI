@@ -97,7 +97,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
                     .mapNotNull { name -> sub.configurations.findByName(name) }
                 consumerPath.set(probePath)
-                records.set(sub.provider { collectResolvedDependencies(probePath, probeConfigs) })
+                resolution.set(sub.provider {
+                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                        .fold(
+                            onSuccess = { DependencyResolutionResult(it) },
+                            onFailure = { e ->
+                                DependencyResolutionResult(
+                                    records = emptyList(),
+                                    failureMessage = e.message ?: e.javaClass.name,
+                                )
+                            },
+                        )
+                })
             }
             perProjectProbeTasks.add("${sub.path}:$taskName")
         }
@@ -160,7 +171,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
                     .mapNotNull { name -> sub.configurations.findByName(name) }
                 consumerPath.set(probePath)
-                records.set(sub.provider { collectResolvedDependencies(probePath, probeConfigs) })
+                resolution.set(sub.provider {
+                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                        .fold(
+                            onSuccess = { DependencyResolutionResult(it) },
+                            onFailure = { e ->
+                                DependencyResolutionResult(
+                                    records = emptyList(),
+                                    failureMessage = e.message ?: e.javaClass.name,
+                                )
+                            },
+                        )
+                })
             }
             architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
         }
