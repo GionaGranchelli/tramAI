@@ -13,11 +13,13 @@
     never from wall-clock arithmetic. The drain residual is computed by the
     exact `MonotonicDrainBudget` (`timeout − monotonic elapsed`, clamped to
     ≥1ms) — a wall-clock jump can no longer shorten or stretch the drain.
-  - **One injected Clock for persisted timestamps.** Step-attempt records
-    (`startedAt`/`completedAt`), execution-tracker timestamps, checkpoint
-    saves (`savedAtEpochMillis`), and recovery resolution timestamps all read
-    the workflow's injected Clock. Stores preserve timestamps; they never
-    invent business time.
+  - **Persisted timestamps consume explicit Clock authorities.**
+    Step-attempt records (`startedAt`/`completedAt`), execution-tracker
+    timestamps, and checkpoint saves (`savedAtEpochMillis`) use the workflow's
+    injected Clock; operator recovery-resolution timestamps use the recovery
+    controller's Clock boundary (`Clock.systemUTC()` in production,
+    deterministic injection through the internal `forTest` seam). Stores
+    preserve timestamps; they never invent business time.
   - **Legacy checkpoint decode contract.** File records that lack
     `savedAtEpochMillis` decode as `0L` = "historical save time unavailable"
     — never 1970-01-01, never read-time synthesis. Present values are
