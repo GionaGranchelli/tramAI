@@ -167,6 +167,13 @@ class TramaiWorker(
             lifecycle.onLifecycleStateClaimed = value
         }
 
+    /** 8.3a test seam: elapsed-time authority for the shutdown drain. */
+    internal var timeSourceForTest: MonotonicTimeSource
+        get() = lifecycle.timeSource
+        set(value) {
+            lifecycle.timeSource = value
+        }
+
     internal fun isShuttingDownGracefullyForTest(): Boolean = lifecycle.isShuttingDownGracefullyForTest()
 
     internal fun isAcceptingWorkForTest(): Boolean = lifecycle.isAcceptingWorkForTest()

@@ -4,6 +4,36 @@
 
 ### Fixed
 
+- **Orchestration time semantics (Epic 8.3a).** Wall time is separated from
+  elapsed time, and every new persisted orchestration timestamp is supplied
+  by one injected `Clock` threaded from the worker boundary:
+  - **Monotonic elapsed authority.** Worker uptime and the shutdown drain
+    residual are now derived from a `MonotonicTimeSource` seam
+    (`NanoTimeSource` binds `System::nanoTime` at the composition point),
+    never from wall-clock arithmetic. The drain residual is computed by the
+    exact `MonotonicDrainBudget` (`timeout − monotonic elapsed`, clamped to
+    ≥1ms) — a wall-clock jump can no longer shorten or stretch the drain.
+  - **Persisted timestamps consume explicit Clock authorities.**
+    Step-attempt records (`startedAt`/`completedAt`), execution-tracker
+    timestamps, and checkpoint saves (`savedAtEpochMillis`) use the workflow's
+    injected Clock; operator recovery-resolution timestamps use the recovery
+    controller's Clock boundary (`Clock.systemUTC()` in production,
+    deterministic injection through the internal `forTest` seam). Stores
+    preserve timestamps; they never invent business time.
+  - **Legacy checkpoint decode contract.** File records that lack
+    `savedAtEpochMillis` decode as `0L` = "historical save time unavailable"
+    — never 1970-01-01, never read-time synthesis. Present values are
+    preserved exactly.
+  - **Recovery-controller ABI unchanged.** `InMemoryWorkflowRecoveryController`
+    keeps its original two-argument public constructor (apiCheck green, zero
+    API-dump drift); clock injection lives behind an internal `forTest` seam.
+  - Proven by a 14-discriminator suite (exact arithmetic, zero timing
+    thresholds) and a 16-candidate mutation campaign (15 STRONG, 1 REDUNDANT,
+    0 WEAK, 0 INVALID). The former fresh-heartbeat-mark mutation is now
+    structurally impossible because the heartbeat loop receives a captured
+    `MonotonicMark`, not a mark supplier. Contract:
+    `docs/reference/time-semantics-contract.md`.
+
 - **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #302).** The provider
   circuit breaker now tracks the ownership of every admitted attempt instead
   of only the breaker state:

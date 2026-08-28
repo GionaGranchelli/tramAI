@@ -99,7 +99,19 @@ internal class WorkerLifecycleController(
     private val activationLock = Any()
 
     private var workerScope: CoroutineScope? = null
-    private var startedAt: Long = 0L
+    private var startedMark: MonotonicMark? = null
+
+    /**
+     * Elapsed-time authority (8.3a P0-B): the shutdown drain's residual
+     * budget must be computed from a monotonic source, never the wall clock.
+     * Test-visible via [TramaiWorker.timeSourceForTest]; the coordinator
+     * reads it lazily at drain time.
+     */
+    internal var timeSource: MonotonicTimeSource = MonotonicTimeSource.NanoTime
+        set(value) {
+            field = value
+            if (::shutdownCoordinator.isInitialized) shutdownCoordinator.timeSource = value
+        }
 
     private val leaseCoordinator = LeaseCoordinator(config, leaseStore, observability)
     private val recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, stepAttemptStore)
@@ -144,6 +156,7 @@ internal class WorkerLifecycleController(
             observability = observability,
             executionSupervisor = executionSupervisor,
             workerRegistryStore = workerRegistryStore,
+            timeSource = timeSource,
         )
     }
 
@@ -200,7 +213,7 @@ internal class WorkerLifecycleController(
             return
         }
         workerScope = scope
-        startedAt = System.currentTimeMillis()
+        startedMark = timeSource.markNow()
         // Test seam: suspend the winner between the ownership claim and the
         // shutdown-state reset (M24). A shutdown arriving here wins the
         // STARTING→SHUTTING_DOWN transition; we re-check below.
@@ -271,9 +284,12 @@ internal class WorkerLifecycleController(
                 shutdownCoordinator.onShutdownHook(hook)
                 executionSupervisor.attachScope(scope)
                 shutdownCoordinator.beginAcceptingWork()
+                val heartbeatStartedMark = checkNotNull(startedMark) {
+                    "worker start mark must exist before heartbeat activation"
+                }
                 val heartbeatJob = scope.launch(start = CoroutineStart.LAZY) {
                     heartbeatPublisher.heartbeatLoop(
-                        startedAtMillis = { startedAt },
+                        startedAtMark = heartbeatStartedMark,
                         claimedCount = { executionSupervisor.activeExecutionCount() },
                     )
                 }

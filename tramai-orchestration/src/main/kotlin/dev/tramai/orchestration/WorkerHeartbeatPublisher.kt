@@ -29,12 +29,12 @@ internal class WorkerHeartbeatPublisher(
     }
 
     suspend fun heartbeatLoop(
-        startedAtMillis: () -> Long,
+        startedAtMark: MonotonicMark,
         claimedCount: () -> Int,
     ) {
         val interval = maxOf(1L, config.pollIntervalMillis / 2)
         while (currentCoroutineContext().isActive) {
-            val uptime = System.currentTimeMillis() - startedAtMillis()
+            val uptime = startedAtMark.elapsedMillis()
             workerRegistryStore?.updateHeartbeat(config.workerId)
             observability.onWorkerHeartbeat(config.workerId, uptime, claimedCount())
             delay(interval)

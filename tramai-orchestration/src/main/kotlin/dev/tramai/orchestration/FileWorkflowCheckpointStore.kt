@@ -330,7 +330,7 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint = try {
         statePayload = base64Decode(properties.requireProperty("statePayloadBase64")),
         revision = properties.getProperty("revision")?.toLong() ?: 0,
         metadata = metadata,
-        savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
+        savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: 0L,
         recoveryState = decodeRecoveryState(properties.getProperty("recoveryState")?.takeIf { it.isNotBlank() }?.let(::base64Decode)),
         checkpointGeneration = properties.getProperty("checkpointGeneration")?.ifBlank { null },
     )

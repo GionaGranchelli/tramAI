@@ -14,6 +14,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Clock
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -132,6 +133,7 @@ internal class WorkflowExecutionSupervisor(
             context = context,
             stepAttemptStore = stepAttemptStore,
             observability = observability,
+            clock = typedWorkflow.clock,
             leaseProvider = { handle.lease.get() },
         )
         handle.tracker = tracker
@@ -300,6 +302,7 @@ internal class ExecutionTracker(
     private val context: WorkflowContext,
     private val stepAttemptStore: StepAttemptRecordStore,
     private val observability: TramaiWorkerObserver,
+    private val clock: Clock,
     private val leaseProvider: () -> WorkflowLease?,
 ) {
     private val monitor = Any()
@@ -334,7 +337,7 @@ internal class ExecutionTracker(
         if (latest.status == StepAttemptStatus.STARTED) {
             val unknown = latest.copy(
                 status = StepAttemptStatus.UNKNOWN,
-                completedAt = System.currentTimeMillis(),
+                completedAt = clock.millis(),
                 outputSummary = latest.outputSummary ?: "Lease expired before the step reached a durable checkpoint",
             )
             stepAttemptStore.updateStepAttempt(unknown)
@@ -373,7 +376,7 @@ internal class ExecutionTracker(
             workerId = workerId,
             leaseToken = leaseProvider()?.leaseId ?: "unknown",
             status = StepAttemptStatus.STARTED,
-            startedAt = System.currentTimeMillis(),
+            startedAt = clock.millis(),
             idempotencyKey = descriptor.idempotencyKey,
             replayPolicy = descriptor.toPersistedReplayPolicy(),
             inputFingerprint = fingerprint,
@@ -393,7 +396,7 @@ internal class ExecutionTracker(
         }
         val consumed = attempt.copy(
             status = StepAttemptStatus.FAILED,
-            completedAt = attempt.completedAt ?: System.currentTimeMillis(),
+            completedAt = attempt.completedAt ?: clock.millis(),
         )
         // Atomic CAS: the approval is consumed exactly once. A concurrent writer (e.g. a
         // stale-approval void) between the recovery read and here must not be overwritten;
@@ -423,7 +426,7 @@ internal class ExecutionTracker(
         }
         val completed = attempt.copy(
             status = StepAttemptStatus.COMPLETED,
-            completedAt = System.currentTimeMillis(),
+            completedAt = clock.millis(),
             outputSummary = "Checkpoint revision ${persistedCheckpoint.revision}",
         )
         stepAttemptStore.updateStepAttempt(completed)
@@ -451,7 +454,7 @@ internal class ExecutionTracker(
         }
         val failed = attempt.copy(
             status = StepAttemptStatus.FAILED,
-            completedAt = System.currentTimeMillis(),
+            completedAt = clock.millis(),
             outputSummary = summarize(observableFailure),
         )
         stepAttemptStore.updateStepAttempt(failed)
@@ -478,7 +481,7 @@ internal class ExecutionTracker(
         val attempt = synchronized(monitor) { activeAttempt } ?: return
         val cancelled = attempt.copy(
             status = StepAttemptStatus.CANCELLED,
-            completedAt = System.currentTimeMillis(),
+            completedAt = clock.millis(),
             outputSummary = summary,
         )
         stepAttemptStore.updateStepAttempt(cancelled)

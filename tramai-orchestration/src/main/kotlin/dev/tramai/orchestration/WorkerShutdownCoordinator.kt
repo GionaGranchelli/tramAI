@@ -27,6 +27,7 @@ internal class WorkerShutdownCoordinator(
     private val observability: TramaiWorkerObserver,
     private val executionSupervisor: WorkflowExecutionSupervisor,
     private val workerRegistryStore: WorkerRegistryStore?,
+    internal var timeSource: MonotonicTimeSource = MonotonicTimeSource.NanoTime,
 ) {
     /**
      * Per-root shutdown idempotency. The CONTROLLER's atomic lifecycle state
@@ -116,7 +117,7 @@ internal class WorkerShutdownCoordinator(
         observability.onShutdownStarted(config.workerId)
         pollJob?.cancelAndJoin()
         val executions = executionSupervisor.activeExecutionsSnapshot()
-        val drainStartedAt = System.currentTimeMillis()
+        val drainBudget = MonotonicDrainBudget(config.drainTimeoutMillis, timeSource)
         val drainTimeoutMillis = config.drainTimeoutMillis
         val drained = withTimeoutOrNull(drainTimeoutMillis) {
             executions.mapNotNull { it.executionJob }.joinAll()
@@ -126,7 +127,7 @@ internal class WorkerShutdownCoordinator(
             executions.forEach { execution ->
                 execution.executionJob?.cancel(CancellationException("Worker drain timeout exceeded"))
             }
-            val residualTimeoutMillis = (drainTimeoutMillis - (System.currentTimeMillis() - drainStartedAt)).coerceAtLeast(1L)
+            val residualTimeoutMillis = drainBudget.remainingMillis()
             withTimeoutOrNull(residualTimeoutMillis) {
                 executions.mapNotNull { it.executionJob }.joinAll()
             }

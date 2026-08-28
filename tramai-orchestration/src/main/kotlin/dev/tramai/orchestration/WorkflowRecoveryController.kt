@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import java.time.Clock
 
 /**
  * Raised when a recovery-resolution operation ([WorkflowRecoveryController.retryStep]
@@ -118,6 +119,20 @@ class InMemoryWorkflowRecoveryController(
     private val checkpointStore: WorkflowCheckpointStore,
     private val stepAttemptStore: StepAttemptRecordStore? = null,
 ) : WorkflowRecoveryController {
+
+    // Determinism seam (8.3a P0-C): injected only via [forTest] so the public
+    // constructor and its JVM ABI remain EXACTLY the original two-argument form.
+    private var clock: Clock = Clock.systemUTC()
+
+    internal companion object {
+        /** Determinism seam for tests: injects the clock without expanding the public API. */
+        fun forTest(
+            checkpointStore: WorkflowCheckpointStore,
+            stepAttemptStore: StepAttemptRecordStore?,
+            clock: Clock,
+        ): InMemoryWorkflowRecoveryController =
+            InMemoryWorkflowRecoveryController(checkpointStore, stepAttemptStore).also { it.clock = clock }
+    }
 
     override suspend fun retryStep(
         workflowName: String,
@@ -295,7 +310,7 @@ class InMemoryWorkflowRecoveryController(
             }
             return
         }
-        val resolvedAt = System.currentTimeMillis()
+        val resolvedAt = clock.millis()
         val updated = attempt.copy(
             resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
             resolutionReason = reason,
@@ -343,7 +358,7 @@ class InMemoryWorkflowRecoveryController(
             val attempt = store.listStepAttempts(workflowId).singleOrNull {
                 it.stepName == record.stepName && it.attemptId == record.attemptId
             } ?: return
-            val resolvedAt = System.currentTimeMillis()
+            val resolvedAt = clock.millis()
             store.updateStepAttempt(
                 attempt.copy(
                     status = StepAttemptStatus.FAILED,
