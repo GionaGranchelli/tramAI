@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -10,10 +11,7 @@ plugins {
 dependencies {
     api(libs.coroutines.core)
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.kotlin.test.junit5)
-    testImplementation(libs.coroutines.test)
+                testImplementation(libs.coroutines.test)
 }
 
 

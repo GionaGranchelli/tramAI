@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -22,11 +23,8 @@ dependencies {
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(platform(libs.testcontainers.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.kotlin.test.junit5)
-    testImplementation(libs.coroutines.core)
+        testImplementation(platform(libs.testcontainers.bom))
+            testImplementation(libs.coroutines.core)
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-launcher")
     testImplementation(libs.spring.boot.starter.test)

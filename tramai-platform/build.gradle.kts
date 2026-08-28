@@ -3,6 +3,7 @@ plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
     id("tramai.kotlin-library")
+    id("tramai.testing")
 }
 
 
@@ -19,10 +20,7 @@ dependencies {
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.security.crypto)
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.assertj.core)
-    testImplementation(libs.h2database)
-    testImplementation(libs.kotlin.test.junit5)
-    testImplementation(libs.spring.boot.starter.test)
+            testImplementation(libs.h2database)
+        testImplementation(libs.spring.boot.starter.test)
 }
 

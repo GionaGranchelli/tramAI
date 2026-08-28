@@ -76,5 +76,9 @@ gradlePlugin {
             id = "tramai.test-fixtures"
             implementationClass = "dev.tramai.build.conventions.TramaiTestFixturesPlugin"
         }
+        create("tramaiTesting") {
+            id = "tramai.testing"
+            implementationClass = "dev.tramai.build.conventions.TramaiTestingPlugin"
+        }
     }
 }

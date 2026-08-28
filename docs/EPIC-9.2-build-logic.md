@@ -16,9 +16,9 @@ published module) is extracted first.
 |-------|-------|--------|
 | 9.2a | `tramai.publishing` convention plugin (publication, signing, repository policy, POM metadata, sovereign-local hook) | ✅ done — PR #309 |
 | 9.2b | `tramai.release-verification` + `tramai.sovereign-verification` typed/cache-aware release tasks | ✅ done — PR #313 |
-| 9.2c | language, test-fixture, and quality conventions | in progress |
+| 9.2c | language, test-fixture, and testing conventions | in progress |
 | 9.2c-a | `tramai.kotlin-library` / `tramai.java-platform` / `tramai.test-fixtures` | ✅ done — PR #319 |
-| 9.2c-b | `tramai.quality` convention + remaining exceptional-module cleanup | planned |
+| 9.2c-b | `tramai.testing` convention — common test-dependency baseline | ✅ done — PR #322 |
 | 9.2c-c | manifest-derived publication metadata (module-catalog.yml schema + analyzer/parser + publication verifier) | planned |
 | 9.2d | configuration-cache closure; root build reduced to composition | planned |
 
@@ -158,7 +158,7 @@ cleanly as `build-logic` with no baseline-migration exemption.
 - Configuration-cache-aware where feasible; document the unavoidable
   non-cacheable remainder.
 
-## 9.2c — language, test-fixture, and quality conventions
+## 9.2c — language, test-fixture, and testing conventions
 
 - `tramai.kotlin-library`, `tramai.java-platform`, `tramai.test-fixtures`
   (9.2c-a, PR #319): behavior-preserving extraction of the repeated JVM/Kotlin
@@ -167,7 +167,14 @@ cleanly as `build-logic` with no baseline-migration exemption.
   configures only the `test` task; behavioral TestKit proofs cover plugin-order
   independence, JVM-21 bytecode, sourcesJar content, real JUnit-5 execution,
   and testFixturesJar content.
-- `tramai.quality` convention + remaining exceptional-module cleanup (9.2c-b).
+- `tramai.testing` convention (9.2c-b, PR #322): owns the common test-dependency
+  baseline — JUnit BOM (platform), AssertJ, Kotlin test/JUnit5 — added to
+  `testImplementation` only, reading coordinates from the version catalog.
+  Migrates the 36 exact trio consumers; 11 partial and 4 none stay untouched.
+- `tramai.quality` **not created**: the B7 survey found no coherent repeated
+  module-level quality policy — Sonar, BCV, maintainability, compiler policy,
+  and test logging are root-owned or module-specific. Recording this in the
+  roadmap instead of preserving a speculative plugin name.
 - Manifest-derived project descriptions / publication metadata (9.2c-c): adds a
   `description` field to module-catalog.yml and moves the hand-written
   `projectDescription()` map into the catalog. This is an analyzer/schema change
