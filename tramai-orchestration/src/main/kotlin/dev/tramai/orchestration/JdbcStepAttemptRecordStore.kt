@@ -31,9 +31,15 @@ class JdbcStepAttemptRecordStore(
         return persistenceBoundary(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, persistenceFailureDiagnosticObserver, ::classifyStepAttemptFailure) {
             executeJdbcCancellable(dataSource, transactional = true) { conn ->
                 if (update(conn, record, expected = null) == 0) {
+                    val savepoint = conn.setSavepoint()
                     try {
                         insert(conn, record, allocateSequence(conn, record.runId))
                     } catch (error: SQLException) {
+                        // A concurrent writer inserted the identity between our UPDATE and the
+                        // INSERT. Roll back to the savepoint so the failed INSERT cannot abort
+                        // the transaction on strict databases (PostgreSQL), then retry the
+                        // update — it preserves the winner's sequence.
+                        conn.rollback(savepoint)
                         if (update(conn, record, expected = null) == 0) throw error
                     }
                 }
@@ -159,6 +165,7 @@ class JdbcStepAttemptRecordStore(
             statement.executeUpdate()
         }
         if (updated == 0) {
+            val savepoint = conn.setSavepoint()
             try {
                 conn.prepareStatement(
                     "INSERT INTO $SEQUENCE_TABLE (run_id, next_value) VALUES (?, 1)",
@@ -167,6 +174,10 @@ class JdbcStepAttemptRecordStore(
                     statement.executeUpdate()
                 }
             } catch (_: SQLException) {
+                // A racing first-writer inserted the run row. Roll back to the savepoint so
+                // the failed INSERT cannot abort the transaction on strict databases
+                // (PostgreSQL), then increment the winner's row.
+                conn.rollback(savepoint)
                 conn.prepareStatement(
                     "UPDATE $SEQUENCE_TABLE SET next_value = next_value + 1 WHERE run_id = ?",
                 ).use { statement ->

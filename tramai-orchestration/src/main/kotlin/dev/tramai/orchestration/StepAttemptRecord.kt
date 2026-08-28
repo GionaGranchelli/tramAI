@@ -82,8 +82,10 @@ internal fun decodeResolutionAction(name: String?): StepAttemptResolutionAction?
  * Tie authority:
  * - Durable stores persist creation sequence as storage metadata. Replacing or
  *   re-recording an identity preserves its original sequence.
- * - Legacy records without a sequence use deterministic `attemptId` fallback and sort
- *   before sequenced records with the same `startedAt`.
+ * - File storage additionally supports legacy records without a sequence: they use
+ *   a deterministic `attemptId` fallback and sort before sequenced records with the
+ *   same `startedAt`. JDBC storage defines `attempt_sequence BIGINT NOT NULL` (fresh
+ *   schema), so null sequences cannot occur there.
  *
  * Durability and failure behaviour:
  * - Persistent implementations must survive store recreation and process restart, and
