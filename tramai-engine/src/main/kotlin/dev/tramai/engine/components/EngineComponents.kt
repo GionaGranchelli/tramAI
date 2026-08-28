@@ -22,11 +22,11 @@ import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.OperationResponseCache
-import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.ToolResultFilteringSettings
+import dev.tramai.engine.provider.ProviderRetryDelayPolicy
 import java.time.Clock
 
 /**
@@ -104,7 +104,7 @@ internal data class ObservationComponents(
 internal data class ExecutionComponents(
     val structuredOutputHandler: StructuredOutputHandler?,
     val circuitBreakerSettings: CircuitBreakerSettings,
-    val retryPolicySettings: RetryPolicySettings,
+    val retryDelayPolicy: ProviderRetryDelayPolicy,
     val tokenBudgetSettings: TokenBudgetSettings,
     val clock: Clock,
 )

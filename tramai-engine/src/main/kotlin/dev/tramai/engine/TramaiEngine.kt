@@ -171,7 +171,7 @@ internal typealias ResumeOperationRegistry = ApprovalResumeOperationRegistry
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
  */
-class TramaiEngine private constructor(
+class TramaiEngine internal constructor(
     private val components: EngineComponents,
 ) : AutoCloseable {
     private val routingPlan = components.providers.routingPlan
@@ -183,7 +183,7 @@ class TramaiEngine private constructor(
     private val modelRegistry = components.security.modelRegistry
     private val modelRegistrySettings = components.security.modelRegistrySettings
     private val circuitBreakerSettings = components.execution.circuitBreakerSettings
-    private val retryPolicySettings = components.execution.retryPolicySettings
+    private val retryDelayPolicy = components.execution.retryDelayPolicy
     private val tokenBudgetSettings = components.execution.tokenBudgetSettings
     private val promptSanitizer = components.security.promptSanitizer
     private val serviceDefinitionCompiler by lazy {
@@ -247,7 +247,6 @@ class TramaiEngine private constructor(
     approvalLifecycleAuditEmitter, clock,
 ))
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
-    private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
     private val resolvedPolicyEngine: PolicyEngine = components.security.resolvedPolicyEngine
     private val isLegacyFallback: Boolean = components.security.isLegacyFallback
