@@ -31,7 +31,25 @@ Verify against `tramai-scheduler/api/tramai-scheduler.api`.
 
 ### Lifecycle ownership
 
-- Timer lifecycle (start/stop) owned by the host; scheduler stores borrow caller resources
+- The timer always owns its polling child job: `start()` creates exactly one
+  polling coroutine and returns it; rejected duplicate starts create zero
+  additional children.
+- Scope ownership is explicit (8.3c):
+  - the default scope (created when the constructor's `scope` argument is
+    omitted) is **timer-owned** — `close()` cancels it;
+  - an explicitly supplied `CoroutineScope` is **borrowed** — the timer never
+    cancels it.
+- `stop()` is restartable: it claims shutdown, cancels and fully joins the
+  current polling child, and only then makes the timer restartable. Repeated
+  `stop()` on an already-stopped timer is a no-op.
+- `close()` is terminal and idempotent: it prevents future `start()`, cancels
+  the active polling child, and (for the default scope only) cancels the
+  timer-owned root. Repeated `close()` is a no-op.
+- A polling child that completes or is cancelled externally releases its own
+  generation's ownership; it can never clear a newer generation or undo
+  `close()`.
+- Scheduler stores borrow caller resources and are unaffected by timer
+  lifecycle.
 
 ### Thread-safety and concurrency
 
