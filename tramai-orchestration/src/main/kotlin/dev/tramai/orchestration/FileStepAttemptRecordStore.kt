@@ -25,6 +25,7 @@ class FileStepAttemptRecordStore internal constructor(
 
     internal companion object {
         private const val ATTEMPT_SUFFIX = ".attempt.properties"
+        private const val SEQUENCE_SUFFIX = ".attempt-sequence"
         private const val RECORD_HASH = "record_hash"
 
         fun forTest(rootDirectory: Path, atomicWriter: AtomicFileWriter): FileStepAttemptRecordStore =
@@ -46,8 +47,13 @@ class FileStepAttemptRecordStore internal constructor(
             classify = ::classifyStepAttemptFailure,
         ) {
             val path = attemptPath(record.runId, record.stepName, record.attemptId)
-            withFileLockCancellable(path) {
-                atomicWriter.write(path, encodeStoredRecord(record))
+            withFileLockCancellable(sequencePath(record.runId)) {
+                val sequence = if (Files.exists(path)) {
+                    readStoredRecord(path, record.runId, record.stepName, record.attemptId).attemptSequence
+                } else {
+                    allocateSequence(record.runId)
+                }
+                atomicWriter.write(path, encodeStoredRecord(record, sequence))
                 record
             }
         }
@@ -60,12 +66,12 @@ class FileStepAttemptRecordStore internal constructor(
             classify = ::classifyStepAttemptFailure,
         ) {
             val path = attemptPath(record.runId, record.stepName, record.attemptId)
-            withFileLockCancellable(path) {
+            withFileLockCancellable(sequencePath(record.runId)) {
                 if (!Files.exists(path)) {
                     throw IllegalStateException("Step attempt does not exist")
                 }
-                readStoredRecord(path, record.runId, record.stepName, record.attemptId)
-                atomicWriter.write(path, encodeStoredRecord(record))
+                val existing = readStoredRecord(path, record.runId, record.stepName, record.attemptId)
+                atomicWriter.write(path, encodeStoredRecord(record, existing.attemptSequence))
                 record
             }
         }
@@ -82,16 +88,16 @@ class FileStepAttemptRecordStore internal constructor(
             classify = ::classifyStepAttemptFailure,
         ) {
             val path = attemptPath(expected.runId, expected.stepName, expected.attemptId)
-            withFileLockCancellable(path) {
+            withFileLockCancellable(sequencePath(expected.runId)) {
                 val current = if (Files.exists(path)) {
                     readStoredRecord(path, expected.runId, expected.stepName, expected.attemptId)
                 } else {
                     null
                 }
-                if (current != expected) {
+                if (current?.record != expected) {
                     false
                 } else {
-                    atomicWriter.write(path, encodeStoredRecord(updated))
+                    atomicWriter.write(path, encodeStoredRecord(updated, current.attemptSequence))
                     true
                 }
             }
@@ -127,7 +133,14 @@ class FileStepAttemptRecordStore internal constructor(
                             null
                         }
                     }
-                }.maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
+                }.maxWithOrNull(
+                    compareBy<DecodedStepAttemptRecord>(
+                        { it.record.startedAt },
+                        { it.record.stepName },
+                        { it.attemptSequence ?: Long.MIN_VALUE },
+                        { it.record.attemptId },
+                    ),
+                )?.record
             }
         }
     }
@@ -165,18 +178,72 @@ class FileStepAttemptRecordStore internal constructor(
                         }
                     }
                 }.filterNotNull().sortedWith(
-                    compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }),
-                )
+                    compareBy<DecodedStepAttemptRecord>(
+                        { it.record.startedAt },
+                        { it.record.stepName },
+                        { it.attemptSequence ?: Long.MIN_VALUE },
+                        { it.record.attemptId },
+                    ),
+                ).map(DecodedStepAttemptRecord::record)
             }
         }
     }
+
+    private fun sequencePath(runId: String): Path = rootDirectory
+        .resolve(base64UrlEncodeNoPadding(runId))
+        .resolve(SEQUENCE_SUFFIX)
 
     private fun attemptPath(runId: String, stepName: String, attemptId: String): Path = rootDirectory
         .resolve(base64UrlEncodeNoPadding(runId))
         .resolve(base64UrlEncodeNoPadding(stepName))
         .resolve(base64UrlEncodeNoPadding(attemptId) + ATTEMPT_SUFFIX)
 
-    private fun readStoredRecord(path: Path, runId: String, stepName: String, attemptId: String): StepAttemptRecord {
+    private fun readSequenceCounter(path: Path): Long {
+        if (!Files.exists(path)) return 0
+        val value = try {
+            Files.readString(path).trim().toLongOrNull()
+        } catch (error: Exception) {
+            throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString(), error)
+        }
+        return value ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
+    }
+
+    private fun writeSequenceCounter(path: Path, value: Long) {
+        atomicWriter.write(path, value.toString())
+    }
+
+    private fun allocateSequence(runId: String): Long {
+        val path = sequencePath(runId)
+        // Bound below by the durable maximum already persisted for the run: a regressed
+        // counter must never reuse an existing sequence (chronology requires strict
+        // monotonic uniqueness, not contiguity). Corrupt attempt files fail closed.
+        val next = maxOf(readSequenceCounter(path), maxPersistedSequence(runId)) + 1
+        writeSequenceCounter(path, next)
+        return next
+    }
+
+    private fun maxPersistedSequence(runId: String): Long {
+        val runDirectory = rootDirectory.resolve(base64UrlEncodeNoPadding(runId))
+        if (!Files.exists(runDirectory)) return 0L
+        val files = Files.walk(runDirectory).use { stream ->
+            stream.filter(Files::isRegularFile)
+                .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
+                .toList()
+        }
+        var max = 0L
+        for (path in files) {
+            val relative = runDirectory.relativize(path)
+            if (relative.nameCount != 2) {
+                throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
+            }
+            val keyStepName = decodePathSegment(relative.getName(0).toString(), path)
+            val keyAttemptId = decodePathSegment(relative.fileName.toString().removeSuffix(ATTEMPT_SUFFIX), path)
+            readStoredRecord(path, runId, keyStepName, keyAttemptId).attemptSequence?.let { if (it > max) max = it }
+        }
+        return max
+    }
+
+    private fun readStoredRecord(path: Path, runId: String, stepName: String, attemptId: String): DecodedStepAttemptRecord {
         val payload = try {
             Files.readString(path)
         } catch (error: Exception) {
@@ -187,18 +254,24 @@ class FileStepAttemptRecordStore internal constructor(
         } catch (error: Exception) {
             throw CorruptStepAttemptException("Persisted step-attempt record is invalid", payload, error)
         }
-        val record = StepAttemptRecordCodec.decode(payload)
+        val decoded = StepAttemptRecordCodec.decodeWithSequence(payload)
         val storedHash = properties.getProperty(RECORD_HASH)
             ?: throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
-        StepAttemptRecordCodec.requireValidFingerprint(record, storedHash, path.toString())
-        if (record.identity() != AttemptIdentity(runId, stepName, attemptId)) {
+        StepAttemptRecordCodec.requireValidFingerprint(
+            decoded.record,
+            decoded.attemptSequence,
+            storedHash,
+            path.toString(),
+        )
+        if (decoded.record.identity() != AttemptIdentity(runId, stepName, attemptId)) {
             throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
         }
-        return record
+        return decoded
     }
 
-    private fun encodeStoredRecord(record: StepAttemptRecord): String =
-        StepAttemptRecordCodec.encode(record) + "$RECORD_HASH=${StepAttemptRecordCodec.fingerprint(record)}\n"
+    private fun encodeStoredRecord(record: StepAttemptRecord, attemptSequence: Long?): String =
+        StepAttemptRecordCodec.encode(record, attemptSequence) +
+            "$RECORD_HASH=${StepAttemptRecordCodec.fingerprint(record, attemptSequence)}\n"
 
     private fun decodePathSegment(value: String, path: Path): String = try {
         base64UrlDecode(value)
