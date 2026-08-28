@@ -25,7 +25,7 @@ data class ExpectedPublicationMetadata(
  * catalog via the independent [expectedDescriptions] input — 9.2c-c), project
  * URL, license, developer, SCM, normal-module packaging, BOM packaging=pom,
  * and the exact BOM managed artifact set. Every violation throws
- * [IllegalStateException] with a stable diagnostic.
+ * [IllegalArgumentException] with a stable diagnostic.
  *
  * The verifier never derives descriptions from the same code path as the
  * publisher: it receives them as a map input, so a broken catalog lookup

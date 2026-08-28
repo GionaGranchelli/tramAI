@@ -1,6 +1,8 @@
 package dev.tramai.build.publishing
 
 import dev.tramai.build.quality.ModuleCatalog
+import dev.tramai.build.quality.ModulePublishability
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPluginExtension
@@ -114,15 +116,23 @@ class TramaiPublishingPlugin : Plugin<Project> {
      * Reads the publication description from the module catalog (9.2c-c).
      *
      * Published modules must carry a non-blank description (enforced by the
-     * catalog parser via MODULE_CATALOG_MISSING_DESCRIPTION), so a missing
-     * description here is a real regression — but the parser already reported
-     * it, so this lookup returns null and the POM simply omits the element
-     * rather than throwing a second, confusing error. Internal/excluded
-     * modules may legitimately have no description and also get null.
+     * catalog parser via MODULE_CATALOG_MISSING_DESCRIPTION). The publisher
+     * fails closed too: a PUBLISHED module whose catalog entry is missing or
+     * blank aborts configuration rather than silently publishing a POM with
+     * no description. Internal/excluded modules may legitimately have no
+     * description and return null (element omitted).
      */
     private fun catalogDescription(project: Project): String? {
         val catalog = ModuleCatalog(project.rootProject.projectDir).parse()
-        return catalog.modules[":${project.name}"]?.description?.takeIf { it.isNotBlank() }
+        val entry = catalog.modules[":${project.name}"]
+        val description = entry?.description?.takeIf { it.isNotBlank() }
+        if (entry?.publishability == ModulePublishability.PUBLISHED && description == null) {
+            throw GradleException(
+                "tramai.publishing: published module ':${project.name}' must have a non-blank " +
+                    "description in module-catalog.yml (schemaVersion 3)",
+            )
+        }
+        return description
     }
 
     private fun configureSovereignBundleLocalRepo(project: Project) {

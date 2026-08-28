@@ -45,20 +45,24 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         publishableModuleNames(project) - "tramai-bom"
 
     /**
-     * Publication descriptions, resolved independently from the module catalog
-     * (9.2c-c). The publisher reads the catalog on its own; the verifier gets
-     * this map as a typed input so the two sides cannot share a broken lookup.
+     * Publication descriptions, resolved from the module catalog (9.2c-c).
+     * The publisher reads the catalog in its own plugin code path; the
+     * verifier receives this map as a typed @Input (never calling publisher
+     * code), so a defect in the publisher's lookup cannot change what the
+     * verifier expects. Byte-parity with the legacy policy is pinned by the
+     * D5 oracle test.
      *
      * Tolerant by design: entries missing from the catalog are simply not in
      * the map, and the verifier's requireNotNull fails closed at verification
-     * time. The catalog parser itself reports MODULE_CATALOG_MISSING_DESCRIPTION
-     * and ModuleManifest.catalog() throws on any catalog error, so the real
-     * repo fails at configuration already; TestKit fixtures without a catalog
-     * still configure cleanly.
+     * time. A missing/broken catalog yields an error result with an empty
+     * modules map; the verifier then fails closed for every publishable
+     * module. The catalog parser itself also reports
+     * MODULE_CATALOG_MISSING_DESCRIPTION and ModuleManifest.catalog() throws
+     * on any catalog error, so the real repo fails at configuration already;
+     * TestKit fixtures without a catalog still configure cleanly.
      */
     private fun catalogDescriptions(project: Project): Map<String, String> {
-        val catalog = runCatching { ModuleCatalog(project.rootDir).parse() }.getOrNull()
-            ?: return emptyMap()
+        val catalog = ModuleCatalog(project.rootDir).parse()
         return publishableModuleNames(project).mapNotNull { moduleName ->
             val description = catalog.modules[":$moduleName"]?.description?.takeIf { it.isNotBlank() }
             description?.let { moduleName to it }
