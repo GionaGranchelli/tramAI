@@ -74,10 +74,19 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                 projectRoot.resolve("README.md"),
                 projectRoot.resolve("docs/architecture/overview.md"),
                 projectRoot.resolve("docs/modules/sovereign-runtime-module-matrix.md"),
+            )
+            val exampleDirs = listOf(
                 projectRoot.resolve("examples/governed-workflow"),
                 projectRoot.resolve("examples/approval-resume"),
                 projectRoot.resolve("examples/sovereign-document-intelligence"),
             )
+            exampleDirs.forEach { dir ->
+                // The verifier only checks these dirs EXIST. Exclude task
+                // outputs inside them (apiBuild -> api/, processResources ->
+                // build/) or Gradle 9 flags the input as overlapping a task
+                // output; remaining source files are not task outputs.
+                documents.from(project.fileTree(dir) { exclude("**/api/**", "**/build/**") })
+            }
         }
 
         project.tasks.register<DocsContractVerifierTask>("verifyGovernedWorkflowArticle") {
@@ -92,10 +101,19 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                 projectRoot.resolve("README.md"),
                 projectRoot.resolve("docs/product/positioning.md"),
                 projectRoot.resolve("docs/STATUS.md"),
+            )
+            val articleExampleDirs = listOf(
                 projectRoot.resolve("examples/governed-workflow"),
                 projectRoot.resolve("examples/approval-resume"),
                 projectRoot.resolve("examples/sovereign-document-intelligence"),
             )
+            articleExampleDirs.forEach { dir ->
+                // The verifier only checks these dirs EXIST. Exclude task
+                // outputs inside them (apiBuild -> api/, processResources ->
+                // build/) or Gradle 9 flags the input as overlapping a task
+                // output; remaining source files are not task outputs.
+                documents.from(project.fileTree(dir) { exclude("**/api/**", "**/build/**") })
+            }
         }
 
         project.tasks.register<DocsContractVerifierTask>("verifyExampleSelectionGuide") {
@@ -174,8 +192,12 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
             contractId.set("verifyToolGovernanceExample")
             verifierKind.set(DocGuardKind.TOOL_GOVERNANCE_EXAMPLE)
             this.rootDir.set(project.rootDir)
+            // Only the files the verifier actually reads are inputs (the whole
+            // dir would overlap examples/tool-governance task outputs such as
+            // apiBuild and processResources — Gradle 9 validation failure).
             documents.from(
-                projectRoot.resolve("examples/tool-governance"),
+                projectRoot.resolve("examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt"),
+                projectRoot.resolve("examples/tool-governance/README.md"),
                 projectRoot.resolve("settings.gradle.kts"),
                 projectRoot.resolve("examples/README.md"),
                 projectRoot.resolve("docs/guides/governed-tool-use.md"),
