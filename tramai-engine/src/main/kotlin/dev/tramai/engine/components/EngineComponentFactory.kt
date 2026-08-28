@@ -14,6 +14,9 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.*
 import dev.tramai.core.structured.*
 import dev.tramai.engine.*
+import dev.tramai.engine.provider.DefaultRetryJitterSource
+import dev.tramai.engine.provider.ProviderRetryDelayPolicy
+import dev.tramai.engine.provider.RetryJitterSource
 import java.time.Clock
 
 /** One authoritative composition boundary: validates collaborators and creates the immutable snapshot. */
@@ -30,6 +33,7 @@ internal object EngineComponentFactory {
         suspendedInvocationStore: SuspendedInvocationStore, approvalContinuationStore: ApprovalContinuationStore?,
         toolArgumentsDigester: ToolArgumentsDigester?, approvalGateCoordinator: ApprovalGateCoordinator?,
         approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter, clock: Clock,
+        retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
         structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
     ): EngineComponents {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
@@ -49,7 +53,13 @@ internal object EngineComponentFactory {
                 toolFailureDiagnosticObserver,
                 structuredOutputFailureDiagnosticObserver,
             ),
-            ExecutionComponents(structuredOutputHandler, circuitBreakerSettings, retryPolicySettings, tokenBudgetSettings, clock),
+            ExecutionComponents(
+                structuredOutputHandler = structuredOutputHandler,
+                circuitBreakerSettings = circuitBreakerSettings,
+                retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings, retryJitterSource),
+                tokenBudgetSettings = tokenBudgetSettings,
+                clock = clock,
+            ),
         )
     }
 

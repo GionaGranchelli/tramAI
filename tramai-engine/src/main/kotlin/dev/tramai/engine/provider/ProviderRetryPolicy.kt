@@ -9,6 +9,12 @@ internal sealed interface ProviderRetryDecision {
     data object Stop : ProviderRetryDecision
 }
 
+internal fun interface RetryJitterSource { fun nextDouble(): Double }
+
+internal object DefaultRetryJitterSource : RetryJitterSource {
+    override fun nextDouble(): Double = kotlin.random.Random.nextDouble()
+}
+
 internal open class ProviderRetryPolicy(private val retryDelayPolicy: ProviderRetryDelayPolicy) {
     open fun decide(error: Throwable, retryIndex: Int, maxAttempts: Int): ProviderRetryDecision {
         if (retryIndex >= maxAttempts - 1 || !isRetryable(error)) return ProviderRetryDecision.Stop
@@ -28,12 +34,16 @@ internal open class ProviderRetryPolicy(private val retryDelayPolicy: ProviderRe
 
 internal class ProviderRetryDelayPolicy(
     private val settings: RetryPolicySettings,
-    private val randomDouble: () -> Double = { kotlin.random.Random.nextDouble() },
+    private val retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
 ) {
     fun delayMillis(error: Throwable, fallbackDelayMillis: Long): Long {
         val cappedBaseDelay = if (error is ProviderException && error.retryAfterMillis != null) {
             minOf(requireNotNull(error.retryAfterMillis), settings.maxRetryAfterMillis)
         } else fallbackDelayMillis
-        return cappedBaseDelay + (cappedBaseDelay * settings.jitterRatio * randomDouble()).toLong()
+        val jitterSample = retryJitterSource.nextDouble()
+        require(jitterSample >= 0.0 && jitterSample < 1.0) {
+            "Retry jitter sample must be in [0.0, 1.0), got $jitterSample"
+        }
+        return cappedBaseDelay + (cappedBaseDelay * settings.jitterRatio * jitterSample).toLong()
     }
 }
