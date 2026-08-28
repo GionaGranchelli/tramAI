@@ -93,6 +93,22 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 outputFile.set(
                     sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json")
                 )
+                val probePath = sub.path
+                consumerPath.set(probePath)
+                resolution.set(sub.provider {
+                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                        .mapNotNull { name -> sub.configurations.findByName(name) }
+                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                        .fold(
+                            onSuccess = { DependencyResolutionResult(it) },
+                            onFailure = { e ->
+                                DependencyResolutionResult(
+                                    records = emptyList(),
+                                    failureMessage = e.message ?: e.javaClass.name,
+                                )
+                            },
+                        )
+                })
             }
             perProjectProbeTasks.add("${sub.path}:$taskName")
         }
@@ -151,6 +167,22 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 outputFile.set(
                     sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json")
                 )
+                val probePath = sub.path
+                consumerPath.set(probePath)
+                resolution.set(sub.provider {
+                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
+                        .mapNotNull { name -> sub.configurations.findByName(name) }
+                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                        .fold(
+                            onSuccess = { DependencyResolutionResult(it) },
+                            onFailure = { e ->
+                                DependencyResolutionResult(
+                                    records = emptyList(),
+                                    failureMessage = e.message ?: e.javaClass.name,
+                                )
+                            },
+                        )
+                })
             }
             architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
         }
@@ -816,6 +848,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
             group = "maintainability"
             description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
+            rootDir.set(project.rootDir)
 
             // Override base ref for CI: ./gradlew verifyChangePolicy -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
             val ciBase = project.findProperty("changePolicyBase")?.toString()

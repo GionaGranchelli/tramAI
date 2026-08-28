@@ -4,6 +4,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import java.io.File
@@ -21,8 +22,14 @@ import java.io.File
  *
  * This task FAILS CLOSED: if the git diff cannot be determined, the build
  * fails rather than silently passing.
+ *
+ * Configuration-cache compatible: no Task.project access at execution time;
+ * all state is declared as task inputs.
  */
 abstract class ChangePolicyVerifierTask : DefaultTask() {
+
+    @get:Internal
+    abstract val rootDir: Property<File>
 
     @get:Input
     abstract val baseRef: Property<String>
@@ -44,7 +51,7 @@ abstract class ChangePolicyVerifierTask : DefaultTask() {
 
     @TaskAction
     fun verify() {
-        val rootDir = project.rootDir
+        val rootDir = rootDir.get()
 
         // --- Collect all changed files (committed + staged + unstaged + untracked) ---
         val allChanged = collectChangedFiles(rootDir)
