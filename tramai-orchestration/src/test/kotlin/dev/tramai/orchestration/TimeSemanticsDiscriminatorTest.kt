@@ -66,7 +66,8 @@ class TimeSemanticsDiscriminatorTest {
     /**
      * Delta-based fake: a mark captures the source's reading at creation, so
      * elapsed = now - markOrigin. Distinguishes a mark captured once at start
-     * (correct) from a fresh mark sampled per heartbeat (M03 defect).
+     * (correct) from a fresh mark sampled per heartbeat (the pre-8.3a M03
+     * defect, now structurally impossible: the loop receives a captured mark).
      */
     private class DeltaMonotonicTimeSource : MonotonicTimeSource {
         var now = 0L
@@ -166,7 +167,8 @@ class TimeSemanticsDiscriminatorTest {
         // Contract: the start mark is created at monotonic T=0. Heartbeats at
         // T=50 and T=100 must report [50, 100], independently of wall clock.
         // Delta-based fake: a mark captures its creation instant, so a fresh
-        // mark per heartbeat (M03) would report ~0 and fail this sequence.
+        // mark per heartbeat (pre-8.3a M03 defect) would report ~0 and fail
+        // this sequence; the captured-mark API makes it structurally impossible.
         val observer = HeartbeatObserver()
         val publisher = WorkerHeartbeatPublisher(heartbeatConfig, null, observer)
         val delta = DeltaMonotonicTimeSource()
@@ -204,8 +206,9 @@ class TimeSemanticsDiscriminatorTest {
     fun `P0-A worker heartbeat uptime tracks the captured start mark`() {
         // Exercises the CONTROLLER's heartbeat wiring (the publisher-direct
         // test cannot see it): the worker must capture the start mark ONCE and
-        // report growing uptime from it. Kills the M03 mutant (fresh mark per
-        // heartbeat via timeSource.markNow() -> uptime always ~0).
+        // report growing uptime from it. Guards against the pre-8.3a M03
+        // fresh-mark-per-heartbeat behaviour (uptime always ~0), which the
+        // captured-mark API now makes structurally impossible.
         val delta = DeltaMonotonicTimeSource()
         val heartbeats = CopyOnWriteArrayList<Long>()
         val gate = CompletableDeferred<Unit>()
@@ -257,8 +260,9 @@ class TimeSemanticsDiscriminatorTest {
     @Test
     fun `P0-C step-attempt timestamps come from the injected workflow clock`() {
         // Contract: startedAt = clock at start (T0), completedAt = clock at
-        // completion (T1). RED: production stamps System.currentTimeMillis(),
-        // so the persisted values never equal the injected clock's readings.
+        // completion (T1). Pre-8.3a RED: production stamped
+        // System.currentTimeMillis(), so the persisted values never equal the
+        // injected clock's readings.
         val clock = MutableClock(1_000L)
         val gate = CompletableDeferred<Unit>()
         val (worker, store) = gatedWorker(gate, drainTimeoutMillis = 60_000, clock = clock)
@@ -291,8 +295,9 @@ class TimeSemanticsDiscriminatorTest {
     @Test
     fun `P0-C recovery resolution timestamps come from the injected clock`() {
         // Contract: an operator retry approval records resolutionAtEpochMillis
-        // from the injected clock. RED: production stamps
-        // System.currentTimeMillis(), never equal to the injected reading.
+        // from the controller-owned clock boundary (forTest injection).
+        // Pre-8.3a RED: production stamped System.currentTimeMillis(), never
+        // equal to the injected reading.
         val clock = MutableClock(1_000L)
         val store = InMemoryWorkflowCheckpointStore()
         runBlocking {
@@ -346,7 +351,7 @@ class TimeSemanticsDiscriminatorTest {
     @Test
     fun `P0-D checkpoint savedAt is supplied by the injected clock`() {
         // Contract: the persistence coordinator stamps savedAtEpochMillis from
-        // the injected clock at each save. RED: production lets the
+        // the injected clock at each save. Pre-8.3a RED: production let the
         // WorkflowCheckpoint default fire (System.currentTimeMillis()), so the
         // persisted value never equals the injected reading.
         val clock = MutableClock(3_000L)
@@ -616,7 +621,7 @@ class TimeSemanticsDiscriminatorTest {
             ),
         )
         val legacy = encoded.lines().filterNot { it.startsWith("savedAtEpochMillis") }.joinToString("\n")
-        // RED: production synthesizes System.currentTimeMillis() here.
+        // Pre-8.3a RED: production synthesized System.currentTimeMillis() here.
         assertThat(decodeCheckpoint(legacy).savedAtEpochMillis)
             .withFailMessage("P0-E legacy missing savedAt must decode as UNKNOWN (0L)")
             .isEqualTo(0L)

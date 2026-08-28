@@ -26,8 +26,11 @@
     keeps its original two-argument public constructor (apiCheck green, zero
     API-dump drift); clock injection lives behind an internal `forTest` seam.
   - Proven by a 14-discriminator suite (exact arithmetic, zero timing
-    thresholds) and a 17-candidate mutation campaign (16 STRONG, 1 REDUNDANT,
-    0 reachable WEAK). Contract: `docs/reference/time-semantics-contract.md`.
+    thresholds) and a 16-candidate mutation campaign (15 STRONG, 1 REDUNDANT,
+    0 WEAK, 0 INVALID). The former fresh-heartbeat-mark mutation is now
+    structurally impossible because the heartbeat loop receives a captured
+    `MonotonicMark`, not a mark supplier. Contract:
+    `docs/reference/time-semantics-contract.md`.
 
 - **Circuit-breaker lifecycle hardening (Epic 8.2g, PR #302).** The provider
   circuit breaker now tracks the ownership of every admitted attempt instead

@@ -37,15 +37,24 @@ must never be derived from wall time.
 
 | Decision | Authority |
 |---|---|
-| Worker uptime (heartbeat) | `startedAtMark().elapsedMillis()` |
+| Worker uptime (heartbeat) | `startedAtMark.elapsedMillis()` |
 | Drain residual budget | `MonotonicDrainBudget` |
 | Anything else | monotonic source only — never `Clock` |
 
 ## Persisted-timestamp authority (injected Clock)
 
-Every NEW persisted orchestration timestamp is supplied by one injected
-`Clock`, threaded from the worker boundary. Stores preserve timestamps; they
-never invent business time.
+Every NEW persisted orchestration timestamp consumes an explicit `Clock` —
+never a direct `System.currentTimeMillis()` read. The composition boundary
+differs by decision class:
+
+- **Worker-owned execution/checkpoint timestamps** (step-attempt
+  `startedAt`/`completedAt`, execution-tracker timestamps, checkpoint saves)
+  → the workflow's injected `Clock`, threaded from the worker boundary.
+- **Operator recovery-controller timestamps** (retry approval resolution)
+  → a controller-owned clock boundary: `Clock.systemUTC()` in production,
+  injectable through the internal `forTest` seam for deterministic tests.
+
+Stores preserve timestamps; they never invent business time.
 
 - `Workflow` / `WorkflowBuilder.build(clock: Clock = Clock.systemUTC())` — the
   existing public seam; the workflow's clock feeds step-attempt records
@@ -54,9 +63,10 @@ never invent business time.
 - `WorkflowPersistenceSession` — checkpoint saves stamp
   `savedAtEpochMillis = clock.millis()`.
 - `InMemoryWorkflowRecoveryController` — recovery resolution timestamps come
-  from the workflow clock via the internal `forTest` seam; the public
-  two-argument constructor and its JVM ABI are unchanged, production defaults
-  to `Clock.systemUTC()`.
+  from a **controller-owned clock boundary**: production defaults to
+  `Clock.systemUTC()`, and the internal `forTest` seam injects a deterministic
+  clock for tests. The public two-argument constructor and its JVM ABI are
+  unchanged.
 - Stores (`FileWorkflowCheckpointStore`, in-memory, JDBC) preserve
   timestamps as persisted; no store reads a clock to invent business time.
 
@@ -89,8 +99,13 @@ values: injected clocks in tests, fake monotonic sources, exact arithmetic.
 
 ## Mutation evidence (frozen head)
 
-17-mutant campaign across every independently reachable authority:
-**16 STRONG / 1 REDUNDANT (clamp-removal, honest) / 0 WEAK / 0 INVALID.**
+16-mutant campaign across every independently reachable authority:
+**15 STRONG / 1 REDUNDANT (M13, honest) / 0 WEAK / 0 INVALID.**
+
+The former fresh-heartbeat-mark mutant (M03) is **structurally eliminated**,
+not killed: the heartbeat loop receives a captured `MonotonicMark` instead of
+a mark supplier, so a fresh-mark-per-heartbeat behaviour cannot be expressed
+through the API at all.
 
 The 14-discriminator suite (`TimeSemanticsDiscriminatorTest`) covers:
 P0-A uptime (delta fake + full-worker heartbeat wiring), P0-A deterministic
@@ -104,6 +119,6 @@ UNKNOWN decode.
 - 8.3b — identity + randomness (UUID boundaries, retry jitter composition).
 - 8.3c — scheduler ownership (`withTimeoutOrNull` placement, executor
   lifecycle).
-- Step-attempt listing/selection ordering when `startedAt` ties: the
-  comparator's random-`attemptId` tie-break is a known defect tracked
-  separately (see PR history); not an 8.3a change.
+- Durable equal-`startedAt` chronology for the File/JDBC
+  `StepAttemptRecordStore` implementations remains deferred to #318. The
+  in-memory implementation already uses creation-order authority after #317.
