@@ -138,9 +138,7 @@ class ToolGovernanceExampleTest {
         val store: InMemoryAuditStore,
         val tool: Any,
         val streamId: String,
-    ) : AutoCloseable {
-        override fun close() = engine.close()
-    }
+    )
 
     // ── Test 1: ALLOW scenario (customer_lookup) ─────────────────────────
 
