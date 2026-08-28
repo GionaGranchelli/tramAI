@@ -51,3 +51,10 @@ migrations:
     targetVersion: "0.5.0"
     rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
     migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
+
+  - module: ":tramai-orchestration"
+    fromSha256: "c5d9c58e5be2036e5786827251c5f44edd8d432e4644ebc5837b070372617cec"
+    toSha256: "5a33d87b2d235c916c50dd33b08d2a01da22d898858f1b99fbf01237cf72aeb6"
+    targetVersion: "0.5.0"
+    rationale: "Intentional additive API: JdbcStepAttemptRecordStore.createTableSql() is restored to a single executable DDL statement; multi-statement provisioning is exposed explicitly via createSchemaSql()/createSequenceTableSql() (one statement per entry, generic-JDBC safe). No signature changed; binary compatibility preserved."
+    migration: "Applications executing createTableSql() alone must additionally execute createSequenceTableSql() (or createSchemaSql()) so the sequence counter table exists; source-compatible callers require no other change."
