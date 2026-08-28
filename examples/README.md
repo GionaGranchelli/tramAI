@@ -54,6 +54,20 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 ---
 
+## Standalone Consumer Examples
+
+The examples above are part of the root Gradle build. The following are **separate Gradle builds** with their own `settings.gradle.kts` — they consume released TramAI artifacts from Maven (or the composite root when running locally) and prove real-world consumption, not just in-repo wiring:
+
+| Example | Purpose | Primary command |
+|---|---|---|
+| [Kotlin Spring Boot](kotlin-springboot-example/README.md) | Conventional Spring Boot HTTP app: typed services, tools, structured output, checkpointed orchestration | `./gradlew -p examples/kotlin-springboot-example bootRun` |
+| [Kotlin Native Smoke](kotlin-native-smoke-example/README.md) | GraalVM native-image path: blocking service, stub provider, `proxy-config.json`, native binary | `./gradlew -p examples/kotlin-native-smoke-example nativeSmokeCompile` |
+| Sovereign Runtime Consumer Smoke | Sovereign runtime consumers against released starter artifacts | `./gradlew -p examples/sovereign-runtime-consumer-smoke test` |
+
+These builds are not module-catalog modules and are excluded from module-card and module-dependency-graph coverage by design.
+
+---
+
 ## Example Profiles
 
 ### Tool Governance
@@ -122,7 +136,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 ./gradlew -p examples/kotlin-springboot-example bootRun
 ```
 
-**Requires:** a separate Gradle build (not part of the root project), released 0.4.0 dependencies, Ollama, and the configured models:
+**Requires:** a separate Gradle build (not part of the root project), released TramAI dependencies (version overridable via `-PtramaiVersion`), Ollama, and the configured models:
 
 ```bash
 ollama pull gemma4:e4b
