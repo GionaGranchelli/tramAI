@@ -16,7 +16,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Clock
 import java.security.MessageDigest
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -46,6 +45,7 @@ internal class WorkflowExecutionSupervisor(
     private val recoveryCoordinator: WorkflowRecoveryCoordinator,
     private val leaseRenewalLoop: LeaseRenewalLoop,
     private val shuttingDownGracefully: () -> Boolean,
+    private val stepAttemptIdentitySource: StepAttemptIdentitySource = DefaultStepAttemptIdentitySource,
 ) {
     private val activeExecutions = ConcurrentHashMap<String, ActiveExecution>()
     private val executionFailures = ConcurrentHashMap<String, Throwable>()
@@ -135,6 +135,7 @@ internal class WorkflowExecutionSupervisor(
             observability = observability,
             clock = typedWorkflow.clock,
             leaseProvider = { handle.lease.get() },
+            stepAttemptIdentitySource = stepAttemptIdentitySource,
         )
         handle.tracker = tracker
         tracker.prepareForCheckpoint(checkpoint)
@@ -304,6 +305,7 @@ internal class ExecutionTracker(
     private val observability: TramaiWorkerObserver,
     private val clock: Clock,
     private val leaseProvider: () -> WorkflowLease?,
+    private val stepAttemptIdentitySource: StepAttemptIdentitySource,
 ) {
     private val monitor = Any()
     private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -372,7 +374,11 @@ internal class ExecutionTracker(
         val attempt = StepAttemptRecord(
             runId = context.workflowId,
             stepName = stepName,
-            attemptId = UUID.randomUUID().toString(),
+            attemptId = stepAttemptIdentitySource.newAttemptId().also { generated ->
+                require(generated.isNotBlank()) {
+                    "Step-attempt attemptId must not be blank (workflow '${context.workflowId}', step '$stepName', worker '$workerId')"
+                }
+            },
             workerId = workerId,
             leaseToken = leaseProvider()?.leaseId ?: "unknown",
             status = StepAttemptStatus.STARTED,
