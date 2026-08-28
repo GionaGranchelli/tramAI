@@ -371,6 +371,19 @@ abstract class StepAttemptRecordStoreContractTest {
         }
     }
 
+    @Test
+    fun `32 counter regression cannot duplicate chronology`() {
+        runBlocking {
+            if (!harness.supportsSequenceReset) return@runBlocking
+            listOf("a", "b", "c").forEach { store.recordStepAttempt(minimalRecord(attemptId = it, startedAt = 10)) }
+            // Regress the run's counter authority below already-persisted sequences.
+            harness.resetSequenceCounter("run", 1)
+            store.recordStepAttempt(minimalRecord(attemptId = "d", startedAt = 10))
+            // The new attempt must be sequenced above the durable maximum, never reusing 2.
+            assertThat(harness.readSequence("run", "step", "d")).isNotNull().isGreaterThan(3)
+        }
+    }
+
     protected fun minimalRecord(
         runId: String = "run",
         stepName: String = "step",
@@ -415,6 +428,7 @@ interface AttemptStoreHarness {
     val supportsPersistentCorruption: Boolean get() = false
     val supportsLegacyRecords: Boolean get() = false
     val supportsSequenceCorruption: Boolean get() = false
+    val supportsSequenceReset: Boolean get() = false
     fun recreate(): StepAttemptRecordStore = store
     fun close() = Unit
 
@@ -423,6 +437,9 @@ interface AttemptStoreHarness {
 
     /** Corrupts the persisted creation sequence of [record] without touching record fields. */
     suspend fun corruptSequence(record: StepAttemptRecord) = Unit
+
+    /** Regresses the run's sequence counter authority to [value]. */
+    suspend fun resetSequenceCounter(runId: String, value: Long) = Unit
 
     /** Reads the persisted creation sequence of [record], or null when legacy/absent. */
     suspend fun readSequence(runId: String, stepName: String, attemptId: String): Long? = null
@@ -513,6 +530,43 @@ class JdbcStepAttemptRecordStoreContractTest : StepAttemptRecordStoreContractTes
                 .hasNoCause()
         }
     }
+
+    @Test
+    fun `29 jdbc update cannot launder sequence corruption`() {
+        runBlocking {
+            val record = minimalRecord()
+            store.recordStepAttempt(record)
+            jdbcHarness.corruptSequence(record)
+            // Updating must verify the existing row first; it must not re-sign a
+            // corrupted sequence into valid persisted state.
+            assertThatThrownBy { runBlocking { store.updateStepAttempt(record.copy(status = StepAttemptStatus.COMPLETED, completedAt = 20L)) } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+            assertThatThrownBy { runBlocking { store.listStepAttempts(record.runId) } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+        }
+    }
+
+    @Test
+    fun `30 jdbc re-record cannot launder sequence corruption`() {
+        runBlocking {
+            val record = minimalRecord()
+            store.recordStepAttempt(record)
+            jdbcHarness.corruptSequence(record)
+            assertThatThrownBy { runBlocking { store.recordStepAttempt(record.copy(workerId = "replacement")) } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+        }
+    }
+
+    @Test
+    fun `31 jdbc CAS fails closed on sequence corruption`() {
+        runBlocking {
+            val record = minimalRecord()
+            store.recordStepAttempt(record)
+            jdbcHarness.corruptSequence(record)
+            assertThatThrownBy { runBlocking { store.compareAndSetStepAttempt(record, record.copy(status = StepAttemptStatus.FAILED)) } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+        }
+    }
 }
 
 private class FileAttemptStoreHarness(private val root: Path) : AttemptStoreHarness {
@@ -530,8 +584,14 @@ private class FileAttemptStoreHarness(private val root: Path) : AttemptStoreHarn
     override val supportsPersistentCorruption = true
     override val supportsLegacyRecords = true
     override val supportsSequenceCorruption = true
+    override val supportsSequenceReset = true
 
     override fun recreate(): StepAttemptRecordStore = FileStepAttemptRecordStore(root)
+
+    override suspend fun resetSequenceCounter(runId: String, value: Long) {
+        val path = root.resolve(base64UrlEncodeNoPadding(runId)).resolve(".attempt-sequence")
+        Files.writeString(path, value.toString())
+    }
 
     override suspend fun writeLegacyRecord(record: StepAttemptRecord) {
         val path = root.resolve(base64UrlEncodeNoPadding(record.runId))
@@ -582,12 +642,25 @@ private class JdbcAttemptStoreHarness : AttemptStoreHarness {
     override val store = JdbcStepAttemptRecordStore(dataSource)
     override val supportsPersistentCorruption = true
     override val supportsSequenceCorruption = true
+    override val supportsSequenceReset = true
 
     init {
-        dataSource.connection.use { conn -> conn.createStatement().use { it.execute(store.createTableSql()) } }
+        dataSource.connection.use { conn ->
+            store.createSchemaSql().forEach { sql -> conn.createStatement().use { it.execute(sql) } }
+        }
     }
 
     override fun recreate(): StepAttemptRecordStore = JdbcStepAttemptRecordStore(dataSource)
+
+    override suspend fun resetSequenceCounter(runId: String, value: Long) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE tramai_workflow_step_attempt_sequence SET next_value = ? WHERE run_id = ?").use { statement ->
+                statement.setLong(1, value)
+                statement.setString(2, runId)
+                statement.executeUpdate()
+            }
+        }
+    }
 
     override suspend fun corruptSequence(record: StepAttemptRecord) {
         dataSource.connection.use { conn ->

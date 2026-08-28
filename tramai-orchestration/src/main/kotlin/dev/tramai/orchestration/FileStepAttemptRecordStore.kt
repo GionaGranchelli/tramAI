@@ -214,9 +214,33 @@ class FileStepAttemptRecordStore internal constructor(
 
     private fun allocateSequence(runId: String): Long {
         val path = sequencePath(runId)
-        val next = readSequenceCounter(path) + 1
+        // Bound below by the durable maximum already persisted for the run: a regressed
+        // counter must never reuse an existing sequence (chronology requires strict
+        // monotonic uniqueness, not contiguity). Corrupt attempt files fail closed.
+        val next = maxOf(readSequenceCounter(path), maxPersistedSequence(runId)) + 1
         writeSequenceCounter(path, next)
         return next
+    }
+
+    private fun maxPersistedSequence(runId: String): Long {
+        val runDirectory = rootDirectory.resolve(base64UrlEncodeNoPadding(runId))
+        if (!Files.exists(runDirectory)) return 0L
+        val files = Files.walk(runDirectory).use { stream ->
+            stream.filter(Files::isRegularFile)
+                .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
+                .toList()
+        }
+        var max = 0L
+        for (path in files) {
+            val relative = runDirectory.relativize(path)
+            if (relative.nameCount != 2) {
+                throw CorruptStepAttemptException("Persisted step-attempt record is invalid", path.toString())
+            }
+            val keyStepName = decodePathSegment(relative.getName(0).toString(), path)
+            val keyAttemptId = decodePathSegment(relative.fileName.toString().removeSuffix(ATTEMPT_SUFFIX), path)
+            readStoredRecord(path, runId, keyStepName, keyAttemptId).attemptSequence?.let { if (it > max) max = it }
+        }
+        return max
     }
 
     private fun readStoredRecord(path: Path, runId: String, stepName: String, attemptId: String): DecodedStepAttemptRecord {

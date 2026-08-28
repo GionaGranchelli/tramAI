@@ -381,6 +381,8 @@ public final class dev/tramai/orchestration/JdbcStepAttemptRecordStore : dev/tra
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcStepAttemptTable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcStepAttemptTable;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun createSchemaSql ()Ljava/util/List;
+	public final fun createSequenceTableSql ()Ljava/lang/String;
 	public final fun createTableSql ()Ljava/lang/String;
 	public final fun getPersistenceFailureDiagnosticObserver ()Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;
 	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

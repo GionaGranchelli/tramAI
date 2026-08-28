@@ -20,7 +20,7 @@ private class JdbcDurableRecoveryPersistence : DurableRecoveryPersistence {
         pool.connection.use { conn ->
             conn.createStatement().use { statement ->
                 statement.execute((checkpointStore as JdbcWorkflowCheckpointStore).createTableSql())
-                statement.execute((attemptStore as JdbcStepAttemptRecordStore).createTableSql())
+                (attemptStore as JdbcStepAttemptRecordStore).createSchemaSql().forEach { statement.execute(it) }
             }
         }
     }
