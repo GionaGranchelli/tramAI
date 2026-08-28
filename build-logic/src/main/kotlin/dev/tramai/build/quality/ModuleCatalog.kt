@@ -18,7 +18,7 @@ enum class ReleaseInclusion(val yaml: String) { INCLUDED("included"), INTERNAL_O
 
 /** Parses the authoritative, versioned module architecture manifest. */
 class ModuleCatalog(private val rootDir: File) {
-    data class ModuleEntry(val path: String, val layer: ModuleLayer, val maturity: ModuleMaturity, val publishability: ModulePublishability, val apiStability: ModuleApiStability, val visibility: ModuleVisibility, val owner: String, val dependencyPolicy: String, val releaseInclusion: ReleaseInclusion, val rationale: String)
+    data class ModuleEntry(val path: String, val layer: ModuleLayer, val maturity: ModuleMaturity, val publishability: ModulePublishability, val apiStability: ModuleApiStability, val visibility: ModuleVisibility, val owner: String, val dependencyPolicy: String, val releaseInclusion: ReleaseInclusion, val rationale: String, val description: String?)
     data class CatalogResult(val modules: Map<String, ModuleEntry>, val dependencyPolicies: Map<String, Set<ModuleLayer>>, val errors: List<VerificationDiagnostic>)
     private var parsedModules: Map<String, ModuleEntry> = emptyMap()
     private var parsedPolicies: Map<String, Set<ModuleLayer>> = emptyMap()
@@ -33,7 +33,7 @@ class ModuleCatalog(private val rootDir: File) {
                 val loaderOptions = LoaderOptions().apply { maxAliasesForCollections = 200 }
                 Yaml(SafeConstructor(loaderOptions)).load<Map<String, Any>>(it)
             }
-            if (root["schemaVersion"]?.toString() != "2") errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA, "Module catalog schemaVersion must be '2'")
+            if (root["schemaVersion"]?.toString() != "3") errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA, "Module catalog schemaVersion must be '3'")
             val policyRaw = root["dependencyPolicies"] as? Map<String, Map<String, Any>> ?: emptyMap()
             policyRaw.forEach { (name, definition) ->
                 val rawLayers = definition["allowedLayers"] as? List<*> ?: emptyList<Any>()
@@ -58,12 +58,13 @@ class ModuleCatalog(private val rootDir: File) {
         val publishability = enum("publishability", ModulePublishability.fromYaml(raw["publishability"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY)
         val api = enum("apiStability", ModuleApiStability.fromYaml(raw["apiStability"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY)
         val visibility = enum("visibility", ModuleVisibility.fromYaml(raw["visibility"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY)
-        val owner = raw["owner"]?.toString().orEmpty(); val policy = raw["dependencyPolicy"]?.toString().orEmpty(); val release = enum("releaseInclusion", ReleaseInclusion.fromYaml(raw["releaseInclusion"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION); val rationale = raw["rationale"]?.toString().orEmpty()
+        val owner = raw["owner"]?.toString().orEmpty(); val policy = raw["dependencyPolicy"]?.toString().orEmpty(); val release = enum("releaseInclusion", ReleaseInclusion.fromYaml(raw["releaseInclusion"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION); val rationale = raw["rationale"]?.toString().orEmpty(); val description = raw["description"]?.toString()
         if (owner.isBlank()) errors += failure(DiagnosticCode.MODULE_CATALOG_BLANK_OWNER, "$path: owner is blank", path)
         if (rationale.isBlank()) errors += failure(DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE, "$path: rationale is blank", path)
         if (policy !in policies) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY, "$path: unknown dependencyPolicy '$policy'", path)
         if (path in modules) errors += failure(DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH, "Module catalog: duplicate path '$path'", path)
         if (layer == null || maturity == null || publishability == null || api == null || visibility == null || release == null) return
+        if (publishability == ModulePublishability.PUBLISHED && description.isNullOrBlank()) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION, "$path: published modules must have a non-blank description", path)
         if (publishability == ModulePublishability.PUBLISHED && api == ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY, "$path: published modules must not have apiStability 'excluded'", path)
         if (layer == ModuleLayer.APPLICATIONS_EXAMPLES && publishability != ModulePublishability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE, "$path: examples must have publishability 'excluded'", path)
         if (publishability == ModulePublishability.EXCLUDED && api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY, "$path: excluded modules must have apiStability 'excluded'", path)
@@ -71,7 +72,7 @@ class ModuleCatalog(private val rootDir: File) {
         if (!apiStrengthFitsMaturity(api, maturity)) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: API strength '$api' cannot exceed maturity '$maturity' (stable API requires stable maturity; preview requires preview+; experimental requires experimental+)", path)
         if (release == ReleaseInclusion.INCLUDED && publishability != ModulePublishability.PUBLISHED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: included release requires published module", path)
         if (maturity == ModuleMaturity.INTERNAL && api != ModuleApiStability.INTERNAL && api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: internal maturity cannot promise stable/preview API", path)
-        if (errors.none { it.modulePath == path }) modules[path] = ModuleEntry(path, layer, maturity, publishability, api, visibility, owner, policy, release, rationale)
+        if (errors.none { it.modulePath == path }) modules[path] = ModuleEntry(path, layer, maturity, publishability, api, visibility, owner, policy, release, rationale, description)
     }
     fun validateAgainstProjects(catalogModules: Map<String, ModuleEntry>, projectPaths: List<String>, errors: MutableList<VerificationDiagnostic>) { projectPaths.filter { it !in catalogModules }.forEach { errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Gradle project '$it' has no module-catalog entry") }; catalogModules.keys.filter { it !in projectPaths }.forEach { errors += failure(DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY, "Module-catalog entry '$it' does not exist as a Gradle project") } }
     fun layerFor(path: String): String? = parsedModules[path]?.layer?.yaml

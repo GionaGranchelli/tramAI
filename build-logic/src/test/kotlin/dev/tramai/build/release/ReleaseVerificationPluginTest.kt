@@ -191,6 +191,66 @@ class ReleaseVerificationPluginTest {
         }
     }
 
+    // ── W1/W2 — wired description path: catalog → expectedDescriptions → verifier (9.2c-c) ──
+
+    /** Minimal schema-v3 catalog with one published module. */
+    private val wiredCatalog = """
+        schemaVersion: "3"
+        dependencyPolicies:
+          core: { allowedLayers: [core-contracts] }
+        entryDefaults:
+          core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture core." }
+        modules:
+          - path: ":tramai-core"
+            <<: *core
+            layer: core-contracts
+            publishability: published
+            apiStability: stable
+            description: "DESCRIPTION_PLACEHOLDER"
+    """.trimIndent()
+
+    @Test
+    fun `W1 wired expectedDescriptions passes when POM matches the catalog description`() {
+        val dir = baseFixture(extra = """
+            project(":tramai-core") {
+                afterEvaluate {
+                    tasks.named("generatePomFileForMavenPublication") {
+                        doLast {
+                            val pom = layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile
+                            val text = pom.readText().replace("<description>Test module</description>", "<description>Expected description for :tramai-core.</description>")
+                            pom.writeText(text)
+                        }
+                    }
+                }
+            }
+        """.trimIndent())
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            wiredCatalog.replace("DESCRIPTION_PLACEHOLDER", "Expected description for :tramai-core."),
+        )
+        // The sentinel POM is explicitly rewritten to carry the same unique
+        // description as the catalog, so the catalog-derived expected map and
+        // the generated POM agree on an obviously-intentional value (not a
+        // string coincidence with the default fixture POM).
+        runner(dir, "verifyPublicationMetadata").build()
+    }
+
+    @Test
+    fun `W2 wired expectedDescriptions fails when POM diverges from the catalog description`() {
+        val dir = baseFixture()
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            wiredCatalog.replace("DESCRIPTION_PLACEHOLDER", "Catalog says something else."),
+        )
+        val result = runner(dir, "verifyPublicationMetadata").buildAndFail()
+        assertTrue(
+            result.output.contains("description"),
+            "verifier must fail on the description divergence: ${result.output.take(800)}",
+        )
+    }
+
     // ── T2: exact task names preserved ───────────────────────────────────────
 
     @Test

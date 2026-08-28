@@ -24,7 +24,7 @@ class ModuleDocContractVerifierTest {
 """.trimIndent()
 
     private val MANIFEST = """
-schemaVersion: "2"
+schemaVersion: "3"
 dependencyPolicies:
   framework:
     allowedLayers: [framework-integrations]
@@ -39,6 +39,7 @@ modules:
     dependencyPolicy: core
     releaseInclusion: included
     rationale: "core"
+    description: "Core annotations, request models, provider registry, and exception types for Tramai."
     publishability: published
     apiStability: stable
   - path: ":tramai-server"

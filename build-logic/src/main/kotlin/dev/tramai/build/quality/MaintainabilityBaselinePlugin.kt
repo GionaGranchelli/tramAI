@@ -1334,6 +1334,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         DiagnosticCode.MODULE_CATALOG_INVALID_POLICY,
         DiagnosticCode.MODULE_CATALOG_BLANK_OWNER,
         DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE,
+        DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION,
         DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION,
         -> "module-manifest"
 

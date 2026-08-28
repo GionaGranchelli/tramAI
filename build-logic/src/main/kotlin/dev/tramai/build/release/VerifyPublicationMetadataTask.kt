@@ -51,6 +51,9 @@ abstract class VerifyPublicationMetadataTask : DefaultTask() {
     abstract val expectedDeveloperEmail: org.gradle.api.provider.Property<String>
 
     @get:Input
+    abstract val expectedDescriptions: org.gradle.api.provider.MapProperty<String, String>
+
+    @get:Input
     abstract val publishableModules: org.gradle.api.provider.ListProperty<String>
 
     @get:Input
@@ -80,6 +83,7 @@ abstract class VerifyPublicationMetadataTask : DefaultTask() {
 
         PublicationMetadataVerifier.verify(
             expected = expected,
+            expectedDescriptions = expectedDescriptions.get(),
             publishableModules = publishable,
             jarPublicationModules = jarModules,
             pomFileFor = { moduleName ->

@@ -1,6 +1,7 @@
 package dev.tramai.build.release
 
 import dev.tramai.build.publishing.TramaiPublishingRepositories
+import dev.tramai.build.quality.ModuleCatalog
 import dev.tramai.build.quality.ModuleManifest
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -43,6 +44,31 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
     private fun jarPublicationModuleNames(project: Project): List<String> =
         publishableModuleNames(project) - "tramai-bom"
 
+    /**
+     * Publication descriptions, resolved from the module catalog (9.2c-c).
+     * The publisher reads the catalog in its own plugin code path; the
+     * verifier receives this map as a typed @Input (never calling publisher
+     * code), so a defect in the publisher's lookup cannot change what the
+     * verifier expects. Byte-parity with the legacy policy is pinned by the
+     * D5 oracle test.
+     *
+     * Tolerant by design: entries missing from the catalog are simply not in
+     * the map, and the verifier's requireNotNull fails closed at verification
+     * time. A missing/broken catalog yields an error result with an empty
+     * modules map; the verifier then fails closed for every publishable
+     * module. The catalog parser itself also reports
+     * MODULE_CATALOG_MISSING_DESCRIPTION and ModuleManifest.catalog() throws
+     * on any catalog error, so the real repo fails at configuration already;
+     * TestKit fixtures without a catalog still configure cleanly.
+     */
+    private fun catalogDescriptions(project: Project): Map<String, String> {
+        val catalog = ModuleCatalog(project.rootDir).parse()
+        return publishableModuleNames(project).mapNotNull { moduleName ->
+            val description = catalog.modules[":$moduleName"]?.description?.takeIf { it.isNotBlank() }
+            description?.let { moduleName to it }
+        }.toMap()
+    }
+
 
     private fun registerVerifyPublicationMetadata(project: Project) {
         project.tasks.register<VerifyPublicationMetadataTask>("verifyPublicationMetadata") {
@@ -64,6 +90,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             expectedDeveloperName.set(project.providers.gradleProperty("tramaiDeveloperName").orElse("Giona"))
             expectedDeveloperEmail.set(project.providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev"))
 
+            this.expectedDescriptions.set(catalogDescriptions(project))
             this.publishableModules.set(publishableModuleNames)
             this.jarPublicationModules.set(jarPublicationModuleNames)
             pomFiles.from(

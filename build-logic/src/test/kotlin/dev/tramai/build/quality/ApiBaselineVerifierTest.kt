@@ -36,7 +36,8 @@ class ApiBaselineVerifierTest {
         owner = "test",
         dependencyPolicy = "core",
         releaseInclusion = ReleaseInclusion.fromYaml(if (publishability == "published") "included" else "internal_only") ?: error("bad rel"),
-        rationale = "Test fixture entry."
+        rationale = "Test fixture entry.",
+        description = "Test fixture description."
     )
 
     private fun record(

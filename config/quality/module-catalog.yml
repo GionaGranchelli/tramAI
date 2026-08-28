@@ -1,4 +1,4 @@
-schemaVersion: "2"
+schemaVersion: "3"
 description: "TramAI 0.6.0 authoritative module catalogue. Every Gradle project appears exactly once."
 
 dependencyPolicies:
@@ -84,6 +84,7 @@ modules:
     rationale: "Kotlin consumer compilation proof for stable API compatibility (Epic 10.2)."
 
   - path: ":tramai-anthropic"
+    description: "Anthropic provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for Anthropic Claude models via the TramAI provider SPI."
     layer: provider-adapters
@@ -91,6 +92,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-azure-openai"
+    description: "Azure OpenAI provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for Azure OpenAI deployments via the TramAI provider SPI."
     layer: provider-adapters
@@ -98,6 +100,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-bedrock"
+    description: "AWS Bedrock provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for AWS Bedrock-hosted models via the TramAI provider SPI."
     layer: provider-adapters
@@ -105,12 +108,14 @@ modules:
     apiStability: preview
 
   - path: ":tramai-bom"
+    description: "Bill of materials for aligning Tramai module versions."
     <<: *bom
     layer: core-contracts
     publishability: published
     apiStability: stable
 
   - path: ":tramai-core"
+    description: "Core annotations, request models, provider registry, and exception types for Tramai."
     <<: *core
     layer: core-contracts
     publishability: published
@@ -124,6 +129,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-deepseek"
+    description: "Deepseek provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for DeepSeek models via the TramAI provider SPI."
     layer: provider-adapters
@@ -131,6 +137,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-embedding"
+    description: "Embedding model SPI with OpenAI and Ollama implementations for Tramai."
     <<: *capability
     rationale: "Embedding generation and vectorisation helpers for retrieval and semantic search."
     layer: higher-capabilities
@@ -138,6 +145,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-engine"
+    description: "Runtime engine that turns annotated Tramai service interfaces into executable proxies."
     <<: *runtime
     rationale: "Executes governed AI service invocations with provider orchestration, retry, fallback and streaming runtime behaviour."
     layer: runtime-execution
@@ -145,6 +153,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-gemini"
+    description: "Google Gemini provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for Google Gemini models via the TramAI provider SPI."
     layer: provider-adapters
@@ -159,6 +168,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-memory"
+    description: "In-memory memory and state helpers for Tramai (memory primitives and adapters)."
     <<: *capability
     rationale: "Conversation memory and context-management primitives for multi-turn AI services."
     layer: higher-capabilities
@@ -173,6 +183,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-observability"
+    description: "OpenTelemetry-based observability hooks for Tramai."
     <<: *operations
     rationale: "Optional OpenTelemetry-friendly observability integration for TramAI runtime events."
     layer: operations-observability
@@ -180,6 +191,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-ollama"
+    description: "Ollama provider integration for Tramai."
     <<: *provider
     rationale: "Provider adapter for local Ollama-hosted models via the TramAI provider SPI."
     layer: provider-adapters
@@ -187,6 +199,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-openai"
+    description: "OpenAI and OpenAI-compatible provider integrations for Tramai."
     <<: *provider
     rationale: "Provider adapter for OpenAI models via the TramAI provider SPI."
     layer: provider-adapters
@@ -194,6 +207,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-orchestration"
+    description: "Typed workflow orchestration and coordination layer for Tramai."
     <<: *runtime
     rationale: "Workflow orchestration: multi-step, checkpointed and resumable AI workflows."
     layer: runtime-execution
@@ -201,6 +215,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-persistence-file"
+    description: "Tramai module persistence-file."
     <<: *persistence
     rationale: "File-backed persistence stores for sovereign approvals, audit and workflow state."
     layer: persistence
@@ -208,6 +223,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-persistence-jdbc"
+    description: "Tramai module persistence-jdbc."
     <<: *persistence
     rationale: "JDBC-backed persistence stores for sovereign approvals, audit and workflow state, consumed directly and via the sovereign persistence starter."
     layer: persistence
@@ -215,6 +231,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-platform"
+    description: "Platform services for plugins, tenancy, API keys, rate limiting, and audit logging."
     <<: *operations
     rationale: "Composable runtime platform wiring the TramAI engine, server and operations surface."
     layer: operations-observability
@@ -222,6 +239,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-rag"
+    description: "RAG pipeline: document loading, chunking, retrieval, and context injection for Tramai."
     <<: *capability
     rationale: "Retrieval-augmented generation pipelines over vector stores."
     layer: higher-capabilities
@@ -229,6 +247,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-scheduler"
+    description: "Tramai module scheduler."
     <<: *capability
     rationale: "Scheduled and deferred task execution on the TramAI runtime."
     layer: higher-capabilities
@@ -236,6 +255,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-security"
+    description: "Tramai module security."
     <<: *security
     rationale: "Policy enforcement, approval gates, audit and evidence for governed AI invocations."
     layer: governance-security
@@ -250,6 +270,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-sovereign"
+    description: "Secure embedded runtime profile for sovereign TramAI deployments."
     <<: *security
     rationale: "Sovereign runtime: sealed, governed, offline-capable AI execution boundary."
     layer: governance-security
@@ -257,6 +278,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring"
+    description: "Spring Boot auto-configuration and integration support for Tramai."
     <<: *framework
     rationale: "Legacy Spring facade over :tramai-spring-core retained for back-compatibility; not the onboarding entry point."
     layer: framework-integrations
@@ -264,6 +286,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-core"
+    description: "Tramai module spring-core."
     <<: *framework
     rationale: "Profile-neutral Spring service discovery and runtime integration without provider or sovereign composition."
     layer: framework-integrations
@@ -271,6 +294,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-provider-anthropic"
+    description: "Tramai module spring-provider-anthropic."
     <<: *framework
     rationale: "Spring Boot auto-configuration for the Anthropic provider adapter."
     layer: framework-integrations
@@ -278,6 +302,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-provider-ollama"
+    description: "Tramai module spring-provider-ollama."
     <<: *framework
     rationale: "Spring Boot auto-configuration for the Ollama provider adapter."
     layer: framework-integrations
@@ -285,6 +310,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-provider-openai"
+    description: "Tramai module spring-provider-openai."
     <<: *framework
     rationale: "Spring Boot auto-configuration for the OpenAI provider adapter."
     layer: framework-integrations
@@ -292,6 +318,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-secrets-aws"
+    description: "Tramai module spring-secrets-aws."
     <<: *framework
     rationale: "AWS Secrets Manager-backed secret resolution for Spring consumers."
     layer: framework-integrations
@@ -299,6 +326,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-secrets-file"
+    description: "Tramai module spring-secrets-file."
     <<: *framework
     rationale: "File-based secret resolution for Spring consumers."
     layer: framework-integrations
@@ -306,6 +334,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-secrets-vault"
+    description: "Tramai module spring-secrets-vault."
     <<: *framework
     rationale: "HashiCorp Vault-backed secret resolution for Spring consumers."
     layer: framework-integrations
@@ -327,6 +356,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-spring-boot-starter-local-provider-openai"
+    description: "Tramai module spring-boot-starter-local-provider-openai."
     <<: *framework
     rationale: "Spring Boot starter exposing a local OpenAI-compatible provider for development and smoke tests."
     layer: framework-integrations
@@ -334,6 +364,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-sovereign"
+    description: "Tramai module spring-sovereign."
     <<: *framework
     rationale: "Spring Boot auto-configuration composing the sovereign runtime into Spring applications."
     layer: framework-integrations
@@ -341,6 +372,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter"
+    description: "Tramai module spring-boot-starter."
     <<: *framework
     rationale: "Unified Spring Boot starter composing core, sovereign and provider integrations."
     layer: framework-integrations
@@ -348,6 +380,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops"
+    description: "Tramai module spring-boot-starter-sovereign-ops."
     <<: *framework
     rationale: "Spring Boot starter wiring sovereign operational inspection components."
     layer: framework-integrations
@@ -355,6 +388,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-actuator"
+    description: "Tramai module spring-boot-starter-sovereign-ops-actuator."
     <<: *framework
     rationale: "Actuator health and metrics endpoints for the sovereign ops outbox worker."
     layer: framework-integrations
@@ -362,6 +396,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-micrometer"
+    description: "Tramai module spring-boot-starter-sovereign-ops-micrometer."
     <<: *framework
     rationale: "Micrometer metrics bridge for the sovereign ops outbox worker."
     layer: framework-integrations
@@ -369,6 +404,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-observability"
+    description: "Tramai module spring-boot-starter-sovereign-ops-observability."
     <<: *framework
     rationale: "Observability (OTel) instrumentation for the sovereign ops outbox worker."
     layer: framework-integrations
@@ -376,6 +412,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    description: "Tramai module spring-boot-starter-sovereign-ops-rest."
     <<: *framework
     rationale: "REST control-plane endpoints for sovereign approvals and suspended invocations."
     layer: framework-integrations
@@ -383,6 +420,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    description: "Tramai module spring-boot-starter-sovereign-persistence-file."
     <<: *framework
     rationale: "Spring Boot starter wiring file-backed sovereign persistence stores."
     layer: framework-integrations
@@ -390,6 +428,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    description: "Tramai module spring-boot-starter-sovereign-persistence-jdbc."
     <<: *framework
     rationale: "Spring Boot starter wiring JDBC-backed sovereign persistence stores."
     layer: framework-integrations
@@ -397,6 +436,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-standalone"
+    description: "Minimal standalone runtime bundle for Tramai."
     <<: *runtime
     rationale: "Framework-free standalone entry point for TramAI engine usage."
     layer: runtime-execution
@@ -404,6 +444,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-structured"
+    description: "Structured output schema generation, parsing, and validation support for Tramai."
     <<: *runtime
     rationale: "Structured output: schema generation, extraction, deserialisation and structured failure analysis."
     layer: runtime-execution
@@ -411,6 +452,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-testing"
+    description: "Testing utilities and deterministic assertion support for Tramai."
     <<: *publishedTesting
     rationale: "Published test fixtures, fakes and TCK support for TramAI consumers."
     layer: testing-support
@@ -418,6 +460,7 @@ modules:
     apiStability: internal
 
   - path: ":tramai-vectorstore-chroma"
+    description: "ChromaDB vector store adapter for Tramai."
     <<: *capability
     rationale: "Chroma vector store adapter for retrieval workflows."
     layer: higher-capabilities
@@ -425,6 +468,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-vectorstore-pgvector"
+    description: "PostgreSQL pgvector vector store adapter for Tramai."
     <<: *capability
     rationale: "PostgreSQL pgvector adapter for retrieval workflows."
     layer: higher-capabilities
@@ -432,6 +476,7 @@ modules:
     apiStability: preview
 
   - path: ":tramai-vectorstore-spi"
+    description: "Vector store SPI with data models and in-memory implementation for Tramai."
     <<: *capability
     rationale: "Vector store service-provider interface and shared contracts for retrieval."
     layer: higher-capabilities

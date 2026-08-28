@@ -28,6 +28,11 @@ class PublicationMetadataVerifierTest {
     private val publishableModules = listOf("tramai-core", "tramai-bom")
     private val jarPublicationModules = listOf("tramai-core")
 
+    private val expectedDescriptions = mapOf(
+        "tramai-core" to "Core annotations, request models, provider registry, and exception types for Tramai.",
+        "tramai-bom" to "Bill of materials for aligning Tramai module versions.",
+    )
+
     private fun writePom(
         moduleName: String = "tramai-core",
         overrides: Map<String, String?> = emptyMap(),
@@ -98,10 +103,12 @@ class PublicationMetadataVerifierTest {
     private fun verify(
         publishable: List<String> = publishableModules,
         jarPublishing: List<String> = jarPublicationModules,
+        descriptions: Map<String, String> = expectedDescriptions,
         pomFor: (String) -> File = { name -> writePom(name) },
     ) {
         PublicationMetadataVerifier.verify(
             expected = expected,
+            expectedDescriptions = descriptions,
             publishableModules = publishable,
             jarPublicationModules = jarPublishing,
             pomFileFor = pomFor,
@@ -159,6 +166,27 @@ class PublicationMetadataVerifierTest {
             verify(pomFor = { _ -> writePom(overrides = mapOf("developerName" to "Someone Else")) })
         }
         assertTrue(e.message!!.contains("developer"))
+    }
+
+    @Test
+    fun `wrong description fails`() {
+        // D7 — verifier is independent: POM description != expectedDescriptions[module] must fail
+        val e = assertFailsWith<IllegalArgumentException> {
+            verify(pomFor = { _ ->
+                writePom(overrides = mapOf("description" to "Some other description."))
+            })
+        }
+        assertTrue(e.message!!.contains("description"), "message was: ${e.message}")
+    }
+
+    @Test
+    fun `missing expected description fails closed`() {
+        // D8 — no compatibility fallback: a publishable module with no catalog
+        // description must fail, never fall back to a synthesized value.
+        val e = assertFailsWith<IllegalArgumentException> {
+            verify(descriptions = mapOf("tramai-bom" to "Bill of materials for aligning Tramai module versions."))
+        }
+        assertTrue(e.message!!.contains("No expected description"), "message was: ${e.message}")
     }
 
     @Test
