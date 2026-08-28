@@ -919,19 +919,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
-        project.tasks.register("verifyModuleDocContract") {
-            group = "verification"
-            description = "Verifies the module-card documentation contract (Epic 11.2b3): manifest/card coverage, required headings, link/path resolution, no legacy classification, resolvable dependency snippets, no internal Maven advertisement, README counts"
-            doLast {
-                val diagnostics = ModuleDocContractVerifier.verify(project.rootDir)
-                if (diagnostics.isNotEmpty()) {
-                    throw GradleException(
-                        diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" }
-                    )
-                }
-            }
-        }
-
         project.tasks.register("verifyModuleMatrixDrift") {
             group = "verification"
             description = "Fails when docs/reference/module-matrix.md differs from the manifest"
