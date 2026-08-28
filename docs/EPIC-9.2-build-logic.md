@@ -3,7 +3,7 @@
 **Goal:** Make Gradle configuration modular, typed, testable, and mostly declarative.
 
 **Owner:** build-logic conventions
-**Status:** in progress (9.2a done)
+**Status:** in progress (9.2a, 9.2b done; 9.2c in progress)
 
 ## Slicing
 
@@ -14,10 +14,18 @@ published module) is extracted first.
 
 | Slice | Scope | Status |
 |-------|-------|--------|
-| 9.2a | `tramai.publishing` convention plugin (publication, signing, repository policy, POM metadata, sovereign-local hook) | ✅ done — PR #308 |
-| 9.2b | `tramai.release-verification` + `tramai.sovereign-verification` typed/cache-aware release tasks | planned |
-| 9.2c | `tramai.kotlin-library`, `tramai.java-platform`, `tramai.test-fixtures`, `tramai.integration-test`, `tramai.quality` | planned |
+| 9.2a | `tramai.publishing` convention plugin (publication, signing, repository policy, POM metadata, sovereign-local hook) | ✅ done — PR #309 |
+| 9.2b | `tramai.release-verification` + `tramai.sovereign-verification` typed/cache-aware release tasks | ✅ done — PR #313 |
+| 9.2c | language, test-fixture, and quality conventions | in progress |
+| 9.2c-a | `tramai.kotlin-library` / `tramai.java-platform` / `tramai.test-fixtures` | ✅ done — PR #319 |
+| 9.2c-b | `tramai.quality` convention + remaining exceptional-module cleanup | planned |
+| 9.2c-c | manifest-derived publication metadata (module-catalog.yml schema + analyzer/parser + publication verifier) | planned |
 | 9.2d | configuration-cache closure; root build reduced to composition | planned |
+
+The `tramai.integration-test` convention is **deferred** until a dedicated
+integration-test source set exists in at least one production module — a
+convention plugin with zero consumers adds abstraction surface without removing
+any duplication. It will be documented and built when a real consumer appears.
 
 ## 9.2a — `tramai.publishing` (this PR)
 
@@ -150,11 +158,24 @@ cleanly as `build-logic` with no baseline-migration exemption.
 - Configuration-cache-aware where feasible; document the unavoidable
   non-cacheable remainder.
 
-## 9.2c — quality / language conventions
+## 9.2c — language, test-fixture, and quality conventions
 
-- `tramai.kotlin-library`, `tramai.java-platform`, `tramai.test-fixtures`,
-  `tramai.integration-test`, `tramai.quality`.
-- Manifest-derived project descriptions / publication metadata.
+- `tramai.kotlin-library`, `tramai.java-platform`, `tramai.test-fixtures`
+  (9.2c-a, PR #319): behavior-preserving extraction of the repeated JVM/Kotlin
+  baseline, the BOM wiring, and the test-fixtures plugin application. The
+  kotlin-library convention reacts to BOTH `java-library` and Kotlin JVM and
+  configures only the `test` task; behavioral TestKit proofs cover plugin-order
+  independence, JVM-21 bytecode, sourcesJar content, real JUnit-5 execution,
+  and testFixturesJar content.
+- `tramai.quality` convention + remaining exceptional-module cleanup (9.2c-b).
+- Manifest-derived project descriptions / publication metadata (9.2c-c): adds a
+  `description` field to module-catalog.yml and moves the hand-written
+  `projectDescription()` map into the catalog. This is an analyzer/schema change
+  (ModuleCatalog parser + PublicationMetadataVerifier expectations) and is kept
+  in its own PR.
+- `tramai.integration-test`: **deferred** — no production module currently
+  defines a dedicated integration-test source set; integration tests live in the
+  normal `test` source set as `*IntegrationTest` classes.
 
 ## 9.2d — configuration-cache closure
 

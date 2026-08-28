@@ -1,21 +1,13 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
+    id("tramai.kotlin-library")
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
-    withSourcesJar()
-}
 
 kotlin {
-    jvmToolchain(21)
     compilerOptions {
-        jvmTarget.set(JvmTarget.fromTarget("21"))
         freeCompilerArgs.add("-Xcontext-parameters")
     }
 }
@@ -42,6 +34,3 @@ dependencies {
     testImplementation(libs.mcp.sdk.client)
 }
 
-tasks.test {
-    useJUnitPlatform()
-}

@@ -1,23 +1,11 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
+    id("tramai.kotlin-library")
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
-    withSourcesJar()
-}
 
-kotlin {
-    jvmToolchain(21)
-    compilerOptions {
-        jvmTarget.set(JvmTarget.fromTarget("21"))
-    }
-}
 
 dependencies {
     api(project(":tramai-core"))
@@ -32,6 +20,3 @@ dependencies {
     testImplementation(project(":tramai-testing"))
 }
 
-tasks.test {
-    useJUnitPlatform()
-}
