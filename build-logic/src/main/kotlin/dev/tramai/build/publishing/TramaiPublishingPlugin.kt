@@ -1,7 +1,6 @@
 package dev.tramai.build.publishing
 
 import dev.tramai.build.quality.ModuleCatalog
-import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPluginExtension
