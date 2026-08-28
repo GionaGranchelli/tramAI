@@ -56,13 +56,15 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 ## Standalone Consumer Examples
 
-The examples above are part of the root Gradle build. The following are **separate Gradle builds** with their own `settings.gradle.kts` — they consume released TramAI artifacts from Maven (or the composite root when running locally) and prove real-world consumption, not just in-repo wiring:
+The examples above are part of the root Gradle build. The following are **separate Gradle builds** with their own `settings.gradle.kts` that prove real-world consumption of released TramAI artifacts:
 
-| Example | Purpose | Primary command |
+| Example | Consumer type | Primary command |
 |---|---|---|
-| [Kotlin Spring Boot](kotlin-springboot-example/README.md) | Conventional Spring Boot HTTP app: typed services, tools, structured output, checkpointed orchestration | `./gradlew -p examples/kotlin-springboot-example bootRun` |
-| [Kotlin Native Smoke](kotlin-native-smoke-example/README.md) | GraalVM native-image path: blocking service, stub provider, `proxy-config.json`, native binary | `./gradlew -p examples/kotlin-native-smoke-example nativeSmokeCompile` |
-| Sovereign Runtime Consumer Smoke | Sovereign runtime consumers against released starter artifacts | `./gradlew -p examples/sovereign-runtime-consumer-smoke test` |
+| [Kotlin Spring Boot](kotlin-springboot-example/README.md) | Standalone composite/local consumer (`includeBuild("../..")`), version overridable via `-PtramaiVersion` | `./gradlew -p examples/kotlin-springboot-example bootRun` |
+| [Kotlin Native Smoke](kotlin-native-smoke-example/README.md) | Standalone composite/local consumer (`includeBuild("../..")`), version overridable via `-PtramaiVersion` | `./gradlew -p examples/kotlin-native-smoke-example nativeSmokeCompile` |
+| Sovereign Runtime Consumer Smoke | **Release-verification-repository consumer** — does NOT use the composite build; resolves `dev.tramai` exclusively from a local verification repo, deliberately excluding `dev.tramai` from Maven Central | `./gradlew -p examples/sovereign-runtime-consumer-smoke test -PsovereignRuntimeVerificationRepo=<verification-repo-path> -PtramaiVersion=<version>` |
+
+For the sovereign consumer smoke, the verification repo is produced by `verifySovereignRuntimeSignedBundle`; the build fails fast if `-PsovereignRuntimeVerificationRepo` is missing.
 
 These builds are not module-catalog modules and are excluded from module-card and module-dependency-graph coverage by design.
 
@@ -136,7 +138,7 @@ These builds are not module-catalog modules and are excluded from module-card an
 ./gradlew -p examples/kotlin-springboot-example bootRun
 ```
 
-**Requires:** a separate Gradle build (not part of the root project), released TramAI dependencies (version overridable via `-PtramaiVersion`), Ollama, and the configured models:
+**Requires:** a separate Gradle build (not part of the root project), released TramAI dependencies (0.4.0 is the latest published release; version overridable via `-PtramaiVersion`), Ollama, and the configured models:
 
 ```bash
 ollama pull gemma4:e4b
