@@ -161,10 +161,18 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
         currentBaselineXml: String?,
     ): String {
         val newFindings = countReportFindings(detektXml)
-        val baseTotal = (DetektBaselineParser.parse(baseBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0
+        val baseTotal =
+            (DetektBaselineParser.parse(baseBaselineXml) as? BaselineParseResult.Success)
+                ?.document
+                ?.currentIssueIds
+                ?.size ?: 0
         val currentTotal =
-            (DetektBaselineParser.parse(currentBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0
-        val byRule = newFindings.entries.sortedByDescending { it.value }.joinToString("\n") { "  ${it.key}: ${it.value}" }
+            (DetektBaselineParser.parse(currentBaselineXml) as? BaselineParseResult.Success)
+                ?.document
+                ?.currentIssueIds
+                ?.size ?: 0
+        val byRule =
+            newFindings.entries.sortedByDescending { it.value }.joinToString("\n") { "  ${it.key}: ${it.value}" }
         return buildString {
             appendLine("TramAI static-analysis summary")
             appendLine("============================")

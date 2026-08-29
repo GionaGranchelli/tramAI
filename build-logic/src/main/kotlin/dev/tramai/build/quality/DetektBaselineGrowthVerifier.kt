@@ -147,7 +147,8 @@ object DetektBaselineGrowthVerifier {
             baseTotal = baseDoc.currentIssueIds.size,
             currentTotal = currentDoc.currentIssueIds.size,
             message =
-                "Detekt baseline OK: base ${baseDoc.currentIssueIds.size} -> current ${currentDoc.currentIssueIds.size}; " +
+                "Detekt baseline OK: base ${baseDoc.currentIssueIds.size} -> current " +
+                    "${currentDoc.currentIssueIds.size}; " +
                     "${removed.size} removed, ${added.size} added.",
         )
     }

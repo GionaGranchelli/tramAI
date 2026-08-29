@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  *  - a baseline-migration PR must still change at least one canonical baseline.
  */
 class ChangePolicyDetektBaselineTest {
-
     private fun input(
         changeClass: String?,
         files: List<String>,
@@ -31,11 +30,12 @@ class ChangePolicyDetektBaselineTest {
             ChangePolicyEvaluator.evaluate(
                 input(
                     changeClass = null,
-                    files = listOf(
-                        "tramai-engine/src/main/kotlin/Engine.kt",
-                        "config/detekt/baseline.xml",
-                    ),
-                )
+                    files =
+                        listOf(
+                            "tramai-engine/src/main/kotlin/Engine.kt",
+                            "config/detekt/baseline.xml",
+                        ),
+                ),
             )
         assertFalse(result.passed)
         assertTrue(
@@ -50,11 +50,12 @@ class ChangePolicyDetektBaselineTest {
             ChangePolicyEvaluator.evaluate(
                 input(
                     changeClass = "baseline-migration",
-                    files = listOf(
-                        "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
-                        "config/detekt/baseline.xml",
-                    ),
-                )
+                    files =
+                        listOf(
+                            "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
+                            "config/detekt/baseline.xml",
+                        ),
+                ),
             )
         assertTrue(
             result.passed,
@@ -68,11 +69,12 @@ class ChangePolicyDetektBaselineTest {
             ChangePolicyEvaluator.evaluate(
                 input(
                     changeClass = "baseline-migration",
-                    files = listOf(
-                        "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
-                        "config/quality/maintainability-deviations.yml",
-                    ),
-                )
+                    files =
+                        listOf(
+                            "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
+                            "config/quality/maintainability-deviations.yml",
+                        ),
+                ),
             )
         assertFalse(result.passed)
         assertTrue(
