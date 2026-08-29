@@ -16,12 +16,10 @@ import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowSuspendedException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -39,7 +37,7 @@ class ScheduledWorkflowTimer(
     private val misfireThreshold: Duration = Duration.ofMinutes(5),
     private val batchSize: Int = 50,
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val scope: CoroutineScope = OwnedSchedulerScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
     // Epic 5.3: the scheduler owns WorkflowObserver instances and invokes
     // tick callbacks BEFORE durable scheduler transitions (markTickSkipped /
@@ -51,8 +49,14 @@ class ScheduledWorkflowTimer(
     private val monitor = Any()
     private val registrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
     private val delayRegistrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
-    private var loopJob: Job? = null
-    private var running = false
+
+    // 8.3c: one lifecycle owner. The default-created scope is timer-owned
+    // (marked via OwnedSchedulerScope) and is cancelled on close(); a
+    // caller-supplied scope is borrowed and never cancelled.
+    private val loopOwner = SchedulerLoopOwner(
+        parentScope = scope,
+        ownsParentScope = scope is OwnedSchedulerScope,
+    )
 
     init {
         require(!pollInterval.isNegative && !pollInterval.isZero) {
@@ -103,30 +107,15 @@ class ScheduledWorkflowTimer(
         )
     }
 
-    fun start(): Job {
-        val job = scope.launch(start = CoroutineStart.LAZY) {
-            while (isActive) {
-                pollOnce()
-                delay(pollInterval.toMillis())
-            }
+    fun start(): Job = loopOwner.start {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            pollOnce()
+            delay(pollInterval.toMillis())
         }
-        synchronized(monitor) {
-            check(!running && loopJob == null) { "ScheduledWorkflowTimer is already started" }
-            running = true
-            loopJob = job
-        }
-        job.start()
-        return job
     }
 
     suspend fun stop() {
-        val job = synchronized(monitor) {
-            val job = loopJob
-            loopJob = null
-            running = false
-            job
-        } ?: return
-        job.cancelAndJoin()
+        loopOwner.stop()
     }
 
     suspend fun pollOnce() {
@@ -154,13 +143,7 @@ class ScheduledWorkflowTimer(
     }
 
     override fun close() {
-        val job = synchronized(monitor) {
-            val job = loopJob
-            loopJob = null
-            running = false
-            job
-        }
-        job?.cancel()
+        loopOwner.close()
     }
 
     private suspend fun handleTick(
