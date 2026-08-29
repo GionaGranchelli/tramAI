@@ -119,10 +119,12 @@ abstract class StaticAnalysisContractTestBase {
                 .start()
         val output = StringBuilder()
         val reader = proc.inputStream.bufferedReader()
+        val buf = CharArray(4096)
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(180)
         while (System.nanoTime() < deadline) {
             if (reader.ready()) {
-                output.append(reader.read().toChar())
+                val n = reader.read(buf)
+                if (n > 0) output.append(buf, 0, n)
             }
             if (output.contains(needle)) {
                 proc.destroy()
@@ -130,7 +132,7 @@ abstract class StaticAnalysisContractTestBase {
                 unlockGit()
                 return Run(0, output.toString())
             }
-            Thread.sleep(50)
+            Thread.sleep(5)
         }
         proc.destroy()
         val exited = proc.waitFor(15, TimeUnit.SECONDS)
