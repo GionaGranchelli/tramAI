@@ -62,6 +62,11 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
             packagerScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/package-evidence-bundle.sh"))
             archiveVerifierScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-archive.sh"))
             signatureVerifierScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-archive-signature.sh"))
+            evidenceTemplates.from(
+                project.fileTree("examples/sovereign-lab/evidence-template") {
+                    include("*.md")
+                }
+            )
             workingDirectory.set(project.layout.projectDirectory.dir("examples/sovereign-lab/build"))
         }
     }

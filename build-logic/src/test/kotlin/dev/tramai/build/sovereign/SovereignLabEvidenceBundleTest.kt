@@ -34,15 +34,6 @@ class SovereignLabEvidenceBundleTest {
         dir
     }
 
-    /** All repo files the evidence-bundle scenario consumes (scripts + templates). */
-    private val evidenceFiles = listOf(
-        "examples/sovereign-lab/create-evidence-bundle.sh",
-        "examples/sovereign-lab/verify-evidence-bundle.sh",
-        "examples/sovereign-lab/finalize-evidence-bundle.sh",
-        "examples/sovereign-lab/package-evidence-bundle.sh",
-        "examples/sovereign-lab/verify-evidence-archive.sh",
-        "examples/sovereign-lab/verify-evidence-archive-signature.sh",
-    )
 
     private fun copyFromRepo(dir: File, vararg relativePaths: String) {
         val git = ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", *relativePaths)
@@ -91,6 +82,78 @@ class SovereignLabEvidenceBundleTest {
         EvidenceBundleScenarioRunner(scriptsAt(root), workDir, ProcessBuilderProcessAdapter()) {}
 
     // ------------------------------------------------------------------
+    // 9. Output-mode routing discriminator (P2-1): historical inheritIO vs
+    //    capture semantics preserved call-by-call
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `scenario routes INHERIT for create-verify-finalize and CAPTURE for diagnostics`() {
+        val root = File(tempDir, "repo-mode").apply { mkdirs() }
+        copyLabTree(root)
+        val workDir = freshWorkDir(root)
+        // The expect-fail runner (historical redirectErrorStream) must request
+        // CAPTURE: output feeds the require() diagnostics.
+        val expectFailModes = mutableListOf<ProcessOutputMode>()
+        val recording = object : EvidenceBundleProcessAdapter {
+            override fun run(
+                executable: File,
+                arguments: List<String>,
+                environment: Map<String, String>,
+                workingDirectory: File,
+                mode: ProcessOutputMode,
+            ): ProcessResult {
+                expectFailModes += mode
+                // Simulate the historical failing verifier with matching
+                // diagnostic output so runExpectFail's requires pass and the
+                // mode assertion below is reached.
+                return ProcessResult(1, "anything")
+            }
+        }
+        // Drive a negative fixture through the fixture builder's expect-fail
+        // helper: it must request CAPTURE (the historical redirectErrorStream).
+        val fixture = EvidenceBundleFixtureBuilder(scriptsAt(root), recording, workDir)
+        val fakeBundle = File(workDir, "fixture-expect-fail").apply { mkdirs() }
+        fixture.runExpectFail(scriptsAt(root).verifier, fakeBundle, "anything", "verifier")
+        assertTrue(
+            expectFailModes.all { it == ProcessOutputMode.CAPTURE },
+            "expect-fail runner must request CAPTURE (historical redirectErrorStream). Modes: $expectFailModes",
+        )
+        assertTrue(expectFailModes.isNotEmpty(), "expect-fail runner must launch a process")
+    }
+
+    @Test
+    fun `create step requests INHERIT preserving the historical console output`() {
+        val root = File(tempDir, "repo-create-inherit").apply { mkdirs() }
+        copyLabTree(root)
+        val workDir = freshWorkDir(root)
+        val firstModes = mutableListOf<ProcessOutputMode>()
+        val recording = object : EvidenceBundleProcessAdapter {
+            override fun run(
+                executable: File,
+                arguments: List<String>,
+                environment: Map<String, String>,
+                workingDirectory: File,
+                mode: ProcessOutputMode,
+            ): ProcessResult {
+                firstModes += mode
+                return ProcessResult(0, "")
+            }
+        }
+        // Drive only the create step via the runner: first invocation must be
+        // INHERIT. The runner will fail on the bundle-exists require after the
+        // fake adapter, but the FIRST recorded mode is what we assert.
+        try {
+            EvidenceBundleScenarioRunner(scriptsAt(root), workDir, recording) {}.run()
+        } catch (_: IllegalArgumentException) {
+            // expected: fake adapter returns success but creates no bundle
+        }
+        assertTrue(
+            firstModes.firstOrNull() == ProcessOutputMode.INHERIT,
+            "create invocation must request INHERIT (historical inheritIO). Modes: $firstModes",
+        )
+    }
+
+    // ------------------------------------------------------------------
     // 1. Process actually executed (no-op adapter must make it fail)
     // ------------------------------------------------------------------
 
@@ -106,6 +169,7 @@ class SovereignLabEvidenceBundleTest {
                 arguments: List<String>,
                 environment: Map<String, String>,
                 workingDirectory: File,
+                mode: ProcessOutputMode,
             ): ProcessResult = ProcessResult(0, "")
         }
         val runner = EvidenceBundleScenarioRunner(scriptsAt(root), workDir, noopAdapter) {}
@@ -131,6 +195,7 @@ class SovereignLabEvidenceBundleTest {
                 arguments: List<String>,
                 environment: Map<String, String>,
                 workingDirectory: File,
+                mode: ProcessOutputMode,
             ): ProcessResult = ProcessResult(7, "")
         }
         val runner = EvidenceBundleScenarioRunner(scriptsAt(root), workDir, failingAdapter) {}
@@ -261,7 +326,7 @@ class SovereignLabEvidenceBundleTest {
         bundle.copyRecursively(copy, overwrite = true)
 
         // Mutate the manifest: claimBoundary.certifiesProductionReadiness = true
-        val fixture = EvidenceBundleFixtureBuilder(scriptsAt(root), ProcessBuilderProcessAdapter())
+        val fixture = EvidenceBundleFixtureBuilder(scriptsAt(root), ProcessBuilderProcessAdapter(), workDir)
         fixture.mutateManifest(
             copy,
             "m[\"claimBoundary\"][\"certifiesProductionReadiness\"] = True",

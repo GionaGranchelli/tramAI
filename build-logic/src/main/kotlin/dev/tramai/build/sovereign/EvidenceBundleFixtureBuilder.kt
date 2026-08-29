@@ -12,10 +12,11 @@ import java.io.File
 class EvidenceBundleFixtureBuilder(
     private val scripts: EvidenceScripts,
     private val adapter: EvidenceBundleProcessAdapter,
+    private val processWorkingDirectory: File,
 ) {
 
     private fun run(executable: String, arguments: List<String>): ProcessResult =
-        adapter.run(File(executable), arguments, emptyMap(), File("."))
+        adapter.run(File(executable), arguments, emptyMap(), processWorkingDirectory)
 
     fun runExpectFail(
         runner: File,
@@ -55,7 +56,7 @@ $pythonCode
     }
 
     fun negFinalizeRt(bundleDir: File) {
-        val p = run("bash", listOf(scripts.finalizer.absolutePath, bundleDir.absolutePath))
+        val p = adapter.run(File("bash"), listOf(scripts.finalizer.absolutePath, bundleDir.absolutePath), emptyMap(), processWorkingDirectory, ProcessOutputMode.INHERIT)
         require(p.exitCode == 0) { "Finalization failed for ${bundleDir.name}" }
     }
 

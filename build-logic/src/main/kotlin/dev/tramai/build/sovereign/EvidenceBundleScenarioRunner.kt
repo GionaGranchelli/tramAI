@@ -30,7 +30,7 @@ class EvidenceBundleScenarioRunner(
 ) {
 
     /** Adapter-backed scenario fixtures (manifest mutations, expect-fail runners). */
-    private val fixture = EvidenceBundleFixtureBuilder(scripts, adapter)
+    private val fixture = EvidenceBundleFixtureBuilder(scripts, adapter, workDir)
 
     /** All external processes route through the adapter; default cwd is [workDir]. */
     private fun runProcess(
@@ -38,7 +38,8 @@ class EvidenceBundleScenarioRunner(
         arguments: List<String>,
         environment: Map<String, String> = emptyMap(),
         workingDirectory: File = workDir,
-    ): ProcessResult = adapter.run(File(executable), arguments, environment, workingDirectory)
+        mode: ProcessOutputMode = ProcessOutputMode.CAPTURE,
+    ): ProcessResult = adapter.run(File(executable), arguments, environment, workingDirectory, mode)
 
     fun run() {
         val script = scripts.create
@@ -62,6 +63,7 @@ class EvidenceBundleScenarioRunner(
             "bash",
             listOf(scripts.create.absolutePath),
             environment = mapOf("TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP" to "test-bundle"),
+            mode = ProcessOutputMode.INHERIT,
         )
         val exitCode = pb.exitCode
         require(exitCode == 0) {
@@ -93,7 +95,7 @@ class EvidenceBundleScenarioRunner(
         }
 
         // Clean generated bundle should pass
-        val cleanProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath))
+        val cleanProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         val cleanExitCode = cleanProcess.exitCode
         require(cleanExitCode == 0) {
             "Evidence bundle verifier rejected a clean generated bundle (exit $cleanExitCode)."
@@ -152,14 +154,14 @@ class EvidenceBundleScenarioRunner(
         }
 
         // Finalize to refresh manifest digests
-        val finalizeProcess = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath))
+        val finalizeProcess = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         val finalizeExitCode = finalizeProcess.exitCode
         require(finalizeExitCode == 0) {
             "Evidence bundle finalizer exited with code $finalizeExitCode"
         }
 
         // Finalized bundle must pass
-        val postFinalizeProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath))
+        val postFinalizeProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         val postFinalizeExitCode = postFinalizeProcess.exitCode
         require(postFinalizeExitCode == 0) {
             "Evidence bundle verifier rejected a finalized bundle (exit $postFinalizeExitCode)."
@@ -198,7 +200,7 @@ class EvidenceBundleScenarioRunner(
 
         // Restore original content and re-finalize for subsequent tests
         tamperedRtFile.writeText(originalRtContent)
-        val restoreFinalizeProc = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath))
+        val restoreFinalizeProc = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         require(restoreFinalizeProc.exitCode == 0) { "Failed to re-finalize after tamper recovery" }
 
         // ── tool-permissions.jsonl tamper test ──
@@ -223,7 +225,7 @@ class EvidenceBundleScenarioRunner(
         )
         // Restore tool content and re-finalize
         tamperedToolFile.writeText(originalToolContent)
-        val restoreToolProc = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath))
+        val restoreToolProc = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         require(restoreToolProc.exitCode == 0) { "Failed to re-finalize after tool-permissions tamper recovery" }
 
         // Post-finalization tamper must fail
@@ -250,14 +252,14 @@ class EvidenceBundleScenarioRunner(
         reportFile.writeText("Generated report content\n")
 
         // Re-finalize with new report
-        val reFinalizeProcess = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath))
+        val reFinalizeProcess = runProcess("bash", listOf(finalizer.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         val reFinalizeExitCode = reFinalizeProcess.exitCode
         require(reFinalizeExitCode == 0) {
             "Evidence bundle finalizer exited with code $reFinalizeExitCode after adding report."
         }
 
         // Finalized bundle with copied report must pass
-        val withReportProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath))
+        val withReportProcess = runProcess("bash", listOf(verifier.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         val withReportExitCode = withReportProcess.exitCode
         require(withReportExitCode == 0) {
             "Evidence bundle verifier rejected a finalized bundle with a copied report."
@@ -286,10 +288,11 @@ class EvidenceBundleScenarioRunner(
             "bash",
             listOf(scripts.create.absolutePath),
             environment = mapOf("TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP" to "test-bundle"),
+            mode = ProcessOutputMode.INHERIT,
         )
         require(cleanPb.exitCode == 0) { "Failed to re-create clean bundle" }
 
-        val finalizeCleanPb = runProcess("bash", listOf(scripts.finalizer.absolutePath, bundle.absolutePath))
+        val finalizeCleanPb = runProcess("bash", listOf(scripts.finalizer.absolutePath, bundle.absolutePath), mode = ProcessOutputMode.INHERIT)
         require(finalizeCleanPb.exitCode == 0) { "Failed to finalize clean bundle" }
 
         val negDir = bundleRoot.resolve("negative-fixtures")
@@ -480,7 +483,7 @@ class EvidenceBundleScenarioRunner(
         val missingManifestDir = createRtNegFixture("runtime-file-missing-from-manifest")
         writeRtEvidence(missingManifestDir, "policy-decisions.jsonl", validJsonlLine)
         // Re-finalize (will include the file), then remove it from manifest
-        val reFinalProcess = runProcess("bash", listOf(finalizer.absolutePath, missingManifestDir.absolutePath))
+        val reFinalProcess = runProcess("bash", listOf(finalizer.absolutePath, missingManifestDir.absolutePath), mode = ProcessOutputMode.INHERIT)
         require(reFinalProcess.exitCode == 0) { "Finalization failed for runtime-file-missing-from-manifest" }
         fixture.mutateManifest(missingManifestDir,
             """m["files"] = [f for f in m["files"] if f["path"] != "runtime-evidence/policy-decisions.jsonl"]"""
