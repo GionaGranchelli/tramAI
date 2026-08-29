@@ -79,10 +79,7 @@ class ReleaseVerificationPluginTest {
                 id("tramai.sovereign-verification")
             }
             extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
-            // Root-owned task that verifyReleaseReadiness composes with (stays in root for 9.2b)
-            tasks.register("verifySovereignOpsObservabilityDocs") {
-                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
-            }
+            // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             // Isolate mavenLocal from the real ~/.m2 so tests are hermetic
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
@@ -358,9 +355,7 @@ class ReleaseVerificationPluginTest {
                 id("tramai.sovereign-verification")
             }
             extra["tramai.publishableModulePaths"] = listOf(":tramai-core", ":tramai-missing")
-            tasks.register("verifySovereignOpsObservabilityDocs") {
-                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
-            }
+            // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
             }
@@ -453,9 +448,7 @@ class ReleaseVerificationPluginTest {
                 id("tramai.sovereign-verification")
             }
             extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
-            tasks.register("verifySovereignOpsObservabilityDocs") {
-                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
-            }
+            // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
             }
@@ -586,9 +579,7 @@ class ReleaseVerificationPluginTest {
                 id("tramai.sovereign-verification")
             }
             extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
-            tasks.register("verifySovereignOpsObservabilityDocs") {
-                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
-            }
+            // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
             }
@@ -704,9 +695,7 @@ class ReleaseVerificationPluginTest {
                 id("tramai.sovereign-verification")
             }
             extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
-            tasks.register("verifySovereignOpsObservabilityDocs") {
-                doLast { logger.lifecycle("fixture observability docs check (no-op)") }
-            }
+            // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named("generateSovereignReleaseEvidenceIndex") {
                 setDependsOn(emptyList<String>())
             }
