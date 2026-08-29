@@ -77,7 +77,14 @@ class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
         // leaf-only, so an ambiguous leaf would delete the wrong file).
         val ids = baselineIds()
         assertTrue(ids.isNotEmpty(), "baseline must not be empty")
-        val byLeaf = ids.groupBy { it.split(":").drop(1).joinToString(":").substringBefore('$') }
+        val byLeaf =
+            ids.groupBy {
+                it
+                    .split(":")
+                    .drop(1)
+                    .joinToString(":")
+                    .substringBefore('$')
+            }
         val single =
             byLeaf.entries.firstOrNull { entry ->
                 entry.value.size == 1 && testSourcesFor(entry.key).size == 1
