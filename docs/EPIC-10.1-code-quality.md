@@ -7,7 +7,7 @@ Slices are implemented in separate PRs; a slice is only "done" when its merge ga
 
 | Slice | Scope | Status |
 |---|---|---|
-| **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | ✅ merged |
+| **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | 🚧 PR #339 in progress |
 | **10.1b — static analysis** | Detekt or equivalent semantic/static analysis: baseline existing violations, prohibit growth, central suppression rationale. | ⏳ planned |
 | **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ⏳ planned |
 | **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; cancellation broad catches (consume the existing cancellation verifier — do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | ⏳ planned |

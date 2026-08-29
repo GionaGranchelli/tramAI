@@ -52,6 +52,18 @@ jobs:
             --no-daemon \
             -PtramaiFormattingBaseRef="${{ github.event.before }}"
 
+      - name: Run formatting gate contract tests
+        run: |
+          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.FormattingGate*Test' --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.FormattingGate*Test.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == 8, f'expected exactly 8 formatting-gate tests, discovered {total}'
+          EOF
+
       - name: Run tests
         timeout-minutes: 15
         run: |
