@@ -123,6 +123,54 @@ class ModuleTopologyVerificationTest {
     // ── Configuration cache discriminators ──────────────────────────────────
 
     @Test
+    fun `declared catalog file is the execution authority - kill the old rediscovery`() {
+        // P1 (a3c1 Round-1): moduleCatalogFile must BE the parsed file, not a
+        // pointer used to rediscover the conventional path. The conventional
+        // config/quality/module-catalog.yml holds VALID catalog A; the declared
+        // input points at fixtures/catalog-B.yml holding a DIFFERENT catalog B
+        // that omits :tramai-engine. The fixed implementation parses B and
+        // fails with MODULE_CATALOG_MISSING_ENTRY; the old implementation
+        // rediscovered A from B's parent chain and passed.
+        val dir = topologyFixture(catalogFileOverride = "fixtures/catalog-B.yml")
+        // Catalog B (declared): engine entry REMOVED -> missing-entry diagnostic.
+        val catalogB = catalog(engineEntry = null)
+        writeFile(dir, "fixtures/catalog-B.yml", catalogB)
+        val result = runner(dir, "verifyModuleManifest").buildAndFail()
+        assertTrue(
+            result.output.contains("[MODULE_CATALOG_MISSING_ENTRY]"),
+            "must observe the DECLARED catalog B, not the conventional catalog A: ${result.output.take(800)}",
+        )
+    }
+
+    @Test
+    fun `declared catalog file mutation is observed by the configuration cache`() {
+        // CC variant of the exact-file authority: cold -> warm reuse -> mutate
+        // ONLY the declared B file -> task re-executes and observes B's change.
+        val dir = topologyFixture(catalogFileOverride = "fixtures/catalog-B.yml")
+        // Initial B (declared): valid (same modules as the model) -> passes.
+        writeFile(dir, "fixtures/catalog-B.yml", catalog(defaultEngineEntry))
+        val args = arrayOf("verifyModuleManifest", "--configuration-cache", "--configuration-cache-problems=fail")
+
+        val first = runner(dir, *args).build()
+        assertTrue(first.output.contains("Configuration cache entry stored"), "cold run must store: ${first.output.take(800)}")
+        assertTrue(first.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS)
+
+        val second = runner(dir, *args).build()
+        assertTrue(second.output.contains("Reusing configuration cache"), "warm run must reuse: ${second.output.take(800)}")
+        assertTrue(second.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS)
+
+        // Mutate ONLY the declared B file (remove the engine entry -> must fail
+        // against the unchanged project/published/BOM model).
+        writeFile(dir, "fixtures/catalog-B.yml", catalog(engineEntry = null))
+        val third = runner(dir, *args).buildAndFail()
+        assertTrue(
+            third.output.contains("[MODULE_CATALOG_MISSING_ENTRY]"),
+            "mutated declared catalog must be observed and fail: ${third.output.take(800)}",
+        )
+        assertTrue(third.output.contains("Reusing configuration cache"), "CC entry must still be reused after input mutation")
+    }
+
+    @Test
     fun `verifyModuleManifest stores and reuses configuration cache and re-executes on catalog mutation`() {
         val dir = topologyFixture()
         val args = arrayOf("verifyModuleManifest", "--configuration-cache", "--configuration-cache-problems=fail")
@@ -202,6 +250,7 @@ class ModuleTopologyVerificationTest {
         publishableExtra: String? = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom")""",
         bomModules: List<String> = listOf("tramai-core", "tramai-engine"),
         engineEntry: String? = defaultEngineEntry,
+        catalogFileOverride: String? = null,
     ): File {
         val dir = File(tempDir, "topology-${counter.incrementAndGet()}").apply { mkdirs() }
         writeFile(
@@ -218,10 +267,20 @@ class ModuleTopologyVerificationTest {
             } else {
                 ""
             }
+        // Exact-file authority override: point moduleCatalogFile at a
+        // non-conventional path so the P1 kill-the-old-implementation
+        // discriminator can prove the declared file is parsed directly.
+        val catalogOverrideBlock =
+            if (catalogFileOverride != null) {
+                "tasks.named<VerifyModuleManifestTask>(\"verifyModuleManifest\") { moduleCatalogFile.set(layout.projectDirectory.file(\"$catalogFileOverride\")) }"
+            } else {
+                ""
+            }
         writeFile(
             dir,
             "build.gradle.kts",
             """
+            import dev.tramai.build.quality.VerifyModuleManifestTask
             plugins {
                 id("tramai.maintainability-baseline")
             }
@@ -230,6 +289,7 @@ class ModuleTopologyVerificationTest {
             // publishableModules snapshot only reads the extra when it exists at
             // apply time, otherwise it falls back to the module catalog.
             apply(plugin = "tramai.release-verification")
+            $catalogOverrideBlock
             """.trimIndent(),
         )
         writeFile(

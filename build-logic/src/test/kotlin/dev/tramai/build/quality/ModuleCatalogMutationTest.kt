@@ -16,7 +16,6 @@ import kotlin.test.assertTrue
  * DiagnosticCode. Never touches config/quality/ during tests.
  */
 class ModuleCatalogMutationTest {
-
     @TempDir
     lateinit var tempDir: File
 
@@ -27,14 +26,13 @@ class ModuleCatalogMutationTest {
         return tempDir
     }
 
-    private fun realCatalogText(): String =
-        File(repoRoot(), "config/quality/module-catalog.yml").readText()
+    private fun realCatalogText(): String = File(repoRoot(), "config/quality/module-catalog.yml").readText()
 
-    private fun realBoundariesText(): String =
-        File(repoRoot(), "config/quality/module-boundaries.yml").readText()
+    private fun realBoundariesText(): String = File(repoRoot(), "config/quality/module-boundaries.yml").readText()
 
     private fun repoRoot(): File =
-        System.getProperty("tramai.repositoryRoot")
+        System
+            .getProperty("tramai.repositoryRoot")
             ?.let { File(it) }
             ?: error("tramai.repositoryRoot system property not set (wired by build-logic/build.gradle.kts)")
 
@@ -45,14 +43,13 @@ class ModuleCatalogMutationTest {
         return f
     }
 
-    private fun codes(result: ModuleCatalog.CatalogResult): Set<DiagnosticCode> =
-        result.errors.map { it.code }.toSet()
+    private fun codes(result: ModuleCatalog.CatalogResult): Set<DiagnosticCode> = result.errors.map { it.code }.toSet()
 
-    private fun codesOf(diagnostics: List<VerificationDiagnostic>): Set<DiagnosticCode> =
-        diagnostics.map { it.code }.toSet()
+    private fun codesOf(diagnostics: List<VerificationDiagnostic>): Set<DiagnosticCode> = diagnostics.map { it.code }.toSet()
 
     /** The exact committed block for :tramai-core (merge-anchor form). */
-    private val coreBlock = """
+    private val coreBlock =
+        """
         |  - path: ":tramai-core"
         |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
         |    <<: *core
@@ -60,7 +57,7 @@ class ModuleCatalogMutationTest {
         |    publishability: published
         |    apiStability: stable
         |
-    """.trimMargin()
+        """.trimMargin()
 
     // ─── M1 — missing module ───
 
@@ -71,7 +68,7 @@ class ModuleCatalogMutationTest {
         assertNotEquals(realCatalogText(), mutated, "mutation must change content")
         writeCatalog(mutated)
 
-        val catalog = ModuleCatalog(tempDir)
+        val catalog = ModuleCatalog.fromRootDir(tempDir)
         val result = catalog.parse()
         assertEquals(emptySet(), codes(result), "parse itself must stay clean for a valid-remaining catalog")
 
@@ -79,7 +76,7 @@ class ModuleCatalogMutationTest {
         catalog.validateAgainstProjects(result.modules, listOf(":tramai-core"), diagnostics)
         assertTrue(
             codesOf(diagnostics).contains(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY),
-            "expected MODULE_CATALOG_MISSING_ENTRY, got ${codesOf(diagnostics)}"
+            "expected MODULE_CATALOG_MISSING_ENTRY, got ${codesOf(diagnostics)}",
         )
     }
 
@@ -88,9 +85,10 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M2 ghost module - unknown catalog entry fails project validation`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-does-not-exist"
             |    layer: higher-capabilities
             |    publishability: internal
@@ -98,25 +96,26 @@ class ModuleCatalogMutationTest {
             |    <<: *internal
             |
             |$coreBlock
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         writeCatalog(mutated)
 
-        val catalog = ModuleCatalog(tempDir)
+        val catalog = ModuleCatalog.fromRootDir(tempDir)
         val result = catalog.parse()
         // All REAL module paths are the project set; only the ghost is unknown.
-        val realPaths = result.modules.keys
-            .filter { !it.contains("does-not-exist") }
-            .toList()
+        val realPaths =
+            result.modules.keys
+                .filter { !it.contains("does-not-exist") }
+                .toList()
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         catalog.validateAgainstProjects(result.modules, realPaths, diagnostics)
         assertTrue(
             codesOf(diagnostics).contains(DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY),
-            "expected MODULE_CATALOG_UNKNOWN_ENTRY, got ${codesOf(diagnostics)}"
+            "expected MODULE_CATALOG_UNKNOWN_ENTRY, got ${codesOf(diagnostics)}",
         )
         assertTrue(
             diagnostics.any { it.message.contains(":tramai-does-not-exist") },
-            "diagnostic must name the ghost module"
+            "diagnostic must name the ghost module",
         )
     }
 
@@ -125,7 +124,7 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M3 forbidden core dependency - core to openai is rejected`() {
         fixtureDir()
-        val catalog = ModuleCatalog(tempDir)
+        val catalog = ModuleCatalog.fromRootDir(tempDir)
         val catalogResult = catalog.parse()
         assertEquals(emptySet(), codes(catalogResult), "catalog must parse clean before edge check")
 
@@ -141,23 +140,26 @@ class ModuleCatalogMutationTest {
 
     @Test
     fun `M4 dependency cycle - A to B to A is detected`() {
-        val analyzer = ModuleGraphAnalyzer(
-            MeasurementContext.fromDirectory(
-                rootDir = tempDir,
-                catalog = ModuleCatalog(tempDir)
+        val analyzer =
+            ModuleGraphAnalyzer(
+                MeasurementContext.fromDirectory(
+                    rootDir = tempDir,
+                    catalog = ModuleCatalog.fromRootDir(tempDir),
+                ),
             )
-        )
-        val cycles = analyzer.findCycles(
-            nodes = listOf(":a", ":b"),
-            edges = listOf(
-                DependencyEdge(from = ":a", to = ":b", scope = "api"),
-                DependencyEdge(from = ":b", to = ":a", scope = "api"),
+        val cycles =
+            analyzer.findCycles(
+                nodes = listOf(":a", ":b"),
+                edges =
+                    listOf(
+                        DependencyEdge(from = ":a", to = ":b", scope = "api"),
+                        DependencyEdge(from = ":b", to = ":a", scope = "api"),
+                    ),
             )
-        )
         assertTrue(cycles.isNotEmpty(), "A -> B -> A must produce a cycle")
         assertTrue(
             cycles.any { it.toSet() == setOf(":a", ":b") },
-            "cycle must contain exactly A and B, got $cycles"
+            "cycle must contain exactly A and B, got $cycles",
         )
     }
 
@@ -166,29 +168,30 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M5 BOM drift - manifest BOM set vs stale actual BOM set fails with BOM_DRIFT`() {
         fixtureDir()
-        val catalog = ModuleCatalog(tempDir).parse()
+        val catalog = ModuleCatalog.fromRootDir(tempDir).parse()
 
         // Manifest-derived expectation includes tramai-core in the BOM.
         assertTrue(
             ModuleManifest.bomModulePaths(catalog.modules.values).contains(":tramai-core"),
-            "fixture manifest must expect tramai-core in the BOM"
+            "fixture manifest must expect tramai-core in the BOM",
         )
 
         // Deliberately stale actual: BOM constraint graph omits tramai-core.
         val actualBom = ModuleManifest.bomModulePaths(catalog.modules.values).toSet() - ":tramai-core"
-        val diagnostics = ModuleManifestVerifier.verify(
-            catalogModules = catalog.modules,
-            projectPaths = catalog.modules.keys,
-            publishedPaths = ModuleManifest.publishableModulePaths(catalog.modules.values).toSet(),
-            bomPaths = actualBom,
-        )
+        val diagnostics =
+            ModuleManifestVerifier.verify(
+                catalogModules = catalog.modules,
+                projectPaths = catalog.modules.keys,
+                publishedPaths = ModuleManifest.publishableModulePaths(catalog.modules.values).toSet(),
+                bomPaths = actualBom,
+            )
         assertTrue(
             diagnostics.any { it.code == DiagnosticCode.MODULE_CATALOG_BOM_DRIFT },
-            "expected MODULE_CATALOG_BOM_DRIFT, got ${diagnostics.map { it.code }}"
+            "expected MODULE_CATALOG_BOM_DRIFT, got ${diagnostics.map { it.code }}",
         )
         assertTrue(
             diagnostics.any { it.message.contains(":tramai-core") },
-            "BOM drift diagnostic must name the diverging module"
+            "BOM drift diagnostic must name the diverging module",
         )
     }
 
@@ -197,29 +200,30 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M6 publishing drift - manifest published set vs stale actual set fails with PUBLISHING_DRIFT`() {
         fixtureDir()
-        val catalog = ModuleCatalog(tempDir).parse()
+        val catalog = ModuleCatalog.fromRootDir(tempDir).parse()
 
         // Manifest-derived expectation includes tramai-core as publishable.
         assertTrue(
             ModuleManifest.publishableModulePaths(catalog.modules.values).contains(":tramai-core"),
-            "fixture manifest must expect tramai-core published"
+            "fixture manifest must expect tramai-core published",
         )
 
         // Deliberately stale actual: configured publication set omits tramai-core.
         val actualPublished = ModuleManifest.publishableModulePaths(catalog.modules.values).toSet() - ":tramai-core"
-        val diagnostics = ModuleManifestVerifier.verify(
-            catalogModules = catalog.modules,
-            projectPaths = catalog.modules.keys,
-            publishedPaths = actualPublished,
-            bomPaths = ModuleManifest.bomModulePaths(catalog.modules.values).toSet(),
-        )
+        val diagnostics =
+            ModuleManifestVerifier.verify(
+                catalogModules = catalog.modules,
+                projectPaths = catalog.modules.keys,
+                publishedPaths = actualPublished,
+                bomPaths = ModuleManifest.bomModulePaths(catalog.modules.values).toSet(),
+            )
         assertTrue(
             diagnostics.any { it.code == DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT },
-            "expected MODULE_CATALOG_PUBLISHING_DRIFT, got ${diagnostics.map { it.code }}"
+            "expected MODULE_CATALOG_PUBLISHING_DRIFT, got ${diagnostics.map { it.code }}",
         )
         assertTrue(
             diagnostics.any { it.message.contains(":tramai-core") },
-            "publishing drift diagnostic must name the diverging module"
+            "publishing drift diagnostic must name the diverging module",
         )
     }
 
@@ -230,30 +234,31 @@ class ModuleCatalogMutationTest {
         fixtureDir()
         // Turn tramai-core into a fully VALID internal module; the derivation guard
         // (ModuleManifest) must drop it from both the publishable set and the BOM set.
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    <<: *internal
             |    layer: core-contracts
             |    publishability: internal
             |    apiStability: internal
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         assertNotEquals(realCatalogText(), mutated, "mutation must change content")
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertEquals(emptySet(), codes(result), "mutation must stay parse-valid to test derivation")
 
         assertTrue(
             !ModuleManifest.publishableModulePaths(tempDir).contains(":tramai-core"),
-            "internal module must not be publishable"
+            "internal module must not be publishable",
         )
         assertTrue(
             !ModuleManifest.bomModulePaths(tempDir).contains(":tramai-core"),
-            "internal module must not be in BOM"
+            "internal module must not be in BOM",
         )
     }
 
@@ -262,9 +267,10 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M7 blank owner and rationale are rejected`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
@@ -273,21 +279,22 @@ class ModuleCatalogMutationTest {
             |    apiStability: stable
             |    owner: ""
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         assertNotEquals(realCatalogText(), mutated, "owner mutation must change content")
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(result).contains(DiagnosticCode.MODULE_CATALOG_BLANK_OWNER),
-            "expected MODULE_CATALOG_BLANK_OWNER, got ${codes(result)}"
+            "expected MODULE_CATALOG_BLANK_OWNER, got ${codes(result)}",
         )
 
         // Now blank rationale on the same base.
-        val mutated2 = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated2 =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
@@ -296,13 +303,13 @@ class ModuleCatalogMutationTest {
             |    apiStability: stable
             |    rationale: ""
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         writeCatalog(mutated2)
-        val result2 = ModuleCatalog(tempDir).parse()
+        val result2 = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(result2).contains(DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE),
-            "expected MODULE_CATALOG_BLANK_RATIONALE, got ${codes(result2)}"
+            "expected MODULE_CATALOG_BLANK_RATIONALE, got ${codes(result2)}",
         )
     }
 
@@ -311,9 +318,10 @@ class ModuleCatalogMutationTest {
     @Test
     fun `M8 invalid policy - banana is rejected`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    description: "Core annotations, request models, provider registry, and exception types for Tramai."
             |    <<: *core
@@ -322,19 +330,19 @@ class ModuleCatalogMutationTest {
             |    apiStability: stable
             |    dependencyPolicy: banana
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         assertNotEquals(realCatalogText(), mutated, "policy mutation must change content")
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(result).contains(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY),
-            "expected MODULE_CATALOG_INVALID_POLICY, got ${codes(result)}"
+            "expected MODULE_CATALOG_INVALID_POLICY, got ${codes(result)}",
         )
         assertTrue(
             result.errors.any { it.message.contains("banana") },
-            "error must name the unknown policy"
+            "error must name the unknown policy",
         )
     }
 
@@ -343,20 +351,20 @@ class ModuleCatalogMutationTest {
     @Test
     fun `D1 schema v3 accepted and v2 rejected`() {
         fixtureDir()
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertEquals(
             emptySet(),
             codes(result),
-            "committed schema v3 catalog must parse clean, got ${codes(result)}"
+            "committed schema v3 catalog must parse clean, got ${codes(result)}",
         )
 
         val v2 = realCatalogText().replace("schemaVersion: \"3\"", "schemaVersion: \"2\"")
         assertNotEquals(realCatalogText(), v2, "schema downgrade must change content")
         writeCatalog(v2)
-        val downgraded = ModuleCatalog(tempDir).parse()
+        val downgraded = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(downgraded).contains(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA),
-            "schema v2 must be rejected, got ${codes(downgraded)}"
+            "schema v2 must be rejected, got ${codes(downgraded)}",
         )
     }
 
@@ -365,33 +373,35 @@ class ModuleCatalogMutationTest {
     @Test
     fun `D2 published module missing description is rejected`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    <<: *core
             |    layer: core-contracts
             |    publishability: published
             |    apiStability: stable
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         assertNotEquals(realCatalogText(), mutated, "description-removal must change content")
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
-            "expected MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}"
+            "expected MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}",
         )
     }
 
     @Test
     fun `D3 published module blank description is rejected with same code`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    description: "   "
             |    <<: *core
@@ -399,14 +409,14 @@ class ModuleCatalogMutationTest {
             |    publishability: published
             |    apiStability: stable
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
-            "blank description must produce MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}"
+            "blank description must produce MODULE_CATALOG_MISSING_DESCRIPTION, got ${codes(result)}",
         )
     }
 
@@ -415,24 +425,25 @@ class ModuleCatalogMutationTest {
     @Test
     fun `D4 internal module without description parses clean`() {
         fixtureDir()
-        val mutated = realCatalogText().replace(
-            coreBlock,
-            """
+        val mutated =
+            realCatalogText().replace(
+                coreBlock,
+                """
             |  - path: ":tramai-core"
             |    <<: *internal
             |    layer: core-contracts
             |    publishability: internal
             |    apiStability: internal
             |
-            """.trimMargin()
-        )
+                """.trimMargin(),
+            )
         assertNotEquals(realCatalogText(), mutated, "internal mutation must change content")
         writeCatalog(mutated)
 
-        val result = ModuleCatalog(tempDir).parse()
+        val result = ModuleCatalog.fromRootDir(tempDir).parse()
         assertTrue(
             !codes(result).contains(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION),
-            "internal module must not require a description, got ${codes(result)}"
+            "internal module must not require a description, got ${codes(result)}",
         )
     }
 
@@ -441,7 +452,7 @@ class ModuleCatalogMutationTest {
     @Test
     fun `D5 published descriptions exactly match the legacy projectDescription policy`() {
         fixtureDir()
-        val catalog = ModuleCatalog(tempDir).parse()
+        val catalog = ModuleCatalog.fromRootDir(tempDir).parse()
         assertEquals(emptySet(), codes(catalog), "catalog must parse clean, got ${codes(catalog)}")
 
         val legacy = LegacyPublicationDescriptions.byModule()

@@ -14,7 +14,6 @@ import java.io.File
  * semantics are identical to the historical root build script.
  */
 class TramaiReleaseVerificationPlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
         registerVerifyPublicationMetadata(project)
         registerVerifyPublishedLocalArtifacts(project)
@@ -31,9 +30,10 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
      * that have neither.
      */
     private fun publishableModuleNames(project: Project): List<String> {
-        val fromExtra = (project.rootProject.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-            ?.map { it.toString().removePrefix(":") }
-            .orEmpty()
+        val fromExtra =
+            (project.rootProject.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                ?.map { it.toString().removePrefix(":") }
+                .orEmpty()
         if (fromExtra.isNotEmpty()) return fromExtra.sorted()
         return runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
             .getOrDefault(emptyList())
@@ -41,8 +41,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             .sorted()
     }
 
-    private fun jarPublicationModuleNames(project: Project): List<String> =
-        publishableModuleNames(project) - "tramai-bom"
+    private fun jarPublicationModuleNames(project: Project): List<String> = publishableModuleNames(project) - "tramai-bom"
 
     /**
      * Publication descriptions, resolved from the module catalog (9.2c-c).
@@ -62,13 +61,13 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
      * TestKit fixtures without a catalog still configure cleanly.
      */
     private fun catalogDescriptions(project: Project): Map<String, String> {
-        val catalog = ModuleCatalog(project.rootDir).parse()
-        return publishableModuleNames(project).mapNotNull { moduleName ->
-            val description = catalog.modules[":$moduleName"]?.description?.takeIf { it.isNotBlank() }
-            description?.let { moduleName to it }
-        }.toMap()
+        val catalog = ModuleCatalog.fromRootDir(project.rootDir).parse()
+        return publishableModuleNames(project)
+            .mapNotNull { moduleName ->
+                val description = catalog.modules[":$moduleName"]?.description?.takeIf { it.isNotBlank() }
+                description?.let { moduleName to it }
+            }.toMap()
     }
-
 
     private fun registerVerifyPublicationMetadata(project: Project) {
         project.tasks.register<VerifyPublicationMetadataTask>("verifyPublicationMetadata") {
@@ -82,10 +81,19 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             expectedProjectUrl.set(project.providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI"))
             expectedScmUrl.set(project.providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git"))
-            expectedScmConnection.set(project.providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git"))
-            expectedScmDeveloperConnection.set(project.providers.gradleProperty("tramaiScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/GionaGranchelli/tramAI.git"))
+            expectedScmConnection.set(
+                project.providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git"),
+            )
+            expectedScmDeveloperConnection.set(
+                project.providers
+                    .gradleProperty(
+                        "tramaiScmDeveloperConnection",
+                    ).orElse("scm:git:ssh://git@github.com/GionaGranchelli/tramAI.git"),
+            )
             expectedLicenseName.set(project.providers.gradleProperty("tramaiLicenseName").orElse("Apache-2.0"))
-            expectedLicenseUrl.set(project.providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt"))
+            expectedLicenseUrl.set(
+                project.providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt"),
+            )
             expectedDeveloperId.set(project.providers.gradleProperty("tramaiDeveloperId").orElse("GionaGranchelli"))
             expectedDeveloperName.set(project.providers.gradleProperty("tramaiDeveloperName").orElse("Giona"))
             expectedDeveloperEmail.set(project.providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev"))
@@ -96,7 +104,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             pomFiles.from(
                 publishableModuleNames.map { moduleName ->
                     project.layout.projectDirectory.file("$moduleName/build/publications/maven/pom-default.xml")
-                }
+                },
             )
             dependsOn(publishableModuleNames.map { ":$it:generatePomFileForMavenPublication" })
         }
@@ -115,8 +123,9 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
 
             // Resolved through a Provider so the task never touches System.getProperty
             repositoryDirectory.fileProvider(
-                project.providers.systemProperty("user.home")
-                    .map { home -> File(home, ".m2/repository/${expectedGroup.get().replace('.', '/')}") }
+                project.providers
+                    .systemProperty("user.home")
+                    .map { home -> File(home, ".m2/repository/${expectedGroup.get().replace('.', '/')}") },
             )
             dependsOn(publishableModuleNames.map { ":$it:publishToMavenLocal" })
         }
@@ -127,11 +136,36 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             group = "verification"
             description = "Verifies that the properties required for a real remote release publish are present."
 
-            releaseUrlPresent.set(project.providers.gradleProperty("tramaiPublishReleaseUrl").map { it.isNotBlank() }.orElse(false))
-            usernamePresent.set(project.providers.gradleProperty("tramaiPublishUsername").map { it.isNotBlank() }.orElse(false))
-            passwordPresent.set(project.providers.gradleProperty("tramaiPublishPassword").map { it.isNotBlank() }.orElse(false))
-            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() }.orElse(false))
-            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() }.orElse(false))
+            releaseUrlPresent.set(
+                project.providers
+                    .gradleProperty("tramaiPublishReleaseUrl")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
+            usernamePresent.set(
+                project.providers
+                    .gradleProperty("tramaiPublishUsername")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
+            passwordPresent.set(
+                project.providers
+                    .gradleProperty("tramaiPublishPassword")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
+            signingKeyPresent.set(
+                project.providers
+                    .gradleProperty("signingKey")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
+            signingPasswordPresent.set(
+                project.providers
+                    .gradleProperty("signingPassword")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
             tramaiVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
         }
     }
@@ -146,8 +180,18 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             expectedGroup.set(project.providers.gradleProperty("tramaiGroup").orElse("dev.tramai"))
             this.publishableModules.set(publishableModuleNames)
-            signingKeyPresent.set(project.providers.gradleProperty("signingKey").map { it.isNotBlank() }.orElse(false))
-            signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() }.orElse(false))
+            signingKeyPresent.set(
+                project.providers
+                    .gradleProperty("signingKey")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
+            signingPasswordPresent.set(
+                project.providers
+                    .gradleProperty("signingPassword")
+                    .map { it.isNotBlank() }
+                    .orElse(false),
+            )
 
             val version = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0")
             val releaseUrl = project.providers.gradleProperty("tramaiPublishReleaseUrl")
@@ -159,13 +203,20 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                         releaseUrl.orNull,
                         snapshotUrl.orNull,
                     )
-                }
+                },
             )
             repositoryDirectory.fileProvider(
                 repositoryUrl.map { url ->
-                    if (url.isNullOrBlank()) File(project.layout.projectDirectory.dir("build/verify-signed-publication-repo").asFile.absolutePath)
-                    else File(java.net.URI(url))
-                }
+                    if (url.isNullOrBlank()) {
+                        File(
+                            project.layout.projectDirectory
+                                .dir("build/verify-signed-publication-repo")
+                                .asFile.absolutePath,
+                        )
+                    } else {
+                        File(java.net.URI(url))
+                    }
+                },
             )
             dependsOn(publishableModuleNames.map { ":$it:publish" })
         }
@@ -178,7 +229,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
 
             val jarPublicationModuleNames = jarPublicationModuleNames(project)
             dependsOn(
-                jarPublicationModuleNames.map { ":${it}:test" },
+                jarPublicationModuleNames.map { ":$it:test" },
                 "verifyPublicationMetadata",
                 "verifyPublishedLocalArtifacts",
                 "verifySovereignOpsObservabilityDocs",

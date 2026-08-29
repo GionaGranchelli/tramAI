@@ -63,8 +63,9 @@ abstract class VerifyModuleManifestTask : DefaultTask() {
     @TaskAction
     fun verify() {
         val catalogFile = moduleCatalogFile.get().asFile
-        // config/quality/module-catalog.yml -> rootDir = three parents up.
-        val catalog = ModuleManifest.catalog(catalogFile.parentFile.parentFile.parentFile)
+        // Exact-file authority: the declared catalog input IS the file parsed
+        // (a3 discipline — never re-discover a conventional path from it).
+        val catalog = ModuleManifest.catalogFile(catalogFile)
         val diagnostics =
             ModuleManifestVerifier.verify(
                 catalogModules = catalog.modules,
