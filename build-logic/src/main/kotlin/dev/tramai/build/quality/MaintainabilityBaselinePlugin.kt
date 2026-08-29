@@ -10,6 +10,7 @@ import org.gradle.api.tasks.JavaExec
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.testing.jacoco.tasks.JacocoReport
+import org.gradle.kotlin.dsl.register
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -919,16 +920,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
-        project.tasks.register("verifyModuleMatrixDrift") {
+        project.tasks.register<ModuleMatrixDriftVerifierTask>("verifyModuleMatrixDrift") {
             group = "verification"
             description = "Fails when docs/reference/module-matrix.md differs from the manifest"
-            doLast {
-                val target = File(project.rootDir, "docs/reference/module-matrix.md")
-                val expected = ModuleManifest.matrix(project.rootDir)
-                if (!target.isFile || target.readText() != expected) throw GradleException(
-                    "[${DiagnosticCode.GENERATED_DOCUMENT_DRIFT}] Module matrix drift: run ./gradlew generateModuleMatrix"
-                )
-            }
+            this.rootDir.set(project.rootDir)
+            moduleMatrixFile.set(project.layout.projectDirectory.file("docs/reference/module-matrix.md"))
+            moduleCatalogFile.from(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
         }
 
         val enrollmentTest = project.tasks.register("architectureContractEnrollmentTest", Test::class.java) {
@@ -1071,6 +1068,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             ":examples:java-consumer-smoke",
             "src/main/java",
             "java",
+            "java",
         )
         registerConsumerCompatibilityTask(
             project,
@@ -1078,6 +1076,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             ":examples:kotlin-consumer-smoke",
             "src/main/kotlin",
             "kotlin",
+            "org.jetbrains.kotlin.jvm",
         )
         project.tasks.named("verify060Architecture") {
             dependsOn(
@@ -1122,20 +1121,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // Kotlin expression-bodied tests ending in a chainable assertion compile
         // to non-void methods and are silently never discovered. This task scans
         // every test source and fails on non-Unit expression-bodied @Test fns.
-        project.tasks.register("verifyJUnitTestSignatures") {
+        project.tasks.register<JUnitTestSignatureVerifierTask>("verifyJUnitTestSignatures") {
             group = "verification"
             description = "Fails if any @Test function uses an expression body whose inferred " +
                 "return type is not provably Unit (JUnit silently skips non-void @Test methods)."
-            doLast {
-                val violations = JUnitTestSignatureVerifier.scan(project.rootDir.toPath())
-                if (violations.isNotEmpty()) {
-                    throw GradleException(
-                        "verifyJUnitTestSignatures: ${violations.size} @Test function(s) with " +
-                            "non-Unit expression bodies would be silently skipped by JUnit.\n" +
-                            JUnitTestSignatureVerifier.render(violations),
-                    )
-                }
-            }
+            this.scanRoot.set(project.rootDir)
+            // FileTree base is rootDir; exclude task-output dirs (build/,
+            // api/) or Gradle 9 flags the input as overlapping a task output.
+            // The scanner itself only inspects src/test|src/testFixtures .kt,
+            // so excluding outputs changes no semantics.
+            testSources.from(project.fileTree(project.rootDir) {
+                include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
+                exclude("**/build/**", "**/api/**")
+            })
         }
         verifyPr.configure {
             dependsOn("verifyJUnitTestSignatures")
@@ -1540,100 +1538,59 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         modulePath: String,
         sourceRelPath: String,
         extension: String,
+        languagePluginId: String,
     ) {
-        val fixture = project.project(modulePath)
         // D6: the producer task belongs to the FIXTURE project, which owns its
         // configurations. Resolving them inside the task action is therefore
         // legal (project-owned, lazy, execution-phase) — a root task resolving
         // a foreign project's configuration would trip the exclusive-lock rule.
-        val markerFile = fixture.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
-        val classesDir = fixture.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
-        val sourcesProvider = fixture.provider {
-            File(fixture.projectDir, sourceRelPath)
-                .walkTopDown()
-                .filter { it.isFile && it.extension == (if (extension == "kotlin") "kt" else "java") }
-                .map { it.absolutePath }
-                .toList()
-        }
+        // The fixture project applies its language plugin after the root plugin
+        // block, so register lazily via withPlugin: JavaToolchainService only
+        // exists then, and launcherFor/compilerFor providers are CC-serializable.
+        // fixture lookup happens inside the callback so a build that does not
+        // include the fixture (TestKit, minimal settings) never trips eagerly.
+        project.rootProject.subprojects.forEach { fixture ->
+            if (fixture.path != modulePath) return@forEach
+            fixture.pluginManager.withPlugin(languagePluginId) {
+                val markerFile = fixture.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
+                val classesDir = fixture.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
 
-        fixture.tasks.register(taskName) {
-            group = "verification"
-            description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"
+                fixture.tasks.register<ConsumerSmokeCompileTask>(taskName) {
+                    group = "verification"
+                    description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"
 
-            // Only the dependency's jar must exist for the classpath. The
-            // fixture's own compile tasks are deliberately NOT dependencies:
-            // compileKotlin has no failOnError and would abort the graph
-            // before verify060Architecture's report is written (C3/C4).
-            dependsOn(":tramai-core:jar")
+                    // Only the dependency's jar must exist for the classpath. The
+                    // fixture's own compile tasks are deliberately NOT dependencies:
+                    // compileKotlin has no failOnError and would abort the graph
+                    // before verify060Architecture's report is written (C3/C4).
+                    dependsOn(":tramai-core:jar")
 
-            doLast {
-                val sources = sourcesProvider.get()
-                // Project-owned configuration resolution at execution time:
-                // this task lives in the fixture project, so its own
-                // configurations are locked and resolvable here (D6).
-                val classpath = fixture.configurations.getByName("compileClasspath").asPath
-                val k2jvmClasspath = if (extension == "kotlin") {
-                    fixture.configurations.getByName("kotlinCompilerClasspath").asPath
-                } else {
-                    ""
-                }
-                val outDir = classesDir.get().asFile.apply { mkdirs() }
-                outDir.listFiles()?.forEach { it.deleteRecursively() }
-                var exitCode = -1
-                if (extension == "java") {
+                    this.extension.set(extension)
+                    this.workDir.set(project.rootDir)
                     val toolchains = fixture.extensions.getByType(JavaToolchainService::class.java)
-                    val compiler = toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-                    val javac = compiler.get().executablePath.toString()
-                    exitCode = runProcess(
-                        listOf(javac, "-cp", classpath, "-d", outDir.absolutePath) + sources,
-                        project.rootDir,
-                        project,
-                    )
-                } else {
-                    exitCode = runProcess(
-                        listOf(
-                            javaLauncherExecutable(fixture),
-                            "-cp", k2jvmClasspath,
-                            "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-                            "-classpath", classpath,
-                            "-d", outDir.absolutePath,
-                        ) + sources,
-                        project.rootDir,
-                        project,
-                    )
-                }
-                val classCount = outDir.walkTopDown().count { it.isFile && it.extension == "class" }
-                val marker = mapOf(
-                    "sources" to sources.size,
-                    "classes" to classCount,
-                    "exitCode" to exitCode,
-                    "ok" to (sources.isNotEmpty() && classCount > 0 && exitCode == 0),
-                )
-                markerFile.get().asFile.apply {
-                    parentFile.mkdirs()
-                    writeText(ReportNormalizer.toJson(marker))
+                    if (extension == "java") {
+                        this.javacExecutable.set(
+                            toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                .map { it.executablePath.toString() }
+                        )
+                    } else {
+                        this.javaExecutable.set(
+                            toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                .map { it.executablePath.toString() }
+                        )
+                    }
+                    this.classesDir.set(classesDir)
+                    this.markerFile.set(markerFile)
+                    sources.from(fixture.fileTree(fixture.projectDir) {
+                        include("**/$sourceRelPath/**/*.${if (extension == "kotlin") "kt" else "java"}")
+                    })
+                    compileClasspath.from(fixture.configurations.getByName("compileClasspath"))
+                    if (extension == "kotlin") {
+                        kotlinCompilerClasspath.from(fixture.configurations.getByName("kotlinCompilerClasspath"))
+                    }
                 }
             }
         }
-    }
-
-    private fun runProcess(command: List<String>, workDir: File, project: Project): Int {
-        val process = ProcessBuilder(command)
-            .directory(workDir)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().readText()
-        val exit = process.waitFor()
-        if (exit != 0) {
-            project.logger.warn("consumer compile failed (exit $exit):\n${output.take(1500)}")
-        }
-        return exit
-    }
-
-    private fun javaLauncherExecutable(project: Project): String {
-        val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
-        val launcher = toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-        return launcher.get().executablePath.toString()
     }
 
     /**
