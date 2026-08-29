@@ -38,6 +38,20 @@ jobs:
           echo "TramaiEngine.kt sha256=$(sha256sum tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt | cut -d' ' -f1)"
           echo "TramaiEngineTest.kt sha256=$(sha256sum tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt | cut -d' ' -f1)"
 
+      - name: Verify Kotlin formatting against PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          ./gradlew spotlessCheck \
+            --no-daemon \
+            -PtramaiFormattingBaseRef="${{ github.event.pull_request.base.sha }}"
+
+      - name: Verify Kotlin formatting against previous master
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          ./gradlew spotlessCheck \
+            --no-daemon \
+            -PtramaiFormattingBaseRef="${{ github.event.before }}"
+
       - name: Run tests
         timeout-minutes: 15
         run: |

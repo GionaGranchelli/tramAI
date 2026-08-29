@@ -1,5 +1,7 @@
 [versions]
 kotlin = "2.3.0"
+spotless = "8.10.1"
+ktlint = "1.8.0"
 coroutines = "1.10.2"
 junit = "5.12.2"
 assertj = "3.27.7"
@@ -70,6 +72,7 @@ tramai-testing = { module = "dev.tramai:tramai-testing", version.ref = "tramai" 
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 sonarqube = { id = "org.sonarqube", version = "6.2.0.5505" }
 cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.2.4" }
 bcv = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version = "0.16.3" }
