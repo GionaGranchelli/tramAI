@@ -14,16 +14,46 @@ import java.io.File
 object ReleaseManifestVerifier {
 
     fun verify(manifestDir: File, artifactsDir: File) {
-        val manifestFile = manifestDir.resolve("release-artifacts-v1.json")
+        verifyCore(
+            manifestFile = manifestDir.resolve("release-artifacts-v1.json"),
+            artifactsDir = artifactsDir,
+            artifactFiles = null,
+        )
+    }
+
+    /**
+     * Declared-input authority entry point: the manifest file and the exact
+     * artifact files ARE the verification input. No directory enumeration —
+     * an undeclared file in the artifacts directory is invisible.
+     */
+    fun verify(manifestFile: File, artifactFiles: Collection<File>) {
+        verifyCore(
+            manifestFile = manifestFile,
+            artifactsDir = artifactFiles.firstOrNull()?.parentFile,
+            artifactFiles = artifactFiles,
+        )
+    }
+
+    private fun verifyCore(manifestFile: File, artifactsDir: File?, artifactFiles: Collection<File>?) {
+        val hasArtifactFiles = artifactFiles != null
 
         // 1. Manifest file must exist
         require(manifestFile.exists()) {
             "sovereign-release-manifest-missing: ${manifestFile.absolutePath}"
         }
 
-        // 2. Artifacts directory must exist
-        require(artifactsDir.isDirectory()) {
-            "sovereign-release-artifacts-dir-missing: ${artifactsDir.absolutePath}"
+        // 2. Artifacts must be present: declared-input mode requires a
+        // non-empty collection; directory mode requires the directory to exist
+        // (an empty dir passes, preserving historical ordering where manifest
+        // errors surface before jar checks).
+        if (hasArtifactFiles) {
+            require(artifactFiles!!.isNotEmpty()) {
+                "sovereign-release-artifacts-dir-missing: ${artifactsDir?.absolutePath ?: "<none>"}"
+            }
+        } else {
+            require(artifactsDir!!.isDirectory()) {
+                "sovereign-release-artifacts-dir-missing: ${artifactsDir.absolutePath}"
+            }
         }
 
         // 3. Parse JSON (fail closed on malformed content)
@@ -130,9 +160,14 @@ object ReleaseManifestVerifier {
 
             manifestFileNames.add(fileName)
 
-            // 14. File must exist on disk
-            val jarFile = artifactsDir.resolve(fileName)
-            require(jarFile.exists()) {
+            // 14. File must exist on disk (declared-input mode: only declared
+            // files are visible; directory mode: resolve inside the dir)
+            val jarFile = if (hasArtifactFiles) {
+                artifactFiles!!.firstOrNull { it.name == fileName }
+            } else {
+                artifactsDir!!.resolve(fileName).takeIf { it.exists() }
+            }
+            require(jarFile != null) {
                 "sovereign-release-artifact-missing: $fileName"
             }
 
@@ -149,8 +184,14 @@ object ReleaseManifestVerifier {
             }
         }
 
-        // 17. Reject unlisted .jar files in the artifacts directory
-        val actualJars = artifactsDir.listFiles { f -> f.name.endsWith(".jar") }?.toList() ?: emptyList()
+        // 17. Reject unlisted .jar files (declared-input mode: only declared
+        // files are visible, an undeclared file in the directory is invisible;
+        // directory mode: enumerate the directory as before)
+        val actualJars = if (hasArtifactFiles) {
+            artifactFiles!!.filter { it.name.endsWith(".jar") }
+        } else {
+            artifactsDir!!.listFiles { f -> f.name.endsWith(".jar") }?.toList() ?: emptyList()
+        }
         for (jarFile in actualJars) {
             require(jarFile.name in manifestFileNames) {
                 "sovereign-release-artifact-unlisted: ${jarFile.name}"

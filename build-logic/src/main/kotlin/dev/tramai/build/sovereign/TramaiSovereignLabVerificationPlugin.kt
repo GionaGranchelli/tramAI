@@ -12,10 +12,12 @@ import org.gradle.kotlin.dsl.register
  *
  * The zero-egress report (build/zero-egress-report files) is produced by
  * scripts/verify-zero-egress.sh — a shell harness, not a Gradle task — so no
- * producer edge exists for it; CI order covers it. The other upstream
- * producers (prepareCycloneDxBom, prepareSovereignReleaseArtifacts,
- * verifySovereignReleaseManifest) are wired as task dependencies when they
- * exist in the project.
+ * producer edge exists for it; CI order covers it. prepareSovereignEvidenceBundle
+ * deliberately has NO producer edges: its file-exists requires are the ordering
+ * guarantee, and wiring cyclonedxBom would drag the pre-existing
+ * prepareCycloneDxBom configuration-cache offender into the task graph.
+ * verifySovereignEvidenceBundleReleaseManifest depends on prepareSovereignEvidenceBundle
+ * because prepare writes its inputs (Gradle 9 undeclared-output validation).
  */
 class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
 
@@ -78,7 +80,6 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
             group = "verification"
             description = "Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."
 
-            bundleReleaseDirectory.set(project.layout.buildDirectory.dir("sovereign-evidence/release"))
             manifestFile.set(project.layout.buildDirectory.file("sovereign-evidence/release/release-artifacts-v1.json"))
             artifactJars.from(
                 project.layout.buildDirectory.dir("sovereign-evidence/release/artifacts")

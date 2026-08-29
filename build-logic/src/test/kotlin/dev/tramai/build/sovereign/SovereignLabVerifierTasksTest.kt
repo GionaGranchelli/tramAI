@@ -300,6 +300,40 @@ class SovereignLabVerifierTasksTest {
         assertContains(result.output, "sovereign-evidence-missing-evidence-pack")
     }
 
+    @Test
+    fun `prepareSovereignEvidenceBundle copies ONLY the declared artifactsJars, not directory contents`() {
+        // Discriminator for the declared-input authority rule: the source
+        // directory contains A.jar AND B.jar, but the task's declared
+        // artifactsJars is overridden to A.jar only. The old implementation
+        // (directory enumeration) would copy both; the typed contract copies
+        // only the declared authority.
+        val dir = fixture()
+        val aBytes = "jar-a".toByteArray()
+        val bBytes = "jar-b".toByteArray()
+        writeEvidenceBundleInputs(
+            dir,
+            jars = mapOf(
+                "a-0.1.0.jar" to aBytes,
+                "b-0.1.0.jar" to bBytes,
+            ),
+        )
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.sovereign-lab-verification") }
+            tasks.named<dev.tramai.build.sovereign.PrepareSovereignEvidenceBundleTask>("prepareSovereignEvidenceBundle") {
+                artifactsJars.setFrom(file("build/sovereign-release/artifacts/a-0.1.0.jar"))
+            }
+            """.trimIndent(),
+        )
+        runTask(dir, "prepareSovereignEvidenceBundle")
+
+        val artifactsDir = File(dir, "build/sovereign-evidence/release/artifacts")
+        assertTrue(File(artifactsDir, "a-0.1.0.jar").isFile, "declared jar must be copied")
+        assertTrue(!File(artifactsDir, "b-0.1.0.jar").exists(), "undeclared directory jar must NOT be copied")
+    }
+
     // ------------------------------------------------------------------
     // verifySovereignEvidenceBundleReleaseManifest
     // ------------------------------------------------------------------
@@ -320,6 +354,39 @@ class SovereignLabVerifierTasksTest {
         writeEvidenceBundleInputs(dir, jars = mapOf("present-0.1.0.jar" to jarBytes), manifest = manifest)
         val result = runner(dir, "verifySovereignEvidenceBundleReleaseManifest").buildAndFail()
         assertContains(result.output, "sovereign-release-artifact-missing: ghost-0.1.0.jar")
+    }
+
+    @Test
+    fun `verifySovereignEvidenceBundleReleaseManifest ignores jars outside the declared artifactJars`() {
+        // Discriminator for the declared-input authority rule: the artifacts
+        // directory physically contains A.jar AND B.jar, but the task's
+        // declared artifactJars is overridden to A.jar only and the manifest
+        // lists A.jar only. The old implementation (directory enumeration)
+        // would fail with artifact-unlisted: B.jar; the typed contract
+        // verifies ONLY the declared inputs.
+        val dir = fixture()
+        val aBytes = "jar-a".toByteArray()
+        val bBytes = "jar-b".toByteArray()
+        val manifest = releaseManifestJson("a-0.1.0.jar" to aBytes)
+        writeEvidenceBundleInputs(
+            dir,
+            jars = mapOf(
+                "a-0.1.0.jar" to aBytes,
+                "b-0.1.0.jar" to bBytes,
+            ),
+            manifest = manifest,
+        )
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.sovereign-lab-verification") }
+            tasks.named<dev.tramai.build.sovereign.VerifySovereignEvidenceBundleReleaseManifestTask>("verifySovereignEvidenceBundleReleaseManifest") {
+                artifactJars.setFrom(file("build/sovereign-release/artifacts/a-0.1.0.jar"))
+            }
+            """.trimIndent(),
+        )
+        runTask(dir, "verifySovereignEvidenceBundleReleaseManifest")
     }
 
     // ------------------------------------------------------------------

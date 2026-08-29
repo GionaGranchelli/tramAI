@@ -512,7 +512,11 @@ abstract class PrepareSovereignEvidenceBundleTask : DefaultTask() {
         require(sbomDigest.exists()) { "sovereign-evidence-missing-sbom-digest" }
         require(releaseManifest.exists()) { "sovereign-evidence-missing-release-manifest" }
         require(releaseArtifactsSrc.isDirectory()) { "sovereign-evidence-missing-release-artifacts-dir" }
-        val jarFiles = releaseArtifactsSrc.listFiles { f -> f.name.endsWith(".jar") }?.toList() ?: emptyList()
+        // Declared input authority: artifactsJars determines the JAR inputs,
+        // NOT whatever happens to be in the directory (9.2d input-model rule).
+        val jarFiles = artifactsJars.files
+            .filter { it.isFile && it.extension == "jar" }
+            .sortedBy { it.name }
         require(jarFiles.isNotEmpty()) { "sovereign-evidence-empty-release-artifacts-dir" }
 
         // Clean output
@@ -546,10 +550,6 @@ abstract class PrepareSovereignEvidenceBundleTask : DefaultTask() {
 @DisableCachingByDefault(because = "Verification task has no output artifact")
 abstract class VerifySovereignEvidenceBundleReleaseManifestTask : DefaultTask() {
 
-    /** build/sovereign-evidence/release — passed to the verifier as manifestDir. */
-    @get:Internal
-    abstract val bundleReleaseDirectory: DirectoryProperty
-
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -562,9 +562,12 @@ abstract class VerifySovereignEvidenceBundleReleaseManifestTask : DefaultTask() 
 
     @TaskAction
     fun verify() {
-        val manifestDir = bundleReleaseDirectory.get().asFile
-        val artifactsDir = manifestDir.resolve("artifacts")
-        ReleaseManifestVerifier.verify(manifestDir, artifactsDir)
+        // Declared-input authority: manifestFile + artifactJars ARE the
+        // verification input; no hidden directory enumeration.
+        ReleaseManifestVerifier.verify(
+            manifestFile = manifestFile.get().asFile,
+            artifactFiles = artifactJars.files,
+        )
     }
 }
 
