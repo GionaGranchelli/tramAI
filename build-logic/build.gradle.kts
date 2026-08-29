@@ -64,6 +64,10 @@ gradlePlugin {
             id = "tramai.sovereign-verification"
             implementationClass = "dev.tramai.build.sovereign.TramaiSovereignVerificationPlugin"
         }
+        create("tramaiSovereignLabVerification") {
+            id = "tramai.sovereign-lab-verification"
+            implementationClass = "dev.tramai.build.sovereign.TramaiSovereignLabVerificationPlugin"
+        }
         create("tramaiKotlinLibrary") {
             id = "tramai.kotlin-library"
             implementationClass = "dev.tramai.build.conventions.TramaiKotlinLibraryPlugin"
