@@ -88,5 +88,9 @@ gradlePlugin {
             id = "tramai.docs-guards"
             implementationClass = "dev.tramai.build.docs.TramaiDocsGuardsPlugin"
         }
+        create("tramaiStaticAnalysis") {
+            id = "tramai.static-analysis"
+            implementationClass = "dev.tramai.build.quality.StaticAnalysisPlugin"
+        }
     }
 }

@@ -92,9 +92,9 @@ object ChangePolicyEvaluator {
             if (!baselineChanged) {
                 violations.add(
                     PolicyViolation("production-baseline-separation",
-                        "A baseline-migration PR must change the canonical baseline " +
-                            "(config/quality/0.6.0-baseline.json). " +
-                            "Found no changes to that file.")
+                        "A baseline-migration PR must change at least one canonical baseline " +
+                            "(config/quality/0.6.0-baseline.json or config/detekt/baseline.xml). " +
+                            "Found no changes to any canonical baseline.")
                 )
             }
             // MUST include an analyzer change
@@ -309,7 +309,8 @@ object ChangePolicyEvaluator {
         path.contains("/src/main/")
 
     fun isBaselinePath(path: String): Boolean =
-        path == "config/quality/0.6.0-baseline.json"
+        path == "config/quality/0.6.0-baseline.json" ||
+            path == "config/detekt/baseline.xml"
 
     fun isDeviationsPath(path: String): Boolean =
         path == "config/quality/maintainability-deviations.yml"

@@ -64,6 +64,38 @@ jobs:
           assert total == 8, f'expected exactly 8 formatting-gate tests, discovered {total}'
           EOF
 
+      - name: Verify static analysis against PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            ./gradlew verifyStaticAnalysis --no-daemon \
+              -PtramaiStaticAnalysisBaseRef="${{ github.event.pull_request.base.sha }}" \
+              -PchangeClass=baseline-migration
+          else
+            ./gradlew verifyStaticAnalysis --no-daemon \
+              -PtramaiStaticAnalysisBaseRef="${{ github.event.pull_request.base.sha }}"
+          fi
+
+      - name: Verify static analysis against push base
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          ./gradlew verifyStaticAnalysis --no-daemon \
+            -PtramaiStaticAnalysisBaseRef="${{ github.event.before }}"
+
+      - name: Run static-analysis contract tests
+        timeout-minutes: 20
+        run: |
+          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.StaticAnalysis*Test' --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticAnalysis*Test.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == 24, f'expected exactly 24 static-analysis tests, discovered {total}'
+          EOF
+
       - name: Run tests
         timeout-minutes: 15
         run: |
