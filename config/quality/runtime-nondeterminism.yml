@@ -1,0 +1,839 @@
+schemaVersion: '1'
+entries:
+- module: approval-resume
+  file: examples/approval-resume/src/main/kotlin/dev/tramai/examples/approval/ExpenseApprovalWorkflow.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: COMPOSITION_BOUNDARY
+  authority: example composition
+  occurrences: 1
+  rationale: Example composition — runnable demo identity; not library runtime.
+- module: sovereign-offline-verification
+  file: examples/sovereign-offline-verification/src/main/kotlin/dev/tramai/examples/offline/OfflineVerificationMain.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 2
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: support-agent
+  file: examples/support-agent/src/main/kotlin/dev/tramai/examples/supportagent/Tools.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-core
+  file: tramai-core/src/main/kotlin/dev/tramai/core/memory/UuidConversationIdProvider.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: UuidConversationIdProvider
+  occurrences: 1
+  rationale: Conversation identity capability manufacture — the memory-store conversation-id provider.
+- module: tramai-core
+  file: tramai-core/src/main/kotlin/dev/tramai/core/provider/transport/RetryAfter.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: RetryAfter.clock
+  occurrences: 1
+  rationale: Public RetryAfter clock default — 8.3a compatibility boundary on the retry contract.
+- module: tramai-core
+  file: tramai-core/src/main/kotlin/dev/tramai/core/retry/RetryJitterSource.kt
+  source: kotlin.random.Random.nextDouble()
+  category: randomness
+  scannerClassification: retry_jitter
+  disposition: AUTHORITY
+  authority: RetryJitterSource
+  occurrences: 1
+  rationale: 8.3b1 retry-randomness authority — the single jitter manufacture point shared by engine retry policy and orchestration
+    HTTP backoff.
+- module: tramai-core
+  file: tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-engine
+  file: tramai-engine/src/main/kotlin/dev/tramai/engine/EngineIdentitySource.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: AUTHORITY
+  authority: EngineIdentitySource
+  occurrences: 2
+  rationale: 8.3b2a engine execution-identity authority — workflowRunId/correlationId default manufacture; the only engine
+    identity source.
+- module: tramai-engine
+  file: tramai-engine/src/main/kotlin/dev/tramai/engine/InMemoryOperationResponseCache.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable cache clock)
+  occurrences: 1
+  rationale: InMemoryOperationResponseCache clockMillis default — injectable wall-clock composition for cache expiry.
+- module: tramai-engine
+  file: tramai-engine/src/main/kotlin/dev/tramai/engine/ProviderCircuitBreaker.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable circuit clock)
+  occurrences: 1
+  rationale: ProviderCircuitBreaker clockMillis default — injectable wall-clock composition for circuit state transitions.
+- module: tramai-engine
+  file: tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (engine clock injection)
+  occurrences: 4
+  rationale: Public engine clock default — 8.3a wall-time authority composition point; callers inject Clock for determinism.
+- module: tramai-engine
+  file: tramai-engine/src/main/kotlin/dev/tramai/engine/approval/DefaultApprovalGateway.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-memory-store
+  file: tramai-memory-store/src/main/kotlin/dev/tramai/memory/store/JdbcChatMemoryStore.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable store clock)
+  occurrences: 1
+  rationale: JdbcChatMemoryStore clockMillis default — injectable wall-clock composition for message timestamps.
+- module: tramai-memory-store
+  file: tramai-memory-store/src/main/kotlin/dev/tramai/memory/store/RedisChatMemoryStore.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable store clock)
+  occurrences: 1
+  rationale: RedisChatMemoryStore clockMillis default — injectable wall-clock composition for message timestamps.
+- module: tramai-observability
+  file: tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt
+  source: System.nanoTime()
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: COMPOSITION_BOUNDARY
+  authority: MonotonicTimeSource (observability/diagnostic)
+  occurrences: 2
+  rationale: Performance/observability measurement only — never a domain decision; the monotonic elapsed-time authority owns
+    injectable semantics.
+- module: tramai-observability
+  file: tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt
+  source: System.nanoTime()
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: COMPOSITION_BOUNDARY
+  authority: MonotonicTimeSource (observability/diagnostic)
+  occurrences: 2
+  rationale: Performance/observability measurement only — never a domain decision; the monotonic elapsed-time authority owns
+    injectable semantics.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/AgentCliSupport.kt
+  source: System.nanoTime()
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: COMPOSITION_BOUNDARY
+  authority: MonotonicTimeSource (observability/diagnostic)
+  occurrences: 2
+  rationale: Performance/observability measurement only — never a domain decision; the monotonic elapsed-time authority owns
+    injectable semantics.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/FileWorkflowLeaseStore.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable lease clock)
+  occurrences: 5
+  rationale: FileWorkflowLeaseStore clockMillis default — injectable wall-clock composition for lease expiry.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/JdbcWorkflowLeaseStore.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable lease clock)
+  occurrences: 1
+  rationale: JdbcWorkflowLeaseStore clockMillis default — injectable wall-clock composition for lease expiry.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/LeaseIdentitySource.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: LeaseIdentitySource
+  occurrences: 1
+  rationale: 8.3d lease capability authority — single leaseId manufacture point (centralized from 3 stores).
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/MonotonicTime.kt
+  source: System.currentTimeMillis()
+  category: clock
+  scannerClassification: business_time
+  disposition: AUTHORITY
+  authority: MonotonicTimeSource
+  occurrences: 1
+  rationale: 8.3a doc reference contrasting the wall-clock form with the monotonic authority; no runtime call.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/MonotonicTime.kt
+  source: System::nanoTime
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: AUTHORITY
+  authority: MonotonicTimeSource
+  occurrences: 2
+  rationale: 8.3a monotonic elapsed-time authority — the injectable System::nanoTime seam; elapsed-time semantics live here.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ProcessSupport.kt
+  source: System::nanoTime
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: COMPOSITION_BOUNDARY
+  authority: MonotonicTimeSource (injectable process-wait clock)
+  occurrences: 2
+  rationale: ProcessSupport wait helpers default to System::nanoTime but take an injectable monotonic source — explicit 8.3d
+    composition boundary.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/StepAttemptIdentitySource.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: AUTHORITY
+  authority: StepAttemptIdentitySource
+  occurrences: 1
+  rationale: '8.3b2b step-attempt identity authority — attemptId manufacture; #318 durable chronology identity.'
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowBuilder.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowLease.kt
+  source: System::currentTimeMillis
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injectable lease clock)
+  occurrences: 1
+  rationale: WorkflowLease clockMillis default — injectable wall-clock composition for lease lifecycle.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowObservation.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: PUBLIC_COMPATIBILITY_BOUNDARY
+  authority: WorkflowObservation.workflowId
+  occurrences: 1
+  rationale: Convenience default on the public observation contract — frozen 8.3a/8.3d boundary; observations may supply explicit
+    ids.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowPersistence.kt
+  source: System.currentTimeMillis()
+  category: clock
+  scannerClassification: business_time
+  disposition: PUBLIC_COMPATIBILITY_BOUNDARY
+  authority: WorkflowCheckpoint.savedAtEpochMillis
+  occurrences: 1
+  rationale: Public default wall-clock timestamp on the checkpoint contract — frozen public API (8.3a); callers may supply
+    a clock.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowPersistence.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: checkpoint generation (ABA/incarnation)
+  occurrences: 1
+  rationale: newCheckpointGeneration() — checkpoint incarnation/fencing authority; 8.3d leaves it semantically centralized
+    by design.
+- module: tramai-orchestration
+  file: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowRecoveryController.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-file
+  file: tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/AesGcmFileEncryption.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: AesGcmFileEncryption (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for AES-GCM key generation — legitimate by design.
+- module: tramai-persistence-file
+  file: tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/FileApprovalContinuationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-file
+  file: tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/FileApprovalStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-file
+  file: tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/FileBackedSovereignStores.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-persistence-file
+  file: tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/FileStoreUtil.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: FileStoreUtil (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for file-store encryption salt/nonce — legitimate by design.
+- module: tramai-persistence-jdbc
+  file: tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalContinuationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-jdbc
+  file: tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-jdbc
+  file: tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-persistence-jdbc
+  file: tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-platform
+  file: tramai-platform/src/main/kotlin/dev/tramai/platform/JdbcRepositories.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 2
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-platform
+  file: tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformConfiguration.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-platform
+  file: tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformWorkflowService.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: COMPOSITION_BOUNDARY
+  authority: PlatformWorkflowService (server composition)
+  occurrences: 1
+  rationale: Server-created workflow-run identity — the server composition genuinely owns run creation; boundary identity,
+    not an engine concern.
+- module: tramai-platform
+  file: tramai-platform/src/main/kotlin/dev/tramai/platform/Security.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: Security (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for the platform security subsystem — legitimate by design.
+- module: tramai-platform
+  file: tramai-platform/src/main/kotlin/dev/tramai/platform/Security.kt
+  source: System::nanoTime
+  category: clock
+  scannerClassification: performance_measurement
+  disposition: COMPOSITION_BOUNDARY
+  authority: MonotonicTimeSource (diagnostic timing)
+  occurrences: 1
+  rationale: Security-subsystem diagnostic timing — performance measurement, not a domain decision.
+- module: tramai-scheduler
+  file: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ClaimTokenSource.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: ClaimTokenSource
+  occurrences: 1
+  rationale: 8.3d scheduler claim capability authority — single claimToken manufacture point (centralized from 6 sites).
+- module: tramai-scheduler
+  file: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/CronSchedule.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-scheduler
+  file: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/JdbcWorkflowSchedulerStore.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-scheduler
+  file: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ScheduledWorkflowTimer.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-scheduler
+  file: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ScheduledWorkflowTimer.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: SchedulerLoopOwner (ownerId)
+  occurrences: 1
+  rationale: 8.3c scheduler lifecycle authority — ownerId identity manufacture for the owned scheduler scope.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalContinuationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/approval/SecureRandomApprovalTokenGenerator.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: SecureRandomApprovalTokenGenerator (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for approval-token generation — legitimate by design.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/approval/UuidApprovalIdGenerator.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: UuidApprovalIdGenerator
+  occurrences: 1
+  rationale: Approval-id capability manufacture — the security approval id generator.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEngine.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEngine.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: AuditEngine
+  occurrences: 1
+  rationale: Audit event-id capability manufacture — the audit engine.
+- module: tramai-security
+  file: tramai-security/src/main/kotlin/dev/tramai/security/verification/FileSystemModelArtifactVerifier.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-server
+  file: tramai-server/src/main/kotlin/dev/tramai/server/InMemoryWorkerRegistry.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-server
+  file: tramai-server/src/main/kotlin/dev/tramai/server/WebhookSignatureVerifier.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-server
+  file: tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: COMPOSITION_BOUNDARY
+  authority: WorkflowController (server composition)
+  occurrences: 1
+  rationale: Server-created workflow-run identity at the HTTP controller boundary — server composition owns run creation.
+- module: tramai-server
+  file: tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRunStore.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 4
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-sovereign
+  file: tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/SovereignTramai.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-sovereign
+  file: tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/evidence/SovereignEvidencePackGenerator.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerLifecycle.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 2
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/InMemoryApprovedContinuationResumeWorkerStatusStore.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 2
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalDecisionControlPlane.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: SovereignOpsApprovalDecisionControlPlane
+  occurrences: 1
+  rationale: Decision-record identity manufacture by the sovereign ops control plane.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalResumeControlPlane.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovedContinuationResumeWorker.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsProperties.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: SovereignOpsProperties
+  occurrences: 1
+  rationale: Default instance-id manufacture for the sovereign ops properties contract.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsTransactionalApprovalGateway.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsAuditOutboxWorkerStatusStore.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/LeasedSovereignOpsAuditOutboxBackgroundWorker.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord.kt
+  source: Instant.now()
+  category: clock
+  scannerClassification: business_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (composition wall-clock default)
+  occurrences: 1
+  rationale: Composition wall-clock default at a store/worker boundary; no domain decision depends on the raw instant.
+- module: tramai-spring-boot-starter-sovereign-ops
+  file: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord.kt
+  source: UUID.randomUUID()
+  category: identity
+  scannerClassification: correlation_identity
+  disposition: CAPABILITY_AUTHORITY
+  authority: SovereignOpsAuditOutboxRecord
+  occurrences: 1
+  rationale: Outbox record-id capability manufacture — the audit outbox record.
+- module: tramai-spring-boot-starter-sovereign-ops-actuator
+  file: tramai-spring-boot-starter-sovereign-ops-actuator/src/main/kotlin/dev/tramai/spring/sovereign/ops/actuator/ApprovedResumeQueueMetricsSnapshotProvider.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-persistence-file
+  file: tramai-spring-boot-starter-sovereign-persistence-file/src/main/kotlin/dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: FileSovereignOpsAuditOutboxStore (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for outbox payload encryption — legitimate by design.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcPayloadCrypto.kt
+  source: SecureRandom()
+  category: randomness
+  scannerClassification: cryptographic
+  disposition: AUTHORITY
+  authority: DefaultJdbcPayloadCrypto (crypto)
+  occurrences: 1
+  rationale: Cryptographic security entropy for JDBC payload nonce generation — legitimate by design.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovedContinuationResumeQueue.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalRequestMutationStore.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/inbox/ApprovalInboxQueryAutoConfiguration.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-boot-starter-sovereign-persistence-jdbc
+  file: tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/inbox/JdbcApprovalInboxQueryService.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-spring-sovereign
+  file: tramai-spring-sovereign/src/main/kotlin/dev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 1
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.
+- module: tramai-standalone
+  file: tramai-standalone/src/main/kotlin/dev/tramai/standalone/Tramai.kt
+  source: Clock.systemUTC()
+  category: clock
+  scannerClassification: scheduling_time
+  disposition: COMPOSITION_BOUNDARY
+  authority: Clock (injected composition)
+  occurrences: 2
+  rationale: Public/injectable Clock.systemUTC() default — 8.3a wall-time authority composition point; callers supply their
+    own Clock for determinism.

@@ -1344,24 +1344,43 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.3: Time, randomness, and scheduling abstractions
 
-**Status: 🚧 IN PROGRESS** — 8.3a (wall vs monotonic time semantics) functionally complete and frozen; 8.3b (identity + randomness), 8.3c (scheduler ownership), 8.3d (closure) pending. Contract: `docs/reference/time-semantics-contract.md`.
+**Status: ✅ COMPLETE** — closed by 8.3d PR 2 (machine-enforced nondeterminism closure). Contracts: `docs/reference/time-semantics-contract.md` (frozen 8.3a) + `docs/reference/nondeterminism-authority-contract.md` (final closure).
 
 **Goal:** Eliminate incidental nondeterminism from domain decisions.
+
+### Final decomposition
+
+- **8.3a** — wall vs monotonic time semantics (frozen contract, injected Clock per worker boundary, `MonotonicTimeSource`/`NanoTimeSource` seam).
+- **8.3b1** — retry randomness authority (`RetryJitterSource`).
+- **#318** — durable step-attempt chronology (`StepAttemptIdentitySource`).
+- **8.3b2a** — engine execution identity (`EngineIdentitySource`).
+- **8.3b2b** — step-attempt identity authority.
+- **8.3c** — scheduler lifecycle ownership (`SchedulerLoopOwner`, #332).
+- **8.3d PR 1** — residual runtime authority centralization (lease/claim/jitter, #335).
+- **8.3d PR 2** — machine-enforced closure: hardened canonical scanner, semantic allowlist (`config/quality/runtime-nondeterminism.yml`), fail-closed `verifyRuntimeNondeterminism` wired into `verifyMaintainabilityBaseline`, final authority contract.
 
 ### Tasks
 
 1. Use `Clock` for wall-clock timestamps. — **8.3a: done** — one injected Clock per worker boundary; recovery controller ABI unchanged (internal `forTest` seam).
 2. Use a monotonic time source for duration and timeout accounting where appropriate. — **8.3a: done** — `MonotonicTimeSource`/`NanoTimeSource` seam; `MonotonicDrainBudget` exact residual; heartbeat uptime monotonic.
-3. Inject jitter/random sources into retry policies. — **8.3b**.
-4. Avoid direct `System.currentTimeMillis()` in domain logic. — **8.3a: done** in orchestration elapsed/persisted paths; the public `WorkflowCheckpoint(savedAtEpochMillis = System.currentTimeMillis())` default remains deliberately (composition boundary, own compatibility scrutiny).
-5. Centralize scheduler ownership. — **8.3c**.
+3. Inject jitter/random sources into retry policies. — **8.3b1: done** — `RetryJitterSource` authority.
+4. Avoid direct `System.currentTimeMillis()` in domain logic. — **8.3a: done** in orchestration elapsed/persisted paths; the public `WorkflowCheckpoint(savedAtEpochMillis = System.currentTimeMillis())` default remains deliberately (PUBLIC_COMPATIBILITY_BOUNDARY, allowlisted).
+5. Centralize scheduler ownership. — **8.3c: done** — `SchedulerLoopOwner`.
 6. Make tests independent of real sleeps whenever possible. — **8.3a: done** for the affected paths — 14 discriminators, exact arithmetic, zero timing thresholds (M04-hardened).
+
+### Closure enforcement (8.3d PR 2)
+
+- Canonical scanner detects callable references (`System::nanoTime`), Kotlin `Random` singleton forms, and all historical patterns; identity is `(module, file, source)` — line-independent.
+- Every production finding has exactly one semantic classification (AUTHORITY / CAPABILITY_AUTHORITY / COMPOSITION_BOUNDARY / PUBLIC_COMPATIBILITY_BOUNDARY) in `config/quality/runtime-nondeterminism.yml`.
+- Zero unclassified findings, zero stale entries; new direct nondeterminism fails CI (`verifyRuntimeNondeterminism` via `verifyMaintainabilityBaseline`).
+- M01–M08 mutation campaign: 8/8 STRONG.
 
 ### Acceptance criteria
 
 - Critical timing tests use virtual or injected time.
 - Retry and lease tests are deterministic.
 - Duration logic does not break under wall-clock changes.
+- New direct nondeterminism fails CI; removed sources require allowlist cleanup (stale-entry rejection).
 
 ---
 

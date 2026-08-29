@@ -345,6 +345,14 @@ data class NondeterminismFinding(
     @JsonProperty("category") val category: String = "unknown"
 )
 
+/**
+ * Semantic identity for allowlist matching: (module, file, source).
+ * Line numbers never participate — line movement must not invalidate an
+ * otherwise unchanged allowlist entry (Epic 8.3d PR 2).
+ */
+fun NondeterminismFinding.identityKey(): String =
+    "$module\u0000$file\u0000$source"
+
 data class ProtocolCatalog(
     val entries: List<ProtocolEntry> = emptyList()
 )
