@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.retry.DefaultRetryJitterSource
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
@@ -16,7 +17,6 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest.BodyPublishers
 import java.net.http.HttpResponse.BodyHandlers
 import java.time.Duration
-import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.min
 
 data class HttpRequest(
@@ -509,7 +509,7 @@ internal fun canonicalizeOutboundHost(host: String): String {
 }
 
 private fun jitteredDelayMillis(attempt: Int): Long =
-    ((1_000L shl attempt) * (0.5 + ThreadLocalRandom.current().nextDouble() * 0.5)).toLong()
+    ((1_000L shl attempt) * (0.5 + DefaultRetryJitterSource.nextDouble() * 0.5)).toLong()
 
 private fun parseAlternativeIpv4Literal(host: String): InetAddress? {
     if (host.contains(':')) {

@@ -3,9 +3,11 @@ package dev.tramai.scheduler
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
-class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
+class InMemoryWorkflowSchedulerStore internal constructor(
+    private val claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource,
+) : WorkflowSchedulerStore {
+    constructor() : this(DefaultClaimTokenSource)
     private val schedules = linkedMapOf<String, MutableScheduleRecord>()
     private val ticks = linkedMapOf<String, MutableTickRecord>()
     private val delayWakeups = linkedMapOf<String, MutableDelayWakeupRecord>()
@@ -65,7 +67,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                 .filter { it.status.isClaimed && !it.claimExpiresAt.isAfter(now) }
                 .sortedBy { it.scheduledFireAt }
                 .take(limit)
-                .map { tick -> tick.reclaim(ownerId, now.plus(claimDuration)) }
+                .map { tick -> tick.reclaim(claimTokenSource, ownerId, now.plus(claimDuration)) }
                 .toList()
             if (reclaimed.size == limit) {
                 return reclaimed
@@ -102,7 +104,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                 PendingScheduleClaim(
                     schedule = schedule,
                     tickId = tickId(schedule.scheduleId, schedule.nextFireAt),
-                    claimToken = UUID.randomUUID().toString(),
+                    claimToken = claimTokenSource.newClaimToken(),
                     claimExpiresAt = now.plus(claimDuration),
                     nextFireAt = nextFireAfter(schedule.schedule, schedule.nextFireAt),
                 )
@@ -254,7 +256,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                 .sortedBy { it.resumeAt }
                 .take(limit)
                 .map { wakeup ->
-                    val claimToken = UUID.randomUUID().toString()
+                    val claimToken = claimTokenSource.newClaimToken()
                     val claimExpiresAt = now.plus(claimDuration)
                     wakeup.status = WakeupStatus.CLAIMED
                     wakeup.ownerId = ownerId
@@ -388,8 +390,8 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         var workflowRunId: String? = null,
         var terminalReason: String? = null,
     ) {
-        fun reclaim(ownerId: String, claimExpiresAt: Instant): ClaimedScheduledTick {
-            val claimToken = UUID.randomUUID().toString()
+        fun reclaim(claimTokenSource: ClaimTokenSource, ownerId: String, claimExpiresAt: Instant): ClaimedScheduledTick {
+            val claimToken = claimTokenSource.newClaimToken()
             this.ownerId = ownerId
             this.claimToken = claimToken
             this.claimExpiresAt = claimExpiresAt

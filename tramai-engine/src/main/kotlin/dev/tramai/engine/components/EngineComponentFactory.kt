@@ -11,12 +11,12 @@ import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.observation.*
 import dev.tramai.core.policy.*
 import dev.tramai.core.provider.ProviderRegistry
+import dev.tramai.core.retry.DefaultRetryJitterSource
+import dev.tramai.core.retry.RetryJitterSource
 import dev.tramai.core.security.*
 import dev.tramai.core.structured.*
 import dev.tramai.engine.*
-import dev.tramai.engine.provider.DefaultRetryJitterSource
 import dev.tramai.engine.provider.ProviderRetryDelayPolicy
-import dev.tramai.engine.provider.RetryJitterSource
 import java.time.Clock
 
 /** One authoritative composition boundary: validates collaborators and creates the immutable snapshot. */
