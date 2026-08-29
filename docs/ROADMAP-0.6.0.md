@@ -1488,7 +1488,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 10.1: Formatting and static analysis
 
-**Status: 🔄 IN PROGRESS — 10.1a 🚧 PR #339** (sliced: see `docs/EPIC-10.1-code-quality.md`)
+**Status: ✅ IN PROGRESS — 10.1a ✅ merged (`731126bf`, PR #339)** (sliced: see `docs/EPIC-10.1-code-quality.md`)
 
 ### Slices (frozen decomposition)
 
