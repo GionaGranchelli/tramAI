@@ -7,7 +7,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.Properties
-import java.util.UUID
 /**
  * Collision-free lease path strategy with minimal layout disruption.
  *
@@ -65,9 +64,7 @@ class FileWorkflowLeaseStore private constructor(
     private val clockMillis: () -> Long = System::currentTimeMillis,
     private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
-    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
-        NoOpPersistenceFailureDiagnosticObserver
-        internal set
+    private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
 
     constructor(
         rootDirectory: Path,
@@ -75,6 +72,18 @@ class FileWorkflowLeaseStore private constructor(
             CollisionFreeWorkflowLeasePathStrategy("lease.properties"),
         clockMillis: () -> Long = System::currentTimeMillis,
     ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter)
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy,
+        clockMillis: () -> Long,
+        leaseIdentitySource: LeaseIdentitySource,
+    ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter) {
+        this.leaseIdentitySource = leaseIdentitySource
+    }
+    var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
+        NoOpPersistenceFailureDiagnosticObserver
+        internal set
 
     constructor(
         rootDirectory: Path,
@@ -173,7 +182,7 @@ class FileWorkflowLeaseStore private constructor(
                 val lease = WorkflowLease(
                     workflowName = workflowName,
                     workflowId = workflowId,
-                    leaseId = UUID.randomUUID().toString(),
+                    leaseId = leaseIdentitySource.newLeaseId(),
                     ownerId = ownerId,
                     checkpointRevision = checkpointRevision,
                     acquiredAtEpochMillis = now,

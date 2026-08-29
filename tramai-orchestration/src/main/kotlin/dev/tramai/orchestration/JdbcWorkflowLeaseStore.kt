@@ -14,6 +14,16 @@ class JdbcWorkflowLeaseStore(
     internal val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
+    private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
+
+    constructor(
+        dataSource: DataSource,
+        table: JdbcWorkflowLeaseTable,
+        clockMillis: () -> Long,
+        leaseIdentitySource: LeaseIdentitySource,
+    ) : this(dataSource, table, clockMillis) {
+        this.leaseIdentitySource = leaseIdentitySource
+    }
     var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
         NoOpPersistenceFailureDiagnosticObserver
         internal set
@@ -373,7 +383,7 @@ class JdbcWorkflowLeaseStore(
         return WorkflowLease(
             workflowName = workflowName,
             workflowId = workflowId,
-            leaseId = java.util.UUID.randomUUID().toString(),
+            leaseId = leaseIdentitySource.newLeaseId(),
             ownerId = ownerId,
             checkpointRevision = checkpointRevision,
             acquiredAtEpochMillis = now,

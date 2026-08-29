@@ -2618,6 +2618,15 @@ public final class dev/tramai/core/provider/transport/RetryAfterKt {
 	public static synthetic fun parseRetryAfterMillis$default (Ljava/lang/String;Ljava/time/Clock;ILjava/lang/Object;)Ljava/lang/Long;
 }
 
+public final class dev/tramai/core/retry/DefaultRetryJitterSource : dev/tramai/core/retry/RetryJitterSource {
+	public static final field INSTANCE Ldev/tramai/core/retry/DefaultRetryJitterSource;
+	public fun nextDouble ()D
+}
+
+public abstract interface class dev/tramai/core/retry/RetryJitterSource {
+	public abstract fun nextDouble ()D
+}
+
 public final class dev/tramai/core/secret/CompositeSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
 	public fun <init> (Ljava/util/List;)V
 	public fun resolve (Ljava/lang/String;)Ljava/lang/String;

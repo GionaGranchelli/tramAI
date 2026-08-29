@@ -3,16 +3,12 @@ package dev.tramai.engine.provider
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.TimeoutException
 import dev.tramai.engine.RetryPolicySettings
+import dev.tramai.core.retry.DefaultRetryJitterSource
+import dev.tramai.core.retry.RetryJitterSource
 
 internal sealed interface ProviderRetryDecision {
     data class Retry(val delayMillis: Long, val delaySource: String) : ProviderRetryDecision
     data object Stop : ProviderRetryDecision
-}
-
-internal fun interface RetryJitterSource { fun nextDouble(): Double }
-
-internal object DefaultRetryJitterSource : RetryJitterSource {
-    override fun nextDouble(): Double = kotlin.random.Random.nextDouble()
 }
 
 internal open class ProviderRetryPolicy(private val retryDelayPolicy: ProviderRetryDelayPolicy) {

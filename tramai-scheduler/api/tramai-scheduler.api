@@ -58,6 +58,10 @@ public final class dev/tramai/scheduler/CalendarRule$NthWeekdayOfMonth : dev/tra
 	public fun validate ()V
 }
 
+public abstract interface class dev/tramai/scheduler/ClaimTokenSource {
+	public abstract fun newClaimToken ()Ljava/lang/String;
+}
+
 public final class dev/tramai/scheduler/ClaimedDelayWakeup {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -131,8 +135,15 @@ public final class dev/tramai/scheduler/CronScheduleKt {
 	public static synthetic fun every$default (JLjava/time/temporal/ChronoUnit;Ljava/time/ZoneId;Ljava/util/List;ZILjava/lang/Object;)Ldev/tramai/scheduler/CronSchedule;
 }
 
+public final class dev/tramai/scheduler/DefaultClaimTokenSource : dev/tramai/scheduler/ClaimTokenSource {
+	public static final field INSTANCE Ldev/tramai/scheduler/DefaultClaimTokenSource;
+	public fun newClaimToken ()Ljava/lang/String;
+}
+
 public final class dev/tramai/scheduler/InMemoryWorkflowSchedulerStore : dev/tramai/scheduler/WorkflowSchedulerStore {
 	public fun <init> ()V
+	public fun <init> (Ldev/tramai/scheduler/ClaimTokenSource;)V
+	public synthetic fun <init> (Ldev/tramai/scheduler/ClaimTokenSource;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun claimDueDelayWakeups (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimDueTicks (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun getSchedule (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -151,6 +162,7 @@ public final class dev/tramai/scheduler/InMemoryWorkflowSchedulerStore : dev/tra
 public final class dev/tramai/scheduler/JdbcWorkflowSchedulerStore : dev/tramai/scheduler/WorkflowSchedulerStore {
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/WorkflowObserver;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/WorkflowObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/scheduler/ClaimTokenSource;)V
 	public fun claimDueDelayWakeups (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimDueTicks (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/util/List;

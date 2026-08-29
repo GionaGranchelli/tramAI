@@ -2,7 +2,6 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.UUID
 /**
  * Active ownership claim for one workflow execution.
  */
@@ -126,6 +125,14 @@ internal fun validateFenceIdentity(
 class InMemoryWorkflowLeaseStore(
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore {
+    private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
+
+    constructor(
+        clockMillis: () -> Long,
+        leaseIdentitySource: LeaseIdentitySource,
+    ) : this(clockMillis) {
+        this.leaseIdentitySource = leaseIdentitySource
+    }
     var persistenceFailureDiagnosticObserver: PersistenceFailureDiagnosticObserver =
         NoOpPersistenceFailureDiagnosticObserver
         internal set
@@ -174,7 +181,7 @@ class InMemoryWorkflowLeaseStore(
                 val lease = WorkflowLease(
                     workflowName = workflowName,
                     workflowId = workflowId,
-                    leaseId = UUID.randomUUID().toString(),
+                    leaseId = leaseIdentitySource.newLeaseId(),
                     ownerId = ownerId,
                     checkpointRevision = checkpointRevision,
                     acquiredAtEpochMillis = now,

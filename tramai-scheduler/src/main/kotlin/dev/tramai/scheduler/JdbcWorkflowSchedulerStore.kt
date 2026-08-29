@@ -19,7 +19,6 @@ import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
-import java.util.UUID
 import javax.sql.DataSource
 
 /**
@@ -32,6 +31,15 @@ class JdbcWorkflowSchedulerStore(
     private val dataSource: DataSource,
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
 ) : WorkflowSchedulerStore {
+    private var claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource
+
+    constructor(
+        dataSource: DataSource,
+        observer: WorkflowObserver,
+        claimTokenSource: ClaimTokenSource,
+    ) : this(dataSource, observer) {
+        this.claimTokenSource = claimTokenSource
+    }
     // Epic 5.3: the store invokes tick callbacks during startup recovery and
     // next-fire computation; wrap at the boundary so a throwing observer can
     // never abort a durable scheduler transition.
@@ -323,7 +331,7 @@ class JdbcWorkflowSchedulerStore(
                         val runId = resultSet.getString("run_id")
                         val stepId = resultSet.getString("step_id")
                         val resumeAt = resultSet.instant("resume_at")
-                        val claimToken = UUID.randomUUID().toString()
+                        val claimToken = claimTokenSource.newClaimToken()
                         updateDelayWakeupClaim(
                             connection = connection,
                             runId = runId,
@@ -543,7 +551,7 @@ class JdbcWorkflowSchedulerStore(
                 val ticks = mutableListOf<ClaimedScheduledTick>()
                 while (resultSet.next()) {
                     val tickId = resultSet.getString("tick_id")
-                    val claimToken = UUID.randomUUID().toString()
+                    val claimToken = claimTokenSource.newClaimToken()
                     updateTickClaim(
                         connection = connection,
                         tickId = tickId,
@@ -688,7 +696,7 @@ class JdbcWorkflowSchedulerStore(
                         ),
                     )
                     if (inserted) {
-                        val claimToken = UUID.randomUUID().toString()
+                        val claimToken = claimTokenSource.newClaimToken()
                         updateTickClaim(
                             connection = connection,
                             tickId = tickId,

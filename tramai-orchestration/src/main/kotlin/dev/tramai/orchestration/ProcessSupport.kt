@@ -460,14 +460,15 @@ internal fun Throwable.suppressCleanupDiagnostic(error: Throwable) {
 internal fun waitForHandlesToExitUninterruptibly(
     handles: List<ProcessHandle>,
     timeoutMillis: Long,
+    monotonicNanos: () -> Long = System::nanoTime,
 ) {
     var interrupted = false
     try {
         if (handles.none(ProcessHandle::isAlive)) {
             return
         }
-        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
-        while (System.nanoTime() < deadlineNanos) {
+        val deadlineNanos = monotonicNanos() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (monotonicNanos() < deadlineNanos) {
             if (handles.none(ProcessHandle::isAlive)) {
                 return
             }
@@ -488,11 +489,14 @@ internal fun waitForHandlesToExitUninterruptibly(
  * Bounded process exit wait (no unbounded `waitFor()`). Returns the exit value, or null
  * if the process is still alive after [timeoutMillis]. Never throws [InterruptedException].
  */
-internal fun Process.waitForBounded(timeoutMillis: Long): Int? {
+internal fun Process.waitForBounded(
+    timeoutMillis: Long,
+    monotonicNanos: () -> Long = System::nanoTime,
+): Int? {
     var interrupted = false
     try {
-        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
-        while (System.nanoTime() < deadlineNanos) {
+        val deadlineNanos = monotonicNanos() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (monotonicNanos() < deadlineNanos) {
             if (!isAlive) {
                 return exitValue()
             }

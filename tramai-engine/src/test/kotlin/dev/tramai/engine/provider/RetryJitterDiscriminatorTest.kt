@@ -15,6 +15,7 @@ import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvents
+import dev.tramai.core.retry.RetryJitterSource
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.components.EngineComponentFactory
