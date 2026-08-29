@@ -37,11 +37,16 @@ spotless {
         target(
             fileTree(rootDir) {
                 include("**/*.kt")
-                // Generated/task-output and caches only — never broaden to
-                // production source.
+                // Gradle task-output dirs only — deliberately NARROW. A broad
+                // "**/build/**" would also exclude paths containing a package
+                // segment literally named `build` (e.g. dev/tramai/build in
+                // build-logic), silently exempting real source.
                 exclude(
-                    "**/build/**",
-                    "**/.gradle/**",
+                    "build/**", // root project output
+                    "*/build/**", // module output dirs
+                    "examples/*/build/**", // example module output dirs
+                    "build-logic/build/**", // included-build output dir
+                    "**/.gradle/**", // caches — no source lives here
                 )
             }
         )
