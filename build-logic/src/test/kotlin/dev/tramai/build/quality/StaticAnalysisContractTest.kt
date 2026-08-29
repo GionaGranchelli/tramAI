@@ -70,14 +70,24 @@ class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
     @Test
     fun `p0-e baseline shrink passes`() {
         val base = baseBranch()
-        // Removing a no-longer-needed baseline entry (debt paid down) is allowed.
+        // Faithful shrink: delete a source file whose ONLY finding is baselined,
+        // then drop its single entry. The source must be a test file (the gate
+        // does not compile test sources, so the deletion cannot break the build)
+        // and its leaf name must be unique in the worktree (baseline IDs are
+        // leaf-only, so an ambiguous leaf would delete the wrong file).
         val ids = baselineIds()
         assertTrue(ids.isNotEmpty(), "baseline must not be empty")
+        val byLeaf = ids.groupBy { it.split(":").drop(1).joinToString(":").substringBefore('$') }
+        val single =
+            byLeaf.entries.firstOrNull { entry ->
+                entry.value.size == 1 && testSourcesFor(entry.key).size == 1
+            }
+        assertTrue(single != null, "expected a single-finding test source in the baseline")
+        val (leaf, id) = single!!.key to single.value.single()
+        assertTrue(testSourcesFor(leaf).single().delete(), "failed to delete $leaf")
         val xml = File(worktree, "config/detekt/baseline.xml")
-        xml.writeText(
-            xml.readText().replaceFirst("    <ID>${Regex.escape(ids.first())}</ID>", ""),
-        )
-        commit("remove stale baseline entry")
+        xml.writeText(xml.readText().replace("    <ID>$id</ID>\n", ""))
+        commit("pay down one baseline entry (delete single-finding test source)")
         val run = staticAnalysis(base)
         assertPasses(run, "gate with a baseline removal")
         assertTrue(
@@ -85,4 +95,10 @@ class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
             "expected a 1-removed verdict. Output: ${run.output.take(1200)}",
         )
     }
+
+    private fun testSourcesFor(leaf: String): List<File> =
+        worktree
+            .walkTopDown()
+            .filter { it.isFile && it.name == leaf && it.path.contains("/src/test/") }
+            .toList()
 }
