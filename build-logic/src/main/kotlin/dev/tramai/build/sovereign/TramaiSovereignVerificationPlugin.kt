@@ -94,6 +94,9 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         registerVerifySovereignRuntimeVerificationRepoClosure(project)
         registerVerifySovereignRuntimeConsumerSmoke(project, consumerSmoke)
         registerGenerateSovereignReleaseEvidenceIndex(project, consumerSmoke)
+        registerVerifySovereignRuntimeApiBoundary(project)
+        registerVerifySovereignOpsObservabilityDocs(project)
+        registerVerifySovereignRuntimeClosureDocs(project)
     }
 
     /**
@@ -312,6 +315,88 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
                 "prepareSovereignReleaseArtifacts",
                 "verifySovereignReleaseManifest",
             )
+        }
+    }
+
+    /**
+     * Verifies the documented Sovereign Runtime API stability boundary against
+     * the real manifest, boundary doc, STATUS.md, stable API sources, and
+     * README. Typed CC-safe replacement for the historical doLast closure
+     * (Epic 9.2d-a3b1); task name is preserved so string dependsOn references
+     * in verifySovereignRuntimeClosure / verify050ReleaseReadiness /
+     * verifySovereignRuntimeReleaseCandidate keep resolving.
+     */
+    private fun registerVerifySovereignRuntimeApiBoundary(project: Project) {
+        val stableApiSourcePaths = listOf(
+            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalStore.kt",
+            "tramai-engine/src/main/kotlin/dev/tramai/engine/SuspendedInvocationStore.kt",
+            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalContinuationStore.kt",
+            "tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore.kt",
+        )
+        project.tasks.register<SovereignRuntimeApiBoundaryVerifierTask>("verifySovereignRuntimeApiBoundary") {
+            group = "verification"
+            description = "Verifies the documented Sovereign Runtime API stability boundary."
+            manifestFile.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-manifest.yml"))
+            boundaryDoc.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-boundary.md"))
+            statusDoc.set(project.layout.projectDirectory.file("docs/STATUS.md"))
+            mapperFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappers.kt"))
+            javaFacadeFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt"))
+            stableApiFiles.from(stableApiSourcePaths.map { project.layout.projectDirectory.file(it) })
+            readmeFile.set(project.layout.projectDirectory.file("README.md"))
+            this.projectDir.set(project.layout.projectDirectory.asFile)
+        }
+    }
+
+    /**
+     * Validates sovereign ops worker observability docs against the expected
+     * metric contract, API surface, and safe-label rules. Typed CC-safe
+     * replacement for the historical doLast closure; the historical
+     * notCompatibleWithConfigurationCache declaration is REMOVED — that is the
+     * point of this conversion.
+     */
+    private fun registerVerifySovereignOpsObservabilityDocs(project: Project) {
+        project.tasks.register<SovereignOpsObservabilityDocsVerifierTask>("verifySovereignOpsObservabilityDocs") {
+            group = "verification"
+            description = "Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."
+            runbook.set(project.layout.projectDirectory.file("docs/operations/sovereign-ops-worker-observability-runbook.md"))
+            promql.set(project.layout.projectDirectory.file("docs/operations/prometheus/sovereign-ops-worker-promql.md"))
+            alerts.set(project.layout.projectDirectory.file("docs/operations/prometheus/sovereign-ops-worker-alerts.example.yml"))
+            actuatorReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-actuator/README.md"))
+            micrometerReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-micrometer/README.md"))
+            observabilityReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md"))
+        }
+    }
+
+    /**
+     * Verifies Sovereign Runtime closure documentation links and required
+     * claims. Typed CC-safe replacement for the historical (accidental) doLast
+     * closure; task name preserved for the dependsOn reference in
+     * verifySovereignRuntimeClosure.
+     */
+    private fun registerVerifySovereignRuntimeClosureDocs(project: Project) {
+        project.tasks.register<SovereignRuntimeClosureDocsVerifierTask>("verifySovereignRuntimeClosureDocs") {
+            group = "verification"
+            description = "Verifies Sovereign Runtime closure documentation links and required claims."
+            closureDoc.set(project.layout.projectDirectory.file("docs/releases/sovereign-runtime-closure-boundary.md"))
+            rcBoundary.set(project.layout.projectDirectory.file("docs/releases/sovereign-runtime-rc-boundary.md"))
+            status.set(project.layout.projectDirectory.file("docs/STATUS.md"))
+            apiStabilityDoc.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-boundary.md"))
+            changelog.set(project.layout.projectDirectory.file("CHANGELOG.md"))
+            quickstart.set(project.layout.projectDirectory.file("docs/guides/sovereign-runtime-quickstart.md"))
+            jdbcRunbook.set(project.layout.projectDirectory.file("docs/runbooks/sovereign-jdbc-production-deployment.md"))
+            resumeAlerts.set(project.layout.projectDirectory.file("docs/observability/prometheus-approved-resume-worker-alerts.yml"))
+            resumeDashboard.set(project.layout.projectDirectory.file("docs/observability/grafana-approved-resume-worker-dashboard.json"))
+            resumeRunbook.set(project.layout.projectDirectory.file("docs/runbooks/approved-resume-worker-observability.md"))
+            goldenPathGuide.set(project.layout.projectDirectory.file("docs/guides/approval-gateway-golden-path.md"))
+            goldenPathTest.set(project.layout.projectDirectory.file("tramai-core/src/test/kotlin/dev/tramai/core/workflow/ApprovalGatewayGoldenPathErgonomicsTest.kt"))
+            springSmokeTest.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt"))
+            regulatedFactoryFile.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt"))
+            gatewayAutoConfig.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"))
+            humanApprovalErgonomics.set(project.layout.projectDirectory.file("docs/architecture/human-approval-workflow-ergonomics.md"))
+            javaInteropTest.set(project.layout.projectDirectory.file("tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java"))
         }
     }
 }
