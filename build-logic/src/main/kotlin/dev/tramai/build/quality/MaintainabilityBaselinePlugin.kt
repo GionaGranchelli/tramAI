@@ -463,6 +463,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             group = "maintainability"
             description = "Compares current measurements against committed baseline and rejects regressions"
             dependsOn("generateResolvedDependencyBaseline")
+            dependsOn("verifyRuntimeNondeterminism")
             doLast {
                 val ctx = MeasurementContext.fromProject(project)
                 val generator = BaselineGenerator(ctx)
@@ -494,6 +495,34 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 }
                 println("Reports: ${project.buildDir}/reports/maintainability/")
             }
+        }
+
+        // ── Epic 8.3d PR 2: nondeterminism authority contract verifier ──
+        // Fail-closed semantic allowlist gate. verifyMaintainabilityBaseline
+        // depends on it, so every CI path that runs the maintainability gate
+        // also enforces the nondeterminism authority contract.
+        val nonDetCtx = MeasurementContext.fromProject(project)
+        val nonDetSourceFiles = project.objects.fileCollection()
+        val nonDetScanSpec = nonDetCtx.modules
+            .filter { it.sourceDirs.any(File::exists) }
+            .map { mod ->
+                mod.sourceDirs.filter(File::exists).forEach { dir ->
+                    nonDetSourceFiles.from(dir)
+                }
+                mapOf("name" to mod.name, "dir" to mod.projectDir.relativeTo(project.rootDir).path)
+            }
+        project.tasks.register("verifyRuntimeNondeterminism", VerifyRuntimeNondeterminismTask::class.java) {
+            group = "maintainability"
+            description = "Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"
+            allowlistFile.set(project.rootDir.resolve("config/quality/runtime-nondeterminism.yml"))
+            sourceFiles.from(nonDetSourceFiles)
+            scanSpec.set(
+                com.fasterxml.jackson.databind.ObjectMapper()
+                    .registerModule(com.fasterxml.jackson.module.kotlin.KotlinModule.Builder().build())
+                    .writeValueAsString(nonDetScanSpec)
+            )
+            rootDir.set(project.rootDir.absolutePath)
+            reportFile.set(project.layout.buildDirectory.file("reports/maintainability/runtime-nondeterminism-verification.json"))
         }
 
         project.tasks.register("verifyCancellationSafety") {
@@ -837,7 +866,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "verifyMaintainabilityBaseline",
                 "verifyCriticalCoverage",
                 "verifyCriticalMutationBaseline",
-                "verifyTestPerformanceBaseline"
+                "verifyTestPerformanceBaseline",
+                "verifyRuntimeNondeterminism"
             )
             doLast {
                 println("Full maintainability baseline verification complete.")
@@ -1434,6 +1464,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
         DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
         DiagnosticCode.EMPTY_SECTION,
+        // Nondeterminism authority contract (Epic 8.3d PR 2) — enforced by the
+        // verifyRuntimeNondeterminism task directly, not the maintainability baseline.
+        DiagnosticCode.NONDETERMINISM_UNCLASSIFIED_FINDING,
+        DiagnosticCode.NONDETERMINISM_STALE_ENTRY,
+        DiagnosticCode.NONDETERMINISM_MISMATCHED_CLASSIFICATION,
+        DiagnosticCode.NONDETERMINISM_OCCURRENCE_MISMATCH,
+        DiagnosticCode.NONDETERMINISM_DUPLICATE_ENTRY,
+        DiagnosticCode.NONDETERMINISM_INVALID_DISPOSITION,
+        DiagnosticCode.NONDETERMINISM_MISSING_RATIONALE,
+        DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
         // Module documentation contract (Epic 11.2b3) — enforced by the
         // verifyModuleDocContract task directly, not a maintainability baseline.
         DiagnosticCode.MODULE_CARD_MISSING,

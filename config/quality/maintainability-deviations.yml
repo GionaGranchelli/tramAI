@@ -231,7 +231,34 @@ deviations:
     scope: ":tramai-scheduler"
     baseline: 10
     allowed: 11
-    reason: "PR #335 (Epic 8.3d) adds ClaimTokenSource.DefaultClaimTokenSource — the single scheduler claim-capability authority — whose UUID.randomUUID() manufacture the scanner counts as one new nondeterminism source (canonical :tramai-scheduler count 10). This is the intentional centralized authority (previously the scheduler stores manufactured claim tokens directly at 6 sites, now closed); the 8.3d allowlist verifier (PR 2) will classify authorities explicitly."
+    reason: "PR #335 (Epic 8.3d) adds ClaimTokenSource.DefaultClaimTokenSource — the single scheduler claim-capability authority — whose UUID.randomUUID() manufacture the scanner counts as one new nondeterminism source (canonical :tramai-scheduler count 10). This is the intentional centralized authority (previously the scheduler stores manufactured claim tokens directly at 6 sites, now closed); semantically classified as CAPABILITY_AUTHORITY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism (PR 2)."
+    acceptedAt: "2026-08-29"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+  - id: MQ-0023
+    metric: nondeterminismSources
+    scope: ":tramai-core"
+    baseline: 3
+    allowed: 4
+    reason: "PR 2 (Epic 8.3d) hardens NondeterminismInventory: the Kotlin Random singleton invocation form kotlin.random.Random.nextDouble() in RetryJitterSource (the 8.3b1 retry-randomness authority) is now scanner-detected (+1). The same authority is already covered by the existing retry-jitter deviation at MQ-0008-adjacent sites; semantically classified as AUTHORITY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism."
+    acceptedAt: "2026-08-29"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+  - id: MQ-0024
+    metric: nondeterminismSources
+    scope: ":tramai-memory-store"
+    baseline: 0
+    allowed: 2
+    reason: "PR 2 (Epic 8.3d) hardens NondeterminismInventory: callable-reference wall-clock composition boundaries System::currentTimeMillis in JdbcChatMemoryStore and RedisChatMemoryStore (injectable clockMillis defaults) are now scanner-detected (+2). Semantically classified as COMPOSITION_BOUNDARY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism."
+    acceptedAt: "2026-08-29"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+  - id: MQ-0025
+    metric: nondeterminismSources
+    scope: ":tramai-platform"
+    baseline: 5
+    allowed: 6
+    reason: "PR 2 (Epic 8.3d) hardens NondeterminismInventory: callable-reference monotonic composition System::nanoTime in Security (diagnostic timing) is now scanner-detected (+1). Semantically classified as COMPOSITION_BOUNDARY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism."
     acceptedAt: "2026-08-29"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
