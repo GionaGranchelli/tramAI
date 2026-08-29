@@ -89,11 +89,6 @@ public final class dev/tramai/orchestration/DefaultInstructionDefense : dev/tram
 	public fun wrap (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 }
 
-public final class dev/tramai/orchestration/DefaultLeaseIdentitySource : dev/tramai/orchestration/LeaseIdentitySource {
-	public static final field INSTANCE Ldev/tramai/orchestration/DefaultLeaseIdentitySource;
-	public fun newLeaseId ()Ljava/lang/String;
-}
-
 public final class dev/tramai/orchestration/DefaultOutputValidator : dev/tramai/core/security/OutputValidator {
 	public static final field Companion Ldev/tramai/orchestration/DefaultOutputValidator$Companion;
 	public static final field RULE_BOUNDARY_PROBING Ljava/lang/String;
@@ -232,7 +227,6 @@ public final class dev/tramai/orchestration/FileWorkflowLeaseStore : dev/tramai/
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/AtomicFileWriter;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/LeaseIdentitySource;)V
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -359,7 +353,6 @@ public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tra
 	public fun <init> ()V
 	public fun <init> (Lkotlin/jvm/functions/Function0;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/LeaseIdentitySource;)V
 	public fun <init> (Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -501,7 +494,6 @@ public final class dev/tramai/orchestration/JdbcWorkflowCheckpointTable {
 public final class dev/tramai/orchestration/JdbcWorkflowLeaseStore : dev/tramai/orchestration/WorkflowLeaseCheckpointFence, dev/tramai/orchestration/WorkflowLeaseStore {
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/LeaseIdentitySource;)V
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;Ldev/tramai/orchestration/PersistenceFailureDiagnosticObserver;)V
 	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/lang/String;
@@ -538,10 +530,6 @@ public final class dev/tramai/orchestration/JdbcWorkflowLeaseTable {
 	public final fun getWorkflowNameColumn ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
-}
-
-public abstract interface class dev/tramai/orchestration/LeaseIdentitySource {
-	public abstract fun newLeaseId ()Ljava/lang/String;
 }
 
 public final class dev/tramai/orchestration/LoggingTramaiWorkerObserver : dev/tramai/orchestration/TramaiWorkerObserver {

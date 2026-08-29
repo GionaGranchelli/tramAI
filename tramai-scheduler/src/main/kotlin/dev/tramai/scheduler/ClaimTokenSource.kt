@@ -11,10 +11,10 @@ import java.util.UUID
  * be opaque and unpredictable, and its generation belongs to exactly one
  * composition-boundary source.
  */
-fun interface ClaimTokenSource {
+internal fun interface ClaimTokenSource {
     fun newClaimToken(): String
 }
 
-object DefaultClaimTokenSource : ClaimTokenSource {
+internal object DefaultClaimTokenSource : ClaimTokenSource {
     override fun newClaimToken(): String = UUID.randomUUID().toString()
 }

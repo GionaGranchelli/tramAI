@@ -73,7 +73,7 @@ class FileWorkflowLeaseStore private constructor(
         clockMillis: () -> Long = System::currentTimeMillis,
     ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter)
 
-    constructor(
+    internal constructor(
         rootDirectory: Path,
         pathStrategy: WorkflowCheckpointPathStrategy,
         clockMillis: () -> Long,

@@ -4,9 +4,10 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 
-class InMemoryWorkflowSchedulerStore(
+class InMemoryWorkflowSchedulerStore internal constructor(
     private val claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource,
 ) : WorkflowSchedulerStore {
+    constructor() : this(DefaultClaimTokenSource)
     private val schedules = linkedMapOf<String, MutableScheduleRecord>()
     private val ticks = linkedMapOf<String, MutableTickRecord>()
     private val delayWakeups = linkedMapOf<String, MutableDelayWakeupRecord>()

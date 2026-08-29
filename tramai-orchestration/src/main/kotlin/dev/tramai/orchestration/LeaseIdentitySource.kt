@@ -11,10 +11,10 @@ import java.util.UUID
  * a fencing/capability token, and its generation is owned by exactly one
  * composition-boundary source.
  */
-fun interface LeaseIdentitySource {
+internal fun interface LeaseIdentitySource {
     fun newLeaseId(): String
 }
 
-object DefaultLeaseIdentitySource : LeaseIdentitySource {
+internal object DefaultLeaseIdentitySource : LeaseIdentitySource {
     override fun newLeaseId(): String = UUID.randomUUID().toString()
 }

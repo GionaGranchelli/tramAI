@@ -16,7 +16,7 @@ class JdbcWorkflowLeaseStore(
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
     private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
 
-    constructor(
+    internal constructor(
         dataSource: DataSource,
         table: JdbcWorkflowLeaseTable,
         clockMillis: () -> Long,

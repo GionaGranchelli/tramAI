@@ -127,7 +127,7 @@ class InMemoryWorkflowLeaseStore(
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore {
     private var leaseIdentitySource: LeaseIdentitySource = DefaultLeaseIdentitySource
 
-    constructor(
+    internal constructor(
         clockMillis: () -> Long,
         leaseIdentitySource: LeaseIdentitySource,
     ) : this(clockMillis) {

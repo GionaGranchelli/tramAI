@@ -33,7 +33,7 @@ class JdbcWorkflowSchedulerStore(
 ) : WorkflowSchedulerStore {
     private var claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource
 
-    constructor(
+    internal constructor(
         dataSource: DataSource,
         observer: WorkflowObserver,
         claimTokenSource: ClaimTokenSource,
