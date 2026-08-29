@@ -61,7 +61,7 @@ class StaticAnalysisPlugin : Plugin<Project> {
             detektClasspath.from(detektCli)
             sourceFiles.from(sources)
             configFile.set(configDir.file("detekt.yml"))
-            baselineFile.set(configDir.file("baseline.xml"))
+            baselineFiles.from(configDir.file("baseline.xml"))
             baseRef.set(project.providers.gradleProperty("tramaiStaticAnalysisBaseRef").orElse("origin/master"))
             changeClass.set(project.providers.gradleProperty("changeClass").orElse(""))
             reportsDir.set(project.layout.buildDirectory.dir("reports/static-analysis"))

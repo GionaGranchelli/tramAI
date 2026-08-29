@@ -41,10 +41,10 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val configFile: RegularFileProperty
 
+    @get:InputFiles
     @get:Optional
-    @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val baselineFile: RegularFileProperty
+    abstract val baselineFiles: ConfigurableFileCollection
 
     @get:Input
     abstract val baseRef: Property<String>
@@ -63,7 +63,9 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
     fun verifyStaticAnalysis() {
         val root = File(repositoryRoot.get())
         val baseRefValue = baseRef.get()
-        val currentBaselineFile = baselineFile.asFile.orNull?.takeIf { it.exists() }
+        // An @InputFiles collection tolerates a missing baseline (deletion is a
+        // verifier failure, not a configuration failure).
+        val currentBaselineFile = baselineFiles.files.firstOrNull { it.exists() }
 
         // 1. Baseline-growth contract — fast, fails before the long Detekt run.
         val baseBaselineXml = gitShowOrNull(root, baseRefValue, "config/detekt/baseline.xml")
