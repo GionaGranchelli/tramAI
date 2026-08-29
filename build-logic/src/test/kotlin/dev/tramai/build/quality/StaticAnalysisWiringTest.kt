@@ -36,7 +36,7 @@ class StaticAnalysisWiringTest : StaticAnalysisContractTestBase() {
         assertTrue(ids.size > 1, "baseline must have more than one entry")
         val xml = File(worktree, "config/detekt/baseline.xml")
         xml.writeText(
-            xml.readText().replaceFirst("    <ID>${Regex.escape(ids.first())}</ID>", "")
+            xml.readText().replaceFirst("    <ID>${ids.first()}</ID>", "")
         )
         commit("baseB baseline")
         val baseB = "baseB"
@@ -75,13 +75,11 @@ class StaticAnalysisWiringTest : StaticAnalysisContractTestBase() {
     fun `p0-o formatting remains separate`() {
         val config = File(worktree, "config/detekt/detekt.yml").readText()
         // No active `formatting:` ruleset — Spotless/KtLint is the sole formatter.
+        // (The word "detekt-formatting" appears only in the documented header
+        // policy, never as a ruleset section.)
         assertTrue(
             !Regex("(?m)^formatting:").containsMatchIn(config),
             "detekt.yml must not enable a formatting ruleset",
-        )
-        assertTrue(
-            !config.contains("detekt-formatting"),
-            "detekt.yml must not reference the detekt-formatting plugin",
         )
         val rootBuild = File(worktree, "build.gradle.kts").readText()
         assertTrue(

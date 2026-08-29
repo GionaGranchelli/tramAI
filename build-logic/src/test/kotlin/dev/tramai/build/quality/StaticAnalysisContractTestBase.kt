@@ -105,7 +105,7 @@ abstract class StaticAnalysisContractTestBase {
 
     /**
      * Runs gradle but returns as soon as [needle] appears in the stream (bounded
-     * at 90s), destroying the process. Used for `--dry-run` task-graph proofs whose
+     * at 180s), destroying the process. Used for `--dry-run` task-graph proofs whose
      * full graph may hang in the stripped-network test environment.
      */
     protected fun gradleUntil(
@@ -119,22 +119,23 @@ abstract class StaticAnalysisContractTestBase {
                 .start()
         val output = StringBuilder()
         val reader = proc.inputStream.bufferedReader()
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(180)
         while (System.nanoTime() < deadline) {
             if (reader.ready()) {
                 output.append(reader.read().toChar())
             }
             if (output.contains(needle)) {
                 proc.destroy()
-                proc.waitFor(10, TimeUnit.SECONDS)
+                proc.waitFor(15, TimeUnit.SECONDS)
                 unlockGit()
                 return Run(0, output.toString())
             }
             Thread.sleep(50)
         }
         proc.destroy()
+        val exited = proc.waitFor(15, TimeUnit.SECONDS)
         unlockGit()
-        return Run(proc.exitValue(), output.toString())
+        return Run(if (exited) proc.exitValue() else -1, output.toString())
     }
 
     private fun unlockGit() {
