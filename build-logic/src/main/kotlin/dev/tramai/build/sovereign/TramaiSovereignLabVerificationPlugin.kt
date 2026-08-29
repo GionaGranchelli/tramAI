@@ -23,6 +23,7 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         registerVerifySovereignLabProfile(project)
+        registerVerifySovereignLabEvidenceBundle(project)
         registerPrepareSovereignEvidenceBundle(project)
         registerVerifySovereignEvidenceBundleReleaseManifest(project)
         registerVerifySovereignEvidencePackContainsReleaseBundle(project)
@@ -47,6 +48,26 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
             packagerScriptFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/package-evidence-bundle.sh"))
             archiveVerifierScriptFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-archive.sh"))
             archiveSigningDocFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/ARCHIVE-SIGNING.md"))
+        }
+    }
+
+    private fun registerVerifySovereignLabEvidenceBundle(project: Project) {
+        project.tasks.register<SovereignLabEvidenceBundleVerifierTask>("verifySovereignLabEvidenceBundle") {
+            group = "verification"
+            description = "Verifies the sovereign lab evidence bundle scaffold."
+            dependsOn("verifySovereignLabProfile")
+            createScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/create-evidence-bundle.sh"))
+            verifierScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-bundle.sh"))
+            finalizerScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/finalize-evidence-bundle.sh"))
+            packagerScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/package-evidence-bundle.sh"))
+            archiveVerifierScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-archive.sh"))
+            signatureVerifierScript.set(project.layout.projectDirectory.file("examples/sovereign-lab/verify-evidence-archive-signature.sh"))
+            evidenceTemplates.from(
+                project.fileTree("examples/sovereign-lab/evidence-template") {
+                    include("*.md")
+                }
+            )
+            workingDirectory.set(project.layout.projectDirectory.dir("examples/sovereign-lab/build"))
         }
     }
 
