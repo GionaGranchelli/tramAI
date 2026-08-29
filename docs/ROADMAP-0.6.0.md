@@ -1488,6 +1488,17 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 10.1: Formatting and static analysis
 
+**Status: 🔄 IN PROGRESS — 10.1a 🚧 PR #339** (sliced: see `docs/EPIC-10.1-code-quality.md`)
+
+### Slices (frozen decomposition)
+
+| Slice | Scope | Status |
+|---|---|---|
+| 10.1a | Incremental Kotlin formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base) | 🚧 PR #339 |
+| 10.1b | Static analysis (Detekt or equivalent): baseline, prohibit growth, central suppression rationale | ⏳ |
+| 10.1c | Compiler + dependency hygiene: warning review / `-Werror` where feasible, unused-dependency enforcement | ⏳ |
+| 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | ⏳ |
+
 ### Required gates
 
 - Kotlin formatting enforced in CI

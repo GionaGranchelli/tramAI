@@ -38,6 +38,32 @@ jobs:
           echo "TramaiEngine.kt sha256=$(sha256sum tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt | cut -d' ' -f1)"
           echo "TramaiEngineTest.kt sha256=$(sha256sum tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt | cut -d' ' -f1)"
 
+      - name: Verify Kotlin formatting against PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          ./gradlew spotlessCheck \
+            --no-daemon \
+            -PtramaiFormattingBaseRef="${{ github.event.pull_request.base.sha }}"
+
+      - name: Verify Kotlin formatting against push base
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          ./gradlew spotlessCheck \
+            --no-daemon \
+            -PtramaiFormattingBaseRef="${{ github.event.before }}"
+
+      - name: Run formatting gate contract tests
+        run: |
+          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.FormattingGate*Test' --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.FormattingGate*Test.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == 8, f'expected exactly 8 formatting-gate tests, discovered {total}'
+          EOF
+
       - name: Run tests
         timeout-minutes: 15
         run: |

@@ -12,6 +12,59 @@ plugins {
     id("tramai.sovereign-verification")
     id("tramai.sovereign-lab-verification")
     id("tramai.docs-guards")
+    alias(libs.plugins.spotless)
+}
+
+// ── Epic 10.1a: incremental Kotlin formatting gate ──
+// Spotless with an explicitly pinned KtLint engine (libs.versions.toml). One
+// formatting authority for the whole repository, including the build-logic
+// included build (reached via root-relative file targets).
+//
+// Ratchet semantics: only Kotlin sources CHANGED relative to the formatting
+// base are checked/formatted. Untouched legacy formatting debt never blocks.
+//   -PtramaiFormattingBaseRef=<sha>  exact base (CI PR: pull_request.base.sha,
+//                                    CI push: github.event.before)
+//   property absent                  origin/master (local default)
+//
+// spotlessCheck joins the root `check` lifecycle automatically; verifyPr
+// depends on it below.
+spotless {
+    val formattingBaseRef = providers.gradleProperty("tramaiFormattingBaseRef")
+        .orElse("origin/master")
+    ratchetFrom(formattingBaseRef.get())
+
+    kotlin {
+        target(
+            fileTree(rootDir) {
+                include("**/*.kt")
+                // Gradle task-output dirs only — deliberately NARROW. A broad
+                // "**/build/**" would also exclude paths containing a package
+                // segment literally named `build` (e.g. dev/tramai/build in
+                // build-logic), silently exempting real source.
+                exclude(
+                    "build/**", // root project output
+                    "*/build/**", // module output dirs
+                    "examples/*/build/**", // example module output dirs
+                    "build-logic/build/**", // included-build output dir
+                    "**/.gradle/**", // caches — no source lives here
+                )
+            }
+        )
+        // Explicitly pinned formatter engine — never Spotless's implicit default.
+        ktlint(libs.versions.ktlint.get())
+        // .editorconfig (root) is the single style authority.
+    }
+}
+
+tasks.named("verifyPr") {
+    dependsOn("spotlessCheck")
+}
+
+// The root project carries the Spotless formatting gate (Epic 10.1a); it needs
+// a repository to resolve the pinned KtLint engine. Production modules keep
+// their own repositories declared in the subprojects block below.
+repositories {
+    mavenCentral()
 }
 
 sonar {
