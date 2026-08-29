@@ -18,7 +18,6 @@ import org.gradle.kotlin.dsl.register
  * Applied only at the root project.
  */
 class StaticAnalysisPlugin : Plugin<Project> {
-
     companion object {
         const val DETEKT_VERSION = "1.23.8"
     }
@@ -32,7 +31,10 @@ class StaticAnalysisPlugin : Plugin<Project> {
             }
         project.dependencies.add("detektCli", "io.gitlab.arturbosch.detekt:detekt-cli:$DETEKT_VERSION:all")
 
-        val configDir = project.layout.projectDirectory.dir("config").dir("detekt")
+        val configDir =
+            project.layout.projectDirectory
+                .dir("config")
+                .dir("detekt")
         val sources =
             project.fileTree(project.rootDir) {
                 // Source universe: every Kotlin source set (main/test/custom) in
@@ -57,7 +59,7 @@ class StaticAnalysisPlugin : Plugin<Project> {
             group = "verification"
             description =
                 "Repository-wide Kotlin static analysis (Detekt $DETEKT_VERSION, pinned) with " +
-                    "frozen legacy baseline and fail-closed growth protection."
+                "frozen legacy baseline and fail-closed growth protection."
             detektClasspath.from(detektCli)
             sourceFiles.from(sources)
             configFile.set(configDir.file("detekt.yml"))

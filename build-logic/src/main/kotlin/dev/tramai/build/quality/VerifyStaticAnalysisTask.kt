@@ -28,7 +28,6 @@ import java.io.File
  * even when findings exist.
  */
 abstract class VerifyStaticAnalysisTask : DefaultTask() {
-
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val detektClasspath: ConfigurableFileCollection
@@ -76,7 +75,7 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
                     currentBaselineXml = currentBaselineFile?.readText(),
                     changeClass = changeClass.orNull?.takeIf { it.isNotBlank() },
                     runtimeSourceChanged = gitDiffRuntimeChanged(root, baseRefValue),
-                )
+                ),
             )
         if (!verdict.passed) {
             throw GradleException("[${verdict.code}] ${verdict.message}")
@@ -86,8 +85,13 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
         // 2. Execute Detekt (pinned CLI) against the committed config + baseline.
         val inputDirs =
             sourceFiles.files
-                .map { root.toPath().relativize(it.toPath()).toString().substringBeforeLast('/') }
-                .filter { it.isNotBlank() }
+                .map {
+                    root
+                        .toPath()
+                        .relativize(it.toPath())
+                        .toString()
+                        .substringBeforeLast('/')
+                }.filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
         if (inputDirs.isEmpty()) {
@@ -120,9 +124,8 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
             }
         val proc =
             ProcessBuilder(
-                listOf(javaExecutable, "-Xmx3g", "-jar", detektJar.absolutePath) + args
-            )
-                .directory(root)
+                listOf(javaExecutable, "-Xmx3g", "-jar", detektJar.absolutePath) + args,
+            ).directory(root)
                 .redirectErrorStream(true)
                 .start()
         val output = proc.inputStream.bufferedReader().readText()
@@ -144,7 +147,7 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
                 "verifyStaticAnalysis: Detekt reported non-baselined findings (exit $exit).\n" +
                     output.takeLast(8000) +
                     "\n\nSummary written to $reportDir/summary.txt. " +
-                    "Fix the findings — the baseline is a ceiling, not an allowance budget."
+                    "Fix the findings — the baseline is a ceiling, not an allowance budget.",
             )
         }
         logger.lifecycle("static-analysis: no new findings; reports at $reportDir")
@@ -159,7 +162,8 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
     ): String {
         val newFindings = countReportFindings(detektXml)
         val baseTotal = (DetektBaselineParser.parse(baseBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0
-        val currentTotal = (DetektBaselineParser.parse(currentBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0
+        val currentTotal =
+            (DetektBaselineParser.parse(currentBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0
         val byRule = newFindings.entries.sortedByDescending { it.value }.joinToString("\n") { "  ${it.key}: ${it.value}" }
         return buildString {
             appendLine("TramAI static-analysis summary")
@@ -187,13 +191,20 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
     private fun countReportFindings(xmlFile: File): Map<String, Int> {
         if (!xmlFile.exists()) return emptyMap()
         return try {
-            val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            val factory =
+                javax.xml.parsers.DocumentBuilderFactory
+                    .newInstance()
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             val doc = factory.newDocumentBuilder().parse(xmlFile)
             val counts = mutableMapOf<String, Int>()
             val errors = doc.getElementsByTagName("error")
             for (i in 0 until errors.length) {
-                val rule = errors.item(i).attributes.getNamedItem("source")?.nodeValue ?: "unknown"
+                val rule =
+                    errors
+                        .item(i)
+                        .attributes
+                        .getNamedItem("source")
+                        ?.nodeValue ?: "unknown"
                 counts[rule] = (counts[rule] ?: 0) + 1
             }
             counts
@@ -203,31 +214,45 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
         }
     }
 
-    private data class GitResult(val exitCode: Int, val output: String)
+    private data class GitResult(
+        val exitCode: Int,
+        val output: String,
+    )
 
-    private fun runGit(root: File, vararg args: String): GitResult {
-        val proc = ProcessBuilder(listOf("git") + args)
-            .directory(root)
-            .redirectErrorStream(true)
-            .start()
+    private fun runGit(
+        root: File,
+        vararg args: String,
+    ): GitResult {
+        val proc =
+            ProcessBuilder(listOf("git") + args)
+                .directory(root)
+                .redirectErrorStream(true)
+                .start()
         val out = proc.inputStream.bufferedReader().readText()
         return GitResult(proc.waitFor(), out)
     }
 
-    private fun gitShowOrNull(root: File, ref: String, path: String): String? {
+    private fun gitShowOrNull(
+        root: File,
+        ref: String,
+        path: String,
+    ): String? {
         val rev = runGit(root, "rev-parse", "--verify", "--quiet", "$ref^{commit}")
         if (rev.exitCode != 0) {
             throw GradleException(
                 "verifyStaticAnalysis: static-analysis base ref '$ref' does not resolve. " +
-                    "Pass -PtramaiStaticAnalysisBaseRef=<exact sha> (CI: pull_request.base.sha / event.before)."
+                    "Pass -PtramaiStaticAnalysisBaseRef=<exact sha> (CI: pull_request.base.sha / event.before).",
             )
         }
         val show = runGit(root, "show", "$ref:$path")
         return if (show.exitCode == 0) show.output else null
     }
 
-    private fun gitDiffRuntimeChanged(root: File, ref: String): Boolean {
-        val diff = runGit(root, "diff", "--name-only", "${ref}...HEAD")
+    private fun gitDiffRuntimeChanged(
+        root: File,
+        ref: String,
+    ): Boolean {
+        val diff = runGit(root, "diff", "--name-only", "$ref...HEAD")
         if (diff.exitCode != 0) {
             throw GradleException("verifyStaticAnalysis: git diff against '$ref' failed: ${diff.output.take(500)}")
         }

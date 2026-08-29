@@ -8,7 +8,6 @@ import kotlin.test.assertTrue
  * P0-F..P0-J: malformed baseline, one-time bootstrap, and source-universe scope.
  */
 class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
-
     @Test
     fun `p0-f malformed baseline fails`() {
         val base = baseBranch()
@@ -30,7 +29,7 @@ class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
         assertTrue(ids.isNotEmpty(), "baseline must not be empty")
         val dup = ids.first()
         xml.writeText(
-            xml.readText().replaceFirst("    <ID>$dup</ID>", "    <ID>$dup</ID>\n    <ID>$dup</ID>")
+            xml.readText().replaceFirst("    <ID>$dup</ID>", "    <ID>$dup</ID>\n    <ID>$dup</ID>"),
         )
         commit("duplicate baseline ID")
         val runDup = staticAnalysis(base)

@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
  * head in a disposable worktree and runs the REAL `verifyStaticAnalysis` task.
  */
 class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
-
     @Test
     fun `p0-a existing baselined finding passes`() {
         val base = baseBranch()
@@ -54,8 +53,9 @@ class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
         val fakeEntry = "MagicNumber:StaticAnalysisProbe.kt\$probeMagic"
         if (baselineIds().none { it == fakeEntry }) {
             xml.writeText(
-                xml.readText()
-                    .replace("  </CurrentIssues>", "    <ID>$fakeEntry</ID>\n  </CurrentIssues>")
+                xml
+                    .readText()
+                    .replace("  </CurrentIssues>", "    <ID>$fakeEntry</ID>\n  </CurrentIssues>"),
             )
         }
         commit("add violation and grow baseline")
@@ -75,7 +75,7 @@ class StaticAnalysisContractTest : StaticAnalysisContractTestBase() {
         assertTrue(ids.isNotEmpty(), "baseline must not be empty")
         val xml = File(worktree, "config/detekt/baseline.xml")
         xml.writeText(
-            xml.readText().replaceFirst("    <ID>${Regex.escape(ids.first())}</ID>", "")
+            xml.readText().replaceFirst("    <ID>${Regex.escape(ids.first())}</ID>", ""),
         )
         commit("remove stale baseline entry")
         val run = staticAnalysis(base)

@@ -15,13 +15,18 @@ data class DetektBaselineDocument(
 )
 
 sealed class BaselineParseResult {
-    data class Success(val document: DetektBaselineDocument) : BaselineParseResult()
+    data class Success(
+        val document: DetektBaselineDocument,
+    ) : BaselineParseResult()
+
     data object NotFound : BaselineParseResult()
-    data class Invalid(val reason: String) : BaselineParseResult()
+
+    data class Invalid(
+        val reason: String,
+    ) : BaselineParseResult()
 }
 
 object DetektBaselineParser {
-
     /** Parses baseline XML content. `null`/blank content means "file absent". */
     fun parse(xml: String?): BaselineParseResult {
         if (xml == null || xml.isBlank()) return BaselineParseResult.NotFound
@@ -41,7 +46,7 @@ object DetektBaselineParser {
             val currentSections = root.getElementsByTagName("CurrentIssues")
             if (currentSections.length != 1) {
                 return BaselineParseResult.Invalid(
-                    "expected exactly one <CurrentIssues> section, found ${currentSections.length}"
+                    "expected exactly one <CurrentIssues> section, found ${currentSections.length}",
                 )
             }
             val currentIds = mutableListOf<String>()
@@ -53,10 +58,15 @@ object DetektBaselineParser {
                     currentIds.add(text)
                 }
             }
-            val duplicates = currentIds.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+            val duplicates =
+                currentIds
+                    .groupingBy { it }
+                    .eachCount()
+                    .filterValues { it > 1 }
+                    .keys
             if (duplicates.isNotEmpty()) {
                 return BaselineParseResult.Invalid(
-                    "duplicate baseline ID(s): ${duplicates.joinToString(", ").take(400)}"
+                    "duplicate baseline ID(s): ${duplicates.joinToString(", ").take(400)}",
                 )
             }
             val suppressedIds = mutableListOf<String>()
@@ -71,7 +81,7 @@ object DetektBaselineParser {
                 DetektBaselineDocument(
                     currentIssueIds = currentIds.toSet(),
                     manuallySuppressedIds = suppressedIds.toSet(),
-                )
+                ),
             )
         } catch (e: Exception) {
             BaselineParseResult.Invalid(e.message ?: "baseline XML parse failure: ${e::class.simpleName}")

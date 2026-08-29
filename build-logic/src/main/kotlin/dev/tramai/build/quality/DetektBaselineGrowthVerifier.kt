@@ -45,20 +45,35 @@ data class DetektGrowthVerdict(
 }
 
 object DetektBaselineGrowthVerifier {
-
     fun verify(input: DetektGrowthInput): DetektGrowthVerdict {
-        val base = when (val r = DetektBaselineParser.parse(input.baseBaselineXml)) {
-            is BaselineParseResult.Success -> r.document
-            BaselineParseResult.NotFound -> null
-            is BaselineParseResult.Invalid ->
-                return fail(DetektGrowthVerdict.MALFORMED, "base Detekt baseline is malformed: ${r.reason}")
-        }
-        val current = when (val r = DetektBaselineParser.parse(input.currentBaselineXml)) {
-            is BaselineParseResult.Success -> r.document
-            BaselineParseResult.NotFound -> null
-            is BaselineParseResult.Invalid ->
-                return fail(DetektGrowthVerdict.MALFORMED, "current Detekt baseline is malformed: ${r.reason}")
-        }
+        val base =
+            when (val r = DetektBaselineParser.parse(input.baseBaselineXml)) {
+                is BaselineParseResult.Success -> {
+                    r.document
+                }
+
+                BaselineParseResult.NotFound -> {
+                    null
+                }
+
+                is BaselineParseResult.Invalid -> {
+                    return fail(DetektGrowthVerdict.MALFORMED, "base Detekt baseline is malformed: ${r.reason}")
+                }
+            }
+        val current =
+            when (val r = DetektBaselineParser.parse(input.currentBaselineXml)) {
+                is BaselineParseResult.Success -> {
+                    r.document
+                }
+
+                BaselineParseResult.NotFound -> {
+                    null
+                }
+
+                is BaselineParseResult.Invalid -> {
+                    return fail(DetektGrowthVerdict.MALFORMED, "current Detekt baseline is malformed: ${r.reason}")
+                }
+            }
 
         // Rule 6: deletion — never allowed, not even for migrations.
         if (base != null && current == null) {
@@ -80,8 +95,9 @@ object DetektBaselineGrowthVerifier {
                     removed = emptyList(),
                     baseTotal = 0,
                     currentTotal = current.currentIssueIds.size,
-                    message = "Initial Detekt baseline adoption: ${current.currentIssueIds.size} finding(s) frozen. " +
-                        "This bootstrap path is one-time; it is keyed on the base file's absence.",
+                    message =
+                        "Initial Detekt baseline adoption: ${current.currentIssueIds.size} finding(s) frozen. " +
+                            "This bootstrap path is one-time; it is keyed on the base file's absence.",
                 )
             }
             return fail(
@@ -130,8 +146,9 @@ object DetektBaselineGrowthVerifier {
             removed = removed,
             baseTotal = baseDoc.currentIssueIds.size,
             currentTotal = currentDoc.currentIssueIds.size,
-            message = "Detekt baseline OK: base ${baseDoc.currentIssueIds.size} -> current ${currentDoc.currentIssueIds.size}; " +
-                "${removed.size} removed, ${added.size} added.",
+            message =
+                "Detekt baseline OK: base ${baseDoc.currentIssueIds.size} -> current ${currentDoc.currentIssueIds.size}; " +
+                    "${removed.size} removed, ${added.size} added.",
         )
     }
 
@@ -152,7 +169,10 @@ object DetektBaselineGrowthVerifier {
         message = message,
     )
 
-    private fun fail(code: String, message: String) = DetektGrowthVerdict(
+    private fun fail(
+        code: String,
+        message: String,
+    ) = DetektGrowthVerdict(
         passed = false,
         code = code,
         added = emptyList(),

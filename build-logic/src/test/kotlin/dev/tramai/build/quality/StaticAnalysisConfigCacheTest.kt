@@ -12,7 +12,6 @@ import kotlin.test.assertTrue
  * *problem* is not (enforced via --configuration-cache-problems=fail).
  */
 class StaticAnalysisConfigCacheTest : StaticAnalysisContractTestBase() {
-
     @Test
     fun `configuration cache cold to warm`() {
         val base = baseBranch()

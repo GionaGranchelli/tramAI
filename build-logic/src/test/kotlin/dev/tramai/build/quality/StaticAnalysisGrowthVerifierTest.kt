@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
  * one-time bootstrap discriminator (section I). No Gradle, no git.
  */
 class StaticAnalysisGrowthVerifierTest {
-
     private fun verifier() = DetektBaselineGrowthVerifier
 
     private val idFoo = "MaxLineLength:Foo.kt\$foo\$aVeryLongLine"
@@ -98,7 +97,7 @@ class StaticAnalysisGrowthVerifierTest {
         val duplicate =
             sampleXml.replace(
                 "    <ID>$idBar</ID>",
-                "    <ID>$idBar</ID>\n    <ID>$idBar</ID>"
+                "    <ID>$idBar</ID>\n    <ID>$idBar</ID>",
             )
         assertEquals(DetektGrowthVerdict.MALFORMED, verifier().verify(input(current = duplicate)).code)
 

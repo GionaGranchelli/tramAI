@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
  * failure, and the formatting-separation invariant.
  */
 class StaticAnalysisWiringTest : StaticAnalysisContractTestBase() {
-
     @Test
     fun `p0-k check owns gate`() {
         val run = gradleUntil(":verifyStaticAnalysis", "--no-build-cache", "check", "--dry-run")
@@ -36,7 +35,7 @@ class StaticAnalysisWiringTest : StaticAnalysisContractTestBase() {
         assertTrue(ids.size > 1, "baseline must have more than one entry")
         val xml = File(worktree, "config/detekt/baseline.xml")
         xml.writeText(
-            xml.readText().replaceFirst("    <ID>${ids.first()}</ID>", "")
+            xml.readText().replaceFirst("    <ID>${ids.first()}</ID>", ""),
         )
         commit("baseB baseline")
         val baseB = "baseB"
@@ -66,7 +65,7 @@ class StaticAnalysisWiringTest : StaticAnalysisContractTestBase() {
         assertFails(run, "gate when Detekt cannot load its config")
         assertTrue(
             run.output.contains("verifyStaticAnalysis: Detekt reported") ||
-                run.output.contains("Detekt") && run.exit != 0,
+                (run.output.contains("Detekt") && run.exit != 0),
             "tool failure must surface as a task failure. Output: ${run.output.take(1500)}",
         )
     }

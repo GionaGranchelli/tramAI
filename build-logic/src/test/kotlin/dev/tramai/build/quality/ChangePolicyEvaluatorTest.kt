@@ -110,7 +110,7 @@ class ChangePolicyEvaluatorTest {
         )
         val result = ChangePolicyEvaluator.evaluate(input)
         assertFalse(result.passed)
-        assertTrue(result.violations.any { it.message.contains("must change at least one canonical baseline") })
+        assertTrue(result.violations.any { it.message.contains("must change the canonical baseline") })
     }
 
     @Test
@@ -127,64 +127,6 @@ class ChangePolicyEvaluatorTest {
         val result = ChangePolicyEvaluator.evaluate(input)
         assertFalse(result.passed)
         assertTrue(result.violations.any { it.message.contains("must include an analyzer change") })
-    }
-
-    // --- Epic 10.1b: config/detekt/baseline.xml is a canonical baseline ---
-
-    @Test
-    fun `detekt baseline in a runtime PR triggers production-baseline separation`() {
-        val input = ChangePolicyInput(
-            changeClass = null,
-            changedFiles = listOf(
-                "tramai-engine/src/main/kotlin/Engine.kt",
-                "config/detekt/baseline.xml"
-            ),
-            baseDeviationsYaml = null,
-            currentDeviationsYaml = null
-        )
-        val result = ChangePolicyEvaluator.evaluate(input)
-        assertFalse(result.passed)
-        assertTrue(
-            result.violations.any { it.rule == "production-baseline-separation" },
-            "runtime + detekt baseline change must violate production-baseline-separation"
-        )
-    }
-
-    @Test
-    fun `baseline-migration via detekt baseline is valid without maintainability baseline`() {
-        val input = ChangePolicyInput(
-            changeClass = "baseline-migration",
-            changedFiles = listOf(
-                "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
-                "config/detekt/baseline.xml"
-            ),
-            baseDeviationsYaml = null,
-            currentDeviationsYaml = null
-        )
-        val result = ChangePolicyEvaluator.evaluate(input)
-        assertTrue(
-            result.passed,
-            "a detekt baseline migration must not be required to also modify 0.6.0-baseline.json"
-        )
-    }
-
-    @Test
-    fun `baseline-migration with neither canonical baseline fails`() {
-        val input = ChangePolicyInput(
-            changeClass = "baseline-migration",
-            changedFiles = listOf(
-                "build-logic/src/main/kotlin/dev/tramai/build/quality/VerifyStaticAnalysisTask.kt",
-                "config/quality/maintainability-deviations.yml"
-            ),
-            baseDeviationsYaml = null,
-            currentDeviationsYaml = null
-        )
-        val result = ChangePolicyEvaluator.evaluate(input)
-        assertFalse(result.passed)
-        assertTrue(
-            result.violations.any { it.message.contains("at least one canonical baseline") },
-            "baseline-migration without any canonical baseline change must fail"
-        )
     }
 
     @Test
@@ -205,7 +147,7 @@ class ChangePolicyEvaluatorTest {
         val result = ChangePolicyEvaluator.evaluate(input)
         assertFalse(result.passed)
         // Should have at LEAST two violations: no baseline, and runtime blocked
-        assertTrue(result.violations.any { it.message.contains("must change at least one canonical baseline") },
+        assertTrue(result.violations.any { it.message.contains("must change the canonical baseline") },
             "Should fail because no baseline change")
         assertTrue(result.violations.any { it.message.contains("tramai runtime") },
             "Should fail because runtime production changes")

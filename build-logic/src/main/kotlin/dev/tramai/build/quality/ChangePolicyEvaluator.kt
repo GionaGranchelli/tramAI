@@ -20,19 +20,19 @@ data class ChangePolicyInput(
     val changeClass: String?,
     val changedFiles: List<String>,
     val baseDeviationsYaml: String?,
-    val currentDeviationsYaml: String?
+    val currentDeviationsYaml: String?,
 )
 
 data class PolicyViolation(
     val rule: String,
-    val message: String
+    val message: String,
 ) {
     fun formatted(): String = "POLICY [$rule]: $message"
 }
 
 data class ChangePolicyResult(
     val violations: List<PolicyViolation>,
-    val passed: Boolean
+    val passed: Boolean,
 )
 
 /**
@@ -42,27 +42,34 @@ data class ChangePolicyResult(
  *  - Invalid: file exists but is malformed, blank, or structurally invalid
  */
 sealed class DeviationParseResult {
-    data class Success(val deviations: Map<String, Map<String, Any?>>) : DeviationParseResult()
+    data class Success(
+        val deviations: Map<String, Map<String, Any?>>,
+    ) : DeviationParseResult()
+
     data object NotFound : DeviationParseResult()
-    data class Invalid(val reason: String) : DeviationParseResult()
+
+    data class Invalid(
+        val reason: String,
+    ) : DeviationParseResult()
 }
 
 object ChangePolicyEvaluator {
-
     /** Auto-detected change class when -PchangeClass is not provided. */
-    fun detectChangeClass(changedFiles: List<String>): String = when {
-        // If the only changes are build tooling (build-logic, root build scripts,
-        // docs), it's a build-logic PR. Root build scripts are configuration, not
-        // runtime production code.
-        changedFiles.all {
-            it.startsWith("build-logic/") ||
-                it.startsWith("docs/") ||
-                it.endsWith(".md") ||
-                isBuildScriptPath(it)
-        } -> "build-logic"
-        // Default to runtime
-        else -> "runtime-behaviour"
-    }
+    fun detectChangeClass(changedFiles: List<String>): String =
+        when {
+            // If the only changes are build tooling (build-logic, root build scripts,
+            // docs), it's a build-logic PR. Root build scripts are configuration, not
+            // runtime production code.
+            changedFiles.all {
+                it.startsWith("build-logic/") ||
+                    it.startsWith("docs/") ||
+                    it.endsWith(".md") ||
+                    isBuildScriptPath(it)
+            } -> "build-logic"
+
+            // Default to runtime
+            else -> "runtime-behaviour"
+        }
 
     /** Root-level build configuration files count as build tooling, not runtime. */
     fun isBuildScriptPath(path: String): Boolean =
@@ -91,18 +98,22 @@ object ChangePolicyEvaluator {
             // MUST change the canonical baseline
             if (!baselineChanged) {
                 violations.add(
-                    PolicyViolation("production-baseline-separation",
-                        "A baseline-migration PR must change at least one canonical baseline " +
+                    PolicyViolation(
+                        "production-baseline-separation",
+                        "A baseline-migration PR must change the canonical baseline " +
                             "(config/quality/0.6.0-baseline.json or config/detekt/baseline.xml). " +
-                            "Found no changes to any canonical baseline.")
+                            "Found no changes to any canonical baseline.",
+                    ),
                 )
             }
             // MUST include an analyzer change
             if (!analyzerChanged) {
                 violations.add(
-                    PolicyViolation("analyzer-runtime-separation",
+                    PolicyViolation(
+                        "analyzer-runtime-separation",
                         "A baseline-migration PR must include an analyzer change (build-logic/). " +
-                            "Found no changes in build-logic/.")
+                            "Found no changes in build-logic/.",
+                    ),
                 )
             }
             // MUST NOT include tramai runtime production changes
@@ -132,8 +143,10 @@ object ChangePolicyEvaluator {
             // Validate base parse
             if (baseResult is DeviationParseResult.Invalid) {
                 violations.add(
-                    PolicyViolation("deviation-evidence",
-                        "Base deviation YAML is invalid: ${baseResult.reason}")
+                    PolicyViolation(
+                        "deviation-evidence",
+                        "Base deviation YAML is invalid: ${baseResult.reason}",
+                    ),
                 )
             }
 
@@ -141,16 +154,22 @@ object ChangePolicyEvaluator {
             when (currentResult) {
                 is DeviationParseResult.Invalid -> {
                     violations.add(
-                        PolicyViolation("deviation-evidence",
-                            "Current deviation YAML is invalid: ${currentResult.reason}")
+                        PolicyViolation(
+                            "deviation-evidence",
+                            "Current deviation YAML is invalid: ${currentResult.reason}",
+                        ),
                     )
                 }
+
                 is DeviationParseResult.NotFound -> {
                     violations.add(
-                        PolicyViolation("deviation-evidence",
-                            "maintainability-deviations.yml was deleted. Deviations cannot be removed without a migration plan.")
+                        PolicyViolation(
+                            "deviation-evidence",
+                            "maintainability-deviations.yml was deleted. Deviations cannot be removed without a migration plan.",
+                        ),
                     )
                 }
+
                 is DeviationParseResult.Success -> {
                     val current = currentResult.deviations
                     val base = (baseResult as? DeviationParseResult.Success)?.deviations ?: emptyMap()
@@ -161,8 +180,10 @@ object ChangePolicyEvaluator {
                         val missing = requiredFields.filter { it !in fields }
                         if (missing.isNotEmpty()) {
                             violations.add(
-                                PolicyViolation("deviation-evidence",
-                                    "Deviation $id is missing required fields: ${missing.joinToString(", ")}.")
+                                PolicyViolation(
+                                    "deviation-evidence",
+                                    "Deviation $id is missing required fields: ${missing.joinToString(", ")}.",
+                                ),
                             )
                         }
 
@@ -171,14 +192,18 @@ object ChangePolicyEvaluator {
                         val allowedVal = fields["allowed"]?.toString()?.toDoubleOrNull()
                         if (baselineVal == null) {
                             violations.add(
-                                PolicyViolation("deviation-evidence",
-                                    "Deviation $id has non-numeric baseline value.")
+                                PolicyViolation(
+                                    "deviation-evidence",
+                                    "Deviation $id has non-numeric baseline value.",
+                                ),
                             )
                         }
                         if (allowedVal == null) {
                             violations.add(
-                                PolicyViolation("deviation-evidence",
-                                    "Deviation $id has non-numeric allowed value.")
+                                PolicyViolation(
+                                    "deviation-evidence",
+                                    "Deviation $id has non-numeric allowed value.",
+                                ),
                             )
                         }
 
@@ -188,8 +213,10 @@ object ChangePolicyEvaluator {
                             val value = fields[field]?.toString()
                             if (value.isNullOrBlank()) {
                                 violations.add(
-                                    PolicyViolation("deviation-evidence",
-                                        "Deviation $id has blank $field.")
+                                    PolicyViolation(
+                                        "deviation-evidence",
+                                        "Deviation $id has blank $field.",
+                                    ),
                                 )
                             }
                         }
@@ -199,9 +226,11 @@ object ChangePolicyEvaluator {
                     val removedIds = base.keys - current.keys
                     if (removedIds.isNotEmpty()) {
                         violations.add(
-                            PolicyViolation("deviation-evidence",
+                            PolicyViolation(
+                                "deviation-evidence",
                                 "Deviations removed without migration: ${removedIds.joinToString(", ")}. " +
-                                    "Removing deviations requires a documented migration.")
+                                    "Removing deviations requires a documented migration.",
+                            ),
                         )
                     }
 
@@ -235,16 +264,20 @@ object ChangePolicyEvaluator {
 
                             if (reasonBlank || phaseBlank || dateBlank || ownerBlank) {
                                 violations.add(
-                                    PolicyViolation("deviation-evidence",
+                                    PolicyViolation(
+                                        "deviation-evidence",
                                         "Deviation $id allowed value increased from $baseAllowed to $currentAllowed " +
-                                            "but required fields (reason, targetPhase, acceptedAt, owner) must all be nonblank.")
+                                            "but required fields (reason, targetPhase, acceptedAt, owner) must all be nonblank.",
+                                    ),
                                 )
                             } else if (reasonSame && phaseSame && dateSame) {
                                 violations.add(
-                                    PolicyViolation("deviation-evidence",
+                                    PolicyViolation(
+                                        "deviation-evidence",
                                         "Deviation $id allowed value increased from $baseAllowed to $currentAllowed " +
                                             "but reason, targetPhase, and acceptedAt are unchanged from the base. " +
-                                            "Ceiling increases require new justification and approval metadata.")
+                                            "Ceiling increases require new justification and approval metadata.",
+                                    ),
                                 )
                             }
                         }
@@ -255,24 +288,28 @@ object ChangePolicyEvaluator {
 
         return ChangePolicyResult(
             violations = violations,
-            passed = violations.isEmpty()
+            passed = violations.isEmpty(),
         )
     }
 
     // --- Violation message builders ---
 
-    private fun productionBaselineSeparationViolation(files: List<String>, changeClass: String): PolicyViolation {
+    private fun productionBaselineSeparationViolation(
+        files: List<String>,
+        changeClass: String,
+    ): PolicyViolation {
         val prodPaths = files.filter { isProductionPath(it) }.joinToString(", ")
         val baselinePaths = files.filter { isBaselinePath(it) }.joinToString(", ")
         return PolicyViolation(
             rule = "production-baseline-separation",
-            message = buildString {
-                append("Production source and canonical baseline must not change together.")
-                append("\n  Detected change class: $changeClass")
-                append("\n  To change both, classify this PR as 'baseline-migration' via -PchangeClass=baseline-migration.")
-                append("\n  Changed production: $prodPaths")
-                append("\n  Changed baseline: $baselinePaths")
-            }
+            message =
+                buildString {
+                    append("Production source and canonical baseline must not change together.")
+                    append("\n  Detected change class: $changeClass")
+                    append("\n  To change both, classify this PR as 'baseline-migration' via -PchangeClass=baseline-migration.")
+                    append("\n  Changed production: $prodPaths")
+                    append("\n  Changed baseline: $baselinePaths")
+                },
         )
     }
 
@@ -280,11 +317,12 @@ object ChangePolicyEvaluator {
         val runtimePaths = files.filter { isRuntimeProductionPath(it) }.joinToString(", ")
         return PolicyViolation(
             rule = "production-baseline-separation",
-            message = buildString {
-                append("Baseline-migration PRs must not include tramai runtime production changes.")
-                append("\n  Use a separate runtime-remediation PR for runtime changes.")
-                append("\n  Changed runtime: $runtimePaths")
-            }
+            message =
+                buildString {
+                    append("Baseline-migration PRs must not include tramai runtime production changes.")
+                    append("\n  Use a separate runtime-remediation PR for runtime changes.")
+                    append("\n  Changed runtime: $runtimePaths")
+                },
         )
     }
 
@@ -293,27 +331,26 @@ object ChangePolicyEvaluator {
         val runtimePaths = files.filter { isRuntimeProductionPath(it) }.joinToString(", ")
         return PolicyViolation(
             rule = "analyzer-runtime-separation",
-            message = buildString {
-                append("Analyzer/tooling code and runtime production modules must not change together.")
-                append("\n  Detected change class: ${ChangePolicyEvaluator.detectChangeClass(files)}")
-                append("\n  Submit separate PRs: one for tooling, one for runtime remediation.")
-                append("\n  Changed analyzer: $analyzerPaths")
-                append("\n  Changed runtime: $runtimePaths")
-            }
+            message =
+                buildString {
+                    append("Analyzer/tooling code and runtime production modules must not change together.")
+                    append("\n  Detected change class: ${ChangePolicyEvaluator.detectChangeClass(files)}")
+                    append("\n  Submit separate PRs: one for tooling, one for runtime remediation.")
+                    append("\n  Changed analyzer: $analyzerPaths")
+                    append("\n  Changed runtime: $runtimePaths")
+                },
         )
     }
 
     // --- Path detection ---
 
-    fun isProductionPath(path: String): Boolean =
-        path.contains("/src/main/")
+    fun isProductionPath(path: String): Boolean = path.contains("/src/main/")
 
     fun isBaselinePath(path: String): Boolean =
         path == "config/quality/0.6.0-baseline.json" ||
             path == "config/detekt/baseline.xml"
 
-    fun isDeviationsPath(path: String): Boolean =
-        path == "config/quality/maintainability-deviations.yml"
+    fun isDeviationsPath(path: String): Boolean = path == "config/quality/maintainability-deviations.yml"
 
     /** Paths that classify as analyzer/tooling code. */
     fun isAnalyzerPath(path: String): Boolean =
@@ -323,7 +360,7 @@ object ChangePolicyEvaluator {
                 path.contains("VerifierTask") ||
                 path.contains("Inventory") ||
                 path.endsWith("Plugin.kt")
-            )
+        )
 
     /** Paths adjacent to analyzers (normalizers, catalogs, models, tasks, tests). */
     fun isAnalyzerAdjacentPath(path: String): Boolean =
@@ -332,15 +369,14 @@ object ChangePolicyEvaluator {
                 path.contains("/baseline/") ||
                 path.contains("/test/") ||
                 path.startsWith("build-logic/build.gradle.kts")
-            )
+        )
 
     /**
      * Runtime production modules.
      * All tramai modules under src/main/ are runtime production.
      * No exclusions — starters and observability ship production code.
      */
-    fun isRuntimeProductionPath(path: String): Boolean =
-        path.startsWith("tramai-") && path.contains("/src/main/")
+    fun isRuntimeProductionPath(path: String): Boolean = path.startsWith("tramai-") && path.contains("/src/main/")
 
     // --- Deviation YAML parsing ---
 
