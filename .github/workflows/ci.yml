@@ -45,7 +45,7 @@ jobs:
             --no-daemon \
             -PtramaiFormattingBaseRef="${{ github.event.pull_request.base.sha }}"
 
-      - name: Verify Kotlin formatting against previous master
+      - name: Verify Kotlin formatting against push base
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
         run: |
           ./gradlew spotlessCheck \
