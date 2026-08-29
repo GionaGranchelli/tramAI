@@ -52,7 +52,7 @@ class NondeterminismInventory(private val ctx: MeasurementContext) {
         // 8.3d PR 2: Kotlin Random singleton invocation forms.
         // Fully-qualified: kotlin.random.Random.nextDouble() etc.
         PatternDef(
-            Regex("""kotlin\.random\.Random\.(nextDouble|nextInt|nextLong|nextFloat|nextBoolean|nextBits)\s*\("""),
+            Regex("""kotlin\.random\.Random\.(nextDouble|nextInt|nextLong|nextFloat|nextBoolean|nextBits|nextBytes|nextUInt|nextULong|nextUBytes)\s*\("""),
             "randomness",
             "retry_jitter"
         ) { m -> "kotlin.random.Random.${m.groupValues[1]}()" },
@@ -60,7 +60,7 @@ class NondeterminismInventory(private val ctx: MeasurementContext) {
         // instance receivers (`secureRandom.nextBytes` — preceded by \w) and the
         // fully-qualified form (preceded by `.`), so each call is counted exactly once.
         PatternDef(
-            Regex("""(?<![.\w])Random\.(nextDouble|nextInt|nextLong|nextFloat|nextBoolean|nextBits)\s*\("""),
+            Regex("""(?<![.\w])Random\.(nextDouble|nextInt|nextLong|nextFloat|nextBoolean|nextBits|nextBytes|nextUInt|nextULong|nextUBytes)\s*\("""),
             "randomness",
             "retry_jitter"
         ) { m -> "Random.${m.groupValues[1]}()" },

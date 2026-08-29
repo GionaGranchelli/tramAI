@@ -67,10 +67,16 @@ class NondeterminismAllowlistParser(private val rootDir: File) {
                     )
                 ))
             }
-            val rawEntries = root["entries"] as? List<Map<String, Any>> ?: emptyList()
+            val rawEntries = root["entries"]
+            if (rawEntries != null && rawEntries !is List<*>) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
+                    "Allowlist 'entries' must be a list (was ${rawEntries.javaClass.simpleName})"))
+            }
+            val entryMaps: List<Map<String, Any>> = (rawEntries as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList()
 
             val seen = mutableSetOf<String>()
-            for ((index, entry) in rawEntries.withIndex()) {
+            for ((index, entry) in entryMaps.withIndex()) {
                 val module = entry["module"]?.toString() ?: ""
                 val path = entry["file"]?.toString() ?: ""
                 val source = entry["source"]?.toString() ?: ""
@@ -95,6 +101,16 @@ class NondeterminismAllowlistParser(private val rootDir: File) {
                     diagnostics.add(VerificationDiagnostic.failure(
                         DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
                         "Allowlist entry at index $index: source is blank"))
+                }
+                if (category.isBlank()) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
+                        "Allowlist entry at index $index: category is blank"))
+                }
+                if (scannerClassification.isBlank()) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
+                        "Allowlist entry at index $index: scannerClassification is blank"))
                 }
                 if (disposition !in ALLOWED_DISPOSITIONS) {
                     diagnostics.add(VerificationDiagnostic.failure(

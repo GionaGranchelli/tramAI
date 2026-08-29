@@ -96,6 +96,22 @@ class NondeterminismInventoryTest {
     }
 
     @Test
+    fun `S0-E3 Random nextBytes and unsigned variants detected`() {
+        val sources = sourcesOf(
+            """
+            fun f() {
+                val a = kotlin.random.Random.nextUBytes(4)
+                val b = Random.nextBytes(ByteArray(4))
+            }
+            """.trimIndent()
+        )
+        assertEquals(
+            listOf("kotlin.random.Random.nextUBytes()", "Random.nextBytes()"),
+            sources
+        )
+    }
+
+    @Test
     fun `S0-F ThreadLocalRandom Math random SecureRandom behavior preserved`() {
         val sources = sourcesOf(
             """
