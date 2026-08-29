@@ -9,11 +9,16 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 
@@ -39,7 +44,6 @@ data class DependencyResolutionResult(
  * dependencies (fail-closed).
  */
 abstract class GenerateResolvedDependencyBaselineTask : DefaultTask() {
-
     init {
         outputs.upToDateWhen { false }
     }
@@ -64,6 +68,64 @@ abstract class GenerateResolvedDependencyBaselineTask : DefaultTask() {
             file.parentFile.mkdirs()
             ReportNormalizer.writeJson(normalized, file)
         }
+    }
+}
+
+/**
+ * Aggregates the per-project resolved dependency probes into one sorted
+ * baseline file (Epic 9.2d-a3c1 typed extraction of the root doLast closure).
+ *
+ * [probeFiles] and [expectedProbeOwners] are index-aligned: same index = same
+ * project. Fail-closed on missing or malformed probes with the exact legacy
+ * diagnostics. Configuration-cache compatible — no Task.project access at
+ * execution time.
+ */
+abstract class AggregateResolvedDependencyBaselineTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val probeFiles: ConfigurableFileCollection
+
+    @get:Input
+    abstract val expectedProbeOwners: ListProperty<String>
+
+    @get:OutputFile
+    abstract val aggregateFile: RegularFileProperty
+
+    @TaskAction
+    fun aggregate() {
+        val owners = expectedProbeOwners.get()
+        val files = probeFiles.files.toList()
+        if (owners.size != files.size) {
+            throw GradleException(
+                "Dependency probe aggregation misconfigured: ${owners.size} expected owners but ${files.size} probe files",
+            )
+        }
+        val allRecords = mutableListOf<ResolvedDependency>()
+        owners.forEachIndexed { index, owner ->
+            val probeFile = files[index]
+            if (!probeFile.isFile) {
+                throw GradleException(
+                    "Missing dependency probe output for $owner: ${probeFile.absolutePath}",
+                )
+            }
+            val records =
+                try {
+                    ReportNormalizer.readJson(probeFile, Array<ResolvedDependency>::class.java).toList()
+                } catch (e: Exception) {
+                    throw GradleException(
+                        "Invalid dependency probe output for $owner: ${e.message}",
+                        e,
+                    )
+                }
+            allRecords.addAll(records)
+        }
+        val sorted = BaselineGenerator.sortResolvedDependencies(allRecords)
+        val output = aggregateFile.get().asFile
+        output.parentFile.mkdirs()
+        ReportNormalizer.writeJson(sorted, output)
+        val direct = sorted.count { it.direct }
+        val transitive = sorted.size - direct
+        println("Resolved dependency baseline: ${sorted.size} records ($direct direct, $transitive transitive)")
     }
 }
 
@@ -98,7 +160,7 @@ internal fun collectResolvedDependencies(
                 path = listOf(consumerPath),
                 depth = 0,
                 ancestry = mutableSetOf(root.id.displayName),
-                records = records
+                records = records,
             )
         }
     return records
@@ -115,7 +177,6 @@ internal fun collectResolvedDependencies(
  * all state is declared as task inputs.
  */
 abstract class ArchitectureDependencyProbeTask : DefaultTask() {
-
     init {
         outputs.upToDateWhen { false }
     }
@@ -158,23 +219,24 @@ private fun traverseDependencyTree(
     path: List<String>,
     depth: Int,
     ancestry: MutableSet<String>,
-    records: MutableList<ResolvedDependency>
+    records: MutableList<ResolvedDependency>,
 ) {
     component.dependencies.toList().sortedBy { it.requested.displayName }.forEach { dep ->
         if (dep is UnresolvedDependencyResult) {
             throw GradleException(
                 "Failed to resolve $consumer:$configuration dependency " +
-                    "${dep.requested.displayName}: ${dep.failure.message}"
+                    "${dep.requested.displayName}: ${dep.failure.message}",
             )
         }
         if (dep is ResolvedDependencyResult) {
             val selected = dep.selected
             val selectedId = selected.id
-            val pathElement = when (selectedId) {
-                is ModuleComponentIdentifier -> "${selectedId.group}:${selectedId.module}:${selectedId.version}"
-                is ProjectComponentIdentifier -> selectedId.projectPath
-                else -> selectedId.displayName
-            }
+            val pathElement =
+                when (selectedId) {
+                    is ModuleComponentIdentifier -> "${selectedId.group}:${selectedId.module}:${selectedId.version}"
+                    is ProjectComponentIdentifier -> selectedId.projectPath
+                    else -> selectedId.displayName
+                }
             val nextPath = path + pathElement
 
             if (selectedId is ModuleComponentIdentifier) {
@@ -187,13 +249,14 @@ private fun traverseDependencyTree(
                         requestedVersion = requested,
                         direct = depth == 0,
                         configuration = configuration,
-                        selectionReason = selected.selectionReason.descriptions
-                            .map { it.description }
-                            .sorted()
-                            .joinToString("; "),
+                        selectionReason =
+                            selected.selectionReason.descriptions
+                                .map { it.description }
+                                .sorted()
+                                .joinToString("; "),
                         dependencyPath = nextPath,
-                        consumers = listOf(consumer)
-                    )
+                        consumers = listOf(consumer),
+                    ),
                 )
             }
 
@@ -206,7 +269,7 @@ private fun traverseDependencyTree(
                     path = nextPath,
                     depth = depth + 1,
                     ancestry = ancestry,
-                    records = records
+                    records = records,
                 )
             }
         }
