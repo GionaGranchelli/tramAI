@@ -231,7 +231,7 @@ deviations:
     scope: ":tramai-scheduler"
     baseline: 10
     allowed: 11
-    reason: "PR #335 (Epic 8.3d) adds ClaimTokenSource.DefaultClaimTokenSource — the single scheduler claim-capability authority — whose UUID.randomUUID() manufacture the scanner counts as one new nondeterminism source (canonical :tramai-scheduler count 10). This is the intentional centralized authority (previously the scheduler stores manufactured claim tokens directly at 6 sites, now closed); semantically classified as CAPABILITY_AUTHORITY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism (PR 2)."
+    reason: "PR #335 (Epic 8.3d) adds ClaimTokenSource.DefaultClaimTokenSource — the single scheduler claim-capability authority — whose UUID.randomUUID() call manufactures the one new nondeterminism source the scanner counts (canonical :tramai-scheduler count 10). This is the intentional centralized authority (previously the scheduler stores manufactured claim tokens directly at 6 sites, now closed); semantically classified as CAPABILITY_AUTHORITY in config/quality/runtime-nondeterminism.yml, enforced by verifyRuntimeNondeterminism (PR 2)."
     acceptedAt: "2026-08-29"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"

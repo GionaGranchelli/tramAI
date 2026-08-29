@@ -107,10 +107,16 @@ class NondeterminismAllowlistVerifierTest {
         assertTrue(DiagnosticCode.NONDETERMINISM_OCCURRENCE_MISMATCH in codes(shrink))
     }
 
+    private fun allowlistFile(): File =
+        File(tempDir, "config/quality/runtime-nondeterminism.yml")
+
+    private fun parse(): NondeterminismAllowlistParser.ParseResult =
+        NondeterminismAllowlistParser(allowlistFile()).parse()
+
     @Test
     fun `P0-F malformed classification fails closed`() {
         // Parser-level: unknown disposition must be rejected by parse validation.
-        val yamlFile = File(tempDir, "config/quality/runtime-nondeterminism.yml")
+        val yamlFile = allowlistFile()
         yamlFile.parentFile.mkdirs()
         yamlFile.writeText(
             """
@@ -127,7 +133,7 @@ class NondeterminismAllowlistVerifierTest {
                 rationale: Test.
             """.trimIndent()
         )
-        val parseResult = NondeterminismAllowlistParser(tempDir).parse()
+        val parseResult = parse()
         assertTrue(DiagnosticCode.NONDETERMINISM_INVALID_DISPOSITION in codes(parseResult.diagnostics))
 
         // Missing authority and missing rationale
@@ -145,8 +151,53 @@ class NondeterminismAllowlistVerifierTest {
                 rationale: ""
             """.trimIndent()
         )
-        val parseResult2 = NondeterminismAllowlistParser(tempDir).parse()
+        val parseResult2 = parse()
         assertTrue(DiagnosticCode.NONDETERMINISM_MISSING_RATIONALE in codes(parseResult2.diagnostics))
+    }
+
+    @Test
+    fun `P0-F2 unsupported schemaVersion fails closed`() {
+        val yamlFile = allowlistFile()
+        yamlFile.parentFile.mkdirs()
+        yamlFile.writeText(
+            """
+            schemaVersion: banana
+            entries:
+              - module: tramai-x
+                file: tramai-x/src/main/kotlin/dev/tramai/x/A.kt
+                source: UUID.randomUUID()
+                category: identity
+                scannerClassification: correlation_identity
+                disposition: AUTHORITY
+                authority: TestAuthority
+                occurrences: 1
+                rationale: Test.
+            """.trimIndent()
+        )
+        val result = parse()
+        assertTrue(DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA in codes(result.diagnostics))
+    }
+
+    @Test
+    fun `P0-F3 missing schemaVersion fails closed`() {
+        val yamlFile = allowlistFile()
+        yamlFile.parentFile.mkdirs()
+        yamlFile.writeText(
+            """
+            entries:
+              - module: tramai-x
+                file: tramai-x/src/main/kotlin/dev/tramai/x/A.kt
+                source: UUID.randomUUID()
+                category: identity
+                scannerClassification: correlation_identity
+                disposition: AUTHORITY
+                authority: TestAuthority
+                occurrences: 1
+                rationale: Test.
+            """.trimIndent()
+        )
+        val result = parse()
+        assertTrue(DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA in codes(result.diagnostics))
     }
 
     @Test
@@ -234,13 +285,13 @@ class NondeterminismAllowlistVerifierTest {
                 rationale: Second.
             """.trimIndent()
         )
-        val result = NondeterminismAllowlistParser(tempDir).parse()
+        val result = parse()
         assertTrue(DiagnosticCode.NONDETERMINISM_DUPLICATE_ENTRY in codes(result.diagnostics))
     }
 
     @Test
     fun `missing allowlist file fails parse`() {
-        val result = NondeterminismAllowlistParser(tempDir).parse()
+        val result = parse()
         assertTrue(DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA in codes(result.diagnostics))
     }
 }

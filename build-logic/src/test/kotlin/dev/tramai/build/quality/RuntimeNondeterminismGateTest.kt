@@ -18,7 +18,9 @@ class RuntimeNondeterminismGateTest {
 
     private fun fixture(
         allowlistContent: String,
-        sourceContent: String = "fun f() { UUID.randomUUID() }"
+        sourceContent: String = "fun f() { UUID.randomUUID() }",
+        writeSource: Boolean = true,
+        extraBuildScript: String = ""
     ): File {
         val dir = File(tempDir, "fixture-${tempDir.listFiles()?.size ?: 0}").apply { mkdirs() }
         writeFile(dir, "settings.gradle.kts", """
@@ -27,9 +29,12 @@ class RuntimeNondeterminismGateTest {
         """.trimIndent())
         writeFile(dir, "build.gradle.kts", """
             plugins { id("tramai.maintainability-baseline") }
+            $extraBuildScript
         """.trimIndent())
         writeFile(dir, "sample/build.gradle.kts", "plugins { `java-library` }")
-        writeFile(dir, "sample/src/main/kotlin/sample/App.kt", sourceContent)
+        if (writeSource) {
+            writeFile(dir, "sample/src/main/kotlin/sample/App.kt", sourceContent)
+        }
         writeFile(dir, "config/quality/module-catalog.yml", """
             schemaVersion: "3"
             dependencyPolicies:
@@ -137,6 +142,55 @@ class RuntimeNondeterminismGateTest {
         val parsed = com.fasterxml.jackson.databind.ObjectMapper().readTree(report)
         assertTrue(parsed.get("passed").asBoolean(), "report must say passed: ${report.readText()}")
         assertFalse(parsed.get("unclassifiedCount").asInt() > 0, "no unclassified findings expected")
+    }
+
+    @Test
+    fun `declared allowlist file is the file actually consumed`() {
+        // Default allowlist would FAIL (empty) — the fixture overrides the task's
+        // allowlistFile to an alternate file with a matching entry. Success proves
+        // the declared input, not the hardcoded default path, is what is parsed.
+        val dir = fixture(
+            allowlistContent = emptyAllowlist,
+            extraBuildScript = """
+                tasks.named<dev.tramai.build.quality.VerifyRuntimeNondeterminismTask>("verifyRuntimeNondeterminism") {
+                    allowlistFile.set(layout.projectDirectory.file("config/quality/alt-runtime-nondeterminism.yml"))
+                }
+            """.trimIndent()
+        )
+        writeFile(dir, "config/quality/alt-runtime-nondeterminism.yml", matchingAllowlist)
+        val result = runner(dir, "verifyRuntimeNondeterminism").build()
+        assertTrue(
+            result.task(":verifyRuntimeNondeterminism") != null,
+            "task must execute with the alternate allowlist: ${result.output.take(800)}"
+        )
+    }
+
+    @Test
+    fun `source root created after first run is tracked and fails on new finding`() {
+        // First run: module has NO src/main dir at all; empty allowlist passes.
+        // Configuration cache is used so the second run REUSES the stored
+        // configuration — the exact scenario where a previously-absent root
+        // must still be visible as an input change (otherwise the task would
+        // be up-to-date and the new finding silently missed).
+        val args = arrayOf(
+            "verifyRuntimeNondeterminism",
+            "--configuration-cache",
+            "--configuration-cache-problems=fail",
+        )
+        val dir = fixture(allowlistContent = emptyAllowlist, writeSource = false)
+        runner(dir, *args).build()
+
+        // Introduce a previously-absent source root with an unclassified finding.
+        writeFile(
+            dir,
+            "sample/src/main/kotlin/sample/New.kt",
+            "fun g() { System.nanoTime() }"
+        )
+        val second = runner(dir, *args).buildAndFail()
+        assertTrue(
+            second.output.contains("UNCLASSIFIED_FINDING"),
+            "newly-created source root must be an input change that reruns and fails: ${second.output.take(1200)}"
+        )
     }
 
     @Test

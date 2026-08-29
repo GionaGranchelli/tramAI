@@ -72,7 +72,9 @@ abstract class VerifyRuntimeNondeterminismTask : DefaultTask() {
         val modules = buildModules(root)
         val ctx = MeasurementContext(root, modules)
         val findings = NondeterminismInventory(ctx).inventory()
-        val parseResult = NondeterminismAllowlistParser(root).parse()
+        // Consume the DECLARED allowlist input — never a re-derived path — so the
+        // Gradle input model and the execution read set can never diverge.
+        val parseResult = NondeterminismAllowlistParser(allowlistFile.get().asFile).parse()
         val verifier = NondeterminismAllowlistVerifier(findings, parseResult.entries)
         val diagnostics = parseResult.diagnostics + verifier.verify()
         val summary = verifier.summary(diagnostics)

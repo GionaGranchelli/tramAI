@@ -14,9 +14,11 @@ import java.io.File
  *  - findings are deterministically sorted (module, file, line, source) so output ordering is
  *    stable regardless of pattern-list or walk order.
  *
- * Identity discipline: a finding's semantic identity is (module, file, source, category) —
- * line numbers never participate in allowlist matching (line movement must not invalidate
- * an otherwise unchanged entry).
+ * Identity discipline: the semantic identity used for allowlist matching is
+ * (module, file, source) — line numbers never participate (line movement must
+ * not invalidate an otherwise unchanged entry). Category and scanner
+ * classification are metadata carried on the finding; they are validated for
+ * mismatch but never form part of the match key.
  */
 class NondeterminismInventory(private val ctx: MeasurementContext) {
 

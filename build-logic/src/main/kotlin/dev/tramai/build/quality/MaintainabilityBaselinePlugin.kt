@@ -501,16 +501,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // Fail-closed semantic allowlist gate. verifyMaintainabilityBaseline
         // depends on it, so every CI path that runs the maintainability gate
         // also enforces the nondeterminism authority contract.
+        //
+        // Source inputs: every module's src/main/kotlin + src/main/java are
+        // declared as stable file trees (kt + java includes) REGARDLESS of
+        // whether the root exists today. A source root created later changes
+        // the input tree and forces a rerun — the declared input universe and
+        // the scanner's execution universe are the same set.
         val nonDetCtx = MeasurementContext.fromProject(project)
         val nonDetSourceFiles = project.objects.fileCollection()
-        val nonDetScanSpec = nonDetCtx.modules
-            .filter { it.sourceDirs.any(File::exists) }
-            .map { mod ->
-                mod.sourceDirs.filter(File::exists).forEach { dir ->
-                    nonDetSourceFiles.from(dir)
-                }
-                mapOf("name" to mod.name, "dir" to mod.projectDir.relativeTo(project.rootDir).path)
+        val nonDetScanSpec = nonDetCtx.modules.map { mod ->
+            listOf("src/main/kotlin", "src/main/java").forEach { rel ->
+                val dir = File(mod.projectDir, rel)
+                nonDetSourceFiles.from(
+                    project.fileTree(mapOf("dir" to dir, "include" to listOf("**/*.kt", "**/*.java")))
+                )
             }
+            mapOf("name" to mod.name, "dir" to mod.projectDir.relativeTo(project.rootDir).path)
+        }
         project.tasks.register("verifyRuntimeNondeterminism", VerifyRuntimeNondeterminismTask::class.java) {
             group = "maintainability"
             description = "Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"

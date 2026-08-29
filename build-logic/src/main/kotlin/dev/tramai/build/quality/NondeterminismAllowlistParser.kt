@@ -11,8 +11,12 @@ import java.io.FileInputStream
  * Mirrors [DeviationParser]: SnakeYAML load, structured validation, and
  * deterministic [VerificationDiagnostic] failures. Failures are reported, never
  * thrown from parsing — the Gradle task converts them into a build failure.
+ *
+ * The parser consumes the exact [File] the Gradle task declared as its input
+ * ([VerifyRuntimeNondeterminismTask.allowlistFile]) — never a re-derived path —
+ * so the declared input and the read set can never diverge.
  */
-class NondeterminismAllowlistParser(private val rootDir: File) {
+class NondeterminismAllowlistParser(private val allowlistFile: File) {
 
     data class AllowlistEntry(
         val module: String,
@@ -43,7 +47,7 @@ class NondeterminismAllowlistParser(private val rootDir: File) {
     }
 
     fun parse(): ParseResult {
-        val file = File(rootDir, "config/quality/runtime-nondeterminism.yml")
+        val file = allowlistFile
         if (!file.isFile) {
             return ParseResult(emptyList(), listOf(
                 VerificationDiagnostic.failure(
@@ -66,6 +70,13 @@ class NondeterminismAllowlistParser(private val rootDir: File) {
                         "Nondeterminism allowlist file is empty: ${file.absolutePath}"
                     )
                 ))
+            }
+            // Schema version must be present and exactly the supported version.
+            val schemaVersion = root["schemaVersion"]?.toString() ?: ""
+            if (schemaVersion != "1") {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
+                    "Unsupported allowlist schemaVersion '$schemaVersion' — supported: '1'"))
             }
             val rawEntries = root["entries"]
             if (rawEntries != null && rawEntries !is List<*>) {
