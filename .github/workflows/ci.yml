@@ -93,7 +93,7 @@ jobs:
           for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticAnalysis*Test.xml'):
               m = re.search(r'tests="(\d+)"', open(f).read())
               total += int(m.group(1)) if m else 0
-          assert total == 24, f'expected exactly 24 static-analysis tests, discovered {total}'
+          assert total == 25, f'expected exactly 25 static-analysis tests, discovered {total}'
           EOF
 
       - name: Run tests
