@@ -229,6 +229,8 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
         if (diff.exitCode != 0) {
             throw GradleException("verifyStaticAnalysis: git diff against '$ref' failed: ${diff.output.take(500)}")
         }
-        return diff.output.lineSequence().any { it.contains("/src/main/") }
+        // TramAI runtime production = a module's src/main, NOT the build-logic
+        // included build (build-logic/src/main is tooling).
+        return diff.output.lineSequence().any { it.contains("/src/main/") && !it.startsWith("build-logic/") }
     }
 }

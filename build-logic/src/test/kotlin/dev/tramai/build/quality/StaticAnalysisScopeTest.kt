@@ -30,7 +30,7 @@ class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
         assertTrue(ids.isNotEmpty(), "baseline must not be empty")
         val dup = ids.first()
         xml.writeText(
-            xml.readText().replaceFirst("    <ID>${Regex.escape(dup)}</ID>", "    <ID>$dup</ID>\n    <ID>$dup</ID>")
+            xml.readText().replaceFirst("    <ID>$dup</ID>", "    <ID>$dup</ID>\n    <ID>$dup</ID>")
         )
         commit("duplicate baseline ID")
         val runDup = staticAnalysis(base)
@@ -110,11 +110,12 @@ class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
     @Test
     fun `p0-j generated build output ignored`() {
         val base = baseBranch()
+        // build/ dirs are gitignored, so no commit is needed (or possible): the
+        // gate must simply never analyze the file from the working tree either.
         writeKt(
             "tramai-core/build/generated/StaticAnalysisProbe.kt",
             probeKt("package dev.tramai.generated"),
         )
-        commit("add violation under generated build output")
         val run = staticAnalysis(base)
         assertPasses(run, "gate with a violation inside an excluded build/ dir")
     }

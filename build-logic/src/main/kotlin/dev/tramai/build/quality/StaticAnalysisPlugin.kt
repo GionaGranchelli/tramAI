@@ -40,8 +40,17 @@ class StaticAnalysisPlugin : Plugin<Project> {
                 // segment keeps the `dev.tramai.build` package (whose segment is
                 // `build`, not `src`) fully included.
                 include("**/src/**/*.kt")
-                // Narrow, deliberate exclusions: task output and caches only.
-                exclude("**/build/**", "**/.gradle/**")
+                // NARROW, root-relative task-output exclusions only. A broad
+                // "**/build/**" would also exclude paths containing a package
+                // segment literally named `build` (e.g. dev/tramai/build in
+                // build-logic), silently exempting real source.
+                exclude(
+                    "build/**", // root project output
+                    "*/build/**", // module output dirs
+                    "examples/*/build/**", // example module output dirs
+                    "build-logic/build/**", // included-build output dir
+                    "**/.gradle/**", // caches — no source lives here
+                )
             }
 
         project.tasks.register<VerifyStaticAnalysisTask>("verifyStaticAnalysis") {
