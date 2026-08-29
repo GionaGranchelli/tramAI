@@ -55,8 +55,9 @@ The example is organized by concern:
 
 ## Stack
 
-- `dev.tramai:tramai-spring:0.4.0`
-- `dev.tramai:tramai-orchestration:0.4.0`
+- `dev.tramai:tramai-spring-boot-starter:<version>`
+- `dev.tramai:tramai-spring-provider-ollama:<version>`
+- `dev.tramai:tramai-orchestration:<version>`
 - Spring Boot `3.4.5`
 - Kotlin `2.3.0`
 - Java `21+`

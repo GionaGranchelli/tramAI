@@ -40,7 +40,7 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.tramai:tramai-spring:${tramaiConsumerVersion.get()}")
+    implementation("dev.tramai:tramai-spring-boot-starter:${tramaiConsumerVersion.get()}")
     // 0.6.0: provider adapters are explicit — this example selects Ollama.
     implementation("dev.tramai:tramai-spring-provider-ollama:${tramaiConsumerVersion.get()}")
     implementation("dev.tramai:tramai-orchestration:${tramaiConsumerVersion.get()}")

@@ -9,7 +9,12 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.5.0"
+
+val tramaiVersion = providers
+    .gradleProperty("tramaiVersion")
+    .orElse("0.5.0")
+
+version = tramaiVersion.get()
 
 java {
     toolchain {
@@ -31,7 +36,7 @@ repositories {
 
 dependencies {
     implementation(kotlin("reflect"))
-    implementation("dev.tramai:tramai-standalone:0.5.0")
+    implementation("dev.tramai:tramai-standalone:${tramaiVersion.get()}")
 }
 
 application {

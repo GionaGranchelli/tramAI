@@ -9,7 +9,6 @@ import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.create
 import dev.tramai.security.DefaultPolicyEngine
-import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.approval.AllowAnyApprovalDecisionValidator
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
@@ -64,30 +63,34 @@ class ToolGovernanceExampleTest {
 
     // ── Fixture builders ─────────────────────────────────────────────────
 
-    private fun allowFixture(): Fixture {
-        val store = InMemoryAuditStore()
+    private fun allowFixture(
+        store: InMemoryAuditStore = InMemoryAuditStore(),
+        streamId: String = "test-customer-lookup",
+    ): Fixture {
         val auditEngine = AuditEngine(store, clock = fixedClock)
-        val streamId = "test-customer-lookup"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = CustomerLookupTool()
+        val provider = DeterministicToolProvider("customer_lookup")
         val engine = TramaiEngine(
-            provider = DeterministicToolProvider("customer_lookup"),
+            provider = provider,
             toolRegistry = ToolRegistry(mapOf("customer_lookup" to tool)),
             policyDecisionAuditEmitter = emitter,
-            policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
+            policyEngine = DefaultPolicyEngine(governedPolicyFor(tool, provider)),
         )
         return Fixture(engine, store, tool, streamId)
     }
 
-    private fun denyFixture(): Fixture {
-        val store = InMemoryAuditStore()
+    private fun denyFixture(
+        store: InMemoryAuditStore = InMemoryAuditStore(),
+        streamId: String = "test-account-delete",
+    ): Fixture {
         val auditEngine = AuditEngine(store, clock = fixedClock)
-        val streamId = "test-account-delete"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = AccountDeleteTool()
-        val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
+        val provider = DeterministicToolProvider("account_delete")
+        val baselinePolicy = DefaultPolicyEngine(governedPolicyFor(tool, provider))
         val engine = TramaiEngine(
-            provider = DeterministicToolProvider("account_delete"),
+            provider = provider,
             toolRegistry = ToolRegistry(mapOf("account_delete" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = PolicyEngine { context ->
@@ -101,12 +104,14 @@ class ToolGovernanceExampleTest {
         return Fixture(engine, store, tool, streamId)
     }
 
-    private fun requireApprovalFixture(): Fixture {
-        val store = InMemoryAuditStore()
+    private fun requireApprovalFixture(
+        store: InMemoryAuditStore = InMemoryAuditStore(),
+        streamId: String = "test-payment",
+    ): Fixture {
         val auditEngine = AuditEngine(store, clock = fixedClock)
-        val streamId = "test-payment"
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = PaymentTool()
+        val provider = DeterministicToolProvider("payment")
         val approvalGateCoordinator = DefaultApprovalGateCoordinator(
             store = InMemoryApprovalStore(clock = fixedClock),
             approvalIdGenerator = UuidApprovalIdGenerator(),
@@ -116,10 +121,10 @@ class ToolGovernanceExampleTest {
             clock = fixedClock,
         )
         val engine = TramaiEngine(
-            provider = DeterministicToolProvider("payment"),
+            provider = provider,
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
-            policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
+            policyEngine = DefaultPolicyEngine(governedPolicyFor(tool, provider)),
             toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalGateCoordinator = approvalGateCoordinator,
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
@@ -140,36 +145,38 @@ class ToolGovernanceExampleTest {
     @Test
     fun `customer lookup tool is allowed at all enforcement points`() { runTest {
         val (engine, store, tool, streamId) = allowFixture()
-        val service = engine.create<SingleToolService>()
-        val lookupTool = tool as CustomerLookupTool
+        engine.use {
+            val service = engine.create<SingleToolService>()
+            val lookupTool = tool as CustomerLookupTool
 
-        val result = service.lookup("CUST-001")
-        assertEquals("done", result)
-        assertEquals(1, lookupTool.callCount.get(), "Tool must execute exactly once")
+            val result = service.lookup("CUST-001")
+            assertEquals("done", result)
+            assertEquals(1, lookupTool.callCount.get(), "Tool must execute exactly once")
 
-        val events = store.readStream(streamId)
+            val events = store.readStream(streamId)
 
-        // Check exposure was allowed
-        val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
-        assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
-        assertEquals("ALLOW", exposureEvents.first().decision)
+            // Check exposure was allowed
+            val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
+            assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
+            assertEquals("ALLOW", exposureEvents.first().decision)
 
-        // Check execution was allowed
-        val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
-        assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
-        assertEquals("ALLOW", execEvents.first().decision)
+            // Check execution was allowed
+            val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
+            assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
+            assertEquals("ALLOW", execEvents.first().decision)
 
-        // Check reinjection was allowed
-        val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
-        assertTrue(reinjectEvents.isNotEmpty(), "Must have BEFORE_TOOL_RESULT_REINJECTION events")
-        assertEquals("ALLOW", reinjectEvents.first().decision)
+            // Check reinjection was allowed
+            val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
+            assertTrue(reinjectEvents.isNotEmpty(), "Must have BEFORE_TOOL_RESULT_REINJECTION events")
+            assertEquals("ALLOW", reinjectEvents.first().decision)
 
-        // Verify tool.permission evidence family
-        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
-        val toolRecords = toolExporter.export(events)
-        val allowRecords = toolRecords.filter { it.metadata["toolName"] == "customer_lookup" }
-        assertTrue(allowRecords.isNotEmpty(), "Must have tool.permission records for customer_lookup")
-        assertEquals("tool.permission", allowRecords.first().eventType)
+            // Verify tool.permission evidence family
+            val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+            val toolRecords = toolExporter.export(events)
+            val allowRecords = toolRecords.filter { it.metadata["toolName"] == "customer_lookup" }
+            assertTrue(allowRecords.isNotEmpty(), "Must have tool.permission records for customer_lookup")
+            assertEquals("tool.permission", allowRecords.first().eventType)
+        }
     }
     }
 
@@ -178,41 +185,43 @@ class ToolGovernanceExampleTest {
     @Test
     fun `account delete tool is denied at execution`() { runTest {
         val (engine, store, tool, streamId) = denyFixture()
-        val service = engine.create<DeleteToolService>()
-        val deleteTool = tool as AccountDeleteTool
+        engine.use {
+            val service = engine.create<DeleteToolService>()
+            val deleteTool = tool as AccountDeleteTool
 
-        try {
-            service.delete("ACC-001")
-            fail("Expected PolicyViolationException")
-        } catch (_: PolicyViolationException) {
-            // expected
+            try {
+                service.delete("ACC-001")
+                fail("Expected PolicyViolationException")
+            } catch (_: PolicyViolationException) {
+                // expected
+            }
+            assertEquals(0, deleteTool.callCount.get(), "Tool must never execute")
+
+            val events = store.readStream(streamId)
+
+            // Exposure should be ALLOW
+            val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
+            assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
+            assertEquals("ALLOW", exposureEvents.single().decision)
+
+            // Execution should be DENY
+            val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
+            assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
+            assertEquals("DENY", execEvents.first().decision)
+            assertEquals("account-delete-disabled", execEvents.first().reasonCode)
+
+            // No reinjection after denial
+            val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
+            assertTrue(reinjectEvents.isEmpty(), "No reinjection after denied execution")
+
+            // Verify tool.permission evidence
+            val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+            val toolRecords = toolExporter.export(events)
+            val denyRecords = toolRecords.filter { it.decision.kind == "DENY" && it.metadata["toolName"] == "account_delete" }
+            assertEquals(1, denyRecords.size, "Must have exactly one DENY record for account_delete")
+            assertEquals("tool.permission", denyRecords.first().eventType)
+            assertEquals("BEFORE_TOOL_EXECUTION", denyRecords.first().metadata["enforcementPoint"])
         }
-        assertEquals(0, deleteTool.callCount.get(), "Tool must never execute")
-
-        val events = store.readStream(streamId)
-
-        // Exposure should be ALLOW
-        val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
-        assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
-        assertEquals("ALLOW", exposureEvents.single().decision)
-
-        // Execution should be DENY
-        val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
-        assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
-        assertEquals("DENY", execEvents.first().decision)
-        assertEquals("account-delete-disabled", execEvents.first().reasonCode)
-
-        // No reinjection after denial
-        val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
-        assertTrue(reinjectEvents.isEmpty(), "No reinjection after denied execution")
-
-        // Verify tool.permission evidence
-        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
-        val toolRecords = toolExporter.export(events)
-        val denyRecords = toolRecords.filter { it.decision.kind == "DENY" && it.metadata["toolName"] == "account_delete" }
-        assertEquals(1, denyRecords.size, "Must have exactly one DENY record for account_delete")
-        assertEquals("tool.permission", denyRecords.first().eventType)
-        assertEquals("BEFORE_TOOL_EXECUTION", denyRecords.first().metadata["enforcementPoint"])
     }
     }
 
@@ -221,42 +230,44 @@ class ToolGovernanceExampleTest {
     @Test
     fun `payment tool requires approval at execution`() { runTest {
         val (engine, store, tool, streamId) = requireApprovalFixture()
-        val service = engine.create<PaymentToolService>()
-        val paymentTool = tool as PaymentTool
+        engine.use {
+            val service = engine.create<PaymentToolService>()
+            val paymentTool = tool as PaymentTool
 
-        try {
-            service.pay("5000 EUR")
-            fail("Expected ApprovalSuspendedException")
-        } catch (e: ApprovalSuspendedException) {
-            assertEquals("payment", e.toolName)
+            try {
+                service.pay("5000 EUR")
+                fail("Expected ApprovalSuspendedException")
+            } catch (e: ApprovalSuspendedException) {
+                assertEquals("payment", e.toolName)
+            }
+            assertEquals(0, paymentTool.callCount.get(), "Tool must never execute")
+
+            val events = store.readStream(streamId)
+
+            // Exposure should be ALLOW
+            val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
+            assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
+            assertEquals("ALLOW", exposureEvents.single().decision)
+
+            // Execution should be REQUIRE_APPROVAL
+            val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
+            assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
+            assertEquals("REQUIRE_APPROVAL", execEvents.first().decision)
+
+            // No reinjection after suspension
+            val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
+            assertTrue(reinjectEvents.isEmpty(), "No reinjection after suspended execution")
+
+            // Verify tool.permission evidence
+            val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+            val toolRecords = toolExporter.export(events)
+            val requireApprovalRecords = toolRecords.filter {
+                it.decision.kind == "REQUIRE_APPROVAL" && it.metadata["toolName"] == "payment"
+            }
+            assertEquals(1, requireApprovalRecords.size, "Must have exactly one REQUIRE_APPROVAL record for payment")
+            assertEquals("tool.permission", requireApprovalRecords.first().eventType)
+            assertEquals("BEFORE_TOOL_EXECUTION", requireApprovalRecords.first().metadata["enforcementPoint"])
         }
-        assertEquals(0, paymentTool.callCount.get(), "Tool must never execute")
-
-        val events = store.readStream(streamId)
-
-        // Exposure should be ALLOW
-        val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
-        assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
-        assertEquals("ALLOW", exposureEvents.single().decision)
-
-        // Execution should be REQUIRE_APPROVAL
-        val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
-        assertTrue(execEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXECUTION events")
-        assertEquals("REQUIRE_APPROVAL", execEvents.first().decision)
-
-        // No reinjection after suspension
-        val reinjectEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_RESULT_REINJECTION" }
-        assertTrue(reinjectEvents.isEmpty(), "No reinjection after suspended execution")
-
-        // Verify tool.permission evidence
-        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
-        val toolRecords = toolExporter.export(events)
-        val requireApprovalRecords = toolRecords.filter {
-            it.decision.kind == "REQUIRE_APPROVAL" && it.metadata["toolName"] == "payment"
-        }
-        assertEquals(1, requireApprovalRecords.size, "Must have exactly one REQUIRE_APPROVAL record for payment")
-        assertEquals("tool.permission", requireApprovalRecords.first().eventType)
-        assertEquals("BEFORE_TOOL_EXECUTION", requireApprovalRecords.first().metadata["enforcementPoint"])
     }
     }
 
@@ -265,33 +276,35 @@ class ToolGovernanceExampleTest {
     @Test
     fun `tool enforcement events are excluded from policy decision evidence`() { runTest {
         val (engine, store, tool, streamId) = allowFixture()
-        val service = engine.create<SingleToolService>()
+        engine.use {
+            val service = engine.create<SingleToolService>()
 
-        service.lookup("CUST-001")
+            service.lookup("CUST-001")
 
-        val events = store.readStream(streamId)
-        val policyExporter = PolicyDecisionRuntimeEvidenceExporter()
-        val policyRecords = policyExporter.export(events)
-        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
-        val toolRecords = toolExporter.export(events)
+            val events = store.readStream(streamId)
+            val policyExporter = PolicyDecisionRuntimeEvidenceExporter()
+            val policyRecords = policyExporter.export(events)
+            val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+            val toolRecords = toolExporter.export(events)
 
-        // Event-ID based partition check: tool audit events must not appear in policy.decision evidence
-        val toolEnforcementPoints = setOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")
-        val toolAuditEventIds = events
-            .filter { it.enforcementPoint in toolEnforcementPoints }
-            .map { it.eventId }
-            .toSet()
+            // Event-ID based partition check: tool audit events must not appear in policy.decision evidence
+            val toolEnforcementPoints = setOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")
+            val toolAuditEventIds = events
+                .filter { it.enforcementPoint in toolEnforcementPoints }
+                .map { it.eventId }
+                .toSet()
 
-        assertTrue(
-            policyRecords.none { it.eventId in toolAuditEventIds },
-            "Tool audit events must not appear in policy.decision evidence"
-        )
+            assertTrue(
+                policyRecords.none { it.eventId in toolAuditEventIds },
+                "Tool audit events must not appear in policy.decision evidence"
+            )
 
-        assertEquals(
-            toolAuditEventIds,
-            toolRecords.map { it.eventId }.toSet(),
-            "Every tool audit event must appear in tool.permission evidence"
-        )
+            assertEquals(
+                toolAuditEventIds,
+                toolRecords.map { it.eventId }.toSet(),
+                "Every tool audit event must appear in tool.permission evidence"
+            )
+        }
     }
     }
 
@@ -299,18 +312,31 @@ class ToolGovernanceExampleTest {
 
     @Test
     fun `three tools produce distinct audit streams with correct evidence`() { runTest {
-        // Run all three scenarios
-        val (engine1, store1, _, streamId1) = allowFixture()
-        val service1 = engine1.create<SingleToolService>()
-        service1.lookup("CUST-001")
+        // Run all three scenarios, keeping the audit stores alive past engine close
+        val store1 = InMemoryAuditStore()
+        val store2 = InMemoryAuditStore()
+        val store3 = InMemoryAuditStore()
+        val streamId1 = "test-customer-lookup"
+        val streamId2 = "test-account-delete"
+        val streamId3 = "test-payment"
 
-        val (engine2, store2, _, streamId2) = denyFixture()
-        val service2 = engine2.create<DeleteToolService>()
-        try { service2.delete("ACC-001") } catch (_: PolicyViolationException) {}
+        val (engine1, _, _, _) = allowFixture(store1, streamId1)
+        engine1.use {
+            val service1 = engine1.create<SingleToolService>()
+            service1.lookup("CUST-001")
+        }
 
-        val (engine3, store3, _, streamId3) = requireApprovalFixture()
-        val service3 = engine3.create<PaymentToolService>()
-        try { service3.pay("5000 EUR") } catch (_: ApprovalSuspendedException) {}
+        val (engine2, _, _, _) = denyFixture(store2, streamId2)
+        engine2.use {
+            val service2 = engine2.create<DeleteToolService>()
+            try { service2.delete("ACC-001") } catch (_: PolicyViolationException) {}
+        }
+
+        val (engine3, _, _, _) = requireApprovalFixture(store3, streamId3)
+        engine3.use {
+            val service3 = engine3.create<PaymentToolService>()
+            try { service3.pay("5000 EUR") } catch (_: ApprovalSuspendedException) {}
+        }
 
         // Verify each stream has the correct evidence
         val toolExporter = ToolPermissionRuntimeEvidenceExporter()
@@ -340,8 +366,8 @@ class ToolGovernanceExampleTest {
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val tool = AccountDeleteTool()
         val provider = DeterministicToolProvider("account_delete")
-        val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
-        val engine = TramaiEngine(
+        val baselinePolicy = DefaultPolicyEngine(governedPolicyFor(tool, provider))
+        TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf("account_delete" to tool)),
             policyDecisionAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, FixedAuditStreamIdResolver("test-no-provider-continuation")),
@@ -352,16 +378,17 @@ class ToolGovernanceExampleTest {
                     baselinePolicy.evaluate(context)
                 }
             },
-        )
-        val service = engine.create<DeleteToolService>()
+        ).use { engine ->
+            val service = engine.create<DeleteToolService>()
 
-        try {
-            service.delete("ACC-001")
-            fail("Expected PolicyViolationException")
-        } catch (_: PolicyViolationException) {
-            // expected
+            try {
+                service.delete("ACC-001")
+                fail("Expected PolicyViolationException")
+            } catch (_: PolicyViolationException) {
+                // expected
+            }
+            assertEquals(1, provider.callCount.get(), "Provider must be called exactly once")
         }
-        assertEquals(1, provider.callCount.get(), "Provider must be called exactly once")
     }
     }
 
@@ -421,26 +448,28 @@ class ToolGovernanceExampleTest {
         )
         // Sensitive arguments passed through the provider's toolCallArgs, not via service input
         val sensitiveArgs = """{"account":"NL00BANK0123456789","apiKey":"secret-value","amount":5000}"""
-        val engine = TramaiEngine(
-            provider = DeterministicToolProvider(
-                toolName = "payment",
-                toolCallArgs = sensitiveArgs,
-            ),
+        val provider = DeterministicToolProvider(
+            toolName = "payment",
+            toolCallArgs = sensitiveArgs,
+        )
+        TramaiEngine(
+            provider = provider,
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
-            policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
+            policyEngine = DefaultPolicyEngine(governedPolicyFor(tool, provider)),
             toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalGateCoordinator = approvalGateCoordinator,
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             clock = fixedClock,
-        )
-        val service = engine.create<PaymentToolService>()
+        ).use { engine ->
+            val service = engine.create<PaymentToolService>()
 
-        // Sensitive arguments are in the provider's toolCallArgs, not in service input
-        try {
-            service.pay("submit payment")
-        } catch (_: ApprovalSuspendedException) {
-            // expected
+            // Sensitive arguments are in the provider's toolCallArgs, not in service input
+            try {
+                service.pay("submit payment")
+            } catch (_: ApprovalSuspendedException) {
+                // expected
+            }
         }
 
         val events = store.readStream(streamId)
