@@ -1,7 +1,9 @@
 package dev.tramai.build.quality
 
+import org.gradle.api.GradleException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -119,11 +121,26 @@ class CompilerWarningsBaselineModelTest {
         assertEquals(1, violations.size)
     }
     // ── Baseline JSON round-trip (C10) ────────────────────────────────────
-
     @Test
     fun `baseline json round-trips`() {
         val json = CompilerWarningsBaselineIo.toJson(listOf(entryA, entryB))
         val parsed = CompilerWarningsBaselineIo.fromJson(json)
         assertEquals(listOf(entryA, entryB), parsed)
+    }
+
+    // ── Fail-closed runner (C8: tool failure is NOT zero findings) ────────
+
+    @Test
+    fun `compiler boot failure fails closed`() {
+        // Empty compiler classpath → the spawned JVM cannot load K2JVMCompiler →
+        // non-zero exit with no w: lines. The runner MUST throw, never return [].
+        val root = File("/tmp/cw-probe-" + System.nanoTime())
+        // moduleDir = root + modulePath (":probe" → "probe")
+        File(root, "probe/src/main/kotlin").mkdirs()
+        File(root, "probe/src/main/kotlin/X.kt").writeText("package x\nval a = 1\n")
+        val unit = CompileUnitSpec(":probe", "main", emptyList(), "21")
+        org.junit.jupiter.api.assertThrows<GradleException> {
+            KotlincRunner.compileWarnings(unit, emptyList(), emptyList(), root, File(root, "out"))
+        }
     }
 }

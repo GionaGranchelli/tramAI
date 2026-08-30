@@ -131,6 +131,16 @@ internal object KotlincRunner {
         // there is no report file). readText() blocks only until EOF, which the
         // closed pipe guarantees after process exit.
         output.append(reader.readText())
+        // FAIL-CLOSED: a non-zero compiler exit means the unit could not be
+        // analysed. Tool failure is NOT zero findings — error text contains no
+        // `w:` lines, so silently proceeding would green-light the module.
+        val rc = proc.waitFor()
+        if (rc != 0) {
+            throw GradleException(
+                "verifyCompilerWarnings: standalone kotlinc for ${unit.modulePath}/${unit.sourceSet} " +
+                    "failed (rc=$rc): ${output.take(800)}",
+            )
+        }
         // rc==0 with warnings is NORMAL — extraction is the parse, gating is the baseline diff.
         return CompilerWarningsParser.parse(output.toString())
     }
