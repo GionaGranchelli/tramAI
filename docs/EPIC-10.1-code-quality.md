@@ -82,6 +82,7 @@ Standalone `K2JVMCompiler` (kotlin-compiler-embeddable 2.3.0, resolved as a Grad
 
 - **Invariant:** existing compiler-warning debt may remain temporarily, but it may only shrink. New warnings must not cross the gate unnoticed or be hidden by editing the baseline.
 - **Baseline:** `config/warnings/baseline.json` — identity = repository-relative path + `[DIAGNOSTIC_NAME]` + normalized message fingerprint + multiplicity. Line/column excluded (lines move). Frozen from the 526-warning inventory.
+- **Deviation (documented):** build-logic's 67 warnings are NOT gated. kotlin-dsl compilation cannot be reproduced by a standalone kotlinc (embedded-compiler default imports/accessors), and root listeners cannot capture included-build compiler output (empirically proven). The gate baseline is the modules-only 459 (78 identities), exact T0 parity; build-logic stays frozen in the T0 inventory only, to be gated by a real-compile-output approach in a follow-up slice.
 - **Mechanism:** per-module standalone `K2JVMCompiler` runs over the module classpaths (compileClasspath / testCompileClasspath + own outputs + friend-paths) for modules touched by the PR delta; parse with a strict, fail-closed regex; compare against baseline; any warning without a matching baseline entry fails. Removals allowed; additions fail; malformed/missing baseline fails closed.
 - **Wiring:** joins `check`, `verifyPr`, and CI (label-gated bootstrap class where needed, mirroring 10.1b's `baseline-migration`).
 
