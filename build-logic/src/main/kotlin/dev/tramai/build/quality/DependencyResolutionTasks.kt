@@ -94,7 +94,10 @@ abstract class AggregateResolvedDependencyBaselineTask : DefaultTask() {
     @TaskAction
     fun aggregate() {
         val owners = expectedProbeOwners.get()
-        val files = probeFiles.files.toList()
+        // Iterate the FileCollection itself (documented to preserve supplied-path
+        // order), NOT .files which returns an order-insensitive Set<File> — the
+        // index-aligned owner/file contract must not depend on Set semantics.
+        val files = probeFiles.toList()
         if (owners.size != files.size) {
             throw GradleException(
                 "Dependency probe aggregation misconfigured: ${owners.size} expected owners but ${files.size} probe files",

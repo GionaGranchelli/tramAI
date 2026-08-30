@@ -120,6 +120,21 @@ class ModuleTopologyVerificationTest {
         assertTrue(result.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS, result.output.take(800))
     }
 
+    @Test
+    fun `publishedPaths default is fail-closed when the release plugin is absent`() {
+        // P1 (a3c1 Round-2): without tramai.release-verification the historical
+        // implementation supplied an EMPTY publication set and produced the typed
+        // MODULE_CATALOG_PUBLISHING_DRIFT diagnostic. The typed task must not die
+        // on an unset ListProperty: convention(emptyList()) restores the old
+        // fail-closed behavior.
+        val dir = topologyFixture(applyReleasePlugin = false)
+        val result = runner(dir, "verifyModuleManifest").buildAndFail()
+        assertTrue(
+            result.output.contains("[MODULE_CATALOG_PUBLISHING_DRIFT]"),
+            "must fail with publishing-drift (empty published set), not an unset-property crash: ${result.output.take(800)}",
+        )
+    }
+
     // ── Configuration cache discriminators ──────────────────────────────────
 
     @Test
@@ -251,6 +266,7 @@ class ModuleTopologyVerificationTest {
         bomModules: List<String> = listOf("tramai-core", "tramai-engine"),
         engineEntry: String? = defaultEngineEntry,
         catalogFileOverride: String? = null,
+        applyReleasePlugin: Boolean = true,
     ): File {
         val dir = File(tempDir, "topology-${counter.incrementAndGet()}").apply { mkdirs() }
         writeFile(
@@ -288,7 +304,13 @@ class ModuleTopologyVerificationTest {
             // Imperative apply AFTER the extra is set: the release task's
             // publishableModules snapshot only reads the extra when it exists at
             // apply time, otherwise it falls back to the module catalog.
-            apply(plugin = "tramai.release-verification")
+            ${
+                if (applyReleasePlugin) {
+                    "apply(plugin = \"tramai.release-verification\")"
+                } else {
+                    "// release-verification deliberately NOT applied (fail-closed publishedPaths test)"
+                }
+            }
             $catalogOverrideBlock
             """.trimIndent(),
         )

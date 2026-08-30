@@ -1006,6 +1006,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 description = "Verifies manifest/settings equality and publishing/BOM membership against independent Gradle model signals"
                 moduleCatalogFile.set(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
                 projectPaths.set(ModuleTopologySnapshot.projectPaths(project))
+                // Fail-closed default: without the release plugin the historical
+                // implementation supplied an EMPTY publication set and produced the
+                // typed MODULE_CATALOG_PUBLISHING_DRIFT diagnostic. Preserve that —
+                // never die on an unset property. The withPlugin wiring below
+                // overrides the convention with the release task's typed model.
+                publishedPaths.convention(emptyList())
                 // BOM signal read LAZILY through a provider: the java-platform model
                 // is incomplete at plugin apply time (Epic 9.2d-a1 rule). Never eager,
                 // never a Configuration as a task property — converted to List<String>.
