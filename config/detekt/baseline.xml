@@ -32,9 +32,9 @@
     <ID>CyclomaticComplexMethod:ApprovalLifecycleActionGeneratorTest.kt$ApprovalLifecycleActionGeneratorTest$private fun record( events: MutableList&lt;RecordedEvent&gt;, seed: Long, step: Int, action: ApprovalLifecycleAction, before: ApprovalLifecycleModel, outcome: ApprovalLifecycleOutcome, )</ID>
     <ID>CyclomaticComplexMethod:ApprovalLifecycleModel.kt$ApprovalLifecycleModel$fun invariants(): List&lt;String&gt;</ID>
     <ID>CyclomaticComplexMethod:ApprovalStoreTck.kt$ApprovalStoreTck$private suspend fun executeLifecycleAction( action: ApprovalLifecycleAction, model: ApprovalLifecycleModel, store: ApprovalStore, id: String, ): LifecycleExecutionResult</ID>
-    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun computeCommittedBaseline( committed: BaselineDocument, metric: String, scope: String ): Int?</ID>
-    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyBaselineIdentity( committed: BaselineDocument, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
-    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
+    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun computeCommittedBaseline( committed: BaselineDocument, metric: String, scope: String, ): Int?</ID>
+    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyBaselineIdentity( committed: BaselineDocument, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
+    <ID>CyclomaticComplexMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>CyclomaticComplexMethod:BedrockProvider.kt$BedrockProvider$@Suppress("UNCHECKED_CAST") internal fun buildClaudeMessage(message: dev.tramai.core.model.Message): Map&lt;String, Any?&gt;</ID>
     <ID>CyclomaticComplexMethod:CancellationDeltaComparator.kt$CancellationDeltaComparator$fun compare(baseCatches: List&lt;CancellationCatchFinding&gt;, currentCatches: List&lt;CancellationCatchFinding&gt;): Result</ID>
     <ID>CyclomaticComplexMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeApiBaseline(): ApiProbeResult</ID>
@@ -68,7 +68,7 @@
     <ID>CyclomaticComplexMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addEnrollmentDiagnostics( resultsDir: File, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
     <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun checkEdge( fromPath: String, toPath: String, catalog: ModuleCatalog ): VerificationDiagnostic?</ID>
     <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
-    <ID>CyclomaticComplexMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry(index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;)</ID>
+    <ID>CyclomaticComplexMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>CyclomaticComplexMethod:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>CyclomaticComplexMethod:ModuleGraphAnalyzer.kt$ModuleGraphAnalyzer$fun analyze(): GraphResult</ID>
     <ID>CyclomaticComplexMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier$fun verify(committed: MutationData, current: MutationData): List&lt;VerificationDiagnostic&gt;</ID>
@@ -101,7 +101,7 @@
     <ID>CyclomaticComplexMethod:SovereignRoutingValidationPolicy.kt$SovereignRoutingValidationPolicy$fun validate(plan: ProviderRoutingPlan, profile: SovereignProfileConfiguration)</ID>
     <ID>CyclomaticComplexMethod:StreamingExecutionCoordinator.kt$StreamingExecutionCoordinator$fun execute(request: StreamingExecutionRequest): Flow&lt;StreamChunk&gt;</ID>
     <ID>CyclomaticComplexMethod:TestPerformanceCollector.kt$TestPerformanceCollector$fun collectMeasuredRun( run: Int, gradleVersion: String, jdkVersion: String = Runtime.version().feature().toString(), reportRoot: File? = null ): List&lt;TestPerformanceObservation&gt;</ID>
-    <ID>CyclomaticComplexMethod:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse(file: File, knownModules: Set&lt;String&gt;): TestQualityConfiguration</ID>
+    <ID>CyclomaticComplexMethod:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse( file: File, knownModules: Set&lt;String&gt;, ): TestQualityConfiguration</ID>
     <ID>CyclomaticComplexMethod:TrustedReplayEnvelopeRegistryTest.kt$TrustedReplayEnvelopeRegistryTest$private fun operationAnnotation(model: String, prompt: String): dev.tramai.core.annotations.Operation</ID>
     <ID>CyclomaticComplexMethod:VerifySovereignSignedBundleTask.kt$VerifySovereignSignedBundleTask$@TaskAction fun verify()</ID>
     <ID>CyclomaticComplexMethod:WorkerLifecycleController.kt$WorkerLifecycleController$suspend fun shutdown()</ID>
@@ -128,7 +128,6 @@
     <ID>DestructuringDeclarationWithTooManyEntries:WorkflowMcpStepTest.kt$WorkflowMcpStepTest$val (clientInput, serverToClient, clientToServer, serverInput, pipeCloseable) = createPipes()</ID>
     <ID>EmptyClassBlock:JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt$JdbcSovereignOpsTestConfig${ }</ID>
     <ID>EmptyClassBlock:WorkflowBuilder.kt$BranchWorkflowBuilder${ }</ID>
-    <ID>EmptyElseBlock:ModuleCatalog.kt$ModuleCatalog$if (value == null) errors += failure(code, "$path: invalid $field '${raw[field]?.toString().orEmpty()}'", path)</ID>
     <ID>EmptyElseBlock:ProviderRetryFallbackLifecyclePropertyTest.kt$ProviderRetryFallbackLifecyclePropertyTest.ScriptedProvider$if (it is StreamChunk.Token) sink.record("stream.token")</ID>
     <ID>EmptyFunctionBlock:JdbcSovereignRuntimeE2ETest.kt$JdbcSovereignRuntimeE2ETest.AlwaysFailingDataSourceConfig.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:PolicyEnforcementTest.kt$PolicyEnforcementTest.&lt;no name provided&gt;${}</ID>
@@ -683,8 +682,8 @@
     <ID>LongMethod:BaselineGenerator.kt$BaselineGenerator$fun generateRuntimeProtocolCatalog(): ProtocolCatalog</ID>
     <ID>LongMethod:BaselineGenerator.kt$BaselineGenerator$fun generateStructuralHotspots(): StructuralHotspots</ID>
     <ID>LongMethod:BaselineVerifier.kt$BaselineVerifier$fun verify(): VerificationReport</ID>
-    <ID>LongMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyBaselineIdentity( committed: BaselineDocument, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
-    <ID>LongMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
+    <ID>LongMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyBaselineIdentity( committed: BaselineDocument, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
+    <ID>LongMethod:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>LongMethod:BedrockProvider.kt$BedrockProvider$@Suppress("UNCHECKED_CAST") internal fun buildClaudeMessage(message: dev.tramai.core.model.Message): Map&lt;String, Any?&gt;</ID>
     <ID>LongMethod:CancellationDeltaComparator.kt$CancellationDeltaComparator$fun compare(baseCatches: List&lt;CancellationCatchFinding&gt;, currentCatches: List&lt;CancellationCatchFinding&gt;): Result</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeApiBaseline(): ApiProbeResult</ID>
@@ -739,13 +738,16 @@
     <ID>LongMethod:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$suspend fun recover( now: Instant = Instant.now(), limit: Int = 500, ): Int</ID>
     <ID>LongMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
+    <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addApiCompatibilityDiagnostics( project: Project, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun baselineCheckFor(code: DiagnosticCode): String?</ID>
-    <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File ): String</ID>
+    <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
     <ID>LongMethod:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
     <ID>LongMethod:McpStep.kt$McpWorkflowStep$suspend fun execute( workflowName: String, state: S, context: WorkflowContext, observer: WorkflowObserver, failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver, ): S</ID>
     <ID>LongMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
+    <ID>LongMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>LongMethod:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:ModuleGraphAnalyzer.kt$ModuleGraphAnalyzer$fun analyze(): GraphResult</ID>
+    <ID>LongMethod:ModuleTopologyVerificationTest.kt$ModuleTopologyVerificationTest$private fun topologyFixture( publishableExtra: String? = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom")""", bomModules: List&lt;String&gt; = listOf("tramai-core", "tramai-engine"), engineEntry: String? = defaultEngineEntry, catalogFileOverride: String? = null, applyReleasePlugin: Boolean = true, ): File</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier$fun verify(committed: MutationData, current: MutationData): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier.Companion$fun aggregate( reports: List&lt;ParsedMutationReport&gt;, analyzerVersion: String = "", measuredCommit: String = "" ): MutationData</ID>
     <ID>LongMethod:MutationClassificationLoader.kt$MutationClassificationLoader$fun load(repositoryRoot: File): MutationClassifications</ID>
@@ -773,6 +775,7 @@
     <ID>LongMethod:ReleaseManifestVerifier.kt$ReleaseManifestVerifier$private fun verifyCore(manifestFile: File, artifactsDir: File?, artifactFiles: Collection&lt;File&gt;?)</ID>
     <ID>LongMethod:ReleaseVerificationPluginTest.kt$ReleaseVerificationPluginTest$@Test fun `T13 prepareSovereignReleaseArtifacts has real producer edges from a clean workspace`()</ID>
     <ID>LongMethod:ReleaseVerificationPluginTest.kt$ReleaseVerificationPluginTest$private fun baseFixture(extra: String = ""): File</ID>
+    <ID>LongMethod:ResolvedDependencyAggregateTest.kt$ResolvedDependencyAggregateTest$private fun multiProjectFixture(): File</ID>
     <ID>LongMethod:RetryJitterDiscriminatorTest.kt$RetryJitterDiscriminatorTest$@Test fun `P0-E engine composition graph consumes the injected jitter source`()</ID>
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun exampleSelectionGuide(rootDir: File)</ID>
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun governedWorkflowArticle(rootDir: File)</ID>
@@ -809,7 +812,7 @@
     <ID>LongMethod:TestApprovalGatewayPersistenceRequestBuilder.kt$TestApprovalGatewayPersistenceRequestBuilder$fun build(): ApprovalGatewayPersistenceRequest</ID>
     <ID>LongMethod:TestPerformanceCollector.kt$TestPerformanceCollector$fun collectMeasuredRun( run: Int, gradleVersion: String, jdkVersion: String = Runtime.version().feature().toString(), reportRoot: File? = null ): List&lt;TestPerformanceObservation&gt;</ID>
     <ID>LongMethod:TestPerformanceVerifier.kt$TestPerformanceVerifier$fun verify(committed: TestPerformanceData, current: TestPerformanceData): List&lt;VerificationDiagnostic&gt;</ID>
-    <ID>LongMethod:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse(file: File, knownModules: Set&lt;String&gt;): TestQualityConfiguration</ID>
+    <ID>LongMethod:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse( file: File, knownModules: Set&lt;String&gt;, ): TestQualityConfiguration</ID>
     <ID>LongMethod:TimeSemanticsDiscriminatorTest.kt$TimeSemanticsDiscriminatorTest$@Test fun `P0-C retry-approval consumption stamps from or preserves the injected clock`()</ID>
     <ID>LongMethod:ToolLoopCoordinator.kt$ToolLoopCoordinator$suspend fun execute( context: ToolLoopContext, ): ProviderCallResult</ID>
     <ID>LongMethod:TramaiAutoConfiguration.kt$TramaiAutoConfiguration$@Bean(destroyMethod = "close") @ConditionalOnMissingBean fun tramai( properties: TramaiProperties, applicationContext: org.springframework.context.ApplicationContext, ): Tramai</ID>
@@ -817,7 +820,7 @@
     <ID>LongMethod:TramaiAutoConfigurationTest.kt$TramaiAutoConfigurationTest$@Test fun `creates an openai provider from the built in aws secrets manager resolver`()</ID>
     <ID>LongMethod:TramaiAutoConfigurationTest.kt$TramaiAutoConfigurationTest$@Test fun `creates an openai provider from the built in vault secret resolver`()</ID>
     <ID>LongMethod:TramaiDocsGuardsPlugin.kt$TramaiDocsGuardsPlugin$override fun apply(project: Project)</ID>
-    <ID>LongMethod:TramaiPublishingPlugin.kt$TramaiPublishingPlugin$private fun configurePublication(project: Project, componentName: String)</ID>
+    <ID>LongMethod:TramaiPublishingPlugin.kt$TramaiPublishingPlugin$private fun configurePublication( project: Project, componentName: String, )</ID>
     <ID>LongMethod:TramaiPublishingPluginTest.kt$TramaiPublishingPluginTest$@Test fun `P8 sovereignBundleLocal exists as file repository on selected projects only`(@TempDir tempDir: File)</ID>
     <ID>LongMethod:TramaiWorkerTest.kt$TramaiWorkerTest$@Test fun `operator retryStep enables genuine retry with a new attempt`()</ID>
     <ID>LongMethod:TypedTaskConfigurationCacheTest.kt$TypedTaskConfigurationCacheTest$private fun maintainabilityFixture(): File</ID>
@@ -869,7 +872,7 @@
     <ID>LongParameterList:AuditStoreFixtures.kt$AuditStoreFixtures$( auditStreamId: String, eventId: String, latest: AuditEvent?, sequenceNumber: Long? = null, previousEventHash: String? = null, eventHash: String? = null, schemaVersion: Int = CURRENT_AUDIT_SCHEMA_VERSION, auditStreamIdOverride: String? = null, timestamp: Instant = BASE_TIME, metadata: Map&lt;String, String&gt; = emptyMap(), decision: String = "APPROVED", )</ID>
     <ID>LongParameterList:AwsSecretsManagerSecretValueResolver.kt$AwsSecretsManagerSecretValueResolver.Companion$( region: String, endpoint: String? = null, accessKeyId: String? = null, secretAccessKey: String? = null, sessionToken: String? = null, defaultField: String = "value", objectMapper: ObjectMapper = ObjectMapper(), )</ID>
     <ID>LongParameterList:AzureOpenAiProvider.kt$AzureOpenAiProvider$( private val resourceName: String, private val deploymentId: String, private val apiKey: String? = null, private val apiVersion: String = DEFAULT_API_VERSION, private val httpClient: HttpClient = HttpClient.newHttpClient(), private val objectMapper: ObjectMapper = ObjectMapper(), /** Source for Entra ID (Azure AD) bearer tokens. Called on every request. */ private val entraAccessTokenSource: AzureEntraAccessTokenSource? = null, private val ioDispatcher: CoroutineContext = Dispatchers.IO, private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver, )</ID>
-    <ID>LongParameterList:BaselineVerifier.kt$BaselineVerifier$( metricName: String, deviations: List&lt;DeviationParser.DeviationEntry&gt;, committedIds: List&lt;String&gt;, currentIds: List&lt;String&gt;, allCurrent: List&lt;Any?&gt;, riskFilter: ((Any?) -&gt; Boolean)? = null, toModuleScope: (Any?) -&gt; DeviationParser.FindingScope, diagnosticCode: DiagnosticCode, riskWorseCode: DiagnosticCode? = null, riskWorseningMetricName: String? = null, committedFindings: List&lt;Any?&gt;? = null, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
+    <ID>LongParameterList:BaselineVerifier.kt$BaselineVerifier$( metricName: String, deviations: List&lt;DeviationParser.DeviationEntry&gt;, committedIds: List&lt;String&gt;, currentIds: List&lt;String&gt;, allCurrent: List&lt;Any?&gt;, riskFilter: ((Any?) -&gt; Boolean)? = null, toModuleScope: (Any?) -&gt; DeviationParser.FindingScope, diagnosticCode: DiagnosticCode, riskWorseCode: DiagnosticCode? = null, riskWorseningMetricName: String? = null, committedFindings: List&lt;Any?&gt;? = null, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>LongParameterList:BedrockProvider.kt$BedrockProvider$( region: String, modelId: String = DEFAULT_MODEL_ID, credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.builder().build(), objectMapper: ObjectMapper = ObjectMapper(), ioDispatcher: CoroutineContext = Dispatchers.IO, providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver, bedrockRuntimeClientFactory: BedrockRuntimeClientFactory, )</ID>
     <ID>LongParameterList:CancellationDeltaComparatorTest.kt$CancellationDeltaComparatorTest$( risk: String, module: String = "test-module", file: String = "Test.kt", function: String = "riskyOperation", catchType: String = "Exception", sourceLine: Int = 10, sourceFingerprint: String = "" )</ID>
     <ID>LongParameterList:ChangePolicyEvaluatorTest.kt$ChangePolicyEvaluatorTest$( baseline: Number = 10, allowed: Number = 10, reason: String = "\"Test reason.\"", acceptedAt: String = "\"2026-07-26\"", targetPhase: String = "\"0.6.1\"", owner: String = "\"agent\"", extraFields: String = "" )</ID>
@@ -888,7 +891,7 @@
     <ID>LongParameterList:DefaultApprovalGatewayTest.kt$DefaultApprovalGatewayTest$( approvalId: String, workflowRunId: String = "wf-run-${approvalId}", requestedBy: String = "test-actor", requestedAt: Instant = fixedClock.instant(), expiresAt: Instant = fixedClock.instant().plusSeconds(3600), status: ApprovalStatus = ApprovalStatus.PENDING, version: Long = 0L, )</ID>
     <ID>LongParameterList:DefaultPolicyEngineTest.kt$DefaultPolicyEngineTest$( enforcementPoint: EnforcementPoint, correlationId: String = "c1", toolName: String? = null, toolSecurity: ToolSecurityMetadata? = null, modelName: String? = null, providerId: String? = null, fallbackProviderId: String? = null, dataClassification: DataClassification? = null, )</ID>
     <ID>LongParameterList:DependencyBaselineVerifierTest.kt$DependencyBaselineVerifierTest$( group: String = "org.jetbrains.kotlinx", artifact: String = "kotlinx-coroutines-core-jvm", selectedVersion: String = "1.10.2", requestedVersion: String? = "1.10.2", direct: Boolean = true, configuration: String = "runtimeClasspath", selectionReason: String = "requested", dependencyPath: List&lt;String&gt; = listOf(":tramai-engine", "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2"), consumers: List&lt;String&gt; = listOf(":tramai-engine") )</ID>
-    <ID>LongParameterList:DependencyResolutionTasks.kt$( consumer: String, configuration: String, component: ResolvedComponentResult, path: List&lt;String&gt;, depth: Int, ancestry: MutableSet&lt;String&gt;, records: MutableList&lt;ResolvedDependency&gt; )</ID>
+    <ID>LongParameterList:DependencyResolutionTasks.kt$( consumer: String, configuration: String, component: ResolvedComponentResult, path: List&lt;String&gt;, depth: Int, ancestry: MutableSet&lt;String&gt;, records: MutableList&lt;ResolvedDependency&gt;, )</ID>
     <ID>LongParameterList:DetektBaselineGrowthVerifier.kt$DetektBaselineGrowthVerifier$( code: String?, added: List&lt;String&gt;, removed: List&lt;String&gt;, baseTotal: Int, currentTotal: Int, message: String, )</ID>
     <ID>LongParameterList:DeviationBudgetEvaluator.kt$DeviationBudgetEvaluator$( metricName: String, deviations: List&lt;DeviationParser.DeviationEntry&gt;, allCurrent: List&lt;Any?&gt;, committedIds: List&lt;String&gt;, committedFindings: List&lt;Any?&gt;?, toModuleScope: (Any?) -&gt; DeviationParser.FindingScope, riskWorseCode: DiagnosticCode, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
     <ID>LongParameterList:DeviationBudgetEvaluator.kt$DeviationBudgetEvaluator$( metricName: String, deviations: List&lt;DeviationParser.DeviationEntry&gt;, committedIds: List&lt;String&gt;, currentIds: List&lt;String&gt;, allCurrent: List&lt;Any?&gt;, riskFilter: ((Any?) -&gt; Boolean)? = null, toModuleScope: (Any?) -&gt; DeviationParser.FindingScope, diagnosticCode: DiagnosticCode, riskWorseCode: DiagnosticCode? = null, riskWorseningMetricName: String? = null, committedFindings: List&lt;Any?&gt;? = null, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
@@ -1959,7 +1962,6 @@
     <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$File(config, "module-boundaries.yml").writeText(File(repoRoot(), "config/quality/module-boundaries.yml").readText())</ID>
     <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$assertTrue(storeDiagnostics.any { it.message.contains("AuditStoreTckEnrollmentArchitectureTest was not discovered") })</ID>
     <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$assertTrue(storeDiagnostics.any { it.message.contains("RenamedAuditStoreTckEnrollmentArchitectureTest was discovered") })</ID>
-    <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$val</ID>
     <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$val diagnostic = assertNotNull(diagnostics.firstOrNull { it.code == DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY })</ID>
     <ID>MaxLineLength:ArchitectureReportAggregatorTest.kt$ArchitectureReportAggregatorTest$val discovered = enrollmentArchitectureTestClasses - "dev.tramai.testing.ApprovalStoreTckEnrollmentArchitectureTest"</ID>
     <ID>MaxLineLength:AuditEngine.kt$AuditEngine$@Deprecated("Use AuditEmission overload", ReplaceWith("emit(AuditEmission(auditStreamId, workflowRunId, correlationId, actor, enforcementPoint, decision, policyVersion, workflowDigest, reasonCode, metadata))"))</ID>
@@ -1989,12 +1991,14 @@
     <ID>MaxLineLength:BaselineGenerator.kt$BaselineGenerator$val classRegex = Regex("""^\s*(?:data\s+)?(?:sealed\s+)?(?:abstract\s+)?(?:open\s+)?class\s+(\w+)""", RegexOption.MULTILINE)</ID>
     <ID>MaxLineLength:BaselineGenerator.kt$BaselineGenerator$val nextClassStart = classMatches.firstOrNull { it.range.first &gt; classStart }?.range?.first ?: content.length</ID>
     <ID>MaxLineLength:BaselineGenerator.kt$BaselineGenerator$val records = ReportNormalizer.readJson(generatedFile, Array&lt;ResolvedDependency&gt;::class.java).toList()</ID>
+    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$"${currentHotspot.path} grew &gt;20%: ${committedHotspot.value} \u2192 ${currentHotspot.value} lines"</ID>
     <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$"${dev.id}: ${hotspot.module}/${hotspot.declaration} constructor has ${hotspot.value} "</ID>
     <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$"${dev.id}: recorded baseline ${dev.baseline} does not match canonical measurement $actualBaseline for metric '${dev.metric}' at scope '${dev.scope}'"</ID>
+    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$"Module '${mod.path}': catalogue declares publishability '${catalogEntry.publishability.yaml}' "</ID>
+    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$VerificationDiagnostic.failure(DiagnosticCode.EMPTY_SECTION, "Current baseline has empty cancellation catch inventory")</ID>
+    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$VerificationDiagnostic.failure(DiagnosticCode.EMPTY_SECTION, "Current baseline has empty protocol catalog")</ID>
+    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$VerificationDiagnostic.failure(DiagnosticCode.EMPTY_SECTION, "Current baseline has empty source metrics")</ID>
     <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val accepted = diagnostics.filter { it.severity == DiagnosticSeverity.ACCEPTED }.map { "${it.code}: ${it.message}" }</ID>
-    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val committedCycles = committed.structural.moduleDependencies.cycles.map { it.sorted().joinToString("\u2192") }.toSet()</ID>
-    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val committedTop = committed.structural.structuralHotspots.largestProductionFiles.take(5).map { it.path }.toSet()</ID>
-    <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val currentCycles = current.structural.moduleDependencies.cycles.map { it.sorted().joinToString("\u2192") }.toSet()</ID>
     <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val failures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }.map { "${it.code}: ${it.message}" }</ID>
     <ID>MaxLineLength:BaselineVerifier.kt$BaselineVerifier$val warnings = diagnostics.filter { it.severity == DiagnosticSeverity.WARNING }.map { "${it.code}: ${it.message}" }</ID>
     <ID>MaxLineLength:BedrockProvider.kt$BedrockProvider$val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart</ID>
@@ -2107,7 +2111,7 @@
     <ID>MaxLineLength:DependencyBaselineVerifierTest.kt$DependencyBaselineVerifierTest$val d1 = dep(consumers = listOf(":tramai-engine"), group = "com.example", artifact = "lib", selectedVersion = "1.0")</ID>
     <ID>MaxLineLength:DependencyBaselineVerifierTest.kt$DependencyBaselineVerifierTest$val d2 = dep(consumers = listOf(":tramai-core"), group = "com.example", artifact = "lib", selectedVersion = "2.0")</ID>
     <ID>MaxLineLength:DependencyEdgeNormalizerTest.kt$DependencyEdgeNormalizerTest$dependencyPath = listOf(":consumer", "com.example:lib-b:1.5", "com.example:lib-c:2.0", "com.example:lib-d:0.5")</ID>
-    <ID>MaxLineLength:DetektBaselineGrowthVerifier.kt$DetektBaselineGrowthVerifier$message</ID>
+    <ID>MaxLineLength:DependencyResolutionTasks.kt$AggregateResolvedDependencyBaselineTask$"Dependency probe aggregation misconfigured: ${owners.size} expected owners but ${files.size} probe files"</ID>
     <ID>MaxLineLength:DeviationBudgetEvaluator.kt$DeviationBudgetEvaluator$"${covered.size} new finding(s) — accepted by ${dev.id} (${matchingAll.size} total in scope ≤ ${dev.allowed})"</ID>
     <ID>MaxLineLength:DeviationBudgetEvaluator.kt$DeviationBudgetEvaluator$"${covered.size} risk worsenings — accepted by ${dev.id} (${matching} total in scope ≤ ${dev.allowed})"</ID>
     <ID>MaxLineLength:DeviationBudgetEvaluator.kt$DeviationBudgetEvaluator$"${resolvedIds.size} cancellation catch(es) resolved — risk worsening check skipped for resolved findings"</ID>
@@ -2445,36 +2449,32 @@
     <ID>MaxLineLength:LoggingTramaiWorkerObserver.kt$LoggingTramaiWorkerObserver$override fun onWorkTakenOver(workflowId: String, previousWorkerId: String, newWorkerId: String)</ID>
     <ID>MaxLineLength:LoggingTramaiWorkerObserver.kt$LoggingTramaiWorkerObserver$override fun onWorkerHeartbeat(workerId: String, uptimeMillis: Long, claimedCount: Int)</ID>
     <ID>MaxLineLength:LoggingTramaiWorkerObserver.kt$LoggingTramaiWorkerObserver$override fun onWorkflowAbandoned(workflowId: String, workerId: String, lastStep: String?, timeoutMillis: Long)</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$" '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=&lt;worktree&gt; to scan a detached checkout."</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory"</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master."</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$"verifyCancellationSafety requires -PtramaiCancellationBaseSha when origin/master is not available.\n"</ID>
+    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$(project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection&lt;*&gt;)</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$// Override base ref for CI: ./gradlew verifyChangePolicy -PchangePolicyBase=${{ github.event.pull_request.base.sha }}</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$// Register JaCoCo on critical modules using provider-safe API (no tasks.matching / executionData(TaskCollection))</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest")</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$File(sub.layout.buildDirectory.get().asFile, "reports/maintainability/architecture-dependencies.json")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$collectEvidence</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=&lt;worktree&gt; to scan a detached checkout."</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$description = "Verifies manifest/settings equality and publishing/BOM membership against independent Gradle model signals"</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$if (addExit != 0) throw GradleException("Failed to create worktree at $baseShaLocal: $addOutput")</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$if (diagnostics.isNotEmpty()) throw GradleException(diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" })</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$println("verifyCancellationSafety PASSED: no new critical/high findings or risk worsenings against base SHA.")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$println("verifyCancellationSafety: auto-resolved merge base against origin/master = ${baseShaLocal.take(8)}")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$project.logger.lifecycle("DEBUG analyzer checkout: exit=$analyzerExitCode output='${analyzerOutput.trim()}'")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$project.logger.warn("WARN: ${report.warnings.size - 100} additional warnings; see dependency-changes.json")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$reportFile.set(project.layout.buildDirectory.file("reports/maintainability/runtime-nondeterminism-verification.json"))</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$severity = DiagnosticSeverity.valueOf(entry["severity"]?.toString() ?: error("Baseline diagnostic severity missing"))</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$throw GradleException("maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory")</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val classesDir = fixture.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val file = project.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json").get().asFile</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val reportFile = File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json")</ID>
     <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val sourceRootFile = if (sourceRootProp != null) project.rootDir.resolve(sourceRootProp).normalize() else null</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseSha.take(8)}-").toFile()</ID>
-    <ID>MaxLineLength:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseShaLocal.take(8)}-").toFile()</ID>
     <ID>MaxLineLength:MarkdownWorkflowCheckpointStore.kt$MarkdownWorkflowCheckpointStore$private val pathStrategy: WorkflowCheckpointPathStrategy = CollisionFreeWorkflowCheckpointPathStrategy("checkpoint.md")</ID>
     <ID>MaxLineLength:MarkdownWorkflowCheckpointStore.kt$if (closingFenceIndex &lt;= fenceLineIndex) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)</ID>
     <ID>MaxLineLength:MarkdownWorkflowCheckpointStore.kt$if (fenceLineIndex &lt;= payloadHeaderIndex) throw CorruptCheckpointException("Persisted workflow checkpoint is invalid", content)</ID>
@@ -2492,51 +2492,31 @@
     <ID>MaxLineLength:McpToolHandlers.kt$McpToolHandlers$is WorkflowConflictException -&gt; ToolExecutionException(error.message ?: "Workflow request conflicts with current state", "conflict")</ID>
     <ID>MaxLineLength:McpToolHandlers.kt$McpToolHandlers$is WorkflowNotRegisteredException -&gt; ToolExecutionException(error.message ?: "Workflow was not found", "not_found")</ID>
     <ID>MaxLineLength:McpToolHandlers.kt$McpToolHandlers$is WorkflowRunNotFoundException -&gt; ToolExecutionException(error.message ?: "Workflow run was not found", "not_found")</ID>
+    <ID>MaxLineLength:MeasurementContext.kt$MeasurementContext.Companion$private</ID>
     <ID>MaxLineLength:Message.kt$Message$fun</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleApiStability</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$CatalogResult</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$ModuleEntry</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$fun &lt;T&gt; enum(field: String, value: T?, code: DiagnosticCode): T?</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$"$path: API strength '$api' cannot exceed maturity '$maturity' (stable API requires stable maturity; preview requires preview+; experimental requires experimental+)"</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$ModuleEntry(path, layer, maturity, publishability, api, visibility, owner, policy, release, rationale, description)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$enum("maturity", ModuleMaturity.fromYaml(raw["maturity"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY, "$path: unknown dependencyPolicy '$policy'", path)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA, "Module catalog schemaVersion must be '3'")</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE, "$path: examples must have publishability 'excluded'", path)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: included release requires published module", path)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY, "Dependency policy '$name' has invalid allowedLayers")</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Gradle project '$it' has no module-catalog entry")</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Module catalog is empty — no module entries found")</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$failure(DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY, "Module-catalog entry '$it' does not exist as a Gradle project")</ID>
     <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$fun allowedLayersFor(path: String): Set&lt;ModuleLayer&gt;?</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$fun validateAgainstProjects(catalogModules: Map&lt;String, ModuleEntry&gt;, projectPaths: List&lt;String&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (!apiStrengthFitsMaturity(api, maturity)) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: API strength '$api' cannot exceed maturity '$maturity' (stable API requires stable maturity; preview requires preview+; experimental requires experimental+)", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (!file.isFile) return CatalogResult(emptyMap(), emptyMap(), listOf(failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Module catalog not found: ${file.absolutePath}")))</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (errors.none { it.modulePath == path }) modules[path] = ModuleEntry(path, layer, maturity, publishability, api, visibility, owner, policy, release, rationale, description)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (layer == ModuleLayer.APPLICATIONS_EXAMPLES &amp;&amp; publishability != ModulePublishability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE, "$path: examples must have publishability 'excluded'", path)</ID>
     <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (layer == null || maturity == null || publishability == null || api == null || visibility == null || release == null) return</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (layers.size != rawLayers.size || layers.isEmpty()) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY, "Dependency policy '$name' has invalid allowedLayers")</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (maturity == ModuleMaturity.INTERNAL &amp;&amp; api != ModuleApiStability.INTERNAL &amp;&amp; api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: internal maturity cannot promise stable/preview API", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (modules.isEmpty() &amp;&amp; errors.isEmpty()) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Module catalog is empty — no module entries found")</ID>
     <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (path in modules) errors += failure(DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH, "Module catalog: duplicate path '$path'", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (path.isBlank()) { errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Module catalog entry $index: path is blank"); return }</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (policy !in policies) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_POLICY, "$path: unknown dependencyPolicy '$policy'", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (publishability == ModulePublishability.EXCLUDED &amp;&amp; api != ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY, "$path: excluded modules must have apiStability 'excluded'", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (publishability == ModulePublishability.PUBLISHED &amp;&amp; api == ModuleApiStability.EXCLUDED) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY, "$path: published modules must not have apiStability 'excluded'", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (publishability == ModulePublishability.PUBLISHED &amp;&amp; description.isNullOrBlank()) errors += failure(DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION, "$path: published modules must have a non-blank description", path)</ID>
     <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (rationale.isBlank()) errors += failure(DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE, "$path: rationale is blank", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (release == ReleaseInclusion.INCLUDED &amp;&amp; publishability != ModulePublishability.PUBLISHED) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: included release requires published module", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (root["schemaVersion"]?.toString() != "3") errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA, "Module catalog schemaVersion must be '3'")</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (visibility == ModuleVisibility.PUBLIC &amp;&amp; publishability == ModulePublishability.INTERNAL) errors += failure(DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION, "$path: public visibility cannot be internal publishability", path)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$private</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$private fun failure(code: DiagnosticCode, message: String, path: String? = null)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val api = enum("apiStability", ModuleApiStability.fromYaml(raw["apiStability"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val errors = mutableListOf&lt;VerificationDiagnostic&gt;()</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$if (value == null) errors += failure(code, "$path: invalid $field '${raw[field]?.toString().orEmpty()}'", path)</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$listOf(failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, "Module catalog not found: ${file.absolutePath}"))</ID>
     <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val layer = enum("layer", ModuleLayer.fromYaml(raw["layer"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_LAYER)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val maturity = enum("maturity", ModuleMaturity.fromYaml(raw["maturity"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val owner = raw["owner"]?.toString().orEmpty()</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val publishability = enum("publishability", ModulePublishability.fromYaml(raw["publishability"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$val visibility = enum("visibility", ModuleVisibility.fromYaml(raw["visibility"]?.toString().orEmpty()), DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY)</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog$}</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog.Companion$ModuleApiStability.EXPERIMENTAL -&gt; maturity == ModuleMaturity.STABLE || maturity == ModuleMaturity.PREVIEW || maturity == ModuleMaturity.EXPERIMENTAL</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleLayer$CORE_CONTRACTS : ModuleLayer</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleMaturity</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModulePublishability</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ModuleVisibility</ID>
-    <ID>MaxLineLength:ModuleCatalog.kt$ReleaseInclusion</ID>
+    <ID>MaxLineLength:ModuleCatalog.kt$ModuleCatalog.Companion$fun</ID>
+    <ID>MaxLineLength:ModuleCatalogMutationTest.kt$ModuleCatalogMutationTest$private fun codesOf(diagnostics: List&lt;VerificationDiagnostic&gt;): Set&lt;DiagnosticCode&gt;</ID>
     <ID>MaxLineLength:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$"Card '$name' has versionless dependency declaration without a versioned TramAI BOM import in the same snippet: dev.tramai:$artifact"</ID>
-    <ID>MaxLineLength:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$val allHeadings = REQUIRED_HEADINGS.all { Regex("""^### ${Regex.escape(it)}\s*$""", RegexOption.MULTILINE).containsMatchIn(cardText) }</ID>
+    <ID>MaxLineLength:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$"Internal/unpublished module '$name' advertises external Maven consumption (dev.tramai:$name)"</ID>
     <ID>MaxLineLength:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$val declarationRegex = Regex("""(?:implementation|api)\(\s*"dev\.tramai:([a-z0-9-]+)(?::([^"]*))?"\s*\)""")</ID>
-    <ID>MaxLineLength:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$val ownGradle = Regex("""(?:implementation|api)\(\s*"dev\.tramai:${Regex.escape(name)}(?::[^"]*)?"\s*\)""").containsMatchIn(text)</ID>
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$"&gt; **Classification / layer / maturity / publishability / release:** see [`config/quality/module-catalog.yml`](../../config/quality/module-catalog.yml) and the [module matrix](../../docs/reference/module-matrix.md)"</ID>
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$File(dir, "docs/modules/README.md").writeText(readme.replace("| Conforming cards | 2 |", "| Conforming cards | 1 |"))</ID>
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$assertTrue(diags.any { it.code == DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH }, "coverage mismatch must be caught: $diags")</ID>
@@ -2563,7 +2543,8 @@
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$assertTrue(diags.none { it.code == DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY }, "self-contained BOM snippet must pass: $diags")</ID>
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$private</ID>
     <ID>MaxLineLength:ModuleDocContractVerifierTest.kt$ModuleDocContractVerifierTest$val dir = fixture(cards = mapOf("tramai-core" to String.format(CARD_TEMPLATE, "tramai-core").replace("### Do not", "### Removed")))</ID>
-    <ID>MaxLineLength:ModuleManifest.kt$ModuleManifest$"| ${entry.path.removePrefix(":")} | ${entry.layer.yaml} | ${entry.maturity.yaml} | ${entry.apiStability.yaml} | ${if (entry.publishability == ModulePublishability.PUBLISHED) "Yes" else "No"} | ${entry.owner} | ${entry.releaseInclusion.yaml} |"</ID>
+    <ID>MaxLineLength:ModuleManifest.kt$ModuleManifest$)</ID>
+    <ID>MaxLineLength:ModuleManifest.kt$ModuleManifest$fun catalog(rootDir: File): ModuleCatalog.CatalogResult</ID>
     <ID>MaxLineLength:ModuleManifest.kt$ModuleManifest$if (result.errors.isNotEmpty()) throw GradleException(result.errors.joinToString("\n") { "[${it.code}] ${it.message}" })</ID>
     <ID>MaxLineLength:MutationBaselineVerifier.kt$MutationBaselineVerifier$"Missing-test survivor ${survivor.identity.ifBlank { survivor.mutator }} has no issue or target phase"</ID>
     <ID>MaxLineLength:MutationBaselineVerifierTest.kt$MutationBaselineVerifierTest$data(80.0).copy(survivingMutants = listOf(survivor().copy(status = "NO_COVERAGE", classification = "unclassified")))</ID>
@@ -3290,6 +3271,8 @@
     <ID>MaxLineLength:TestApprovalGatewayPersistenceRequestBuilder.kt$TestApprovalGatewayPersistenceRequestBuilder$fun resumeDefinitionDigest(resumeDefinitionDigest: Sha256Digest)</ID>
     <ID>MaxLineLength:TestPerformanceAggregator.kt$TestPerformanceAggregator$observations = observations.sortedWith(compareBy&lt;TestPerformanceObservation&gt; { it.run }.thenBy { it.module })</ID>
     <ID>MaxLineLength:TestPerformanceVerifier.kt$TestPerformanceVerifier$"$module median test duration regressed from ${baseline.medianDurationMs}ms to ${measured.medianDurationMs}ms"</ID>
+    <ID>MaxLineLength:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$if (pattern.isEmpty()) throw GradleException("coverage.exclusions[$index].pattern must not be empty")</ID>
+    <ID>MaxLineLength:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$private fun isAbsolutePath(path: String): Boolean</ID>
     <ID>MaxLineLength:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$throw GradleException("Test-quality configuration references unknown modules: ${unknownModules.sorted().joinToString()}")</ID>
     <ID>MaxLineLength:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$throw GradleException("mutation.targetFamilies.$family.targetClasses must not be empty when specified")</ID>
     <ID>MaxLineLength:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$throw GradleException("mutation.targetFamilies.$family.targetClasses must not contain duplicate patterns")</ID>
@@ -3479,21 +3462,16 @@
     <ID>MaxLineLength:TramaiPublishingPluginTest.kt$TramaiPublishingPluginTest$val both = runProbe(dir, args = arrayOf("-PtramaiPublishReleaseUrl=https://release.example.com/repo", "-PtramaiPublishSnapshotUrl=https://snapshot.example.com/repo"))</ID>
     <ID>MaxLineLength:TramaiPublishingPluginTest.kt$TramaiPublishingPluginTest$val withKeysProbe = runProbe(withKeys, args = arrayOf("-PsigningKey=test-key", "-PsigningPassword=test-password"))</ID>
     <ID>MaxLineLength:TramaiPublishingRepositories.kt$TramaiPublishingRepositories$val</ID>
+    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$(project.rootProject.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection&lt;*&gt;)</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$description = "Publishes to Maven Local and verifies POM/module/jar/sources/javadoc artifacts for every Tramai module."</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$description = "Publishes to a configured file-based Maven repository and verifies generated signature files."</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$description = "Runs the repo-local release verification checks for publication metadata and published artifacts."</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedDeveloperEmail.set(project.providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev"))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedLicenseUrl.set(project.providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt"))</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedProjectUrl.set(project.providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI"))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedScmConnection.set(project.providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git"))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedScmDeveloperConnection.set(project.providers.gradleProperty("tramaiScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/GionaGranchelli/tramAI.git"))</ID>
     <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$expectedScmUrl.set(project.providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git"))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$if</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$passwordPresent.set(project.providers.gradleProperty("tramaiPublishPassword").map { it.isNotBlank() }.orElse(false))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$releaseUrlPresent.set(project.providers.gradleProperty("tramaiPublishReleaseUrl").map { it.isNotBlank() }.orElse(false))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$signingPasswordPresent.set(project.providers.gradleProperty("signingPassword").map { it.isNotBlank() }.orElse(false))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$usernamePresent.set(project.providers.gradleProperty("tramaiPublishUsername").map { it.isNotBlank() }.orElse(false))</ID>
-    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$val</ID>
+    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$private fun jarPublicationModuleNames(project: Project): List&lt;String&gt;</ID>
+    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$project.providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt")</ID>
+    <ID>MaxLineLength:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$project.providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")</ID>
     <ID>MaxLineLength:TramaiRuntimeProfileSupport.kt$TramaiRuntimeProfileSupport$"Unsupported tramai.profile '$configuredProfile'. Supported values: ${supportedProfiles.joinToString(", ")}."</ID>
     <ID>MaxLineLength:TramaiSecretResolutionAutoConfiguration.kt$TramaiSecretResolutionAutoConfiguration$(definition?.getAttribute(org.springframework.beans.factory.support.AbstractBeanDefinition.ORDER_ATTRIBUTE) as? Int)</ID>
     <ID>MaxLineLength:TramaiSecretResolutionAutoConfiguration.kt$TramaiSecretResolutionAutoConfiguration$beanFactory.getMergedBeanDefinition(beanName) as? org.springframework.beans.factory.support.RootBeanDefinition</ID>
@@ -3602,9 +3580,6 @@
     <ID>MaxLineLength:VerifySignedPublicationBundleTask.kt$VerifySignedPublicationBundleTask$"verifySignedPublicationBundle only supports file:// repositories for local verification, but got $repositoryUrl"</ID>
     <ID>MaxLineLength:VerifySovereignRuntimeVerificationRepoClosureTask.kt$VerifySovereignRuntimeVerificationRepoClosureTask$val moduleMetadata = MavenPublishedArtifactResolver.resolve(moduleDir, moduleName, expectedVersion, "module")</ID>
     <ID>MaxLineLength:VerifySovereignSignedBundleTask.kt$VerifySovereignSignedBundleTask$append("\"checksums\": {${checksums.entries.joinToString(", ") { "\"${Hashing.jsonEscape(it.key)}\": \"${Hashing.jsonEscape(it.value)}\"" }}}")</ID>
-    <ID>MaxLineLength:VerifyStaticAnalysisTask.kt$VerifyStaticAnalysisTask$val baseTotal = (DetektBaselineParser.parse(baseBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0</ID>
-    <ID>MaxLineLength:VerifyStaticAnalysisTask.kt$VerifyStaticAnalysisTask$val byRule = newFindings.entries.sortedByDescending { it.value }.joinToString("\n") { " ${it.key}: ${it.value}" }</ID>
-    <ID>MaxLineLength:VerifyStaticAnalysisTask.kt$VerifyStaticAnalysisTask$val currentTotal = (DetektBaselineParser.parse(currentBaselineXml) as? BaselineParseResult.Success)?.document?.currentIssueIds?.size ?: 0</ID>
     <ID>MaxLineLength:WorkerLifecycleActionGenerator.kt$WorkerLifecycleActionGenerator$fun</ID>
     <ID>MaxLineLength:WorkerLifecycleController.kt$WorkerLifecycleController$if</ID>
     <ID>MaxLineLength:WorkerLifecycleController.kt$WorkerLifecycleController$is WorkerLifecycleState.ShuttingDown -&gt; current.root === claimed.root &amp;&amp; current.generation == claimed.generation</ID>
@@ -3808,7 +3783,7 @@
     <ID>NestedBlockDepth:BaselineGenerator.kt$BaselineGenerator$fun generateRuntimeProtocolCatalog(): ProtocolCatalog</ID>
     <ID>NestedBlockDepth:BaselineGenerator.kt$BaselineGenerator$private fun computeAnalyzerCommitSha(): String</ID>
     <ID>NestedBlockDepth:BaselineGenerator.kt$BaselineGenerator$private fun computeSourceTreeHash(): String</ID>
-    <ID>NestedBlockDepth:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
+    <ID>NestedBlockDepth:BaselineVerifier.kt$BaselineVerifier$private fun verifyStructuralHotspots( committed: BaselineDocument, current: BaselineDocument, deviations: List&lt;DeviationParser.DeviationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>NestedBlockDepth:CancellationCatchInventory.kt$CancellationCatchInventory$fun inventory(): List&lt;CancellationCatchFinding&gt;</ID>
     <ID>NestedBlockDepth:CancellationDeltaComparator.kt$CancellationDeltaComparator$fun compare(baseCatches: List&lt;CancellationCatchFinding&gt;, currentCatches: List&lt;CancellationCatchFinding&gt;): Result</ID>
     <ID>NestedBlockDepth:ChangePolicyEvaluator.kt$ChangePolicyEvaluator$fun evaluate(input: ChangePolicyInput): ChangePolicyResult</ID>
@@ -4094,6 +4069,7 @@
     <ID>ThrowsCount:DefaultApprovalGateCoordinator.kt$DefaultApprovalGateCoordinator$private fun revalidateBinding( request: ApprovalRequest, approvalId: String, workflowRunId: String, toolName: String, argumentsDigest: dev.tramai.core.approval.Sha256Digest, policyVersion: String, workflowDigest: dev.tramai.core.approval.Sha256Digest, )</ID>
     <ID>ThrowsCount:DefaultApprovalGateCoordinator.kt$DefaultApprovalGateCoordinator$private fun validateAuthorizationCandidate( request: ApprovalRequest, approvalId: String, expectedVersion: Long, presentedTokenDigest: dev.tramai.core.approval.Sha256Digest, consumedBy: String, )</ID>
     <ID>ThrowsCount:DefaultApprovalGateCoordinator.kt$DefaultApprovalGateCoordinator$private suspend fun prepareResumeAuthorization( preparation: ResumeAuthorizationPreparation, ): Pair&lt;ApprovalRequest, dev.tramai.core.approval.Sha256Digest&gt;</ID>
+    <ID>ThrowsCount:DependencyResolutionTasks.kt$AggregateResolvedDependencyBaselineTask$@TaskAction fun aggregate()</ID>
     <ID>ThrowsCount:DocsContractVerifierTask.kt$DocsContractVerifierTask$@TaskAction fun verify()</ID>
     <ID>ThrowsCount:DocsContractVerifierTask.kt$DocsContractVerifierTask$private fun verifyGenericClaims(id: String)</ID>
     <ID>ThrowsCount:FileApprovalContinuationStore.kt$FileApprovalContinuationStore$private fun readCommittedContinuationEntryStrict(entry: java.nio.file.Path): PersistedApprovalContinuationRecordV1</ID>
@@ -4160,7 +4136,7 @@
     <ID>ThrowsCount:StreamingExecutionCoordinator.kt$StreamingExecutionCoordinator$private suspend fun executeStreamingRoute(request: StreamingExecutionRoute, correlationId: String, securityContext: ExecutionSecurityContext, arguments: List&lt;Any?&gt;): StreamingRouteResult</ID>
     <ID>ThrowsCount:StructuredResponseCoordinator.kt$StructuredResponseCoordinator$suspend fun finalizeResumed(request: ResumedStructuredResponseRequest): Any</ID>
     <ID>ThrowsCount:TestPerformanceAggregator.kt$TestPerformanceAggregator$fun aggregate(observations: List&lt;TestPerformanceObservation&gt;): TestPerformanceData</ID>
-    <ID>ThrowsCount:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse(file: File, knownModules: Set&lt;String&gt;): TestQualityConfiguration</ID>
+    <ID>ThrowsCount:TestQualityConfiguration.kt$TestQualityConfiguration.Companion$fun parse( file: File, knownModules: Set&lt;String&gt;, ): TestQualityConfiguration</ID>
     <ID>ThrowsCount:ToolLoopCoordinator.kt$ToolLoopCoordinator$suspend fun execute( context: ToolLoopContext, ): ProviderCallResult</ID>
     <ID>ThrowsCount:VerifyStaticAnalysisTask.kt$VerifyStaticAnalysisTask$@TaskAction fun verifyStaticAnalysis()</ID>
     <ID>ThrowsCount:WorkflowCheckpointResumeDiscriminatorTest.kt$WorkflowCheckpointResumeDiscriminatorTest$@Test fun `failure suspension and cancellation retain the last durable checkpoint`()</ID>
@@ -4208,6 +4184,7 @@
     <ID>TooGenericExceptionCaught:DefaultApprovalGateCoordinator.kt$DefaultApprovalGateCoordinator$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DefaultJdbcPayloadCrypto.kt$DefaultJdbcPayloadCrypto$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DefaultSovereignOpsAuditOutboxOperations.kt$DefaultSovereignOpsAuditOutboxOperations$e: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:DependencyResolutionTasks.kt$AggregateResolvedDependencyBaselineTask$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DetektBaselineModel.kt$DetektBaselineParser$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DeviationParser.kt$DeviationParser$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FailureIsolatingEngineEventObserver.kt$FailureIsolatingEngineEventObserver$error: Exception</ID>
@@ -4537,7 +4514,7 @@
     <ID>UnusedPrivateMember:PersistedDtosTest.kt$PersistedDtosTest$private fun sha256(value: String): Sha256Digest</ID>
     <ID>UnusedPrivateMember:StreamingExecutionCoordinatorTest.kt$StreamingExecutionCoordinatorTest$private fun List&lt;String&gt;.join()</ID>
     <ID>UnusedPrivateProperty:AesGcmFileEncryption.kt$AesGcmFileEncryption$private const val KEY_SIZE_BITS = 256</ID>
-    <ID>UnusedPrivateProperty:ApiCompatibilityMutationTest.kt$ApiCompatibilityMutationTest$val catalogFile = File(tempDir, "config/quality/module-catalog.yml").apply { parentFile.mkdirs() writeText( """ schemaVersion: "3" description: "test" dependencyPolicies: core: { allowedLayers: [core-contracts] } entryDefaults: {} modules: - path: ":bad-stable-preview" layer: core-contracts maturity: preview visibility: public owner: test dependencyPolicy: core releaseInclusion: included publishability: published apiStability: stable description: "Bad combination fixture." """.trimIndent() ) }</ID>
+    <ID>UnusedPrivateProperty:ApiCompatibilityMutationTest.kt$ApiCompatibilityMutationTest$val catalogFile = File(tempDir, "config/quality/module-catalog.yml").apply { parentFile.mkdirs() writeText( """ schemaVersion: "3" description: "test" dependencyPolicies: core: { allowedLayers: [core-contracts] } entryDefaults: {} modules: - path: ":bad-stable-preview" layer: core-contracts maturity: preview visibility: public owner: test dependencyPolicy: core releaseInclusion: included publishability: published apiStability: stable description: "Bad combination fixture." """.trimIndent(), ) }</ID>
     <ID>UnusedPrivateProperty:ApprovalInboxControllerTest.kt$ApprovalInboxControllerTest$@Autowired private lateinit var objectMapper: ObjectMapper</ID>
     <ID>UnusedPrivateProperty:ApprovalRecoveryAuditUnavailableException.kt$ApprovalRecoveryAuditUnavailableException$cause: Throwable?</ID>
     <ID>UnusedPrivateProperty:ApprovalRecoveryUnavailableException.kt$ApprovalRecoveryUnavailableException$cause: Throwable?</ID>
@@ -4646,7 +4623,7 @@
     <ID>UseCheckOrError:JdbcSuspendedInvocationStoreTest.kt$JdbcSuspendedInvocationStoreTest$throw IllegalStateException("Migration script not found")</ID>
     <ID>UseCheckOrError:JdbcSuspendedInvocationStoreTest.kt$JdbcSuspendedInvocationStoreTest.&lt;no name provided&gt;$throw IllegalStateException("decryption-not-possible-with-wrong-metadata")</ID>
     <ID>UseCheckOrError:LeasedSovereignOpsAuditOutboxBackgroundWorkerTest.kt$LeasedSovereignOpsAuditOutboxBackgroundWorkerTest.FakeLeaseStore$throw IllegalStateException("acquireResult not set")</ID>
-    <ID>UseCheckOrError:MeasurementContext.kt$MeasurementContext.Companion$throw IllegalStateException( "Module catalog has ${failedDiagnostics.size} error(s): $summary")</ID>
+    <ID>UseCheckOrError:MeasurementContext.kt$MeasurementContext.Companion$throw IllegalStateException("Module catalog has ${failedDiagnostics.size} error(s): $summary")</ID>
     <ID>UseCheckOrError:ModelRegistryEnforcerTest.kt$ModelRegistryEnforcerTest.&lt;no name provided&gt;$throw IllegalStateException( "token=secret-value url=http://internal-registry.local", )</ID>
     <ID>UseCheckOrError:PolicyEnforcementTest.kt$PolicyEnforcementTest.&lt;no name provided&gt;$throw IllegalStateException("registry-down")</ID>
     <ID>UseCheckOrError:ReleaseManifestVerifier.kt$ReleaseManifestVerifier$throw IllegalStateException( "sovereign-release-manifest-invalid-artifact-entry (index $i): classifier must be String or null, got ${rawClassifier::class.simpleName}" )</ID>

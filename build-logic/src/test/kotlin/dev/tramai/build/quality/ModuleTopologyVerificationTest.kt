@@ -97,7 +97,7 @@ class ModuleTopologyVerificationTest {
         )
     }
 
-    // ── Ordering + decoupling discriminators ────────────────────────────────
+    // ──── //  Ordering + decoupling discriminators ────
 
     @Test
     fun `BOM signal resolves lazily after evaluation - eager apply-time lookup would fail`() {
@@ -131,11 +131,12 @@ class ModuleTopologyVerificationTest {
         val result = runner(dir, "verifyModuleManifest").buildAndFail()
         assertTrue(
             result.output.contains("[MODULE_CATALOG_PUBLISHING_DRIFT]"),
-            "must fail with publishing-drift (empty published set), not an unset-property crash: ${result.output.take(800)}",
+            "must fail with publishing-drift (empty published set), " +
+                "not an unset-property crash: ${result.output.take(800)}",
         )
     }
 
-    // ── Configuration cache discriminators ──────────────────────────────────
+    // ──── //  Configuration cache discriminators ────
 
     @Test
     fun `declared catalog file is the execution authority - kill the old rediscovery`() {
@@ -167,11 +168,17 @@ class ModuleTopologyVerificationTest {
         val args = arrayOf("verifyModuleManifest", "--configuration-cache", "--configuration-cache-problems=fail")
 
         val first = runner(dir, *args).build()
-        assertTrue(first.output.contains("Configuration cache entry stored"), "cold run must store: ${first.output.take(800)}")
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "cold run must store: ${first.output.take(800)}",
+        )
         assertTrue(first.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS)
 
         val second = runner(dir, *args).build()
-        assertTrue(second.output.contains("Reusing configuration cache"), "warm run must reuse: ${second.output.take(800)}")
+        assertTrue(
+            second.output.contains("Reusing configuration cache"),
+            "warm run must reuse: ${second.output.take(800)}",
+        )
         assertTrue(second.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS)
 
         // Mutate ONLY the declared B file (remove the engine entry -> must fail
@@ -182,7 +189,10 @@ class ModuleTopologyVerificationTest {
             third.output.contains("[MODULE_CATALOG_MISSING_ENTRY]"),
             "mutated declared catalog must be observed and fail: ${third.output.take(800)}",
         )
-        assertTrue(third.output.contains("Reusing configuration cache"), "CC entry must still be reused after input mutation")
+        assertTrue(
+            third.output.contains("Reusing configuration cache"),
+            "CC entry must still be reused after input mutation",
+        )
     }
 
     @Test
@@ -191,22 +201,34 @@ class ModuleTopologyVerificationTest {
         val args = arrayOf("verifyModuleManifest", "--configuration-cache", "--configuration-cache-problems=fail")
 
         val first = runner(dir, *args).build()
-        assertTrue(first.output.contains("Configuration cache entry stored"), "cold run must store: ${first.output.take(800)}")
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "cold run must store: ${first.output.take(800)}",
+        )
 
         val second = runner(dir, *args).build()
-        assertTrue(second.output.contains("Reusing configuration cache"), "warm run must reuse: ${second.output.take(800)}")
+        assertTrue(
+            second.output.contains("Reusing configuration cache"),
+            "warm run must reuse: ${second.output.take(800)}",
+        )
         // Verifier has no output artifact (deliberately never up-to-date/skippable):
         // warm run reuses the CC entry but the task still executes.
-        assertTrue(second.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS, "warm run must still execute the verifier")
+        assertTrue(
+            second.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS,
+            "warm run must still execute the verifier",
+        )
 
         // Input mutation (catalog content) -> task re-executes.
         val mutatedCatalog = catalog(defaultEngineEntry).replace("Fixture core module.", "Fixture core module v2.")
         writeFile(dir, "config/quality/module-catalog.yml", mutatedCatalog)
         val third = runner(dir, *args).build()
-        assertTrue(third.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS, "mutated catalog must re-execute")
+        assertTrue(
+            third.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS,
+            "mutated catalog must re-execute",
+        )
     }
 
-    // ── Fixtures & helpers ──────────────────────────────────────────────────
+    // ──── //  Fixtures & helpers ────
 
     private val defaultEngineEntry = """
               - path: ":tramai-engine"
@@ -288,7 +310,8 @@ class ModuleTopologyVerificationTest {
         // discriminator can prove the declared file is parsed directly.
         val catalogOverrideBlock =
             if (catalogFileOverride != null) {
-                "tasks.named<VerifyModuleManifestTask>(\"verifyModuleManifest\") { moduleCatalogFile.set(layout.projectDirectory.file(\"$catalogFileOverride\")) }"
+                "tasks.named<VerifyModuleManifestTask>(\"verifyModuleManifest\") " +
+                    "{ moduleCatalogFile.set(layout.projectDirectory.file(\"$catalogFileOverride\")) }"
             } else {
                 ""
             }

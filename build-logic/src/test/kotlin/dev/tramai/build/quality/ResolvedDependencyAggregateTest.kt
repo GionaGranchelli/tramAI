@@ -23,7 +23,7 @@ class ResolvedDependencyAggregateTest {
     private val counter = AtomicInteger(0)
     private val mapper = ObjectMapper()
 
-    // ── Direct task-registration discriminators ─────────────────────────────
+    // ──── //  Direct task-registration discriminators ────
 
     @Test
     fun `aggregate merges unsorted probe records into a sorted deterministic baseline`() {
@@ -48,7 +48,10 @@ class ResolvedDependencyAggregateTest {
 
         // Deterministic: forced re-run must produce byte-identical output.
         runner(dir, "aggregate", "--rerun-tasks").build()
-        assertEquals(output.readText(), File(dir, "build/reports/maintainability/resolved-dependencies.json").readText())
+        assertEquals(
+            output.readText(),
+            File(dir, "build/reports/maintainability/resolved-dependencies.json").readText(),
+        )
     }
 
     @Test
@@ -88,7 +91,11 @@ class ResolvedDependencyAggregateTest {
         val artifacts =
             parse(File(dir, "build/reports/maintainability/resolved-dependencies.json").readText())
                 .map { it.get("artifact").asText() }
-        assertEquals(listOf("alpha", "zeta", "beta", "gamma"), artifacts, "both projects' records must survive the merge")
+        assertEquals(
+            listOf("alpha", "zeta", "beta", "gamma"),
+            artifacts,
+            "both projects' records must survive the merge",
+        )
     }
 
     @Test
@@ -99,10 +106,16 @@ class ResolvedDependencyAggregateTest {
 
         val args = arrayOf("aggregate", "--configuration-cache", "--configuration-cache-problems=fail")
         val first = runner(dir, *args).build()
-        assertTrue(first.output.contains("Configuration cache entry stored"), "cold run must store: ${first.output.take(800)}")
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "cold run must store: ${first.output.take(800)}",
+        )
 
         val second = runner(dir, *args).build()
-        assertTrue(second.output.contains("Reusing configuration cache"), "warm run must reuse: ${second.output.take(800)}")
+        assertTrue(
+            second.output.contains("Reusing configuration cache"),
+            "warm run must reuse: ${second.output.take(800)}",
+        )
         assertTrue(second.task(":aggregate")?.outcome == TaskOutcome.UP_TO_DATE, "unchanged inputs must be up-to-date")
 
         // Input mutation -> re-executes.
@@ -115,7 +128,7 @@ class ResolvedDependencyAggregateTest {
         assertEquals(listOf("alpha", "beta", "gamma"), artifacts)
     }
 
-    // ── Plugin wiring integration ───────────────────────────────────────────
+    // ──── //  Plugin wiring integration ────
 
     @Test
     fun `plugin wires root aggregate from per-project probes in deterministic order`() {
@@ -131,7 +144,7 @@ class ResolvedDependencyAggregateTest {
         assertTrue(result.task(":generateResolvedDependencyBaseline")?.outcome == TaskOutcome.SUCCESS)
     }
 
-    // ── Fixtures & helpers ──────────────────────────────────────────────────
+    // ──── //  Fixtures & helpers ────
 
     /** Direct-registration fixture: full control over probe file existence/content. */
     private fun aggregateFixture(
