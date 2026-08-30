@@ -1,0 +1,394 @@
+{
+  "schemaVersion" : 1,
+  "entries" : [ {
+    "path" : "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 8
+  }, {
+    "path" : "examples/support-agent/src/main/kotlin/dev/tramai/examples/supportagent/Response.kt",
+    "diagnostic" : "ANNOTATION_WILL_BE_APPLIED_ALSO_TO_PROPERTY_OR_FIELD",
+    "message" : "This annotation is currently applied to the value parameter only, but in the future it will also be applied to property.",
+    "count" : 4
+  }, {
+    "path" : "examples/support-agent/src/main/kotlin/dev/tramai/examples/supportagent/Tools.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 2
+  }, {
+    "path" : "examples/tool-governance/src/test/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceExampleTest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 9
+  }, {
+    "path" : "tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.",
+    "count" : 11
+  }, {
+    "path" : "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderFailures.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.",
+    "count" : 2
+  }, {
+    "path" : "tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.",
+    "count" : 6
+  }, {
+    "path" : "tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.",
+    "count" : 8
+  }, {
+    "path" : "tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.",
+    "count" : 15
+  }, {
+    "path" : "tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.",
+    "count" : 14
+  }, {
+    "path" : "tramai-engine/src/main/kotlin/dev/tramai/engine/ResumeOperationReference.kt",
+    "diagnostic" : "UNNECESSARY_SAFE_CALL",
+    "message" : "Unnecessary safe call on a non-null receiver of type 'X'.",
+    "count" : 6
+  }, {
+    "path" : "tramai-engine/src/main/kotlin/dev/tramai/engine/approval/ApprovalSuspensionCoordinator.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 1
+  }, {
+    "path" : "tramai-engine/src/main/kotlin/dev/tramai/engine/invocation/ProviderResponseDlpSanitizer.kt",
+    "diagnostic" : "UNNECESSARY_SAFE_CALL",
+    "message" : "Unnecessary safe call on a non-null receiver of type 'X'.",
+    "count" : 1
+  }, {
+    "path" : "tramai-engine/src/main/kotlin/dev/tramai/engine/tool/ToolResultSanitizer.kt",
+    "diagnostic" : "UNNECESSARY_SAFE_CALL",
+    "message" : "Unnecessary safe call on a non-null receiver of type 'X'.",
+    "count" : 2
+  }, {
+    "path" : "tramai-engine/src/test/kotlin/dev/tramai/engine/ApprovalResumeEngineTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 6
+  }, {
+    "path" : "tramai-engine/src/test/kotlin/dev/tramai/engine/EngineComponentsTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.",
+    "count" : 4
+  }, {
+    "path" : "tramai-engine/src/test/kotlin/dev/tramai/engine/PolicyEnforcementTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 1
+  }, {
+    "path" : "tramai-engine/src/test/kotlin/dev/tramai/engine/approval/ContinuationClaimServiceTest.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 19
+  }, {
+    "path" : "tramai-openai/src/test/kotlin/dev/tramai/openai/OpenAiStreamingTest.kt",
+    "diagnostic" : "UNCHECKED_CAST",
+    "message" : "Unchecked cast of 'X' to 'X'.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/JdbcWorkflowLeaseStore.kt",
+    "diagnostic" : "USELESS_CAST",
+    "message" : "No cast needed.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt",
+    "diagnostic" : "UNNECESSARY_LATEINIT",
+    "message" : "'X' is unnecessary: definitely initialized in constructors.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/FailureIsolatingTramaiWorkerObserverTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.",
+    "count" : 15
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/FailureIsolatingWorkflowObserverTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.",
+    "count" : 13
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/PersistenceSafeFailureBoundaryTest.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/PersistenceSafeFailureBoundaryTest.kt",
+    "diagnostic" : "USELESS_CAST",
+    "message" : "No cast needed.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowCancellationContractTest.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 2
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowCancellationContractTest.kt",
+    "diagnostic" : "USELESS_CAST",
+    "message" : "No cast needed.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowRecoveryContractTest.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 2
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowRunnerPreservationTest.kt",
+    "diagnostic" : "PARAMETER_NAME_CHANGED_ON_OVERRIDE",
+    "message" : "The corresponding parameter in the supertype 'X' is named 'X'. This may cause problems when calling this function with named arguments.",
+    "count" : 1
+  }, {
+    "path" : "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowStepFailureBoundaryTest.kt",
+    "diagnostic" : "OPT_IN_USAGE",
+    "message" : "This declaration needs opt-in. Its usage should be marked with 'X' or 'X'",
+    "count" : 2
+  }, {
+    "path" : "tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/EncryptedFileEnvelopeV1.kt",
+    "diagnostic" : "ANNOTATION_WILL_BE_APPLIED_ALSO_TO_PROPERTY_OR_FIELD",
+    "message" : "This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.",
+    "count" : 6
+  }, {
+    "path" : "tramai-persistence-file/src/main/kotlin/dev/tramai/persistence/file/PersistedDtos.kt",
+    "diagnostic" : "ANNOTATION_WILL_BE_APPLIED_ALSO_TO_PROPERTY_OR_FIELD",
+    "message" : "This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.",
+    "count" : 108
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalContinuationStoreTckTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 3
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalContinuationStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalStoreTckTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 3
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStoreTckTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 3
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStoreTest.kt",
+    "diagnostic" : "REDUNDANT_CALL_OF_CONVERSION_METHOD",
+    "message" : "Redundant call of conversion method.",
+    "count" : 1
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStoreTckTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 3
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/SovereignJdbcPersistenceSchemaTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/CronSchedule.kt",
+    "diagnostic" : "REDUNDANT_ELSE_IN_WHEN",
+    "message" : "'X' is exhaustive so 'X' is redundant here.",
+    "count" : 1
+  }, {
+    "path" : "tramai-security/src/test/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinatorTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 1
+  }, {
+    "path" : "tramai-security/src/test/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinatorTest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 5
+  }, {
+    "path" : "tramai-security/src/test/kotlin/dev/tramai/security/audit/AuditEngineTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Use AuditEmission overload.",
+    "count" : 17
+  }, {
+    "path" : "tramai-security/src/test/kotlin/dev/tramai/security/audit/InMemoryAuditStoreReadStreamPageTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Use AuditEmission overload.",
+    "count" : 3
+  }, {
+    "path" : "tramai-security/src/test/kotlin/dev/tramai/security/model/InMemoryModelRegistryTest.kt",
+    "diagnostic" : "UNCHECKED_CAST",
+    "message" : "Unchecked cast of 'X' to 'X'.",
+    "count" : 1
+  }, {
+    "path" : "tramai-server/src/main/kotlin/dev/tramai/server/ScheduleController.kt",
+    "diagnostic" : "ANNOTATION_WILL_BE_APPLIED_ALSO_TO_PROPERTY_OR_FIELD",
+    "message" : "This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.",
+    "count" : 1
+  }, {
+    "path" : "tramai-sovereign/src/test/kotlin/dev/tramai/sovereign/evidence/SovereignEvidencePackIntegrationTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Use GenerationParams overload.",
+    "count" : 1
+  }, {
+    "path" : "tramai-sovereign/src/test/kotlin/dev/tramai/sovereign/evidence/SovereignEvidencePackIntegrationTest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 24
+  }, {
+    "path" : "tramai-sovereign/src/test/kotlin/dev/tramai/sovereign/evidence/SovereignEvidencePackWriterTest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 15
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-ops-actuator/src/test/kotlin/dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsObserverTest.kt",
+    "diagnostic" : "RECEIVER_NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS",
+    "message" : "Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'X'.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperationsTest.kt",
+    "diagnostic" : "NON_FINAL_MEMBER_IN_FINAL_CLASS",
+    "message" : "'X' has no effect on a final class.",
+    "count" : 5
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperationsTest.kt",
+    "diagnostic" : "UNNECESSARY_NOT_NULL_ASSERTION",
+    "message" : "Unnecessary non-null assertion (!!) on a non-null receiver of type 'X'.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxTest.kt",
+    "diagnostic" : "NON_FINAL_MEMBER_IN_FINAL_CLASS",
+    "message" : "'X' has no effect on a final class.",
+    "count" : 4
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-file/src/main/kotlin/dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore.kt",
+    "diagnostic" : "ANNOTATION_WILL_BE_APPLIED_ALSO_TO_PROPERTY_OR_FIELD",
+    "message" : "This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.",
+    "count" : 21
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/ApprovedContinuationResumeWorkerIntegrationTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/ApprovedResumeLifecycleJdbcE2ETest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovalResumeCredentialStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovedContinuationResumeQueueStatusStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovedContinuationResumeQueueTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt",
+    "diagnostic" : "NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS",
+    "message" : "Java type mismatch: inferred type is 'X', but 'X' was expected.",
+    "count" : 1
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. It is recommended that MismatchedInputException be referenced when possible, as the change is discussed for N.N and later. See #N for details.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalRequestMutationStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStoreTckTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 3
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsWorkerLeaseStoreTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/inbox/JdbcApprovalInboxQueryServiceTest.kt",
+    "diagnostic" : "DEPRECATION",
+    "message" : "'X' is deprecated. Deprecated in Java.",
+    "count" : 2
+  }, {
+    "path" : "tramai-spring-core/src/test/kotlin/dev/tramai/spring/AiToolScannerTest.kt",
+    "diagnostic" : "UNCHECKED_CAST",
+    "message" : "Unchecked cast of 'X' to 'X'.",
+    "count" : 7
+  }, {
+    "path" : "tramai-structured/src/main/kotlin/dev/tramai/structured/descriptor/JacksonJavaBeanStructuredTypeCompiler.kt",
+    "diagnostic" : "PLATFORM_CLASS_MAPPED_TO_KOTLIN",
+    "message" : "This class is not recommended for use in Kotlin. Use 'X' instead.",
+    "count" : 15
+  }, {
+    "path" : "tramai-structured/src/main/kotlin/dev/tramai/structured/descriptor/StructuredTypeCompiler.kt",
+    "diagnostic" : "USELESS_CAST",
+    "message" : "No cast needed.",
+    "count" : 1
+  }, {
+    "path" : "tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/persistence/approval/ApprovalStoreTck.kt",
+    "diagnostic" : "UNCHECKED_CAST",
+    "message" : "Unchecked cast of 'X' to 'X'.",
+    "count" : 4
+  }, {
+    "path" : "tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/provider/ProviderTck.kt",
+    "diagnostic" : "UNNECESSARY_SAFE_CALL",
+    "message" : "Unnecessary safe call on a non-null receiver of type 'X'.",
+    "count" : 2
+  } ]
+}
