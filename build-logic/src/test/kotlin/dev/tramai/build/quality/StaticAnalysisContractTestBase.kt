@@ -169,6 +169,25 @@ abstract class StaticAnalysisContractTestBase {
         return "base"
     }
 
+    /**
+     * Branch pointing at a synthetic commit that is identical to the current
+     * worktree HEAD except the Detekt baseline file is ABSENT. Used to exercise
+     * the one-time bootstrap path hermetically (post-10.1b, live origin/master
+     * always carries the baseline, so remote state can no longer provide the
+     * no-baseline precondition).
+     */
+    protected fun baselineBranch(name: String): String {
+        git(worktree, "reset", "--hard", baseHead)
+        val baseline = File(worktree, "config/detekt/baseline.xml")
+        check(baseline.isFile) { "worktree must carry the committed Detekt baseline" }
+        check(baseline.delete()) { "failed to delete baseline for synthetic base" }
+        commit("synthetic base without Detekt baseline")
+        val ref = git(worktree, "rev-parse", "HEAD").trim()
+        git(worktree, "branch", "-f", name, ref)
+        git(worktree, "reset", "--hard", baseHead)
+        return name
+    }
+
     /** Runs the canonical gate against the given exact base ref. */
     protected fun staticAnalysis(
         baseRef: String,

@@ -42,9 +42,13 @@ class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
 
     @Test
     fun `p0-g bootstrap is one-time`() {
-        // (a) initial adoption: base (origin/master) has NO Detekt baseline, current
-        // has one, change class is build-logic, no runtime changes -> allowed.
-        val runAdoption = staticAnalysis("origin/master", changeClass = "build-logic")
+        // Hermetic base WITHOUT the committed baseline: after 10.1b merged, live
+        // origin/master always carries the baseline, so the bootstrap scenario
+        // must be synthesized on a local ref instead of depending on remote state.
+        val noBaseline = baselineBranch("nobaseline")
+        // (a) initial adoption: base has NO Detekt baseline, current has one,
+        // change class is build-logic, no runtime changes -> allowed.
+        val runAdoption = staticAnalysis(noBaseline, changeClass = "build-logic")
         assertPasses(runAdoption, "initial adoption bootstrap")
         assertTrue(
             runAdoption.output.contains("Initial Detekt baseline adoption"),
@@ -52,7 +56,7 @@ class StaticAnalysisScopeTest : StaticAnalysisContractTestBase() {
         )
 
         // (b) the same absence but with a runtime change class -> refused.
-        val runAbuse = staticAnalysis("origin/master", changeClass = "runtime-behaviour")
+        val runAbuse = staticAnalysis(noBaseline, changeClass = "runtime-behaviour")
         assertFails(runAbuse, "bootstrap under runtime change class")
         assertTrue(
             runAbuse.output.contains("DETEKT_BASELINE_BOOTSTRAP_ABUSE"),
