@@ -1495,7 +1495,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 | Slice | Scope | Status |
 |---|---|---|
 | 10.1a | Incremental Kotlin formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base) | ✅ merged (`731126bf`, PR #339) |
-| 10.1b | Static analysis (Detekt or equivalent): baseline, prohibit growth, central suppression rationale | 🚧 PR in progress |
+| 10.1b | Static analysis (Detekt or equivalent): baseline, prohibit growth, central suppression rationale | ✅ merged (`3aa4ef72`, PR #342) |
 | 10.1c | Compiler + dependency hygiene: warning review / `-Werror` where feasible, unused-dependency enforcement | ⏳ |
 | 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | ⏳ |
 

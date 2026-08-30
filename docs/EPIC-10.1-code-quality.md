@@ -8,7 +8,7 @@ Slices are implemented in separate PRs; a slice is only "done" when its merge ga
 | Slice | Scope | Status |
 |---|---|---|
 | **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | ✅ merged (`731126bf`, PR #339) |
-| **10.1b — static analysis** | Detekt 1.23.8 (pinned), one central config + one central baseline, baseline-backed growth protection, fail-closed. | 🚧 PR in progress |
+| **10.1b — static analysis** | Detekt 1.23.8 (pinned), one central config + one central baseline, baseline-backed growth protection, fail-closed. | ✅ merged (`3aa4ef72`, PR #342) |
 | **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ⏳ planned |
 | **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; cancellation broad catches (consume the existing cancellation verifier — do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | ⏳ planned |
 
@@ -39,7 +39,7 @@ The gate is incremental by construction: files unchanged since the formatting ba
 
 Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, compiler-warning policy changes, global `-Werror`, forbidden-API scanners, cancellation reimplementation, nondeterminism-enforcement changes, mass legacy formatting, `.gradle.kts` formatting, production runtime behavior changes, public API changes, module-architecture changes, `tramai.quality`.
 
-## 10.1b — Baseline-backed Kotlin static analysis (in progress)
+## 10.1b — Baseline-backed Kotlin static analysis (merged `3aa4ef72`, PR #342)
 
 **Invariant:** existing static-analysis debt may remain temporarily, but it may only shrink. New static-analysis findings must not cross the PR gate unnoticed or be hidden by casually expanding the baseline.
 
