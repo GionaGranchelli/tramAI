@@ -8,7 +8,7 @@ Slices are implemented in separate PRs; a slice is only "done" when its merge ga
 | Slice | Scope | Status |
 |---|---|---|
 | **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | ✅ merged (`731126bf`, PR #339) |
-| **10.1b — static analysis** | Detekt or equivalent semantic/static analysis: baseline existing violations, prohibit growth, central suppression rationale. | ⏳ planned |
+| **10.1b — static analysis** | Detekt 1.23.8 (pinned), one central config + one central baseline, baseline-backed growth protection, fail-closed. | 🚧 PR in progress |
 | **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ⏳ planned |
 | **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; cancellation broad catches (consume the existing cancellation verifier — do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | ⏳ planned |
 
@@ -37,4 +37,25 @@ The gate is incremental by construction: files unchanged since the formatting ba
 
 ## Out of scope until their own slices
 
-Detekt, Sonar rewrite, unused-dependency detection, compiler-warning policy changes, global `-Werror`, forbidden-API scanners, cancellation reimplementation, nondeterminism-enforcement changes, mass legacy formatting, `.gradle.kts` formatting, production runtime behavior changes, public API changes, module-architecture changes, `tramai.quality`.
+Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, compiler-warning policy changes, global `-Werror`, forbidden-API scanners, cancellation reimplementation, nondeterminism-enforcement changes, mass legacy formatting, `.gradle.kts` formatting, production runtime behavior changes, public API changes, module-architecture changes, `tramai.quality`.
+
+## 10.1b — Baseline-backed Kotlin static analysis (in progress)
+
+**Invariant:** existing static-analysis debt may remain temporarily, but it may only shrink. New static-analysis findings must not cross the PR gate unnoticed or be hidden by casually expanding the baseline.
+
+**Baseline philosophy:** the Detekt baseline freezes pre-existing debt. It is a **ceiling, not an allowance budget**. A green gate means zero NEW findings, not zero findings.
+
+### Design decisions
+
+- **Tool:** Detekt 1.23.8 (pinned in `StaticAnalysisPlugin`), executed as a root-scoped CLI task (`verifyStaticAnalysis`) over the whole repository. No per-module Detekt plugins/configs/baselines. T0 proved 1.23.8 parses the repository's Kotlin 2.3 source identically under JDK 21 and JDK 25 (1884/1884 representative findings, symmetric difference 0).
+- **One authority:** `config/detekt/detekt.yml` (standard/default rules only; no `allRules`, no `detekt-formatting`, no KtLint wrappers), `config/detekt/baseline.xml` (one central baseline, 4782 frozen findings), one report location `build/reports/static-analysis/` (detekt.xml + detekt.sarif + detekt.html + summary.txt).
+- **Model note:** the CLI runs without a compile classpath (pure source analysis). Rules that require type resolution are not analyzed in this slice and are deliberately excluded from the contract.
+- **Growth contract (`DetektBaselineGrowthVerifier`):** removals allowed; additions fail with `DETEKT_BASELINE_GROWTH` unless the PR is an explicit `baseline-migration`; deletion, emptying, malformed, and duplicate-ID baselines fail; bootstrap (base absent) is one-time only — keyed on the base file's absence, so delete-and-recreate can never reactivate it.
+- **Change policy:** `config/detekt/baseline.xml` is a recognized canonical baseline alongside `config/quality/0.6.0-baseline.json`; a baseline-migration PR must change at least one of them and may not touch runtime production.
+- **Wiring:** `verifyStaticAnalysis` joins the root `check` lifecycle and `verifyPr`; CI runs it explicitly against the exact base (`pull_request.base.sha` / `event.before`). Fail-closed: tool failure is not zero findings.
+- **Suppression policy:** zero source-level `@Suppress` introduced; exceptions belong in the central config with rationale.
+- **Scope:** `**/src/**/*.kt` repository-wide (main, test, custom source sets, build-logic, examples), excluding `**/build/**` and `**/.gradle/**`. The `src` path segment keeps the `dev.tramai.build` package fully covered.
+
+### Enforcement proof
+
+- P0-A..P0-O permanent contract suite (`StaticAnalysis*Test`, 25 tests) + configuration-cache cold→warm + `ChangePolicyEvaluator` canonical-baseline tests. Mutation campaign M01..M10 against the discriminators.

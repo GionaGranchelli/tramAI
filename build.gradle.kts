@@ -12,6 +12,7 @@ plugins {
     id("tramai.sovereign-verification")
     id("tramai.sovereign-lab-verification")
     id("tramai.docs-guards")
+    id("tramai.static-analysis")
     alias(libs.plugins.spotless)
 }
 
@@ -58,6 +59,24 @@ spotless {
 
 tasks.named("verifyPr") {
     dependsOn("spotlessCheck")
+}
+
+// ── Epic 10.1b: baseline-backed Kotlin static analysis ──
+// One repository-level Detekt authority (tramai.static-analysis plugin): one
+// pinned Detekt version, one central config (config/detekt/detekt.yml), one
+// central baseline (config/detekt/baseline.xml), one aggregate task
+// (verifyStaticAnalysis), one report location
+// (build/reports/static-analysis/). The gate is ratcheted against the exact
+// PR/push base:
+//   -PtramaiStaticAnalysisBaseRef=<sha>  exact base (CI PR: pull_request.base.sha,
+//                                        CI push: github.event.before)
+//   property absent                  origin/master (local default)
+// verifyStaticAnalysis joins the root `check` lifecycle and verifyPr below.
+tasks.named("check") {
+    dependsOn("verifyStaticAnalysis")
+}
+tasks.named("verifyPr") {
+    dependsOn("verifyStaticAnalysis")
 }
 
 // The root project carries the Spotless formatting gate (Epic 10.1a); it needs
