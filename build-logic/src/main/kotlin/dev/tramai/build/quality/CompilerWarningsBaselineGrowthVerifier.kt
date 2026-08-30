@@ -139,7 +139,11 @@ object CompilerWarningsBaselineGrowthVerifier {
 
     private fun identity(entry: WarningEntry) = Triple(entry.path, entry.diagnostic, entry.message)
 
-    private fun pass(message: String) = CompilerWarningsGrowthVerdict(true, null, emptyList(), emptyList(), emptyList(), 0, 0, message)
+    // spotless re-joins single-expression functions; the resulting line exceeds
+    // 120 cols, so detekt is told to look the other way.
+    @Suppress("MaxLineLength")
+    private fun pass(message: String): CompilerWarningsGrowthVerdict =
+        CompilerWarningsGrowthVerdict(true, null, emptyList(), emptyList(), emptyList(), 0, 0, message)
 
     private fun fail(
         code: String,

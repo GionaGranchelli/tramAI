@@ -150,18 +150,27 @@ class DependencyHygienePlugin : Plugin<Project> {
             .walkTopDown()
             .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
             .forEach { file ->
-                IMPORT_REGEX.findAll(file.readText()).forEach { m ->
-                    val parts = m.groupValues[1].split(".")
-                    if (parts.size >= IMPORT_SEGMENTS) {
-                        prefixes.add(parts.take(IMPORT_SEGMENTS).joinToString("."))
-                    }
-                }
+                file.readLines().forEach { line -> importPrefixOf(line)?.let { prefixes += it } }
             }
         return prefixes
     }
-
-    private companion object {
-        val IMPORT_REGEX = Regex("^\\s*import\\s+([\\w.]+)", setOf(RegexOption.MULTILINE))
-        const val IMPORT_SEGMENTS = 2
-    }
 }
+
+/**
+ * Extracts the 2-segment package prefix from a Kotlin/Java import line, or null
+ * when the line is not an import. Handles the three forms that matter for
+ * dependency evidence (10.1c review thread): plain (`import foo.bar.Baz`),
+ * wildcard (`import foo.bar.*`), and Java static (`import static foo.Bar.baz`).
+ */
+internal fun importPrefixOf(line: String): String? {
+    val m = IMPORT_REGEX.matchEntire(line.trim()) ?: return null
+    val parts =
+        m.groupValues[1]
+            .trimEnd('*')
+            .trimEnd('.')
+            .split(".")
+    return if (parts.size >= 2) parts.take(2).joinToString(".") else null
+}
+
+private val IMPORT_REGEX =
+    Regex("^import(?:\\s+static)?\\s+([\\w.*]+)")

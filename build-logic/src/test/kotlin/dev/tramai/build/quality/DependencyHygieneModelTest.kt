@@ -2,6 +2,7 @@ package dev.tramai.build.quality
 
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -216,6 +217,37 @@ class DependencyHygieneModelTest {
         org.junit.jupiter.api.assertThrows<IllegalStateException> {
             DependencyExemptionsParser.parse(yaml)
         }
+    }
+
+    @Test
+    fun `import prefix handles plain wildcard and static imports`() {
+        assertEquals("com.example", importPrefixOf("import com.example.api.Service"))
+        assertEquals("com.example", importPrefixOf("import com.example.api.*"))
+        assertEquals("com.example", importPrefixOf("import com.example.api"))
+        assertEquals("org.postgresql", importPrefixOf("import static org.postgresql.Driver.getVersion"))
+        assertEquals("com.example", importPrefixOf("  import com.example.api.Service  "))
+    }
+
+    @Test
+    fun `import prefix ignores non-import lines`() {
+        assertNull(importPrefixOf("package com.example"))
+        assertNull(importPrefixOf("val x = 1"))
+        assertNull(importPrefixOf(""))
+        assertNull(importPrefixOf("import a"))
+    }
+
+    @Test
+    fun `wildcard import counts as usage of the dependency`() {
+        // 10.1c review thread: `import foo.bar.*` and Java static imports must
+        // count as static usage — otherwise the dependency is falsely flagged.
+        val unitWildcard =
+            unit.copy(
+                importsBySourceSet = mapOf("main" to setOf("com.example")),
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitWildcard, packages, emptyList())
+        // used-lib (com.example) is used via the wildcard prefix; kotlinx is not.
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("kotlinx-coroutines-core"))
     }
 
     @Test

@@ -393,6 +393,9 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         )
     }
 
+    // spotless re-joins single-expression functions; the resulting line exceeds
+    // 120 cols, so detekt is told to look the other way.
+    @Suppress("MaxLineLength")
     private fun baselineChanged(diff: String): Boolean = diff.lineSequence().any { it.contains("config/warnings/baseline.json") }
 
     private fun deltaModules(diff: String): Set<String> =
