@@ -13,6 +13,21 @@ class BaselineVerifier(
     private val generator: BaselineGenerator,
     private val ctx: MeasurementContext,
     private val reportDir: File,
+    /**
+     * Declared committed-baseline input (Epic 9.2d-a3c2). Null keeps the
+     * legacy conventional-path lookup for the fromProject caller.
+     */
+    private val committedBaselineFile: File? = null,
+    /**
+     * Declared resolved-dependency baseline input (Epic 9.2d-a3c2). Null keeps
+     * the legacy generator lookup (gradleProject build dir).
+     */
+    private val resolvedDependenciesFile: File? = null,
+    /**
+     * Declared apiCheck module set (Epic 9.2d-a3c2). Null keeps the legacy
+     * allprojects walk for the fromProject caller.
+     */
+    private val apiValidationModules: Set<String>? = null,
 ) {
     private val deviationParser = DeviationParser(ctx.rootDir)
     private val budgetEvaluator = DeviationBudgetEvaluator(deviationParser)
@@ -26,8 +41,8 @@ class BaselineVerifier(
 
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         try {
-            // 1. Load committed baseline
-            val committedFile = File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
+            // 1. Load committed baseline (declared input = execution authority; a3c2)
+            val committedFile = committedBaselineFile ?: File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
             if (!committedFile.isFile) {
                 diagnostics.add(
                     VerificationDiagnostic.failure(
@@ -67,18 +82,10 @@ class BaselineVerifier(
             verifyBaselineIdentity(committed, diagnostics)
 
             // 6. Generate current measurements (needed before catalogue validation)
-            val currentGradle = ctx.gradleProject
-            if (currentGradle == null) {
-                diagnostics.add(
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.EMPTY_SECTION,
-                        "Current baseline generation requires Gradle project mode",
-                    ),
-                )
-                return diagnosticsToReport(diagnostics)
-            }
-
-            val currentCtx = MeasurementContext.fromProject(currentGradle)
+            // a3c2: the typed path runs in directory mode (gradleProject == null)
+            // with the resolved-dependencies file declared as an input; the
+            // fromProject caller (verify060Architecture) keeps the legacy lookup.
+            val currentCtx = ctx.gradleProject?.let { MeasurementContext.fromProject(it) } ?: ctx
             val tempGenerator =
                 BaselineGenerator(
                     ctx = currentCtx,
@@ -88,7 +95,19 @@ class BaselineVerifier(
 
             val currentDependencies =
                 try {
-                    tempGenerator.generateResolvedDependencyGraph()
+                    if (resolvedDependenciesFile != null) {
+                        // Declared input = execution authority: the aggregate task's
+                        // typed output is the same file the legacy path read from the
+                        // project build dir.
+                        val records =
+                            ReportNormalizer.readJson(resolvedDependenciesFile, Array<ResolvedDependency>::class.java).toList()
+                        BaselineGenerator.sortResolvedDependencies(records)
+                    } else {
+                        if (ctx.gradleProject == null) {
+                            throw GradleException("Resolved dependency baseline input is required in directory mode")
+                        }
+                        tempGenerator.generateResolvedDependencyGraph()
+                    }
                 } catch (e: Exception) {
                     diagnostics.add(
                         VerificationDiagnostic.failure(
@@ -119,16 +138,19 @@ class BaselineVerifier(
             verifyMandatorySections(current, diagnostics)
 
             // 9. Verify API and resolved dependency baselines with typed diagnostics
-            val apiValidationModules =
-                currentGradle.allprojects
-                    .filter { it.tasks.findByName("apiCheck") != null }
-                    .map { it.path }
-                    .toSet()
+            val apiModules =
+                apiValidationModules
+                    ?: ctx.gradleProject
+                        ?.allprojects
+                        ?.filter { it.tasks.findByName("apiCheck") != null }
+                        ?.map { it.path }
+                        ?.toSet()
+                        .orEmpty()
             diagnostics.addAll(
                 ApiBaselineVerifier(
                     repositoryRoot = ctx.rootDir,
                     catalogModules = catalogResult.modules,
-                    apiValidationModules = apiValidationModules,
+                    apiValidationModules = apiModules,
                 ).verify(committed.api, current.api),
             )
             val dependencyDiagnostics =
