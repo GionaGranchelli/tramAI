@@ -12,7 +12,6 @@ import kotlin.test.assertTrue
  * semantics, except explicitly documented non-static usages.
  */
 class DependencyHygieneModelTest {
-
     private val unit =
         DependencyUnitSpec(
             modulePath = ":tramai-spring-provider",
@@ -116,6 +115,41 @@ class DependencyHygieneModelTest {
     }
 
     @Test
+    fun `runtimeOnly dependency with jar evidence but no static usage fails`() {
+        // D4 (10.1c BLOCKER 3): a runtimeOnly coordinate whose jar IS on the
+        // runtime classpath evidence but has no main import is a violation —
+        // unless exempted (JDBC/ServiceLoader cases live in the catalog).
+        val unitWithRuntime =
+            unit.copy(
+                declared = mapOf("runtimeOnly" to listOf("com.example:driver-lib")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+            )
+        val packagesWithDriver = packages + ("com.example:driver-lib" to setOf("com.example.driver"))
+        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, packagesWithDriver, emptyList())
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("driver-lib"))
+    }
+
+    @Test
+    fun `runtimeOnly exemption passes with rationale`() {
+        val unitWithRuntime =
+            unit.copy(
+                declared = mapOf("runtimeOnly" to listOf("com.example:driver-lib")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+            )
+        val packagesWithDriver = packages + ("com.example:driver-lib" to setOf("com.example.driver"))
+        val exemption =
+            Exemption(
+                ":tramai-spring-provider",
+                "runtimeOnly",
+                "com.example:driver-lib",
+                "JDBC driver loaded by class name",
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, packagesWithDriver, listOf(exemption))
+        assertTrue(result.violations.isEmpty())
+    }
+
+    @Test
     fun `exemptions yaml parses`() {
         val yaml =
             """
@@ -137,5 +171,71 @@ class DependencyHygieneModelTest {
         org.junit.jupiter.api.assertThrows<IllegalStateException> {
             DependencyExemptionsParser.parse(bad)
         }
+    }
+
+    @Test
+    fun `absent exemptions file yields no exemptions`() {
+        assertTrue(DependencyExemptionsParser.parse(null).isEmpty())
+    }
+
+    @Test
+    fun `blank exemptions file fails closed`() {
+        org.junit.jupiter.api.assertThrows<IllegalStateException> {
+            DependencyExemptionsParser.parse("   \n  ")
+        }
+    }
+
+    @Test
+    fun `entry missing reason fails closed`() {
+        val yaml =
+            """
+            exemptions:
+              - module: ":tramai-server"
+                configuration: "runtimeOnly"
+                dependency: "org.postgresql:postgresql"
+            """.trimIndent()
+        org.junit.jupiter.api.assertThrows<IllegalStateException> {
+            DependencyExemptionsParser.parse(yaml)
+        }
+    }
+
+    @Test
+    fun `duplicate exemption identity fails closed`() {
+        val yaml =
+            """
+            exemptions:
+              - module: ":tramai-server"
+                configuration: "runtimeOnly"
+                dependency: "org.postgresql:postgresql"
+                reason: "JDBC driver"
+              - module: ":tramai-server"
+                configuration: "runtimeOnly"
+                dependency: "org.postgresql:postgresql"
+                reason: "duplicate"
+            """.trimIndent()
+        org.junit.jupiter.api.assertThrows<IllegalStateException> {
+            DependencyExemptionsParser.parse(yaml)
+        }
+    }
+
+    @Test
+    fun `exemption cannot leak across modules`() {
+        // D8: a module-scoped exemption must not silence another module's violation.
+        val unitB =
+            unit.copy(
+                modulePath = ":tramai-other-module",
+                declared = mapOf("implementation" to listOf("org.jetbrains.kotlinx:kotlinx-coroutines-core")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+            )
+        val exemption =
+            Exemption(
+                ":tramai-spring-provider",
+                "implementation",
+                "org.jetbrains.kotlinx:kotlinx-coroutines-core",
+                "runtime provider",
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitB, packages, listOf(exemption))
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("kotlinx-coroutines-core"))
     }
 }

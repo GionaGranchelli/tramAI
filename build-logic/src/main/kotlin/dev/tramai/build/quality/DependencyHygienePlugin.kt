@@ -3,6 +3,7 @@ package dev.tramai.build.quality
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ModuleDependency
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.tasks.SourceSetContainer
@@ -19,9 +20,11 @@ import java.io.File
  * runs before subprojects are configured).
  */
 class DependencyHygienePlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
-        val configDir = project.layout.projectDirectory.dir("config").dir("dependency-hygiene")
+        val configDir =
+            project.layout.projectDirectory
+                .dir("config")
+                .dir("dependency-hygiene")
         // NOTE: named moduleUnits — inside the task-registration lambda the task's own
         // `units` property shadows this variable; self-assignment silently empties it.
         val moduleUnits = project.objects.listProperty(DependencyUnitSpec::class.java)
@@ -34,7 +37,7 @@ class DependencyHygienePlugin : Plugin<Project> {
             group = "verification"
             description =
                 "Repository-wide unused-dependency gate: declared direct dependencies vs source usage, " +
-                    "with a module+configuration+coordinate exemption catalog for non-static usages."
+                "with a module+configuration+coordinate exemption catalog for non-static usages."
             units.set(moduleUnits)
             exemptionFiles.from(configDir.file("exemptions.yml"))
             repositoryRoot.set(project.rootDir.absolutePath)
@@ -44,13 +47,18 @@ class DependencyHygienePlugin : Plugin<Project> {
         project.gradle.projectsEvaluated {
             val collected = mutableListOf<DependencyUnitSpec>()
             for (p in project.subprojects.filter { it.name != "tramai-dashboard" }) {
-                val spec = collectUnit(p, project.rootDir)
+                val spec = collectUnit(p)
                 if (spec != null) collected += spec
                 val sourceSets = p.extensions.findByType(SourceSetContainer::class.java)
                 if (sourceSets != null) {
                     listOf("main", "test", "testFixtures").forEach { ss ->
                         val ssObj = sourceSets.findByName(ss)
-                        if (ssObj != null) classpathSources.add(ssObj.compileClasspath)
+                        if (ssObj != null) {
+                            // Compile + runtime evidence: runtimeOnly coordinates must be
+                            // analyzable too (10.1c review BLOCKER 3).
+                            classpathSources.add(ssObj.compileClasspath)
+                            classpathSources.add(ssObj.runtimeClasspath)
+                        }
                     }
                 }
                 listOf("compileKotlin", "compileTestKotlin", "compileTestFixturesKotlin").forEach { name ->
@@ -58,62 +66,102 @@ class DependencyHygienePlugin : Plugin<Project> {
                 }
             }
             moduleUnits.set(collected)
-            val unionClasspath = project.files(*classpathSources.toTypedArray())
+            val unionClasspath = project.files(classpathSources)
             project.tasks.named("verifyDependencyHygiene") {
                 dependsOn(tasks)
-                (this as VerifyDependencyHygieneTask).compileClasspath.from(unionClasspath)
+                (this as VerifyDependencyHygieneTask).classpathEvidence.from(unionClasspath)
             }
             project.logger.lifecycle("dependency-hygiene: collected ${collected.size} module units")
         }
     }
 
-    private fun collectUnit(p: Project, rootDir: File): DependencyUnitSpec? {
+    private fun collectUnit(p: Project): DependencyUnitSpec? {
         val sourceSets = p.extensions.findByType(SourceSetContainer::class.java) ?: return null
-        val declared = mutableMapOf<String, MutableList<String>>()
+        val declared = collectDeclared(p)
+        val importsBySourceSet = collectImports(p)
+        return declared.takeIf { it.isNotEmpty() }?.let { decl ->
+            DependencyUnitSpec(
+                modulePath = p.path,
+                declared = decl,
+                importsBySourceSet = importsBySourceSet,
+            )
+        }
+    }
+
+    private fun collectDeclared(p: Project): Map<String, List<String>> {
+        val declared = mutableMapOf<String, List<String>>()
         val configurations =
             listOf(
-                "api", "implementation", "compileOnly", "runtimeOnly",
-                "testImplementation", "testCompileOnly", "testRuntimeOnly",
-                "testFixturesApi", "testFixturesImplementation",
+                "api",
+                "implementation",
+                "compileOnly",
+                "runtimeOnly",
+                "testImplementation",
+                "testCompileOnly",
+                "testRuntimeOnly",
+                "testFixturesApi",
+                "testFixturesImplementation",
             )
-        for (name in configurations) {
-            val configuration = p.configurations.findByName(name) ?: continue
-            val coordinates = mutableListOf<String>()
-            for (dep in configuration.dependencies) {
-                if (dep is ProjectDependency) continue
-                if (dep is ModuleDependency && !dep.group.isNullOrBlank() && !dep.name.isNullOrBlank()) {
-                    coordinates += "${dep.group}:${dep.name}"
-                }
-            }
+        configurations.forEach { name ->
+            val configuration = p.configurations.findByName(name) ?: return@forEach
+            val coordinates =
+                configuration.dependencies
+                    .mapNotNull { dep -> coordinateOf(dep) }
+                    .distinct()
+                    .sorted()
             if (coordinates.isNotEmpty()) declared[name] = coordinates
         }
+        return declared
+    }
+
+    private fun coordinateOf(dep: Dependency): String? {
+        if (dep is ProjectDependency) return null
+        return if (dep is ModuleDependency && !dep.group.isNullOrBlank() && !dep.name.isNullOrBlank()) {
+            "${dep.group}:${dep.name}"
+        } else {
+            null
+        }
+    }
+
+    private fun collectImports(p: Project): Map<String, Set<String>> {
         val importsBySourceSet = mutableMapOf<String, Set<String>>()
-        for (ss in listOf("main", "test", "testFixtures")) {
-            val prefixes = mutableSetOf<String>()
-            for (lang in listOf("kotlin", "java")) {
-                val dir = File(p.projectDir, "src/$ss/$lang")
-                if (!dir.isDirectory) continue
-                dir.walkTopDown()
-                    .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
-                    .forEach { file ->
-                        val text = file.readText()
-                        IMPORT_REGEX.findAll(text).forEach { m ->
-                            val parts = m.groupValues[1].split(".")
-                            if (parts.size >= 2) prefixes.add(parts.take(2).joinToString("."))
-                        }
-                    }
-            }
+        listOf("main", "test", "testFixtures").forEach { ss ->
+            val prefixes = importPrefixesIn(p, ss)
             if (prefixes.isNotEmpty()) importsBySourceSet[ss] = prefixes
         }
-        if (declared.isEmpty()) return null
-        return DependencyUnitSpec(
-            modulePath = p.path,
-            declared = declared,
-            importsBySourceSet = importsBySourceSet,
-        )
+        return importsBySourceSet
+    }
+
+    private fun importPrefixesIn(
+        p: Project,
+        ss: String,
+    ): Set<String> {
+        val prefixes = mutableSetOf<String>()
+        listOf("kotlin", "java").forEach { lang ->
+            val dir = File(p.projectDir, "src/$ss/$lang")
+            if (dir.isDirectory) prefixes += importsIn(dir)
+        }
+        return prefixes
+    }
+
+    private fun importsIn(dir: File): Set<String> {
+        val prefixes = mutableSetOf<String>()
+        dir
+            .walkTopDown()
+            .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
+            .forEach { file ->
+                IMPORT_REGEX.findAll(file.readText()).forEach { m ->
+                    val parts = m.groupValues[1].split(".")
+                    if (parts.size >= IMPORT_SEGMENTS) {
+                        prefixes.add(parts.take(IMPORT_SEGMENTS).joinToString("."))
+                    }
+                }
+            }
+        return prefixes
     }
 
     private companion object {
         val IMPORT_REGEX = Regex("^\\s*import\\s+([\\w.]+)", setOf(RegexOption.MULTILINE))
+        const val IMPORT_SEGMENTS = 2
     }
 }

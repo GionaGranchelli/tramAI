@@ -17,7 +17,6 @@ import kotlin.test.assertTrue
  * warning within a file is not a violation (C4).
  */
 class CompilerWarningsBaselineModelTest {
-
     private val entryA =
         WarningEntry(
             path = "tramai-core/src/main/kotlin/dev/tramai/core/X.kt",
@@ -69,14 +68,20 @@ class CompilerWarningsBaselineModelTest {
     // ── Fingerprint (C4: normalization) ───────────────────────────────────
 
     @Test
-    fun `fingerprint normalizes digits and quoted strings but keeps words`() {
+    fun `fingerprint collapses whitespace but preserves symbols and digits`() {
+        // Whitespace-only normalization: quoted values and digits are IDENTITY
+        // (10.1c BLOCKER 2 — remove-A/add-B substitution must not hide).
         assertEquals(
-            CompilerWarningsFingerprint.normalize("This annotation is applied to 'X' 42 times"),
-            CompilerWarningsFingerprint.normalize("This annotation is applied to 'Y' 7 times"),
+            CompilerWarningsFingerprint.normalize("  deprecated   since 3.0 "),
+            CompilerWarningsFingerprint.normalize("deprecated since 3.0"),
+        )
+        assertFalse(
+            CompilerWarningsFingerprint.normalize("This annotation is applied to 'X' 42 times") ==
+                CompilerWarningsFingerprint.normalize("This annotation is applied to 'Y' 7 times"),
         )
         assertFalse(
             CompilerWarningsFingerprint.normalize("deprecated since 3.0") ==
-                CompilerWarningsFingerprint.normalize("removed since 3.0"),
+                CompilerWarningsFingerprint.normalize("deprecated since 4.0"),
         )
     }
 
@@ -120,6 +125,7 @@ class CompilerWarningsBaselineModelTest {
         val violations = CompilerWarningsBaselineVerifier.compare(listOf(changed), listOf(entryA))
         assertEquals(1, violations.size)
     }
+
     // ── Baseline JSON round-trip (C10) ────────────────────────────────────
     @Test
     fun `baseline json round-trips`() {

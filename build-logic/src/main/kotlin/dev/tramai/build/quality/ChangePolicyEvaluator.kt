@@ -348,7 +348,8 @@ object ChangePolicyEvaluator {
 
     fun isBaselinePath(path: String): Boolean =
         path == "config/quality/0.6.0-baseline.json" ||
-            path == "config/detekt/baseline.xml"
+            path == "config/detekt/baseline.xml" ||
+            path == "config/warnings/baseline.json"
 
     fun isDeviationsPath(path: String): Boolean = path == "config/quality/maintainability-deviations.yml"
 
