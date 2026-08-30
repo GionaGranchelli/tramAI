@@ -125,7 +125,7 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
                     .forEach { name ->
                         val fqn = name.removeSuffix(".class").replace("/", ".")
                         classes.add(fqn)
-                        fqn.substringBeforeLast('.').takeIf { it.isNotEmpty() }?.let { packages.add(it) }
+                        packages.add(fqn.substringBeforeLast('.'))
                     }
             }
         } catch (e: ZipException) {

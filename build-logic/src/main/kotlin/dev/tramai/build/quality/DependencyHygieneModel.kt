@@ -74,8 +74,11 @@ object DependencyUsageEvaluator {
                 pkg in evidence.packages || pkg in evidence.classes
             } else {
                 // plain import org.foo.Bar → exact class; static import org.foo.Bar.method
-                // and nested org.foo.Outer.Inner → owner class must be present.
-                evidence.classes.any { c -> symbol == c || symbol.startsWith(c + ".") }
+                // and nested org.foo.Outer.Inner → owner class must be present; Kotlin
+                // top-level functions/properties (kotlin.reflect.jvm.javaType,
+                // jackson.module.kotlin.readValue) → their package must exist in the jar.
+                evidence.classes.any { c -> symbol == c || symbol.startsWith(c + ".") } ||
+                    symbol.substringBeforeLast('.', "") in evidence.packages
             }
         }
 

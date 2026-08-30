@@ -159,41 +159,47 @@ object CompilerWarningsBaselineIo {
         }
 
     private fun parseTree(root: JsonNode?): List<WarningEntry>? {
-        val schemaNode = root?.get("schemaVersion") ?: return null
+        val schemaNode = root?.get("schemaVersion")
         // Strict: no Jackson coercion — schemaVersion must be an actual integral
         // number equal to SCHEMA_VERSION, never a textual "2" (10.1c round-3).
-        if (!schemaNode.isIntegralNumber || schemaNode.asInt() != SCHEMA_VERSION) return null
-        val entries = root.get("entries") ?: return null
-        if (!entries.isArray) return null
-        // All-or-nothing: a single malformed entry, or a duplicate identity,
-        // invalidates the whole baseline — nothing may silently disappear from
-        // the evidence set.
+        if (schemaNode == null || !schemaNode.isIntegralNumber || schemaNode.asInt() != SCHEMA_VERSION) return null
+        val entries = root.get("entries")
+        return if (entries == null || !entries.isArray) null else parseEntries(entries)
+    }
+
+    /** All-or-nothing entry parse: any malformed entry or duplicate identity rejects the baseline. */
+    private fun parseEntries(entries: JsonNode): List<WarningEntry>? {
         val parsed = ArrayList<WarningEntry>(entries.size())
         val seen = HashSet<Triple<String, String, String>>()
+        var ok = true
         for (e in entries) {
-            val entry = parseEntry(e) ?: return null
-            val identity = Triple(entry.path, entry.diagnostic, entry.message)
-            if (!seen.add(identity)) return null
+            val entry = parseEntry(e)
+            if (entry == null || !seen.add(Triple(entry.path, entry.diagnostic, entry.message))) {
+                ok = false
+                break
+            }
             parsed.add(entry)
         }
-        return parsed
+        return parsed.takeIf { ok }
     }
 
     private fun parseEntry(node: JsonNode): WarningEntry? {
-        val pathNode = node.get("path") ?: return null
-        val diagnosticNode = node.get("diagnostic") ?: return null
-        val messageNode = node.get("message") ?: return null
-        val countNode = node.get("count") ?: return null
+        val pathNode = node.get("path")
+        val diagnosticNode = node.get("diagnostic")
+        val messageNode = node.get("message")
+        val countNode = node.get("count")
         // Strict node types: textual identity fields, integral count — coercible
         // values (numeric path, textual count, booleans) are REJECTED.
-        if (!pathNode.isTextual || !diagnosticNode.isTextual || !messageNode.isTextual) return null
-        if (!countNode.isIntegralNumber) return null
+        val valid =
+            pathNode != null && diagnosticNode != null && messageNode != null && countNode != null &&
+                pathNode.isTextual && diagnosticNode.isTextual && messageNode.isTextual &&
+                countNode.isIntegralNumber
+        if (!valid) return null
         val path = pathNode.asText().trim()
         val diagnostic = diagnosticNode.asText().trim()
         val message = messageNode.asText().trim()
-        if (path.isBlank() || diagnostic.isBlank() || message.isBlank()) return null
         val count = countNode.asInt()
-        if (count < 1) return null // an entry with zero occurrences is meaningless
-        return WarningEntry(path, diagnostic, message, count)
+        val nonblank = path.isNotBlank() && diagnostic.isNotBlank() && message.isNotBlank() && count >= 1
+        return if (nonblank) WarningEntry(path, diagnostic, message, count) else null
     }
 }

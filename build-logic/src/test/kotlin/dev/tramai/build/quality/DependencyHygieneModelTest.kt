@@ -141,7 +141,10 @@ class DependencyHygieneModelTest {
             evidence +
                 (
                     "com.example:driver-lib" to
-                        JarEvidence(classes = setOf("com.example.driver.Driver"), packages = setOf("com.example.driver"))
+                        JarEvidence(
+                            classes = setOf("com.example.driver.Driver"),
+                            packages = setOf("com.example.driver"),
+                        )
                 )
         val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, evidenceWithDriver, emptyList())
         assertEquals(1, result.violations.size)
@@ -159,7 +162,10 @@ class DependencyHygieneModelTest {
             evidence +
                 (
                     "com.example:driver-lib" to
-                        JarEvidence(classes = setOf("com.example.driver.Driver"), packages = setOf("com.example.driver"))
+                        JarEvidence(
+                            classes = setOf("com.example.driver.Driver"),
+                            packages = setOf("com.example.driver"),
+                        )
                 )
         val exemption =
             Exemption(
@@ -246,12 +252,18 @@ class DependencyHygieneModelTest {
         assertEquals("com.example.api.Service", importSymbolOf("import com.example.api.Service"))
         assertEquals("com.example.api.*", importSymbolOf("import com.example.api.*"))
         assertEquals("com.example.api", importSymbolOf("import com.example.api"))
-        assertEquals("org.postgresql.Driver.getVersion", importSymbolOf("import static org.postgresql.Driver.getVersion"))
+        assertEquals(
+            "org.postgresql.Driver.getVersion",
+            importSymbolOf("import static org.postgresql.Driver.getVersion"),
+        )
         assertEquals("com.example.api.Service", importSymbolOf("  import com.example.api.Service  "))
         // Java imports carry a mandatory trailing semicolon; Kotlin aliases too.
         assertEquals("com.example.api.Service", importSymbolOf("import com.example.api.Service;"))
         assertEquals("com.example.api.*", importSymbolOf("import com.example.api.*;"))
-        assertEquals("org.postgresql.Driver.getVersion", importSymbolOf("import static org.postgresql.Driver.getVersion;"))
+        assertEquals(
+            "org.postgresql.Driver.getVersion",
+            importSymbolOf("import static org.postgresql.Driver.getVersion;"),
+        )
         assertEquals("foo.bar.Type", importSymbolOf("import foo.bar.Type as Alias"))
     }
 
@@ -332,5 +344,20 @@ class DependencyHygieneModelTest {
         val result = DependencyUsageEvaluator.evaluate(unitCollision, collisionEvidence, emptyList())
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("spring-jdbc"))
+    }
+
+    @Test
+    fun `top-level extension function import counts as usage`() {
+        // Kotlin top-level functions/properties compile into facade classes, so a
+        // direct import (kotlin.reflect.jvm.javaType, jackson.module.kotlin.readValue)
+        // has no matching class — its package must still prove usage.
+        val unitExt =
+            unit.copy(
+                importsBySourceSet = mapOf("main" to setOf("kotlinx.coroutines.yield")),
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitExt, evidence, emptyList())
+        // kotlinx package exists in kotlinx-coroutines evidence → used; used-lib not.
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("used-lib"))
     }
 }
