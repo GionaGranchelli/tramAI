@@ -56,6 +56,36 @@ class CompilerWarningsBaselineModelTest {
     }
 
     @Test
+    fun `parser fails closed on warning without diagnostic name`() {
+        // 10.1c round-4 (M13): a warning-looking line that does not match the
+        // [DIAGNOSTIC_NAME] shape must fail, not silently vanish from the inventory.
+        val output =
+            "tramai-core/src/main/kotlin/dev/tramai/core/X.kt:1:2: warning: something without a name\n"
+        assertThrows<IllegalStateException> { CompilerWarningsParser.parse(output) }
+    }
+
+    @Test
+    fun `parser fails closed on global warning format`() {
+        // Global/unexpected warning shape (no path:line:col prefix) must fail.
+        val output =
+            "warning: [SOME_GLOBAL_DIAGNOSTIC] something changed globally\n"
+        assertThrows<IllegalStateException> { CompilerWarningsParser.parse(output) }
+    }
+
+    @Test
+    fun `parser tolerates harness environment warnings explicitly`() {
+        // The standalone-kotlinc harness emits deterministic env warnings on
+        // every run — explicitly classified, not silently ignored.
+        val output =
+            "warning: unable to find kotlin-stdlib.jar in the Kotlin home directory. " +
+                "Pass either '-no-stdlib' to prevent adding it to the classpath, or the correct '-kotlin-home'\n" +
+                "warning: classpath entry points to a non-existent location: " +
+                "/home/ci/aurora/tramai-core/build/classes/java/main\n"
+        val parsed = CompilerWarningsParser.parse(output)
+        assertTrue(parsed.isEmpty())
+    }
+
+    @Test
     fun `parser ignores source excerpt and caret continuation lines`() {
         val output =
             "tramai-core/src/main/kotlin/dev/tramai/core/X.kt:12:34: warning: [OPT_IN_USAGE] msg\n" +

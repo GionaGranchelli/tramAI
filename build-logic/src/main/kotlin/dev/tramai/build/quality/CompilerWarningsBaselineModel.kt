@@ -47,6 +47,19 @@ object CompilerWarningsParser {
     private const val MAX_REPORTED_ERRORS = 5
 
     /**
+     * Deterministic standalone-kotlinc harness warnings that are expected on
+     * every run (kotlin-home lacks stdlib jars; java class dirs do not exist
+     * when a module has no Java sources). Explicitly classified, never ignored:
+     * any OTHER warning-shaped line fails the parse.
+     */
+    private val HARNESS_WARNING_PREFIXES =
+        listOf(
+            "warning: unable to find ",
+            "warning: classpath entry points to a non-existent location:",
+            "warning: -Xjvm-default is deprecated. Use -jvm-default instead.",
+        )
+
+    /**
      * Parses compiler output into warnings grouped by identity with counts.
      *
      * Fail-closed: any `error:` diagnostic line makes the parse throw — a
@@ -68,6 +81,27 @@ object CompilerWarningsParser {
                 "Compiler emitted ${errors.size} error(s); a failed compile cannot be " +
                     "verified as a warning inventory. First errors: " +
                     errors.take(MAX_REPORTED_ERRORS).joinToString(" | "),
+            )
+        }
+        // Fail-closed on unrecognized warning-shaped output (10.1c round-4): a
+        // warning line that does not match the expected [DIAGNOSTIC_NAME] format
+        // must not silently vanish from the inventory. The ONLY tolerated shapes
+        // are the standalone-kotlinc harness's own deterministic environment
+        // warnings (kotlin-home setup, missing java class dirs) — anything else
+        // fails. Continuation/source/caret lines are harmless because they do
+        // not contain the "warning:" marker.
+        val unparseable =
+            lines.filter { line ->
+                val trimmed = line.trim()
+                trimmed.contains("warning:") && WARNING.matchEntire(trimmed) == null &&
+                    HARNESS_WARNING_PREFIXES.none { trimmed.startsWith(it) }
+            }
+        if (unparseable.isNotEmpty()) {
+            throw IllegalStateException(
+                "Compiler emitted ${unparseable.size} warning-shaped line(s) that do not match the " +
+                    "expected 'path:line:col: warning: [NAME] message' format; a partially unparseable " +
+                    "inventory cannot be verified. First lines: " +
+                    unparseable.take(MAX_REPORTED_ERRORS).joinToString(" | "),
             )
         }
         return lines

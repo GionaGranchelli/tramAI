@@ -360,4 +360,75 @@ class DependencyHygieneModelTest {
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("used-lib"))
     }
+
+    @Test
+    fun `same-package sibling artifact cannot cross-justify`() {
+        // 10.1c round-4 (M11): two artifacts split across the SAME exact package —
+        // exact-class match wins for the imported class; the sibling must fail.
+        val unitSplit =
+            DependencyUnitSpec(
+                modulePath = ":tramai-split",
+                declared =
+                    mapOf(
+                        "implementation" to
+                            listOf(
+                                "com.example.shared:artifact-a",
+                                "com.example.shared:artifact-b",
+                            ),
+                    ),
+                importsBySourceSet = mapOf("main" to setOf("com.example.shared.Foo")),
+            )
+        val splitEvidence =
+            mapOf(
+                "com.example.shared:artifact-a" to
+                    JarEvidence(
+                        classes = setOf("com.example.shared.Foo"),
+                        packages = setOf("com.example.shared"),
+                    ),
+                "com.example.shared:artifact-b" to
+                    JarEvidence(
+                        classes = setOf("com.example.shared.Bar"),
+                        packages = setOf("com.example.shared"),
+                    ),
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitSplit, splitEvidence, emptyList())
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("artifact-b"))
+    }
+
+    @Test
+    fun `ambiguous package membership fails closed`() {
+        // Neither sibling has the imported class; the package exists in BOTH →
+        // ambiguous → neither may claim usage.
+        val unitAmbiguous =
+            DependencyUnitSpec(
+                modulePath = ":tramai-ambiguous",
+                declared =
+                    mapOf(
+                        "implementation" to
+                            listOf(
+                                "com.example.shared:artifact-a",
+                                "com.example.shared:artifact-b",
+                            ),
+                    ),
+                importsBySourceSet = mapOf("main" to setOf("com.example.shared.Missing")),
+            )
+        val ambiguousEvidence =
+            mapOf(
+                "com.example.shared:artifact-a" to
+                    JarEvidence(
+                        classes = setOf("com.example.shared.Foo"),
+                        packages = setOf("com.example.shared"),
+                    ),
+                "com.example.shared:artifact-b" to
+                    JarEvidence(
+                        classes = setOf("com.example.shared.Bar"),
+                        packages = setOf("com.example.shared"),
+                    ),
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitAmbiguous, ambiguousEvidence, emptyList())
+        assertEquals(2, result.violations.size)
+        assertTrue(result.violations.any { it.contains("artifact-a") })
+        assertTrue(result.violations.any { it.contains("artifact-b") })
+    }
 }

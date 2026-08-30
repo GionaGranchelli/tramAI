@@ -63,24 +63,55 @@ object DependencyUsageEvaluator {
         val info: List<String>,
     )
 
-    private fun staticallyUsed(
-        evidence: JarEvidence,
-        imports: Set<String>,
-    ): Boolean =
-        imports.any { symbol ->
-            if (symbol.endsWith(".*")) {
-                // wildcard import org.foo.* → coordinate must contain a class in org.foo
-                val pkg = symbol.dropLast(2)
-                pkg in evidence.packages || pkg in evidence.classes
-            } else {
-                // plain import org.foo.Bar → exact class; static import org.foo.Bar.method
-                // and nested org.foo.Outer.Inner → owner class must be present; Kotlin
-                // top-level functions/properties (kotlin.reflect.jvm.javaType,
-                // jackson.module.kotlin.readValue) → their package must exist in the jar.
-                evidence.classes.any { c -> symbol == c || symbol.startsWith(c + ".") } ||
-                    symbol.substringBeforeLast('.', "") in evidence.packages
+    /**
+     * Computes which of the unit's declared coordinates are statically used by
+     * the imports of one source set.
+     *
+     * Ambiguity-aware (10.1c round-4): exact class/owner matches win outright;
+     * the package fallback (Kotlin top-level functions/properties compile into
+     * facade classes) only proves usage when the symbol's package belongs to
+     * EXACTLY ONE declared coordinate — multiple candidates are ambiguous and
+     * get no credit, so same-package sibling artifacts cannot justify each other.
+     */
+    private fun usedCoordinates(
+        unit: DependencyUnitSpec,
+        jarEvidence: Map<String, JarEvidence>,
+        srcset: String,
+    ): Set<String> {
+        val imports = unit.importsBySourceSet[srcset].orEmpty()
+        if (imports.isEmpty()) return emptySet()
+        val candidates =
+            unit.declared
+                .filter { (configuration, _) -> requiredSourceSet(configuration) == srcset }
+                .flatMap { (_, coordinates) -> coordinates }
+                .distinct()
+        val used = mutableSetOf<String>()
+        for (symbol in imports) {
+            val exact =
+                candidates.filter { coordinate ->
+                    val evidence = jarEvidence[coordinate] ?: return@filter false
+                    evidence.classes.any { c -> symbol == c || symbol.startsWith(c + ".") }
+                }
+            if (exact.isNotEmpty()) {
+                used += exact
+                continue
             }
+            val pkg =
+                if (symbol.endsWith(".*")) {
+                    symbol.dropLast(2)
+                } else {
+                    symbol.substringBeforeLast('.', "")
+                }
+            val packageMatches =
+                candidates.filter { coordinate ->
+                    val evidence = jarEvidence[coordinate] ?: return@filter false
+                    pkg in evidence.packages || pkg in evidence.classes
+                }
+            if (packageMatches.size == 1) used += packageMatches.single()
+            // size == 0 → no evidence anywhere; size > 1 → ambiguous → fail closed
         }
+        return used
+    }
 
     /**
      * @param jarEvidence coordinate -> class/package evidence from its jars.
@@ -92,11 +123,17 @@ object DependencyUsageEvaluator {
     ): Result {
         val violations = mutableListOf<String>()
         val info = mutableListOf<String>()
+        val usedBySourceSet =
+            unit.declared.keys
+                .mapNotNull { requiredSourceSet(it) }
+                .toSet()
+                .associateWith { srcset -> usedCoordinates(unit, jarEvidence, srcset) }
         val context =
             EvalContext(
                 unit,
                 jarEvidence,
                 exemptions.filter { it.module == unit.modulePath },
+                usedBySourceSet,
                 violations,
                 info,
             )
@@ -114,6 +151,7 @@ object DependencyUsageEvaluator {
         val unit: DependencyUnitSpec,
         val jarEvidence: Map<String, JarEvidence>,
         val exemptionsForModule: List<Exemption>,
+        val usedBySourceSet: Map<String, Set<String>>,
         val violations: MutableList<String>,
         val info: MutableList<String>,
     )
@@ -135,8 +173,7 @@ object DependencyUsageEvaluator {
             )
             return
         }
-        val imports = context.unit.importsBySourceSet[srcset].orEmpty()
-        val used = staticallyUsed(evidence, imports)
+        val used = context.usedBySourceSet[srcset].orEmpty().contains(coordinate)
         if (used) return
         val exempt =
             context.exemptionsForModule.any {
@@ -173,9 +210,7 @@ object DependencyUsageEvaluator {
                 return@forEach
             }
             val srcset = requiredSourceSet(exemption.configuration) ?: return@forEach
-            val imports = unit.importsBySourceSet[srcset].orEmpty()
-            val evidence = context.jarEvidence[exemption.dependency] ?: JarEvidence.EMPTY
-            val nowUsed = staticallyUsed(evidence, imports)
+            val nowUsed = context.usedBySourceSet[srcset].orEmpty().contains(exemption.dependency)
             if (nowUsed) {
                 context.violations.add(
                     "stale exemption: ${unit.modulePath} ${exemption.configuration} ${exemption.dependency} " +
