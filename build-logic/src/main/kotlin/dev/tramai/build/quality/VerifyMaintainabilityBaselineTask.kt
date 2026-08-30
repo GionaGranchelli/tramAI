@@ -24,6 +24,10 @@ import org.gradle.api.tasks.TaskAction
  * execution authority (a3 discipline).
  */
 abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
+    private companion object {
+        const val MAX_WARNINGS_LOGGED = 100
+    }
+
     @get:InputFile
     @get:org.gradle.api.tasks.Optional
     abstract val committedBaselineFile: RegularFileProperty
@@ -76,19 +80,23 @@ abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
                 generator = generator,
                 ctx = ctx,
                 reportDir = reportDir.get().asFile,
-                committedBaselineFile = committedBaselineFile.orNull?.asFile,
-                resolvedDependenciesFile = resolvedDependenciesFile.get().asFile,
-                apiValidationModules = apiValidationModules.get().toSet(),
-                deviationsFile = deviationsFile.get().asFile,
-                moduleCatalogFile = moduleCatalogFile.get().asFile,
-                moduleBoundariesFile = moduleBoundariesFile.get().asFile,
+                declaredInputs =
+                    DeclaredBaselineInputs(
+                        committedBaselineFile = committedBaselineFile.orNull?.asFile,
+                        resolvedDependenciesFile = resolvedDependenciesFile.get().asFile,
+                        apiValidationModules = apiValidationModules.get().toSet(),
+                        deviationsFile = deviationsFile.get().asFile,
+                        moduleCatalogFile = moduleCatalogFile.get().asFile,
+                        moduleBoundariesFile = moduleBoundariesFile.get().asFile,
+                    ),
             )
         val report = verifier.verify()
 
         report.failures.forEach { logger.error("FAIL: $it") }
-        report.warnings.take(100).forEach { logger.warn("WARN: $it") }
-        if (report.warnings.size > 100) {
-            logger.warn("WARN: ${report.warnings.size - 100} additional warnings; see dependency-changes.json")
+        report.warnings.take(MAX_WARNINGS_LOGGED).forEach { logger.warn("WARN: $it") }
+        if (report.warnings.size > MAX_WARNINGS_LOGGED) {
+            val hidden = report.warnings.size - MAX_WARNINGS_LOGGED
+            logger.warn("WARN: $hidden additional warnings; see dependency-changes.json")
         }
         report.acceptedDeviations.forEach { logger.info("ACCEPTED: $it") }
 

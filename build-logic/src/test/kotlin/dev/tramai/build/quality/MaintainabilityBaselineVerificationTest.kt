@@ -21,6 +21,52 @@ import kotlin.test.assertTrue
  *    contains real content and the gate reports PASSED.
  */
 class MaintainabilityBaselineVerificationTest {
+    private companion object {
+        val MODULE_CATALOG_YML =
+            """
+            schemaVersion: "3"
+            dependencyPolicies:
+              testing:
+                allowedLayers: [testing-support]
+            entryDefaults:
+              internal: &internal
+                layer: "testing-support"
+                maturity: "internal"
+                publishability: "internal"
+                apiStability: "excluded"
+                visibility: "internal"
+                owner: "testing"
+                dependencyPolicy: "testing"
+                releaseInclusion: "internal_only"
+                rationale: "Provides a TestKit fixture module."
+            modules:
+              - path: ":sample"
+                <<: *internal
+              - path: ":tramai-core"
+                <<: *internal
+              - path: ":examples:java-consumer-smoke"
+                <<: *internal
+              - path: ":examples:kotlin-consumer-smoke"
+                <<: *internal
+            """.trimIndent()
+
+        val TEST_QUALITY_YML =
+            """
+            schemaVersion: "1"
+            criticalModules: [":sample"]
+            coverage:
+              regressionTolerancePercentagePoints: 1.0
+              exclusions: []
+            mutation:
+              regressionTolerancePercentagePoints: 1.0
+              targetFamilies:
+                sample:
+                  modules: [":sample"]
+                  targetClasses: ["example.*"]
+                  targetTests: ["example.*"]
+            """.trimIndent()
+    }
+
     @TempDir
     lateinit var tempDir: File
 
@@ -133,6 +179,18 @@ class MaintainabilityBaselineVerificationTest {
      */
     private fun verificationFixture(applyPlugins: String): File {
         val dir = File(tempDir, "fixture-${tempDir.listFiles()?.size ?: 0}").apply { mkdirs() }
+        writeGradleScripts(dir, applyPlugins)
+        writeProductionSource(dir)
+        writeQualityConfig(dir)
+        writeLocalMavenRepo(dir)
+        initGit(dir)
+        return dir
+    }
+
+    private fun writeGradleScripts(
+        dir: File,
+        applyPlugins: String,
+    ) {
         writeFile(
             dir,
             "settings.gradle.kts",
@@ -162,10 +220,12 @@ class MaintainabilityBaselineVerificationTest {
         writeFile(dir, "examples/java-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, "examples/kotlin-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, ".gitignore", ".gradle/\n.kotlin/\nbuild/\nsample/build/\nlocal.properties\n")
+    }
 
-        // Production source: a protocol constant (protocol catalog), a catch
-        // (cancellation inventory), and declarations (source metrics) — the
-        // mandatory sections must be non-empty for a genuine PASS.
+    private fun writeProductionSource(dir: File) {
+        // A protocol constant (protocol catalog), a catch (cancellation
+        // inventory), and declarations (source metrics) — the mandatory
+        // sections must be non-empty for a genuine PASS.
         writeFile(
             dir,
             "sample/src/main/kotlin/example/Sample.kt",
@@ -184,55 +244,11 @@ class MaintainabilityBaselineVerificationTest {
             }
             """.trimIndent(),
         )
+    }
 
-        writeFile(
-            dir,
-            "config/quality/module-catalog.yml",
-            """
-            schemaVersion: "3"
-            dependencyPolicies:
-              testing:
-                allowedLayers: [testing-support]
-            entryDefaults:
-              internal: &internal
-                layer: "testing-support"
-                maturity: "internal"
-                publishability: "internal"
-                apiStability: "excluded"
-                visibility: "internal"
-                owner: "testing"
-                dependencyPolicy: "testing"
-                releaseInclusion: "internal_only"
-                rationale: "Provides a TestKit fixture module."
-            modules:
-              - path: ":sample"
-                <<: *internal
-              - path: ":tramai-core"
-                <<: *internal
-              - path: ":examples:java-consumer-smoke"
-                <<: *internal
-              - path: ":examples:kotlin-consumer-smoke"
-                <<: *internal
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "config/quality/test-quality.yml",
-            """
-            schemaVersion: "1"
-            criticalModules: [":sample"]
-            coverage:
-              regressionTolerancePercentagePoints: 1.0
-              exclusions: []
-            mutation:
-              regressionTolerancePercentagePoints: 1.0
-              targetFamilies:
-                sample:
-                  modules: [":sample"]
-                  targetClasses: ["example.*"]
-                  targetTests: ["example.*"]
-            """.trimIndent(),
-        )
+    private fun writeQualityConfig(dir: File) {
+        writeFile(dir, "config/quality/module-catalog.yml", MODULE_CATALOG_YML)
+        writeFile(dir, "config/quality/test-quality.yml", TEST_QUALITY_YML)
         writeFile(
             dir,
             "config/quality/maintainability-deviations.yml",
@@ -257,7 +273,9 @@ class MaintainabilityBaselineVerificationTest {
             entries: []
             """.trimIndent(),
         )
+    }
 
+    private fun writeLocalMavenRepo(dir: File) {
         // Minimal local Maven repo so :sample resolves a real external module.
         val repoModule = File(dir, "repo/com/example/fake/1.0")
         repoModule.mkdirs()
@@ -276,7 +294,9 @@ class MaintainabilityBaselineVerificationTest {
         java.util.zip
             .ZipOutputStream(File(repoModule, "fake-1.0.jar").outputStream())
             .use { it.close() }
+    }
 
+    private fun initGit(dir: File) {
         git(dir, "init", "-q")
         git(dir, "config", "user.email", "test@example.com")
         git(dir, "config", "user.name", "Test")
@@ -285,7 +305,6 @@ class MaintainabilityBaselineVerificationTest {
         git(dir, "tag", "v0.5.0")
         git(dir, "remote", "add", "origin", "https://example.invalid/tramai.git")
         git(dir, "update-ref", "refs/remotes/origin/master", "HEAD")
-        return dir
     }
 
     /**

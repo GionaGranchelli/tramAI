@@ -551,7 +551,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             sub.buildFile,
                         )
                     }
-            sourceTree.from(project.files(*measuredDirs.toTypedArray()).filter { it.exists() })
+            sourceTree.from(project.files(measuredDirs).filter { it.exists() })
             sourceTree.from(
                 project
                     .files(project.rootDir.resolve("settings.gradle.kts"), project.rootDir.resolve("gradle.properties"))

@@ -5,50 +5,40 @@ import org.gradle.api.Project
 import java.io.File
 
 /**
+ * Declared-input bundle for [BaselineVerifier] (Epic 9.2d-a3c2). When set,
+ * each field is the execution authority for its file/model read; nulls keep
+ * the legacy conventional-path behavior for the fromProject caller.
+ */
+class DeclaredBaselineInputs(
+    val committedBaselineFile: File? = null,
+    val resolvedDependenciesFile: File? = null,
+    val apiValidationModules: Set<String>? = null,
+    val deviationsFile: File? = null,
+    val moduleCatalogFile: File? = null,
+    val moduleBoundariesFile: File? = null,
+)
+
+/**
  * Compares the currently generated baseline against the committed baseline.
  * Uses stable FindingIdentity, typed VerificationDiagnostic, ModuleCatalog,
  * and ModuleBoundaries for all checks.
  */
+
 class BaselineVerifier(
     private val generator: BaselineGenerator,
     private val ctx: MeasurementContext,
     private val reportDir: File,
     /**
-     * Declared committed-baseline input (Epic 9.2d-a3c2). Null keeps the
-     * legacy conventional-path lookup for the fromProject caller.
+     * Declared inputs (Epic 9.2d-a3c2). Null keeps the legacy conventional-path
+     * lookups for the fromProject caller.
      */
-    private val committedBaselineFile: File? = null,
-    /**
-     * Declared resolved-dependency baseline input (Epic 9.2d-a3c2). Null keeps
-     * the legacy generator lookup (gradleProject build dir).
-     */
-    private val resolvedDependenciesFile: File? = null,
-    /**
-     * Declared apiCheck module set (Epic 9.2d-a3c2). Null keeps the legacy
-     * allprojects walk for the fromProject caller.
-     */
-    private val apiValidationModules: Set<String>? = null,
-    /**
-     * Declared deviations-file input (Epic 9.2d-a3c2). Null keeps the legacy
-     * conventional-path lookup.
-     */
-    private val deviationsFile: File? = null,
-    /**
-     * Declared module-catalog input (Epic 9.2d-a3c2). Null keeps the legacy
-     * conventional-path lookup.
-     */
-    private val moduleCatalogFile: File? = null,
-    /**
-     * Declared module-boundaries input (Epic 9.2d-a3c2). Null keeps the legacy
-     * conventional-path lookup.
-     */
-    private val moduleBoundariesFile: File? = null,
+    private val declaredInputs: DeclaredBaselineInputs? = null,
 ) {
-    private val deviationParser = DeviationParser(ctx.rootDir, deviationsFile)
+    private val deviationParser = DeviationParser(ctx.rootDir, declaredInputs?.deviationsFile)
     private val budgetEvaluator = DeviationBudgetEvaluator(deviationParser)
     private val moduleCatalog =
-        moduleCatalogFile?.let { ModuleCatalog(it) } ?: ModuleCatalog.fromRootDir(ctx.rootDir)
-    private val moduleBoundaries = ModuleBoundaries(ctx.rootDir, moduleBoundariesFile)
+        declaredInputs?.moduleCatalogFile?.let { ModuleCatalog(it) } ?: ModuleCatalog.fromRootDir(ctx.rootDir)
+    private val moduleBoundaries = ModuleBoundaries(ctx.rootDir, declaredInputs?.moduleBoundariesFile)
 
     fun verify(): VerificationReport {
         // Delete old report before starting
@@ -58,7 +48,8 @@ class BaselineVerifier(
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         try {
             // 1. Load committed baseline (declared input = execution authority; a3c2)
-            val committedFile = committedBaselineFile ?: File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
+            val committedFile =
+                declaredInputs?.committedBaselineFile ?: File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
             if (!committedFile.isFile) {
                 diagnostics.add(
                     VerificationDiagnostic.failure(
@@ -111,19 +102,7 @@ class BaselineVerifier(
 
             val currentDependencies =
                 try {
-                    if (resolvedDependenciesFile != null) {
-                        // Declared input = execution authority: the aggregate task's
-                        // typed output is the same file the legacy path read from the
-                        // project build dir.
-                        val records =
-                            ReportNormalizer.readJson(resolvedDependenciesFile, Array<ResolvedDependency>::class.java).toList()
-                        BaselineGenerator.sortResolvedDependencies(records)
-                    } else {
-                        if (ctx.gradleProject == null) {
-                            throw GradleException("Resolved dependency baseline input is required in directory mode")
-                        }
-                        tempGenerator.generateResolvedDependencyGraph()
-                    }
+                    resolveCurrentDependencies(tempGenerator)
                 } catch (e: Exception) {
                     diagnostics.add(
                         VerificationDiagnostic.failure(
@@ -155,7 +134,7 @@ class BaselineVerifier(
 
             // 9. Verify API and resolved dependency baselines with typed diagnostics
             val apiModules =
-                apiValidationModules
+                declaredInputs?.apiValidationModules
                     ?: ctx.gradleProject
                         ?.allprojects
                         ?.filter { it.tasks.findByName("apiCheck") != null }
@@ -203,6 +182,31 @@ class BaselineVerifier(
         }
 
         return diagnosticsToReport(diagnostics)
+    }
+
+    /**
+     * Resolves the current dependency baseline: the declared aggregate input is
+     * the execution authority; the fromProject caller falls back to the legacy
+     * generator lookup. Throws on missing inputs so the caller produces the
+     * DEPENDENCY_RESOLUTION_FAILED diagnostic (fail closed).
+     */
+    private fun resolveCurrentDependencies(tempGenerator: BaselineGenerator): List<ResolvedDependency> {
+        if (declaredInputs?.resolvedDependenciesFile != null) {
+            // Declared input = execution authority: the aggregate task's
+            // typed output is the same file the legacy path read from the
+            // project build dir.
+            val records =
+                ReportNormalizer
+                    .readJson(
+                        declaredInputs.resolvedDependenciesFile,
+                        Array<ResolvedDependency>::class.java,
+                    ).toList()
+            return BaselineGenerator.sortResolvedDependencies(records)
+        }
+        if (ctx.gradleProject == null) {
+            throw GradleException("Resolved dependency baseline input is required in directory mode")
+        }
+        return tempGenerator.generateResolvedDependencyGraph()
     }
 
     // ─── Identity verification ───
