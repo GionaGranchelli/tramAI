@@ -16,6 +16,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * The one canonical static-analysis task (Epic 10.1b).
@@ -28,6 +29,11 @@ import java.io.File
  * even when findings exist.
  */
 abstract class VerifyStaticAnalysisTask : DefaultTask() {
+    private companion object {
+        const val DETEKT_TIMEOUT_MINUTES = 10L
+        const val READ_BUFFER_SIZE = 4096
+    }
+
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val detektClasspath: ConfigurableFileCollection
@@ -89,8 +95,9 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
                     root
                         .toPath()
                         .relativize(it.toPath())
-                        .toString()
-                        .substringBeforeLast('/')
+                        .parent
+                        ?.toString()
+                        ?: ""
                 }.filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
@@ -128,8 +135,27 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
             ).directory(root)
                 .redirectErrorStream(true)
                 .start()
-        val output = proc.inputStream.bufferedReader().readText()
-        val exit = proc.waitFor()
+        // Bounded read+wait: a hung Detekt must fail the gate, not stall CI forever.
+        val output = StringBuilder()
+        val reader = proc.inputStream.bufferedReader()
+        val buf = CharArray(READ_BUFFER_SIZE)
+        val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(DETEKT_TIMEOUT_MINUTES)
+        while (System.nanoTime() < deadline) {
+            if (reader.ready()) {
+                val n = reader.read(buf)
+                if (n > 0) output.append(buf, 0, n)
+            }
+            if (!proc.isAlive) break
+            Thread.sleep(50)
+        }
+        if (proc.isAlive) {
+            proc.destroyForcibly()
+            throw GradleException(
+                "verifyStaticAnalysis: Detekt did not exit within 10 minutes — failing closed " +
+                    "rather than stalling the build.",
+            )
+        }
+        val exit = proc.exitValue()
 
         // 3. Observability summary — written even on failure.
         val summary =
@@ -145,7 +171,7 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
         if (exit != 0) {
             throw GradleException(
                 "verifyStaticAnalysis: Detekt reported non-baselined findings (exit $exit).\n" +
-                    output.takeLast(8000) +
+                    output.toString().takeLast(8000) +
                     "\n\nSummary written to $reportDir/summary.txt. " +
                     "Fix the findings — the baseline is a ceiling, not an allowance budget.",
             )
@@ -202,7 +228,15 @@ abstract class VerifyStaticAnalysisTask : DefaultTask() {
             val factory =
                 javax.xml.parsers.DocumentBuilderFactory
                     .newInstance()
+            // Hardened parsing: no DOCTYPEs, no external entities, no XInclude —
+            // aligned with DetektBaselineParser. detekt.xml is tool output, but a
+            // compromised or corrupted report must not become an XXE vector.
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+            factory.isXIncludeAware = false
+            factory.isExpandEntityReferences = false
             val doc = factory.newDocumentBuilder().parse(xmlFile)
             val counts = mutableMapOf<String, Int>()
             val errors = doc.getElementsByTagName("error")

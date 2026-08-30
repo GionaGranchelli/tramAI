@@ -58,4 +58,4 @@ Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, c
 
 ### Enforcement proof
 
-- P0-A..P0-O permanent contract suite (`StaticAnalysis*Test`, 24 tests) + configuration-cache cold→warm + `ChangePolicyEvaluator` canonical-baseline tests. Mutation campaign M01..M10 against the discriminators.
+- P0-A..P0-O permanent contract suite (`StaticAnalysis*Test`, 25 tests) + configuration-cache cold→warm + `ChangePolicyEvaluator` canonical-baseline tests. Mutation campaign M01..M10 against the discriminators.

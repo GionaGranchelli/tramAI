@@ -125,6 +125,14 @@ class StaticAnalysisGrowthVerifierTest {
             verifier().verify(input(base = null, changeClass = "build-logic", runtimeChanged = true))
         assertFalse(runtimeChanged.passed)
         assertEquals(DetektGrowthVerdict.BOOTSTRAP_ABUSE, runtimeChanged.code)
+
+        // blank/absent change class -> abuse (bootstrap needs an explicit class)
+        val noClass = verifier().verify(input(base = null, changeClass = null))
+        assertFalse(noClass.passed)
+        assertEquals(DetektGrowthVerdict.BOOTSTRAP_ABUSE, noClass.code)
+        val blankClass = verifier().verify(input(base = null, changeClass = ""))
+        assertFalse(blankClass.passed)
+        assertEquals(DetektGrowthVerdict.BOOTSTRAP_ABUSE, blankClass.code)
     }
 
     @Test

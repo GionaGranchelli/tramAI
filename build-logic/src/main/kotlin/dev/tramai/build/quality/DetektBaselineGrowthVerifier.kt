@@ -87,7 +87,10 @@ object DetektBaselineGrowthVerifier {
         // Bootstrap (rule I): base absent + current present = initial adoption only.
         if (base == null && current != null) {
             val initialAdoption =
-                !input.runtimeSourceChanged && input.changeClass != "runtime-behaviour"
+                !input.runtimeSourceChanged &&
+                    input.changeClass != null &&
+                    input.changeClass.isNotBlank() &&
+                    input.changeClass != "runtime-behaviour"
             if (initialAdoption) {
                 return pass(
                     code = null,
