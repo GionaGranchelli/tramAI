@@ -19,7 +19,6 @@ import org.gradle.plugins.signing.SigningExtension
  * script behavior exactly (9.2a extraction, behavior-preserving).
  */
 class TramaiPublishingPlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
         project.pluginManager.withPlugin("java-library") {
             project.pluginManager.apply("maven-publish")
@@ -45,7 +44,10 @@ class TramaiPublishingPlugin : Plugin<Project> {
         }
     }
 
-    private fun configurePublication(project: Project, componentName: String) {
+    private fun configurePublication(
+        project: Project,
+        componentName: String,
+    ) {
         val metadata = TramaiPublicationMetadata.from(project)
 
         project.extensions.configure(PublishingExtension::class.java) {
@@ -80,11 +82,12 @@ class TramaiPublishingPlugin : Plugin<Project> {
 
             val releaseRepositoryUrl = project.providers.gradleProperty("tramaiPublishReleaseUrl").orNull
             val snapshotRepositoryUrl = project.providers.gradleProperty("tramaiPublishSnapshotUrl").orNull
-            val targetRepositoryUrl = TramaiPublishingRepositories.selectRepositoryUrl(
-                project.version.toString(),
-                releaseRepositoryUrl,
-                snapshotRepositoryUrl,
-            )
+            val targetRepositoryUrl =
+                TramaiPublishingRepositories.selectRepositoryUrl(
+                    project.version.toString(),
+                    releaseRepositoryUrl,
+                    snapshotRepositoryUrl,
+                )
 
             if (!targetRepositoryUrl.isNullOrBlank()) {
                 repositories {
@@ -124,7 +127,7 @@ class TramaiPublishingPlugin : Plugin<Project> {
      * and the POM omits the description element.
      */
     private fun catalogDescription(project: Project): String? {
-        val catalog = ModuleCatalog(project.rootProject.projectDir).parse()
+        val catalog = ModuleCatalog.fromRootDir(project.rootProject.projectDir).parse()
         val entry = catalog.modules[":${project.name}"]
         val description = entry?.description?.takeIf { it.isNotBlank() }
         if (entry?.publishability == ModulePublishability.PUBLISHED && description == null) {

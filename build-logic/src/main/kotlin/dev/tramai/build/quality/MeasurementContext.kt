@@ -20,14 +20,19 @@ class MeasurementContext(
     /** Modules discovered in this tree. */
     val modules: List<DiscoveredModule>,
     /** The Gradle project (null when scanning a detached worktree). */
-    val gradleProject: Project? = null
+    val gradleProject: Project? = null,
 ) {
     fun runGit(vararg arguments: String): String {
-        val process = ProcessBuilder(listOf("git") + arguments)
-            .directory(rootDir)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+        val process =
+            ProcessBuilder(listOf("git") + arguments)
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader(Charsets.UTF_8)
+                .use { it.readText() }
+                .trim()
         check(process.waitFor() == 0 && output.isNotBlank()) {
             "git ${arguments.joinToString(" ")} failed in ${rootDir.absolutePath}: ${output.ifBlank { "no output" }}"
         }
@@ -35,29 +40,34 @@ class MeasurementContext(
     }
 
     fun runGitMulti(vararg arguments: String): String {
-        val process = ProcessBuilder(listOf("git") + arguments)
-            .directory(rootDir)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+        val process =
+            ProcessBuilder(listOf("git") + arguments)
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader(Charsets.UTF_8)
+                .use { it.readText() }
+                .trim()
         check(process.waitFor() == 0) {
             "git ${arguments.joinToString(" ")} failed in ${rootDir.absolutePath}: ${output.ifBlank { "no output" }}"
         }
         return output
     }
 
-    fun isWorkingTreeClean(): Boolean {
-        return try {
-            val process = ProcessBuilder(listOf("git", "status", "--porcelain"))
-                .directory(rootDir)
-                .redirectErrorStream(true)
-                .start()
+    fun isWorkingTreeClean(): Boolean =
+        try {
+            val process =
+                ProcessBuilder(listOf("git", "status", "--porcelain"))
+                    .directory(rootDir)
+                    .redirectErrorStream(true)
+                    .start()
             val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             process.waitFor() == 0 && output.isBlank()
         } catch (_: Exception) {
             false
         }
-    }
 
     companion object {
         // ── Factory methods ──
@@ -67,36 +77,43 @@ class MeasurementContext(
          * Falls back to "unknown"/false for uncatalogued modules.
          */
         fun fromProject(project: Project): MeasurementContext {
-            val catalog = ModuleCatalog(project.rootDir)
+            val catalog = ModuleCatalog.fromRootDir(project.rootDir)
             catalog.parse()
             return fromProject(project, catalog)
         }
 
-        fun fromProject(project: Project, catalog: ModuleCatalog): MeasurementContext {
-            val gradleModules = project.allprojects
-                .filter { it != project && it.buildFile.exists() }
-                .map { proj ->
-                    val entry = catalog.entryFor(proj.path)
-                    DiscoveredModule(
-                        name = proj.name,
-                        path = proj.path,
-                        projectDir = proj.projectDir,
-                        buildFile = proj.buildFile,
-                        sourceDirs = listOf(
-                            File(proj.projectDir, "src/main/kotlin"),
-                            File(proj.projectDir, "src/main/java"),
-                        ),
-                        testSourceDirs = listOf(
-                            File(proj.projectDir, "src/test/kotlin"),
-                        ),
-                        testFixtureDirs = listOf(
-                            File(proj.projectDir, "src/testFixtures/kotlin"),
-                        ),
-                        publishable = entry?.publishability == ModulePublishability.PUBLISHED,
-                        layer = entry?.layer?.yaml ?: "unknown",
-                        apiStability = entry?.apiStability?.yaml ?: "unclassified",
-                    )
-                }
+        fun fromProject(
+            project: Project,
+            catalog: ModuleCatalog,
+        ): MeasurementContext {
+            val gradleModules =
+                project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .map { proj ->
+                        val entry = catalog.entryFor(proj.path)
+                        DiscoveredModule(
+                            name = proj.name,
+                            path = proj.path,
+                            projectDir = proj.projectDir,
+                            buildFile = proj.buildFile,
+                            sourceDirs =
+                                listOf(
+                                    File(proj.projectDir, "src/main/kotlin"),
+                                    File(proj.projectDir, "src/main/java"),
+                                ),
+                            testSourceDirs =
+                                listOf(
+                                    File(proj.projectDir, "src/test/kotlin"),
+                                ),
+                            testFixtureDirs =
+                                listOf(
+                                    File(proj.projectDir, "src/testFixtures/kotlin"),
+                                ),
+                            publishable = entry?.publishability == ModulePublishability.PUBLISHED,
+                            layer = entry?.layer?.yaml ?: "unknown",
+                            apiStability = entry?.apiStability?.yaml ?: "unclassified",
+                        )
+                    }
 
             return MeasurementContext(
                 rootDir = project.rootDir,
@@ -109,7 +126,7 @@ class MeasurementContext(
          * Create a MeasurementContext from a directory, loading the catalog internally.
          */
         fun fromDirectory(rootDir: File): MeasurementContext {
-            val catalog = ModuleCatalog(rootDir)
+            val catalog = ModuleCatalog.fromRootDir(rootDir)
             catalog.parse()
             return fromDirectory(rootDir, catalog)
         }
@@ -122,19 +139,24 @@ class MeasurementContext(
          *
          * @throws IllegalStateException if the catalog has parsing failures
          */
-        fun fromDirectory(rootDir: File, catalogRoot: File): MeasurementContext {
-            val catalog = ModuleCatalog(catalogRoot)
+        fun fromDirectory(
+            rootDir: File,
+            catalogRoot: File,
+        ): MeasurementContext {
+            val catalog = ModuleCatalog.fromRootDir(catalogRoot)
             val result = catalog.parse()
             val failedDiagnostics = result.errors.filter { it.severity == DiagnosticSeverity.FAILURE }
             if (failedDiagnostics.isNotEmpty()) {
                 val summary = failedDiagnostics.joinToString("; ") { it.message }
-                throw IllegalStateException(
-                    "Module catalog has ${failedDiagnostics.size} error(s): $summary")
+                throw IllegalStateException("Module catalog has ${failedDiagnostics.size} error(s): $summary")
             }
             return fromDirectory(rootDir, catalog)
         }
 
-        fun fromDirectory(rootDir: File, catalog: ModuleCatalog): MeasurementContext {
+        fun fromDirectory(
+            rootDir: File,
+            catalog: ModuleCatalog,
+        ): MeasurementContext {
             val modules = discoverModulesFromSettings(rootDir, catalog)
             return MeasurementContext(
                 rootDir = rootDir,
@@ -147,14 +169,15 @@ class MeasurementContext(
          * Build a MeasurementContext by loading the ModuleCatalog first.
          */
         fun loadFromCatalog(rootDir: File): Pair<MeasurementContext, ModuleCatalog.CatalogResult> {
-            val catalog = ModuleCatalog(rootDir)
+            val catalog = ModuleCatalog.fromRootDir(rootDir)
             val catalogResult = catalog.parse()
             val modules = discoverModulesFromSettings(rootDir, catalog)
-            val ctx = MeasurementContext(
-                rootDir = rootDir,
-                modules = modules,
-                gradleProject = null,
-            )
+            val ctx =
+                MeasurementContext(
+                    rootDir = rootDir,
+                    modules = modules,
+                    gradleProject = null,
+                )
             return ctx to catalogResult
         }
 
@@ -162,13 +185,17 @@ class MeasurementContext(
         // All paths are normalized to Gradle format (leading ":") so that
         // canonical and project modes produce identical module identities.
 
-        private fun discoverModulesFromSettings(rootDir: File, catalog: ModuleCatalog): List<DiscoveredModule> {
+        private fun discoverModulesFromSettings(
+            rootDir: File,
+            catalog: ModuleCatalog,
+        ): List<DiscoveredModule> {
             val settingsFile = File(rootDir, "settings.gradle.kts")
-            val includedPaths = if (settingsFile.isFile) {
-                parseSettingsIncludes(settingsFile)
-            } else {
-                emptyList()
-            }
+            val includedPaths =
+                if (settingsFile.isFile) {
+                    parseSettingsIncludes(settingsFile)
+                } else {
+                    emptyList()
+                }
 
             return includedPaths.mapNotNull { includePath ->
                 val moduleDir = File(rootDir, includePath.replace(":", "/"))
@@ -182,16 +209,19 @@ class MeasurementContext(
                     path = includePath,
                     projectDir = moduleDir,
                     buildFile = buildFile,
-                    sourceDirs = listOf(
-                        File(moduleDir, "src/main/kotlin"),
-                        File(moduleDir, "src/main/java"),
-                    ),
-                    testSourceDirs = listOf(
-                        File(moduleDir, "src/test/kotlin"),
-                    ),
-                    testFixtureDirs = listOf(
-                        File(moduleDir, "src/testFixtures/kotlin"),
-                    ),
+                    sourceDirs =
+                        listOf(
+                            File(moduleDir, "src/main/kotlin"),
+                            File(moduleDir, "src/main/java"),
+                        ),
+                    testSourceDirs =
+                        listOf(
+                            File(moduleDir, "src/test/kotlin"),
+                        ),
+                    testFixtureDirs =
+                        listOf(
+                            File(moduleDir, "src/testFixtures/kotlin"),
+                        ),
                     publishable = entry?.publishability == ModulePublishability.PUBLISHED,
                     layer = entry?.layer?.yaml ?: "unknown",
                     apiStability = entry?.apiStability?.yaml ?: "unclassified",
@@ -220,13 +250,15 @@ class MeasurementContext(
 
             // Extract all quoted strings from the block
             val quotedRegex = Regex(""""([^"]+)"""")
-            return quotedRegex.findAll(blockMatch.groupValues[1]).map { it.groupValues[1] }.toList()
+            return quotedRegex
+                .findAll(blockMatch.groupValues[1])
+                .map { it.groupValues[1] }
+                .toList()
                 .map { normalizeGradlePath(it) }
         }
 
         /** Normalize a module path to Gradle format (leading colon). */
-        private fun normalizeGradlePath(includePath: String): String =
-            if (includePath.startsWith(":")) includePath else ":$includePath"
+        private fun normalizeGradlePath(includePath: String): String = if (includePath.startsWith(":")) includePath else ":$includePath"
     }
 }
 

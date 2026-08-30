@@ -1,16 +1,17 @@
 package dev.tramai.build.quality
 
+import dev.tramai.build.release.VerifyPublicationMetadataTask
+import org.gradle.api.Action
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.GradleException
-import org.gradle.api.Action
 import org.gradle.api.plugins.JavaPluginExtension
-import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
-import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.gradle.kotlin.dsl.register
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -21,7 +22,6 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Apply in root build.gradle.kts with: `plugins { id("tramai.maintainability-baseline") }`
  */
 abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
         if (project != project.rootProject) return
 
@@ -34,7 +34,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         val nondeterminismInventory = NondeterminismInventory(ctx)
         val testQualityConfiguration = TestQualityConfiguration.load(project.rootDir)
         val criticalModules = testQualityConfiguration.criticalModules.toSet()
-        val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+        val reportDir =
+            File(
+                project.layout.buildDirectory
+                    .get()
+                    .asFile,
+                "reports/maintainability",
+            )
 
         // Register JaCoCo on critical modules using provider-safe API (no tasks.matching / executionData(TaskCollection))
         val criticalTestTaskPaths = criticalModules.sorted().map { "$it:test" }
@@ -56,15 +62,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             html.required.set(true)
                         }
                         // Filter class directories to exclude patterns using Gradle fileTree
-                        val mainSourceSet = criticalProject.extensions.getByType(
-                            org.gradle.api.plugins.JavaPluginExtension::class.java
-                        ).sourceSets.getByName("main")
+                        val mainSourceSet =
+                            criticalProject.extensions
+                                .getByType(
+                                    org.gradle.api.plugins.JavaPluginExtension::class.java,
+                                ).sourceSets
+                                .getByName("main")
                         classDirectories.from(
                             mainSourceSet.output.classesDirs.files.map { root ->
                                 criticalProject.fileTree(root) {
                                     exclude(excludedPatterns)
                                 }
-                            }
+                            },
                         )
                     }
                 }
@@ -77,81 +86,67 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Generates per-module public API dump records"
             doLast {
                 val apiBaseline = generator.generateApiBaseline()
-                println("Public API baseline: ${apiBaseline.modules.size} modules, " +
-                    "${apiBaseline.modules.count { it.applicable }} applicable, " +
-                    "${apiBaseline.modules.count { it.sha256.isNotBlank() }} with dumps")
+                println(
+                    "Public API baseline: ${apiBaseline.modules.size} modules, " +
+                        "${apiBaseline.modules.count { it.applicable }} applicable, " +
+                        "${apiBaseline.modules.count { it.sha256.isNotBlank() }} with dumps",
+                )
             }
         }
 
         // Register per-project dependency probe tasks (Gradle 9: each task owns its config)
         val perProjectProbeTasks = mutableListOf<String>()
+        val dependencyProbeTaskName = "generateResolvedDependencyBaseline"
         project.allprojects.filter { it != project && it.buildFile.exists() }.forEach { sub ->
-            val taskName = "generateResolvedDependencyBaseline"
-            val probe = sub.tasks.register(taskName, GenerateResolvedDependencyBaselineTask::class.java)
+            val probe = sub.tasks.register(dependencyProbeTaskName, GenerateResolvedDependencyBaselineTask::class.java)
             probe.configure {
                 group = "maintainability"
                 description = "Resolves external dependencies for ${sub.path}"
                 outputFile.set(
-                    sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json")
+                    sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json"),
                 )
                 val probePath = sub.path
                 consumerPath.set(probePath)
-                resolution.set(sub.provider {
-                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
-                        .mapNotNull { name -> sub.configurations.findByName(name) }
-                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
-                        .fold(
-                            onSuccess = { DependencyResolutionResult(it) },
-                            onFailure = { e ->
-                                DependencyResolutionResult(
-                                    records = emptyList(),
-                                    failureMessage = e.message ?: e.javaClass.name,
-                                )
-                            },
-                        )
-                })
+                resolution.set(
+                    sub.provider {
+                        val probeConfigs =
+                            listOf("compileClasspath", "runtimeClasspath")
+                                .mapNotNull { name -> sub.configurations.findByName(name) }
+                        runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                            .fold(
+                                onSuccess = { DependencyResolutionResult(it) },
+                                onFailure = { e ->
+                                    DependencyResolutionResult(
+                                        records = emptyList(),
+                                        failureMessage = e.message ?: e.javaClass.name,
+                                    )
+                                },
+                            )
+                    },
+                )
             }
-            perProjectProbeTasks.add("${sub.path}:$taskName")
+            perProjectProbeTasks.add("${sub.path}:$dependencyProbeTaskName")
         }
 
-        // Root aggregation task depends on all per-project probes and merges their outputs
-        project.tasks.register("generateResolvedDependencyBaseline") {
+        // Root aggregation task depends on all per-project probes and merges their outputs.
+        // Typed (Epic 9.2d-a3c1): probeFiles + expectedProbeOwners are paired,
+        // index-aligned inputs built in the same deterministic (sorted) order.
+        val expectedAggregateProjects =
+            project.allprojects
+                .filter { it != project && it.buildFile.exists() }
+                .sortedBy { it.path }
+        project.tasks.register<AggregateResolvedDependencyBaselineTask>("generateResolvedDependencyBaseline") {
             group = "maintainability"
             description = "Aggregates per-project resolved dependency baselines"
             dependsOn(*perProjectProbeTasks.toTypedArray())
-            doLast {
-                val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
-                reportDir.mkdirs()
-                val aggregateFile = File(reportDir, "resolved-dependencies.json")
-                val allRecords = mutableListOf<ResolvedDependency>()
-                val expectedProjects = project.allprojects
-                    .filter { it != project && it.buildFile.exists() }
-                    .sortedBy { it.path }
-
-                expectedProjects.forEach { sub ->
-                    val probeFile = File(
-                        sub.layout.buildDirectory.get().asFile,
-                        "reports/maintainability/resolved-dependencies.json"
-                    )
-                    if (!probeFile.isFile) {
-                        throw GradleException(
-                            "Missing dependency probe output for ${sub.path}: ${probeFile.absolutePath}"
-                        )
-                    }
-                    val records = try {
-                        ReportNormalizer.readJson(probeFile, Array<ResolvedDependency>::class.java).toList()
-                    } catch (e: Exception) {
-                        throw GradleException(
-                            "Invalid dependency probe output for ${sub.path}: ${e.message}", e
-                        )
-                    }
-                    allRecords.addAll(records)
-                }
-                val sorted = BaselineGenerator.sortResolvedDependencies(allRecords)
-                ReportNormalizer.writeJson(sorted, aggregateFile)
-                val direct = sorted.count { it.direct }
-                val transitive = sorted.size - direct
-                println("Resolved dependency baseline: ${sorted.size} records ($direct direct, $transitive transitive)")
+            aggregateFile.set(project.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json"))
+            expectedAggregateProjects.forEach { sub ->
+                probeFiles.from(
+                    sub.tasks
+                        .named(dependencyProbeTaskName, GenerateResolvedDependencyBaselineTask::class.java)
+                        .flatMap { it.outputFile },
+                )
+                expectedProbeOwners.add(sub.path)
             }
         }
 
@@ -166,24 +161,27 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 group = "verification"
                 description = "Resolves external dependencies for ${sub.path} (fail-soft, architecture gate)"
                 outputFile.set(
-                    sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json")
+                    sub.layout.buildDirectory.file("reports/maintainability/architecture-dependencies.json"),
                 )
                 val probePath = sub.path
                 consumerPath.set(probePath)
-                resolution.set(sub.provider {
-                    val probeConfigs = listOf("compileClasspath", "runtimeClasspath")
-                        .mapNotNull { name -> sub.configurations.findByName(name) }
-                    runCatching { collectResolvedDependencies(probePath, probeConfigs) }
-                        .fold(
-                            onSuccess = { DependencyResolutionResult(it) },
-                            onFailure = { e ->
-                                DependencyResolutionResult(
-                                    records = emptyList(),
-                                    failureMessage = e.message ?: e.javaClass.name,
-                                )
-                            },
-                        )
-                })
+                resolution.set(
+                    sub.provider {
+                        val probeConfigs =
+                            listOf("compileClasspath", "runtimeClasspath")
+                                .mapNotNull { name -> sub.configurations.findByName(name) }
+                        runCatching { collectResolvedDependencies(probePath, probeConfigs) }
+                            .fold(
+                                onSuccess = { DependencyResolutionResult(it) },
+                                onFailure = { e ->
+                                    DependencyResolutionResult(
+                                        records = emptyList(),
+                                        failureMessage = e.message ?: e.javaClass.name,
+                                    )
+                                },
+                            )
+                    },
+                )
             }
             architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
         }
@@ -235,7 +233,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val findings = cancellationInventory.inventory()
                 val critical = findings.count { it.risk == "critical" }
                 val high = findings.count { it.risk == "high" }
-                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                val outDir =
+                    File(
+                        project.layout.buildDirectory
+                            .get()
+                            .asFile,
+                        "reports/maintainability",
+                    )
                 outDir.mkdirs()
                 ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "cancellation-safety.json"))
                 println("Cancellation catch inventory: ${findings.size} findings ($critical critical, $high high)")
@@ -247,7 +251,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Scans for process-global mutable state"
             doLast {
                 val findings = globalStateInventory.inventory()
-                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                val outDir =
+                    File(
+                        project.layout.buildDirectory
+                            .get()
+                            .asFile,
+                        "reports/maintainability",
+                    )
                 outDir.mkdirs()
                 ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "global-state.json"))
                 println("Global state inventory: ${findings.size} mutable globals found")
@@ -259,7 +269,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Scans for direct clock/randomness/identity access"
             doLast {
                 val findings = nondeterminismInventory.inventory()
-                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                val outDir =
+                    File(
+                        project.layout.buildDirectory
+                            .get()
+                            .asFile,
+                        "reports/maintainability",
+                    )
                 outDir.mkdirs()
                 ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "nondeterminism.json"))
                 val byCategory = findings.groupBy { it.category }
@@ -273,7 +289,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Reads the resolved dependency baseline and prints summary"
             dependsOn("generateResolvedDependencyBaseline")
             doLast {
-                val file = project.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json").get().asFile
+                val file =
+                    project.layout.buildDirectory
+                        .file("reports/maintainability/resolved-dependencies.json")
+                        .get()
+                        .asFile
                 if (file.isFile) {
                     val deps = ReportNormalizer.readJson(file, Array<ResolvedDependency>::class.java).toList()
                     println("Resolved dependency graph: ${deps.size} dependencies")
@@ -295,16 +315,17 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Generates JaCoCo coverage measurements for critical modules"
             dependsOn(criticalCoverageReportTaskPaths)
             doLast {
-                val coverage = CoverageCollector(
-                    project.rootDir,
-                    testQualityConfiguration
-                ).collect()
+                val coverage =
+                    CoverageCollector(
+                        project.rootDir,
+                        testQualityConfiguration,
+                    ).collect()
                 reportDir.mkdirs()
                 ReportNormalizer.writeJson(coverage, File(reportDir, "coverage-summary.json"))
                 println(
                     "Critical coverage baseline: ${coverage.criticalModules.size} modules, " +
                         "${"%.2f".format(coverage.overallLineCoverage)}% lines, " +
-                        "${"%.2f".format(coverage.overallBranchCoverage)}% branches"
+                        "${"%.2f".format(coverage.overallBranchCoverage)}% branches",
                 )
             }
         }
@@ -318,7 +339,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val initScript = File(reportDir, "critical-mutation-probe.init.gradle")
                 initScript.writeText(
                     mutationInitScript(testQualityConfiguration, mutationRoot),
-                    Charsets.UTF_8
+                    Charsets.UTF_8,
                 )
                 testQualityConfiguration.mutation.targetFamilies.keys.sorted().forEach { family ->
                     runNestedGradle(
@@ -327,18 +348,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             "--init-script",
                             initScript.absolutePath,
                             "-PtramaiMutationFamily=$family",
-                            "canonicalMutationProbe"
-                        )
+                            "canonicalMutationProbe",
+                        ),
                     )
                 }
-                val mutation = generator.generateMutationBaseline(
-                    testQualityConfiguration,
-                    mutationRoot
-                )
+                val mutation =
+                    generator.generateMutationBaseline(
+                        testQualityConfiguration,
+                        mutationRoot,
+                    )
                 ReportNormalizer.writeJson(mutation, File(reportDir, "mutation-summary.json"))
                 println(
                     "Critical mutation baseline: ${mutation.totalMutants} mutants, " +
-                        "${"%.2f".format(mutation.mutationScore)}% killed"
+                        "${"%.2f".format(mutation.mutationScore)}% killed",
                 )
             }
         }
@@ -355,24 +377,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                 runNestedGradle(project, listOf("--rerun-tasks") + testTaskPaths)
                 val collector = TestPerformanceCollector(project.rootDir, testQualityConfiguration)
-                val observations = (1..3).flatMap { run ->
-                    runNestedGradle(project, listOf("--rerun-tasks") + testTaskPaths)
-                    copyTestReports(project.rootDir, criticalModules, File(runsRoot, run.toString()))
-                    collector.collectMeasuredRun(
-                        run = run,
-                        gradleVersion = project.gradle.gradleVersion,
-                        reportRoot = runsRoot
-                    )
-                }
+                val observations =
+                    (1..3).flatMap { run ->
+                        runNestedGradle(project, listOf("--rerun-tasks") + testTaskPaths)
+                        copyTestReports(project.rootDir, criticalModules, File(runsRoot, run.toString()))
+                        collector.collectMeasuredRun(
+                            run = run,
+                            gradleVersion = project.gradle.gradleVersion,
+                            reportRoot = runsRoot,
+                        )
+                    }
                 val performance = TestPerformanceAggregator().aggregate(observations)
                 ReportNormalizer.writeJson(
                     observations,
-                    File(outputRoot, "observations.json")
+                    File(outputRoot, "observations.json"),
                 )
                 ReportNormalizer.writeJson(performance, File(outputRoot, "median.json"))
                 println(
                     "Test performance baseline: ${performance.totalTestCount} tests, " +
-                        "${performance.totalDurationMs}ms aggregate median"
+                        "${performance.totalDurationMs}ms aggregate median",
                 )
             }
         }
@@ -391,7 +414,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "generateNondeterminismInventory",
                 "generatePublicApiBaseline",
                 "generateResolvedDependencyBaseline",
-                "generateRuntimeProtocolCatalog"
+                "generateRuntimeProtocolCatalog",
             )
             doLast {
                 val baseline = generator.generateCompleteBaseline()
@@ -407,35 +430,39 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "generateMaintainabilityBaseline",
                 "generateCoverageBaseline",
                 "generateTestPerformanceBaseline",
-                "generateCriticalMutationBaseline"
+                "generateCriticalMutationBaseline",
             )
             doLast {
                 val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
                 val generated = generator.generateFullBaseline()
-                val structuralBaseline = ReportNormalizer.readJson(
-                    baselineFile,
-                    BaselineDocument::class.java
-                )
-                val coverage = ReportNormalizer.readJson(
-                    File(reportDir, "coverage-summary.json"),
-                    CoverageData::class.java
-                )
-                val mutation = ReportNormalizer.readJson(
-                    File(reportDir, "mutation-summary.json"),
-                    MutationData::class.java
-                )
-                val performance = ReportNormalizer.readJson(
-                    File(reportDir, "test-performance/median.json"),
-                    TestPerformanceData::class.java
-                )
+                val structuralBaseline =
+                    ReportNormalizer.readJson(
+                        baselineFile,
+                        BaselineDocument::class.java,
+                    )
+                val coverage =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "coverage-summary.json"),
+                        CoverageData::class.java,
+                    )
+                val mutation =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "mutation-summary.json"),
+                        MutationData::class.java,
+                    )
+                val performance =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "test-performance/median.json"),
+                        TestPerformanceData::class.java,
+                    )
                 generator.updateBaselineJson(
                     structuralBaseline.copy(
                         baselineIdentity = generated.baselineIdentity,
                         testQuality = TestQualityBaseline(performance, coverage, mutation),
                         generatedAt = generated.generatedAt,
                         generatedBy = "generateFullMaintainabilityBaseline",
-                        environment = generated.environment
-                    )
+                        environment = generated.environment,
+                    ),
                 )
                 println("Full maintainability baseline generated: ${baselineFile.absolutePath}")
             }
@@ -467,7 +494,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             doLast {
                 val ctx = MeasurementContext.fromProject(project)
                 val generator = BaselineGenerator(ctx)
-                val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                val reportDir =
+                    File(
+                        project.layout.buildDirectory
+                            .get()
+                            .asFile,
+                        "reports/maintainability",
+                    )
                 val verifier = BaselineVerifier(generator, ctx, reportDir)
                 val report = verifier.verify()
 
@@ -479,10 +512,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 report.acceptedDeviations.forEach { project.logger.info("ACCEPTED: $it") }
 
                 if (!report.passed) {
-                    val summary = "Maintainability baseline verification FAILED:\n" +
-                        report.failures.joinToString("\n") { "  - $it" } +
-                        "\n\nRun './gradlew generateMaintainabilityBaseline' to regenerate." +
-                        "\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."
+                    val summary =
+                        "Maintainability baseline verification FAILED:\n" +
+                            report.failures.joinToString("\n") { "  - $it" } +
+                            "\n\nRun './gradlew generateMaintainabilityBaseline' to regenerate." +
+                            "\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."
                     throw GradleException(summary)
                 }
 
@@ -509,24 +543,30 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // the scanner's execution universe are the same set.
         val nonDetCtx = MeasurementContext.fromProject(project)
         val nonDetSourceFiles = project.objects.fileCollection()
-        val nonDetScanSpec = nonDetCtx.modules.map { mod ->
-            listOf("src/main/kotlin", "src/main/java").forEach { rel ->
-                val dir = File(mod.projectDir, rel)
-                nonDetSourceFiles.from(
-                    project.fileTree(mapOf("dir" to dir, "include" to listOf("**/*.kt", "**/*.java")))
-                )
+        val nonDetScanSpec =
+            nonDetCtx.modules.map { mod ->
+                listOf("src/main/kotlin", "src/main/java").forEach { rel ->
+                    val dir = File(mod.projectDir, rel)
+                    nonDetSourceFiles.from(
+                        project.fileTree(mapOf("dir" to dir, "include" to listOf("**/*.kt", "**/*.java"))),
+                    )
+                }
+                mapOf("name" to mod.name, "dir" to mod.projectDir.relativeTo(project.rootDir).path)
             }
-            mapOf("name" to mod.name, "dir" to mod.projectDir.relativeTo(project.rootDir).path)
-        }
         project.tasks.register("verifyRuntimeNondeterminism", VerifyRuntimeNondeterminismTask::class.java) {
             group = "maintainability"
-            description = "Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"
+            description =
+                "Fails on unclassified, stale, mismatched, or occurrence-drifted entries in config/quality/runtime-nondeterminism.yml"
             allowlistFile.set(project.rootDir.resolve("config/quality/runtime-nondeterminism.yml"))
             sourceFiles.from(nonDetSourceFiles)
             scanSpec.set(
-                com.fasterxml.jackson.databind.ObjectMapper()
-                    .registerModule(com.fasterxml.jackson.module.kotlin.KotlinModule.Builder().build())
-                    .writeValueAsString(nonDetScanSpec)
+                com.fasterxml.jackson.databind
+                    .ObjectMapper()
+                    .registerModule(
+                        com.fasterxml.jackson.module.kotlin.KotlinModule
+                            .Builder()
+                            .build(),
+                    ).writeValueAsString(nonDetScanSpec),
             )
             rootDir.set(project.rootDir.absolutePath)
             reportFile.set(project.layout.buildDirectory.file("reports/maintainability/runtime-nondeterminism-verification.json"))
@@ -534,17 +574,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyCancellationSafety") {
             group = "maintainability"
-            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."
+            description =
+                "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."
             doLast {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
                 val findings = inventory.inventory()
 
                 // Derive scope from all non-example modules
-                val scopedModules = scanningCtx.modules
-                    .map { it.path }
-                    .filterNot { it.startsWith(":examples:") }
-                    .toSet()
+                val scopedModules =
+                    scanningCtx.modules
+                        .map { it.path }
+                        .filterNot { it.startsWith(":examples:") }
+                        .toSet()
 
                 val scopedFindings = findings.filter { it.module in scopedModules }
 
@@ -553,19 +595,26 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                 if (baseSha != null) {
                     // ── PR mode: compare against base SHA ──
-                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseSha.take(8)}-").toFile()
+                    val worktreeDir =
+                        java.nio.file.Files
+                            .createTempDirectory("tramai-base-${baseSha.take(8)}-")
+                            .toFile()
                     val baseCatches: List<CancellationCatchFinding>
                     var worktreeCreated = false
 
                     try {
                         // Create temporary git worktree at base SHA
-                        val addProcess = ProcessBuilder(
-                            "git", "worktree", "add",
-                            worktreeDir.absolutePath, baseSha, "--detach"
-                        )
-                            .directory(project.rootDir)
-                            .redirectErrorStream(true)
-                            .start()
+                        val addProcess =
+                            ProcessBuilder(
+                                "git",
+                                "worktree",
+                                "add",
+                                worktreeDir.absolutePath,
+                                baseSha,
+                                "--detach",
+                            ).directory(project.rootDir)
+                                .redirectErrorStream(true)
+                                .start()
                         val addOutput = addProcess.inputStream.bufferedReader().readText()
                         val addExit = addProcess.waitFor()
                         if (addExit != 0) throw GradleException("Failed to create worktree at $baseSha: $addOutput")
@@ -601,17 +650,22 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     println("verifyCancellationSafety PASSED: no new critical/high findings or risk worsenings against base SHA.")
                 } else {
                     // ── Local dev mode: auto-resolve merge base against origin/master ──
-                    val resolveProcess = ProcessBuilder("git", "merge-base", "HEAD", "origin/master")
-                        .directory(project.rootDir)
-                        .redirectErrorStream(true)
-                        .start()
-                    val resolveOutput = resolveProcess.inputStream.bufferedReader().readText().trim()
+                    val resolveProcess =
+                        ProcessBuilder("git", "merge-base", "HEAD", "origin/master")
+                            .directory(project.rootDir)
+                            .redirectErrorStream(true)
+                            .start()
+                    val resolveOutput =
+                        resolveProcess.inputStream
+                            .bufferedReader()
+                            .readText()
+                            .trim()
                     val resolveExit = resolveProcess.waitFor()
                     if (resolveExit != 0) {
                         throw GradleException(
                             "verifyCancellationSafety requires -PtramaiCancellationBaseSha when origin/master is not available.\n" +
-                            "Usage: ./gradlew verifyCancellationSafety -PtramaiCancellationBaseSha=<sha>\n" +
-                            "In CI this is auto-wired. Locally, use the base branch SHA."
+                                "Usage: ./gradlew verifyCancellationSafety -PtramaiCancellationBaseSha=<sha>\n" +
+                                "In CI this is auto-wired. Locally, use the base branch SHA.",
                         )
                     }
 
@@ -619,18 +673,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     println("verifyCancellationSafety: auto-resolved merge base against origin/master = ${baseShaLocal.take(8)}")
 
                     // Scan merge base using the same worktree approach
-                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseShaLocal.take(8)}-").toFile()
+                    val worktreeDir =
+                        java.nio.file.Files
+                            .createTempDirectory("tramai-base-${baseShaLocal.take(8)}-")
+                            .toFile()
                     val localBaseCatches: List<CancellationCatchFinding>
                     var worktreeCreated = false
 
                     try {
-                        val addProcess = ProcessBuilder(
-                            "git", "worktree", "add",
-                            worktreeDir.absolutePath, baseShaLocal, "--detach"
-                        )
-                            .directory(project.rootDir)
-                            .redirectErrorStream(true)
-                            .start()
+                        val addProcess =
+                            ProcessBuilder(
+                                "git",
+                                "worktree",
+                                "add",
+                                worktreeDir.absolutePath,
+                                baseShaLocal,
+                                "--detach",
+                            ).directory(project.rootDir)
+                                .redirectErrorStream(true)
+                                .start()
                         val addOutput = addProcess.inputStream.bufferedReader().readText()
                         val addExit = addProcess.waitFor()
                         if (addExit != 0) throw GradleException("Failed to create worktree at $baseShaLocal: $addOutput")
@@ -662,7 +723,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     }
 
                     println(delta.diagnostics.joinToString("\n"))
-                    println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.")
+                    println(
+                        "verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.",
+                    )
                 }
             }
         }
@@ -673,15 +736,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             dependsOn("generateCoverageBaseline")
             doLast {
                 val committed = readCommittedBaseline(project)
-                val current = ReportNormalizer.readJson(
-                    File(reportDir, "coverage-summary.json"),
-                    CoverageData::class.java
-                )
+                val current =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "coverage-summary.json"),
+                        CoverageData::class.java,
+                    )
                 verifyTestQualityDiagnostics(
                     project,
                     "Critical coverage",
                     CoverageBaselineVerifier(testQualityConfiguration)
-                        .verify(committed.testQuality.coverage, current)
+                        .verify(committed.testQuality.coverage, current),
                 )
             }
         }
@@ -692,15 +756,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             dependsOn("generateCriticalMutationBaseline")
             doLast {
                 val committed = readCommittedBaseline(project)
-                val current = ReportNormalizer.readJson(
-                    File(reportDir, "mutation-summary.json"),
-                    MutationData::class.java
-                )
+                val current =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "mutation-summary.json"),
+                        MutationData::class.java,
+                    )
                 verifyTestQualityDiagnostics(
                     project,
                     "Critical mutation",
                     MutationBaselineVerifier(testQualityConfiguration, project.rootDir)
-                        .verify(committed.testQuality.mutation, current)
+                        .verify(committed.testQuality.mutation, current),
                 )
             }
         }
@@ -711,15 +776,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             dependsOn("generateTestPerformanceBaseline")
             doLast {
                 val committed = readCommittedBaseline(project)
-                val current = ReportNormalizer.readJson(
-                    File(reportDir, "test-performance/median.json"),
-                    TestPerformanceData::class.java
-                )
+                val current =
+                    ReportNormalizer.readJson(
+                        File(reportDir, "test-performance/median.json"),
+                        TestPerformanceData::class.java,
+                    )
                 verifyTestQualityDiagnostics(
                     project,
                     "Test performance",
                     TestPerformanceVerifier(testQualityConfiguration)
-                        .verify(committed.testQuality.testPerformance, current)
+                        .verify(committed.testQuality.testPerformance, current),
                 )
             }
         }
@@ -731,95 +797,118 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("generateCanonicalMaintainabilityBaseline") {
             group = "maintainability"
-            description = "Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=<worktree> to scan a detached checkout."
+            description =
+                "Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=<worktree> to scan a detached checkout."
 
             doLast {
                 // Verify the analyzer (PR) checkout is clean before generation
-                val analyzerStatus = ProcessBuilder(listOf("git", "status", "--porcelain"))
-                    .directory(project.rootDir)
-                    .redirectErrorStream(true)
-                    .start()
+                val analyzerStatus =
+                    ProcessBuilder(listOf("git", "status", "--porcelain"))
+                        .directory(project.rootDir)
+                        .redirectErrorStream(true)
+                        .start()
                 val analyzerOutput = analyzerStatus.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val analyzerExitCode = analyzerStatus.waitFor()
                 project.logger.lifecycle("DEBUG analyzer checkout: exit=$analyzerExitCode output='${analyzerOutput.trim()}'")
                 if (analyzerExitCode != 0 || analyzerOutput.isNotBlank()) {
                     throw GradleException(
                         "Analyzer checkout must be clean before canonical generation.\n" +
-                            "Commit or stash changes in ${project.rootDir} first."
+                            "Commit or stash changes in ${project.rootDir} first.",
                     )
                 }
 
                 val sourceRootProp = project.findProperty("maintainability.sourceRoot")?.toString()
-                val canonicalGenerator = if (sourceRootProp != null) {
-                    val sourceRoot = project.rootDir.resolve(sourceRootProp).normalize()
-                    if (!sourceRoot.isDirectory) {
-                        throw GradleException("maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory")
+                val canonicalGenerator =
+                    if (sourceRootProp != null) {
+                        val sourceRoot = project.rootDir.resolve(sourceRootProp).normalize()
+                        if (!sourceRoot.isDirectory) {
+                            throw GradleException(
+                                "maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory",
+                            )
+                        }
+                        BaselineGenerator.fromDirectory(sourceRoot, analyzerRoot = project.rootDir)
+                    } else {
+                        BaselineGenerator.fromProject(project)
                     }
-                    BaselineGenerator.fromDirectory(sourceRoot, analyzerRoot = project.rootDir)
-                } else {
-                    BaselineGenerator.fromProject(project)
-                }
 
                 // When probing a detached worktree, use CanonicalGradleProbe for API/dependency
                 // measurements. The generator handles structural/scanner data from directory mode.
                 val sourceRootFile = if (sourceRootProp != null) project.rootDir.resolve(sourceRootProp).normalize() else null
                 val outputDirProp = project.findProperty("maintainability.outputDir")?.toString()
-                val probeOutputDir = if (outputDirProp != null) {
-                    project.rootDir.resolve(outputDirProp).also { it.mkdirs() }
-                } else null
-                val canonicalProbe = sourceRootFile?.let {
-                    CanonicalGradleProbe(
-                        sourceRoot = it,
-                        outputDir = probeOutputDir,
-                        analyzerRoot = project.rootDir
-                    )
-                }
-                val apiOverride: ApiBaseline? = if (sourceRootFile != null) {
-                    val result = canonicalProbe!!.probeApiBaseline()
-                    project.logger.lifecycle("Canonical API probe: ${result.records.size} records")
-                    val stabilities = result.records.groupBy { it.stability }.mapValues { it.value.size }
-                    project.logger.lifecycle("  Stability breakdown: $stabilities")
-                    if (result.records.none { it.applicable && it.sha256.isNotBlank() }) {
-                        throw GradleException("Canonical API probe produced no valid API hashes. " +
-                            "At least one applicable module must have a captured API dump.")
+                val probeOutputDir =
+                    if (outputDirProp != null) {
+                        project.rootDir.resolve(outputDirProp).also { it.mkdirs() }
+                    } else {
+                        null
                     }
-                    ApiBaseline(
-                        modules = result.records,
-                        aggregateHash = java.security.MessageDigest.getInstance("SHA-256")
-                            .digest(ReportNormalizer.toJson(result.records).toByteArray(Charsets.UTF_8))
-                            .joinToString("") { "%02x".format(it) }
-                    )
-                } else null
-
-                val dependencyOverride: List<ResolvedDependency>? = if (sourceRootFile != null) {
-                    val result = canonicalProbe!!.probeDependencyBaseline()
-                    project.logger.lifecycle("Canonical dependency probe: ${result.records.size} records")
-                    if (result.records.isEmpty()) {
-                        throw GradleException("Canonical dependency probe produced no dependency records. " +
-                            "Non-empty dependency baseline is required.")
+                val canonicalProbe =
+                    sourceRootFile?.let {
+                        CanonicalGradleProbe(
+                            sourceRoot = it,
+                            outputDir = probeOutputDir,
+                            analyzerRoot = project.rootDir,
+                        )
                     }
-                    result.records
-                } else null
+                val apiOverride: ApiBaseline? =
+                    if (sourceRootFile != null) {
+                        val result = canonicalProbe!!.probeApiBaseline()
+                        project.logger.lifecycle("Canonical API probe: ${result.records.size} records")
+                        val stabilities = result.records.groupBy { it.stability }.mapValues { it.value.size }
+                        project.logger.lifecycle("  Stability breakdown: $stabilities")
+                        if (result.records.none { it.applicable && it.sha256.isNotBlank() }) {
+                            throw GradleException(
+                                "Canonical API probe produced no valid API hashes. " +
+                                    "At least one applicable module must have a captured API dump.",
+                            )
+                        }
+                        ApiBaseline(
+                            modules = result.records,
+                            aggregateHash =
+                                java.security.MessageDigest
+                                    .getInstance("SHA-256")
+                                    .digest(ReportNormalizer.toJson(result.records).toByteArray(Charsets.UTF_8))
+                                    .joinToString("") { "%02x".format(it) },
+                        )
+                    } else {
+                        null
+                    }
 
-                val testQualityOverride = canonicalProbe?.probeTestQualityBaseline(
-                    testQualityConfiguration
-                )
+                val dependencyOverride: List<ResolvedDependency>? =
+                    if (sourceRootFile != null) {
+                        val result = canonicalProbe!!.probeDependencyBaseline()
+                        project.logger.lifecycle("Canonical dependency probe: ${result.records.size} records")
+                        if (result.records.isEmpty()) {
+                            throw GradleException(
+                                "Canonical dependency probe produced no dependency records. " +
+                                    "Non-empty dependency baseline is required.",
+                            )
+                        }
+                        result.records
+                    } else {
+                        null
+                    }
+
+                val testQualityOverride =
+                    canonicalProbe?.probeTestQualityBaseline(
+                        testQualityConfiguration,
+                    )
                 if (testQualityOverride != null) {
                     project.logger.lifecycle(
                         "Canonical test-quality probe: " +
                             "${testQualityOverride.coverage.criticalModules.size} coverage modules, " +
                             "${testQualityOverride.mutation.totalMutants} mutants, " +
-                            "${testQualityOverride.testPerformance.totalTestCount} tests"
+                            "${testQualityOverride.testPerformance.totalTestCount} tests",
                     )
                 }
 
-                val baseline = canonicalGenerator.generateCompleteBaseline(
-                    apiOverride = apiOverride,
-                    dependencyOverride = dependencyOverride,
-                    coverageOverride = testQualityOverride?.coverage,
-                    mutationOverride = testQualityOverride?.mutation,
-                    testPerformanceOverride = testQualityOverride?.testPerformance
-                )
+                val baseline =
+                    canonicalGenerator.generateCompleteBaseline(
+                        apiOverride = apiOverride,
+                        dependencyOverride = dependencyOverride,
+                        coverageOverride = testQualityOverride?.coverage,
+                        mutationOverride = testQualityOverride?.mutation,
+                        testPerformanceOverride = testQualityOverride?.testPerformance,
+                    )
                 val identity = baseline.baselineIdentity
 
                 // Provenance gates
@@ -828,28 +917,28 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         "Canonical baseline must be generated at ${identity.releaseTag}. " +
                             "HEAD=${identity.measuredCommitSha.take(8)}, " +
                             "tag=${identity.baselineCommitSha.take(8)}. " +
-                            "Use -Pmaintainability.sourceRoot=<v0.5.0-worktree-path>"
+                            "Use -Pmaintainability.sourceRoot=<v0.5.0-worktree-path>",
                     )
                 }
 
                 if (!identity.workingTreeClean) {
                     throw GradleException(
                         "Canonical baseline must be generated from a clean worktree. " +
-                            "Commit or stash changes first."
+                            "Commit or stash changes first.",
                     )
                 }
 
                 if (identity.measuredSourceTreeHash.isBlank()) {
                     throw GradleException(
                         "Canonical baseline has an empty measuredSourceTreeHash. " +
-                            "Ensure the worktree is clean and git is available."
+                            "Ensure the worktree is clean and git is available.",
                     )
                 }
 
                 if (identity.measuredGitTreeSha.isBlank()) {
                     throw GradleException(
                         "Canonical baseline has an empty measuredGitTreeSha. " +
-                            "Ensure git is available in the source root."
+                            "Ensure git is available in the source root.",
                     )
                 }
 
@@ -859,7 +948,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 println("  Wrote canonical baseline to ${prBaselineFile.absolutePath}")
                 println(
                     "Canonical maintainability baseline generated for " +
-                        "${identity.releaseTag} at ${identity.measuredCommitSha.take(8)}"
+                        "${identity.releaseTag} at ${identity.measuredCommitSha.take(8)}",
                 )
                 println("  Git tree SHA: ${identity.measuredGitTreeSha.take(8)}")
                 println("  Source tree hash: ${identity.measuredSourceTreeHash.take(16)}...")
@@ -874,7 +963,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "verifyCriticalCoverage",
                 "verifyCriticalMutationBaseline",
                 "verifyTestPerformanceBaseline",
-                "verifyRuntimeNondeterminism"
+                "verifyRuntimeNondeterminism",
             )
             doLast {
                 println("Full maintainability baseline verification complete.")
@@ -906,44 +995,42 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         }
 
         // ---- Authoritative module manifest ----
-
-        project.tasks.register("verifyModuleManifest") {
-            group = "verification"
-            description = "Verifies manifest/settings equality and publishing/BOM membership against independent Gradle model signals"
-            doLast {
-                val catalog = ModuleManifest.catalog(project.rootDir)
-                // Independent signal 1: the actual Gradle project model (settings ↔ manifest).
-                val actualProjects = project.allprojects
-                    .filter { it != project && it.buildFile.exists() }
-                    .map { it.path }
-                    .toSet()
-                // Independent signal 2: the publication set the build actually wires into
-                // release tasks. In this build publishing is DERIVED from the manifest, so
-                // the check is a regression lock: it fires if the derivation is replaced
-                // by a literal list or the two disagree.
-                val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                    ?.map { it.toString() }?.toSet().orEmpty()
-                // Independent signal 3: the BOM's ACTUAL configured constraint graph, read
-                // from Gradle's model of tramai-bom's api configuration (not from a manifest
-                // round-trip).
-                val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
-                val actualBom = bomProject
-                    ?.configurations
-                    ?.findByName("api")
-                    ?.dependencyConstraints
-                    .orEmpty()
-                    .mapNotNull { constraint ->
-                        val name = constraint.name
-                        if (name.startsWith("tramai-") || name.startsWith("examples:")) ":$name" else null
-                    }
-                    .toSet()
-                val diagnostics = ModuleManifestVerifier.verify(
-                    catalogModules = catalog.modules,
-                    projectPaths = actualProjects,
-                    publishedPaths = actualPublished,
-                    bomPaths = actualBom,
+        // Typed (Epic 9.2d-a3c1). projectPaths/bomPaths are configuration-side
+        // snapshots; publishedPaths is wired from the release task's typed model
+        // via withPlugin (the maintainability plugin applies BEFORE
+        // tramai.release-verification in the root build script, so the provider
+        // is connected lazily — never read the root extra here).
+        val verifyModuleManifest =
+            project.tasks.register<VerifyModuleManifestTask>("verifyModuleManifest") {
+                group = "verification"
+                description = "Verifies manifest/settings equality and publishing/BOM membership against independent Gradle model signals"
+                moduleCatalogFile.set(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
+                projectPaths.set(ModuleTopologySnapshot.projectPaths(project))
+                // Fail-closed default: without the release plugin the historical
+                // implementation supplied an EMPTY publication set and produced the
+                // typed MODULE_CATALOG_PUBLISHING_DRIFT diagnostic. Preserve that —
+                // never die on an unset property. The withPlugin wiring below
+                // overrides the convention with the release task's typed model.
+                publishedPaths.convention(emptyList())
+                // BOM signal read LAZILY through a provider: the java-platform model
+                // is incomplete at plugin apply time (Epic 9.2d-a1 rule). Never eager,
+                // never a Configuration as a task property — converted to List<String>.
+                bomPaths.set(project.provider { ModuleTopologySnapshot.bomPaths(project) })
+            }
+        project.pluginManager.withPlugin("tramai.release-verification") {
+            verifyModuleManifest.configure {
+                val releaseTask =
+                    project.tasks.named(
+                        "verifyPublicationMetadata",
+                        VerifyPublicationMetadataTask::class.java,
+                    )
+                // Module names -> Gradle paths (":name"), sorted, from the release
+                // task's typed model — NOT the tramai.publishableModulePaths extra.
+                publishedPaths.set(
+                    releaseTask
+                        .flatMap { it.publishableModules }
+                        .map { names -> names.map { ":$it" }.sorted() },
                 )
-                if (diagnostics.isNotEmpty()) throw GradleException(diagnostics.joinToString("\n") { "[${it.code}] ${it.message}" })
             }
         }
 
@@ -965,30 +1052,32 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             moduleCatalogFile.from(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
         }
 
-        val enrollmentTest = project.tasks.register("architectureContractEnrollmentTest", Test::class.java) {
-            group = "verification"
-            description = "Runs provider and store enrollment architecture contracts"
-            val testingProject = project.project(":tramai-testing")
-            val testSourceSet = testingProject.extensions
-                .getByType(JavaPluginExtension::class.java)
-                .sourceSets
-                .getByName("test")
-            dependsOn(testingProject.tasks.named("testClasses"))
-            testClassesDirs = testSourceSet.output.classesDirs
-            classpath = testSourceSet.runtimeClasspath
-            useJUnitPlatform()
-            filter.includeTestsMatching("dev.tramai.testing.*EnrollmentArchitectureTest")
-            ignoreFailures = true
-            binaryResultsDirectory.set(
-                testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest/binary")
-            )
-            reports.junitXml.outputLocation.set(
-                testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest")
-            )
-            reports.html.outputLocation.set(
-                testingProject.layout.buildDirectory.dir("reports/tests/architectureContractEnrollmentTest")
-            )
-        }
+        val enrollmentTest =
+            project.tasks.register("architectureContractEnrollmentTest", Test::class.java) {
+                group = "verification"
+                description = "Runs provider and store enrollment architecture contracts"
+                val testingProject = project.project(":tramai-testing")
+                val testSourceSet =
+                    testingProject.extensions
+                        .getByType(JavaPluginExtension::class.java)
+                        .sourceSets
+                        .getByName("test")
+                dependsOn(testingProject.tasks.named("testClasses"))
+                testClassesDirs = testSourceSet.output.classesDirs
+                classpath = testSourceSet.runtimeClasspath
+                useJUnitPlatform()
+                filter.includeTestsMatching("dev.tramai.testing.*EnrollmentArchitectureTest")
+                ignoreFailures = true
+                binaryResultsDirectory.set(
+                    testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest/binary"),
+                )
+                reports.junitXml.outputLocation.set(
+                    testingProject.layout.buildDirectory.dir("test-results/architectureContractEnrollmentTest"),
+                )
+                reports.html.outputLocation.set(
+                    testingProject.layout.buildDirectory.dir("reports/tests/architectureContractEnrollmentTest"),
+                )
+            }
 
         project.tasks.register("verify060Architecture") {
             group = "verification"
@@ -998,14 +1087,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             // C1: regenerate every applicable BCV dump from current source so
             // Contract-1 runs on a clean workspace instead of silently skipping
             // missing build/api/*.api artifacts (fail-closed: absence → FAIL).
-            val apiBuildTasks = project.allprojects
-                .filter { sub -> sub != project && sub.tasks.findByName("apiBuild") != null }
-                .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
-                .map { "${it.path}:apiBuild" }
+            val apiBuildTasks =
+                project.allprojects
+                    .filter { sub -> sub != project && sub.tasks.findByName("apiBuild") != null }
+                    .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
+                    .map { "${it.path}:apiBuild" }
             dependsOn(*apiBuildTasks.toTypedArray())
             doLast {
-                val architectureDiagnostics = ArchitectureReportAggregator.checkIds
-                    .associateWith { mutableListOf<VerificationDiagnostic>() }
+                val architectureDiagnostics =
+                    ArchitectureReportAggregator.checkIds
+                        .associateWith { mutableListOf<VerificationDiagnostic>() }
                 val context = MeasurementContext.fromProject(project)
                 val verificationReport = File(reportDir, "verification-report.json")
 
@@ -1013,20 +1104,27 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     // Read the fail-soft per-project dependency probes. Resolution
                     // failure reaches the gate as typed evidence (the probe tasks
                     // never abort the task graph), so the report is always written.
-                    val probeFiles = project.allprojects
-                        .filter { it != project && it.buildFile.exists() }
-                        .sortedBy { it.path }
-                        .map { sub ->
-                            File(sub.layout.buildDirectory.get().asFile, "reports/maintainability/architecture-dependencies.json")
-                        }
+                    val probeFiles =
+                        project.allprojects
+                            .filter { it != project && it.buildFile.exists() }
+                            .sortedBy { it.path }
+                            .map { sub ->
+                                File(
+                                    sub.layout.buildDirectory
+                                        .get()
+                                        .asFile,
+                                    "reports/maintainability/architecture-dependencies.json",
+                                )
+                            }
                     val evidence = readDependencyProbeEvidence(probeFiles)
                     if (evidence.failures.isNotEmpty()) {
                         val message = "Dependency evidence unavailable: ${evidence.failures.joinToString("; ")}"
                         baselineCheckIds.forEach { checkId ->
-                            architectureDiagnostics.getValue(checkId) += VerificationDiagnostic.failure(
-                                DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
-                                message,
-                            )
+                            architectureDiagnostics.getValue(checkId) +=
+                                VerificationDiagnostic.failure(
+                                    DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+                                    message,
+                                )
                         }
                     } else {
                         val resolvedDependenciesFile = File(reportDir, "resolved-dependencies.json")
@@ -1047,29 +1145,37 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                 collectEvidence("module manifest verification", setOf("module-manifest", "publishing-topology"), architectureDiagnostics) {
                     val catalog = ModuleManifest.catalog(project.rootDir)
-                    val actualProjects = project.allprojects
-                        .filter { it != project && it.buildFile.exists() }
-                        .map { it.path }
-                        .toSet()
-                    val actualPublished = (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                        ?.map { it.toString() }?.toSet().orEmpty()
+                    val actualProjects =
+                        project.allprojects
+                            .filter { it != project && it.buildFile.exists() }
+                            .map { it.path }
+                            .toSet()
+                    val actualPublished =
+                        (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                            ?.map { it.toString() }
+                            ?.toSet()
+                            .orEmpty()
                     val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
-                    val actualBom = bomProject
-                        ?.configurations
-                        ?.findByName("api")
-                        ?.dependencyConstraints
-                        .orEmpty()
-                        .mapNotNull { constraint ->
-                            constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
-                        }
-                        .toSet()
+                    val actualBom =
+                        bomProject
+                            ?.configurations
+                            ?.findByName("api")
+                            ?.dependencyConstraints
+                            .orEmpty()
+                            .mapNotNull { constraint ->
+                                constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
+                            }.toSet()
                     addManifestDiagnostics(
                         ModuleManifestVerifier.verify(catalog.modules, actualProjects, actualPublished, actualBom),
                         architectureDiagnostics,
                     )
                 }
 
-                collectEvidence("enrollment contract verification", setOf("provider-contracts", "store-contracts"), architectureDiagnostics) {
+                collectEvidence(
+                    "enrollment contract verification",
+                    setOf("provider-contracts", "store-contracts"),
+                    architectureDiagnostics,
+                ) {
                     addEnrollmentDiagnostics(
                         File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest"),
                         architectureDiagnostics,
@@ -1081,13 +1187,21 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 }
 
                 val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
-                val reportFile = File(project.layout.buildDirectory.get().asFile, "reports/tramai/architecture/architecture-report.json")
+                val reportFile =
+                    File(
+                        project.layout.buildDirectory
+                            .get()
+                            .asFile,
+                        "reports/tramai/architecture/architecture-report.json",
+                    )
                 // Report is written BEFORE the terminal exception — failure must produce evidence.
                 ArchitectureReportJson.write(report, reportFile, project.rootDir)
                 if (report.status == ArchitectureCheckStatus.FAIL) {
-                    throw GradleException("0.6.0 architecture verification FAILED: " +
-                        report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id } +
-                        " — see ${reportFile.path}")
+                    throw GradleException(
+                        "0.6.0 architecture verification FAILED: " +
+                            report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id } +
+                            " — see ${reportFile.path}",
+                    )
                 }
             }
         }
@@ -1130,28 +1244,30 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         // ---- PR Verification (primary local check gate) ----
 
-        val verifyPr = project.tasks.register("verifyPr") {
-            group = "verification"
-            description = "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
+        val verifyPr =
+            project.tasks.register("verifyPr") {
+                group = "verification"
+                description =
+                    "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
 
-            dependsOn("verifyMaintainabilityBaseline")
-            dependsOn("verifyChangePolicy")
-            dependsOn("verifyModuleManifest")
-            dependsOn("verifyModuleMatrixDrift")
-            dependsOn("verifyModuleDocContract")
+                dependsOn("verifyMaintainabilityBaseline")
+                dependsOn("verifyChangePolicy")
+                dependsOn("verifyModuleManifest")
+                dependsOn("verifyModuleMatrixDrift")
+                dependsOn("verifyModuleDocContract")
 
-            // Include build-logic tests (included build — must use includedBuild API)
-            val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
-            if (buildLogicTestTask != null) {
-                dependsOn(buildLogicTestTask)
-            } else {
-                logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
+                // Include build-logic tests (included build — must use includedBuild API)
+                val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
+                if (buildLogicTestTask != null) {
+                    dependsOn(buildLogicTestTask)
+                } else {
+                    logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
+                }
+
+                doLast {
+                    logger.lifecycle("verifyPr completed — see individual task results above.")
+                }
             }
-
-            doLast {
-                logger.lifecycle("verifyPr completed — see individual task results above.")
-            }
-        }
 
         // ---- JUnit test-signature integrity (silently-skipped tests guard) ----
         // JUnit Jupiter discards @Test methods whose JVM return type is not void.
@@ -1167,10 +1283,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             // api/) or Gradle 9 flags the input as overlapping a task output.
             // The scanner itself only inspects src/test|src/testFixtures .kt,
             // so excluding outputs changes no semantics.
-            testSources.from(project.fileTree(project.rootDir) {
-                include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
-                exclude("**/build/**", "**/api/**")
-            })
+            testSources.from(
+                project.fileTree(project.rootDir) {
+                    include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
+                    exclude("**/build/**", "**/api/**")
+                },
+            )
         }
         verifyPr.configure {
             dependsOn("verifyJUnitTestSignatures")
@@ -1205,46 +1323,53 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
     private fun verifyTestQualityDiagnostics(
         project: Project,
         label: String,
-        diagnostics: List<VerificationDiagnostic>
+        diagnostics: List<VerificationDiagnostic>,
     ) {
-        diagnostics.filter { it.severity == DiagnosticSeverity.WARNING }
+        diagnostics
+            .filter { it.severity == DiagnosticSeverity.WARNING }
             .forEach { project.logger.warn("WARN: ${it.message}") }
         val failures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
         failures.forEach { project.logger.error("FAIL: ${it.message}") }
         if (failures.isNotEmpty()) {
             throw GradleException(
                 "$label baseline verification FAILED:\n" +
-                    failures.joinToString("\n") { "  - ${it.message}" }
+                    failures.joinToString("\n") { "  - ${it.message}" },
             )
         }
         println("$label baseline verification PASSED.")
     }
 
-    private fun runNestedGradle(project: Project, arguments: List<String>) {
-        val wrapper = File(
-            project.rootDir,
-            if (System.getProperty("os.name").startsWith("Windows")) "gradlew.bat" else "gradlew"
-        )
+    private fun runNestedGradle(
+        project: Project,
+        arguments: List<String>,
+    ) {
+        val wrapper =
+            File(
+                project.rootDir,
+                if (System.getProperty("os.name").startsWith("Windows")) "gradlew.bat" else "gradlew",
+            )
         val command = mutableListOf<String>()
         if (!wrapper.canExecute() && !wrapper.name.endsWith(".bat")) command += "bash"
         command += wrapper.absolutePath
-        command += listOf(
-            "--no-daemon",
-            "--no-build-cache",
-            "--no-configuration-cache",
-            "--no-parallel",
-            "--console=plain"
-        )
+        command +=
+            listOf(
+                "--no-daemon",
+                "--no-build-cache",
+                "--no-configuration-cache",
+                "--no-parallel",
+                "--console=plain",
+            )
         command += arguments
-        val process = ProcessBuilder(command)
-            .directory(project.rootDir)
-            .redirectErrorStream(true)
-            .start()
+        val process =
+            ProcessBuilder(command)
+                .directory(project.rootDir)
+                .redirectErrorStream(true)
+                .start()
         val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         val exitCode = process.waitFor()
         if (exitCode != 0) {
             throw GradleException(
-                "Nested Gradle execution failed with exit code $exitCode:\n$output"
+                "Nested Gradle execution failed with exit code $exitCode:\n$output",
             )
         }
         project.logger.lifecycle(output.trimEnd())
@@ -1253,18 +1378,21 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
     private fun copyTestReports(
         repositoryRoot: File,
         criticalModules: Set<String>,
-        runRoot: File
+        runRoot: File,
     ) {
         criticalModules.sorted().forEach { module ->
             val modulePath = module.removePrefix(":").replace(":", "/")
             val sourceDir = File(repositoryRoot, "$modulePath/build/test-results/test")
             val destinationDir = File(runRoot, modulePath)
-            val reports = sourceDir.listFiles { file ->
-                file.isFile && file.name.startsWith("TEST-") && file.extension == "xml"
-            }?.sortedBy { it.name }.orEmpty()
+            val reports =
+                sourceDir
+                    .listFiles { file ->
+                        file.isFile && file.name.startsWith("TEST-") && file.extension == "xml"
+                    }?.sortedBy { it.name }
+                    .orEmpty()
             if (reports.isEmpty()) {
                 throw GradleException(
-                    "Missing expected test report for $module at ${sourceDir.absolutePath}"
+                    "Missing expected test report for $module at ${sourceDir.absolutePath}",
                 )
             }
             destinationDir.mkdirs()
@@ -1274,22 +1402,26 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
     private fun mutationInitScript(
         configuration: TestQualityConfiguration,
-        reportRoot: File
+        reportRoot: File,
     ): String {
-        val familyModules = configuration.mutation.targetFamilies.entries
-            .sortedBy { it.key }
-            .joinToString(",\n") { (family, target) ->
-                val modules = target.modules.sorted().joinToString(", ") {
-                    "'${groovyString(it)}'"
+        val familyModules =
+            configuration.mutation.targetFamilies.entries
+                .sortedBy { it.key }
+                .joinToString(",\n") { (family, target) ->
+                    val modules =
+                        target.modules.sorted().joinToString(", ") {
+                            "'${groovyString(it)}'"
+                        }
+                    val classes =
+                        target.targetClasses.sorted().joinToString(", ") {
+                            "'${groovyString(it)}'"
+                        }
+                    val tests =
+                        target.targetTests.sorted().joinToString(", ") {
+                            "'${groovyString(it)}'"
+                        }
+                    "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
                 }
-                val classes = target.targetClasses.sorted().joinToString(", ") {
-                    "'${groovyString(it)}'"
-                }
-                val tests = target.targetTests.sorted().joinToString(", ") {
-                    "'${groovyString(it)}'"
-                }
-                "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
-            }
         return """
             initscript {
                 repositories {
@@ -1339,19 +1471,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     dependsOn mutationTasks.collect { it.get() }
                 }
             }
-        """.trimIndent() + "\n"
+            """.trimIndent() + "\n"
     }
 
-    private fun groovyString(value: String): String =
-        value.replace("\\", "\\\\").replace("'", "\\'")
+    private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
 
     private fun readBaselineDiagnostics(reportFile: File): List<VerificationDiagnostic> {
         if (!reportFile.isFile) {
             throw GradleException("Baseline verifier did not produce ${reportFile.path}")
         }
         val report = ReportNormalizer.readJson(reportFile, Map::class.java)
-        val diagnostics = report["diagnostics"] as? List<*>
-            ?: throw GradleException("Baseline verification report has no diagnostics array")
+        val diagnostics =
+            report["diagnostics"] as? List<*>
+                ?: throw GradleException("Baseline verification report has no diagnostics array")
         return diagnostics.map { raw ->
             val entry = raw as? Map<*, *> ?: throw GradleException("Malformed baseline diagnostic")
             VerificationDiagnostic(
@@ -1372,128 +1504,129 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
      * new DiagnosticCode forces a decision at compile time — either it belongs to
      * an architecture check here, or it is explicitly excluded.
      */
-    private fun baselineCheckFor(code: DiagnosticCode): String? = when (code) {
-        // Module catalogue (all codes except BOM/publishing drift, which are publishing-topology)
-        DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
-        DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY,
-        DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH,
-        DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
-        DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
-        DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
-        DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
-        DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA,
-        DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY,
-        DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY,
-        DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY,
-        DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION,
-        DiagnosticCode.MODULE_CATALOG_INVALID_POLICY,
-        DiagnosticCode.MODULE_CATALOG_BLANK_OWNER,
-        DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE,
-        DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION,
-        DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION,
-        -> "module-manifest"
+    private fun baselineCheckFor(code: DiagnosticCode): String? =
+        when (code) {
+            // Module catalogue (all codes except BOM/publishing drift, which are publishing-topology)
+            DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+            DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY,
+            DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH,
+            DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
+            DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
+            DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
+            DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
+            DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA,
+            DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY,
+            DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY,
+            DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY,
+            DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION,
+            DiagnosticCode.MODULE_CATALOG_INVALID_POLICY,
+            DiagnosticCode.MODULE_CATALOG_BLANK_OWNER,
+            DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE,
+            DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION,
+            DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION,
+            -> "module-manifest"
 
-        DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
-        DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
-        -> "publishing-topology"
+            DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
+            DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
+            -> "publishing-topology"
 
-        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-        DiagnosticCode.SELF_DEPENDENCY,
-        -> "dependency-boundaries"
+            DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+            DiagnosticCode.SELF_DEPENDENCY,
+            -> "dependency-boundaries"
 
-        DiagnosticCode.NEW_DEPENDENCY_CYCLE,
-        -> "dependency-cycles"
+            DiagnosticCode.NEW_DEPENDENCY_CYCLE,
+            -> "dependency-cycles"
 
-        DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-        -> "global-state"
+            DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
+            -> "global-state"
 
-        DiagnosticCode.API_BASELINE_EMPTY,
-        DiagnosticCode.API_DUMP_MISSING,
-        DiagnosticCode.API_DUMP_DUPLICATE,
-        DiagnosticCode.API_MODULE_UNCLASSIFIED,
-        DiagnosticCode.API_VALIDATION_NOT_CONFIGURED,
-        DiagnosticCode.API_COMPATIBILITY_FAILED,
-        DiagnosticCode.API_HASH_CHANGED,
-        DiagnosticCode.API_DUMP_NONDETERMINISTIC,
-        -> "api-architecture"
+            DiagnosticCode.API_BASELINE_EMPTY,
+            DiagnosticCode.API_DUMP_MISSING,
+            DiagnosticCode.API_DUMP_DUPLICATE,
+            DiagnosticCode.API_MODULE_UNCLASSIFIED,
+            DiagnosticCode.API_VALIDATION_NOT_CONFIGURED,
+            DiagnosticCode.API_COMPATIBILITY_FAILED,
+            DiagnosticCode.API_HASH_CHANGED,
+            DiagnosticCode.API_DUMP_NONDETERMINISTIC,
+            -> "api-architecture"
 
-        DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED,
-        -> "protocol-catalog"
+            DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED,
+            -> "protocol-catalog"
 
-        DiagnosticCode.NEW_CANCELLATION_FINDING,
-        DiagnosticCode.CANCELLATION_RISK_WORSENED,
-        -> "cancellation-safety"
+            DiagnosticCode.NEW_CANCELLATION_FINDING,
+            DiagnosticCode.CANCELLATION_RISK_WORSENED,
+            -> "cancellation-safety"
 
-        // Explicitly outside the 0.6.0 architecture gate.
-        DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
-        DiagnosticCode.ANALYZER_COMMIT_NOT_ANCESTOR,
-        DiagnosticCode.MEASURED_TREE_MISMATCH,
-        DiagnosticCode.TAG_COMMIT_MISMATCH,
-        DiagnosticCode.TAG_TREE_MISMATCH,
-        DiagnosticCode.DIRTY_WORKTREE,
-        DiagnosticCode.DEPENDENCY_BASELINE_EMPTY,
-        DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
-        DiagnosticCode.DYNAMIC_DEPENDENCY_VERSION,
-        DiagnosticCode.SNAPSHOT_DEPENDENCY,
-        DiagnosticCode.DEPENDENCY_CONVERGENCE_FAILURE,
-        DiagnosticCode.DEPENDENCY_ADDED,
-        DiagnosticCode.DEPENDENCY_REMOVED,
-        DiagnosticCode.DEPENDENCY_VERSION_CHANGED,
-        DiagnosticCode.TEST_QUALITY_CONFIGURATION_INVALID,
-        DiagnosticCode.COVERAGE_REPORT_MISSING,
-        DiagnosticCode.COVERAGE_REPORT_MALFORMED,
-        DiagnosticCode.COVERAGE_COUNTER_MISSING,
-        DiagnosticCode.COVERAGE_PATH_LEAK,
-        DiagnosticCode.COVERAGE_REGRESSION,
-        DiagnosticCode.COVERAGE_FAMILY_EMPTY,
-        DiagnosticCode.COVERAGE_EXCLUSION_UNDOCUMENTED,
-        DiagnosticCode.MUTATION_REPORT_MISSING,
-        DiagnosticCode.MUTATION_REPORT_MALFORMED,
-        DiagnosticCode.MUTATION_TARGET_EMPTY,
-        DiagnosticCode.MUTATION_REGRESSION,
-        DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED,
-        DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
-        DiagnosticCode.TEST_REPORT_MISSING,
-        DiagnosticCode.TEST_PERFORMANCE_REGRESSION,
-        DiagnosticCode.CRITICAL_TEST_REGRESSION,
-        DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
-        DiagnosticCode.TEST_QUALITY_STATUS_PENDING,
-        DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-        DiagnosticCode.HOTSPOT_REGRESSION,
-        DiagnosticCode.NEW_TOP_FIVE_HOTSPOT,
-        DiagnosticCode.FILE_GROWTH_EXCEEDED,
-        DiagnosticCode.INVALID_DEVIATION_SCOPE,
-        DiagnosticCode.ORPHANED_DEVIATION,
-        DiagnosticCode.EXPIRED_DEVIATION,
-        DiagnosticCode.DUPLICATE_DEVIATION,
-        DiagnosticCode.MALFORMED_DEVIATION,
-        DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
-        DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
-        DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
-        DiagnosticCode.EMPTY_SECTION,
-        // Nondeterminism authority contract (Epic 8.3d PR 2) — enforced by the
-        // verifyRuntimeNondeterminism task directly, not the maintainability baseline.
-        DiagnosticCode.NONDETERMINISM_UNCLASSIFIED_FINDING,
-        DiagnosticCode.NONDETERMINISM_STALE_ENTRY,
-        DiagnosticCode.NONDETERMINISM_MISMATCHED_CLASSIFICATION,
-        DiagnosticCode.NONDETERMINISM_OCCURRENCE_MISMATCH,
-        DiagnosticCode.NONDETERMINISM_DUPLICATE_ENTRY,
-        DiagnosticCode.NONDETERMINISM_INVALID_DISPOSITION,
-        DiagnosticCode.NONDETERMINISM_MISSING_RATIONALE,
-        DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
-        // Module documentation contract (Epic 11.2b3) — enforced by the
-        // verifyModuleDocContract task directly, not a maintainability baseline.
-        DiagnosticCode.MODULE_CARD_MISSING,
-        DiagnosticCode.MODULE_CARD_ORPHAN,
-        DiagnosticCode.MODULE_CARD_HEADING_MISSING,
-        DiagnosticCode.MODULE_CARD_LINK_BROKEN,
-        DiagnosticCode.MODULE_CARD_INLINE_PATH_BROKEN,
-        DiagnosticCode.MODULE_CARD_LEGACY_CLASSIFICATION,
-        DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
-        DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
-        DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
-        -> null
-    }
+            // Explicitly outside the 0.6.0 architecture gate.
+            DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
+            DiagnosticCode.ANALYZER_COMMIT_NOT_ANCESTOR,
+            DiagnosticCode.MEASURED_TREE_MISMATCH,
+            DiagnosticCode.TAG_COMMIT_MISMATCH,
+            DiagnosticCode.TAG_TREE_MISMATCH,
+            DiagnosticCode.DIRTY_WORKTREE,
+            DiagnosticCode.DEPENDENCY_BASELINE_EMPTY,
+            DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+            DiagnosticCode.DYNAMIC_DEPENDENCY_VERSION,
+            DiagnosticCode.SNAPSHOT_DEPENDENCY,
+            DiagnosticCode.DEPENDENCY_CONVERGENCE_FAILURE,
+            DiagnosticCode.DEPENDENCY_ADDED,
+            DiagnosticCode.DEPENDENCY_REMOVED,
+            DiagnosticCode.DEPENDENCY_VERSION_CHANGED,
+            DiagnosticCode.TEST_QUALITY_CONFIGURATION_INVALID,
+            DiagnosticCode.COVERAGE_REPORT_MISSING,
+            DiagnosticCode.COVERAGE_REPORT_MALFORMED,
+            DiagnosticCode.COVERAGE_COUNTER_MISSING,
+            DiagnosticCode.COVERAGE_PATH_LEAK,
+            DiagnosticCode.COVERAGE_REGRESSION,
+            DiagnosticCode.COVERAGE_FAMILY_EMPTY,
+            DiagnosticCode.COVERAGE_EXCLUSION_UNDOCUMENTED,
+            DiagnosticCode.MUTATION_REPORT_MISSING,
+            DiagnosticCode.MUTATION_REPORT_MALFORMED,
+            DiagnosticCode.MUTATION_TARGET_EMPTY,
+            DiagnosticCode.MUTATION_REGRESSION,
+            DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED,
+            DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
+            DiagnosticCode.TEST_REPORT_MISSING,
+            DiagnosticCode.TEST_PERFORMANCE_REGRESSION,
+            DiagnosticCode.CRITICAL_TEST_REGRESSION,
+            DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
+            DiagnosticCode.TEST_QUALITY_STATUS_PENDING,
+            DiagnosticCode.NEW_NONDETERMINISM_FINDING,
+            DiagnosticCode.HOTSPOT_REGRESSION,
+            DiagnosticCode.NEW_TOP_FIVE_HOTSPOT,
+            DiagnosticCode.FILE_GROWTH_EXCEEDED,
+            DiagnosticCode.INVALID_DEVIATION_SCOPE,
+            DiagnosticCode.ORPHANED_DEVIATION,
+            DiagnosticCode.EXPIRED_DEVIATION,
+            DiagnosticCode.DUPLICATE_DEVIATION,
+            DiagnosticCode.MALFORMED_DEVIATION,
+            DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
+            DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
+            DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
+            DiagnosticCode.EMPTY_SECTION,
+            // Nondeterminism authority contract (Epic 8.3d PR 2) — enforced by the
+            // verifyRuntimeNondeterminism task directly, not the maintainability baseline.
+            DiagnosticCode.NONDETERMINISM_UNCLASSIFIED_FINDING,
+            DiagnosticCode.NONDETERMINISM_STALE_ENTRY,
+            DiagnosticCode.NONDETERMINISM_MISMATCHED_CLASSIFICATION,
+            DiagnosticCode.NONDETERMINISM_OCCURRENCE_MISMATCH,
+            DiagnosticCode.NONDETERMINISM_DUPLICATE_ENTRY,
+            DiagnosticCode.NONDETERMINISM_INVALID_DISPOSITION,
+            DiagnosticCode.NONDETERMINISM_MISSING_RATIONALE,
+            DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
+            // Module documentation contract (Epic 11.2b3) — enforced by the
+            // verifyModuleDocContract task directly, not a maintainability baseline.
+            DiagnosticCode.MODULE_CARD_MISSING,
+            DiagnosticCode.MODULE_CARD_ORPHAN,
+            DiagnosticCode.MODULE_CARD_HEADING_MISSING,
+            DiagnosticCode.MODULE_CARD_LINK_BROKEN,
+            DiagnosticCode.MODULE_CARD_INLINE_PATH_BROKEN,
+            DiagnosticCode.MODULE_CARD_LEGACY_CLASSIFICATION,
+            DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
+            DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
+            DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
+            -> null
+        }
 
     private fun addManifestDiagnostics(
         diagnostics: List<VerificationDiagnostic>,
@@ -1509,15 +1642,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         resultsDir: File,
         checks: Map<String, MutableList<VerificationDiagnostic>>,
     ) {
-        val reports = resultsDir.listFiles { file -> file.isFile && file.name.startsWith("TEST-") && file.extension == "xml" }
-            ?.sortedBy { it.name }
-            .orEmpty()
+        val reports =
+            resultsDir
+                .listFiles { file -> file.isFile && file.name.startsWith("TEST-") && file.extension == "xml" }
+                ?.sortedBy { it.name }
+                .orEmpty()
         if (reports.isEmpty()) {
             listOf("provider-contracts", "store-contracts").forEach { check ->
-                checks.getValue(check) += VerificationDiagnostic.failure(
-                    DiagnosticCode.EMPTY_SECTION,
-                    "Enrollment architecture test results are missing from ${resultsDir.path}",
-                )
+                checks.getValue(check) +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.EMPTY_SECTION,
+                        "Enrollment architecture test results are missing from ${resultsDir.path}",
+                    )
             }
             return
         }
@@ -1526,21 +1662,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         reports.forEach { report ->
             val className = report.name.removePrefix("TEST-").removeSuffix(".xml")
             discoveredClasses += className
-            val check = when {
-                className == "dev.tramai.testing.ProviderTckEnrollmentArchitectureTest" -> "provider-contracts"
-                className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
-                else -> null
-            } ?: return@forEach
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-                setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
-                setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
-                isXIncludeAware = false
-                isExpandEntityReferences = false
-            }
+            val check =
+                when {
+                    className == "dev.tramai.testing.ProviderTckEnrollmentArchitectureTest" -> "provider-contracts"
+                    className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
+                    else -> null
+                } ?: return@forEach
+            val factory =
+                DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                    setFeature("http://xml.org/sax/features/external-general-entities", false)
+                    setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                    setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+                    setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
+                    setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
+                    isXIncludeAware = false
+                    isExpandEntityReferences = false
+                }
             val document = factory.newDocumentBuilder().parse(report)
             val cases = document.getElementsByTagName("testcase")
             for (index in 0 until cases.length) {
@@ -1550,10 +1688,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     if (child.nodeName !in setOf("failure", "error")) continue
                     val failure = child as org.w3c.dom.Element
                     val message = failure.getAttribute("message").ifBlank { failure.textContent.trim() }
-                    checks.getValue(check) += VerificationDiagnostic.failure(
-                        DiagnosticCode.EMPTY_SECTION,
-                        "$className failed: $message",
-                    )
+                    checks.getValue(check) +=
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.EMPTY_SECTION,
+                            "$className failed: $message",
+                        )
                 }
             }
         }
@@ -1617,20 +1756,24 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     val toolchains = fixture.extensions.getByType(JavaToolchainService::class.java)
                     if (extension == "java") {
                         this.javacExecutable.set(
-                            toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-                                .map { it.executablePath.toString() }
+                            toolchains
+                                .compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                .map { it.executablePath.toString() },
                         )
                     } else {
                         this.javaExecutable.set(
-                            toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-                                .map { it.executablePath.toString() }
+                            toolchains
+                                .launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                .map { it.executablePath.toString() },
                         )
                     }
                     this.classesDir.set(classesDir)
                     this.markerFile.set(markerFile)
-                    sources.from(fixture.fileTree(fixture.projectDir) {
-                        include("**/$sourceRelPath/**/*.${if (extension == "kotlin") "kt" else "java"}")
-                    })
+                    sources.from(
+                        fixture.fileTree(fixture.projectDir) {
+                            include("**/$sourceRelPath/**/*.${if (extension == "kotlin") "kt" else "java"}")
+                        },
+                    )
                     compileClasspath.from(fixture.configurations.getByName("compileClasspath"))
                     if (extension == "kotlin") {
                         kotlinCompilerClasspath.from(fixture.configurations.getByName("kotlinCompilerClasspath"))
@@ -1655,27 +1798,35 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         checks: Map<String, MutableList<VerificationDiagnostic>>,
     ) {
         val catalog = ModuleManifest.catalog(project.rootDir)
-        val apiProjectPaths = project.allprojects
-            .filter { it != project && it.tasks.findByName("apiCheck") != null }
-            .map { it.path }
-            .toSet()
+        val apiProjectPaths =
+            project.allprojects
+                .filter { it != project && it.tasks.findByName("apiCheck") != null }
+                .map { it.path }
+                .toSet()
         val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(project.rootDir, apiProjectPaths)
         val generated = ApiCompatibilityEvidenceReader.readGeneratedDumps(project)
         val baseRef = project.findProperty("changePolicyBase")?.toString() ?: "origin/master"
         val base = ApiCompatibilityEvidenceReader.readBaseDumps(project.rootDir, baseRef, committed.keys)
-        val migrationResult = ApiCompatibilityEvidenceReader.parseMigrations(
-            File(project.rootDir, "config/quality/api-migrations.yml")
-        )
+        val migrationResult =
+            ApiCompatibilityEvidenceReader.parseMigrations(
+                File(project.rootDir, "config/quality/api-migrations.yml"),
+            )
         checks.getValue("api-architecture") += migrationResult.diagnostics
-        val projectVersion = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0").get()
-        val verifier = ApiCompatibilityVerifier(
-            catalogModules = catalog.modules,
-            projectVersion = projectVersion,
-        )
-        val diagnostics = verifier.verify(
-            ApiDumpEvidence(generated = generated, committed = committed, base = base),
-            migrations = migrationResult.entries,
-        )
+        val projectVersion =
+            project.providers
+                .gradleProperty("tramaiVersion")
+                .orElse("0.5.0")
+                .get()
+        val verifier =
+            ApiCompatibilityVerifier(
+                catalogModules = catalog.modules,
+                projectVersion = projectVersion,
+            )
+        val diagnostics =
+            verifier.verify(
+                ApiDumpEvidence(generated = generated, committed = committed, base = base),
+                migrations = migrationResult.entries,
+            )
         // Contract-1/2 and migration diagnostics flow straight to api-architecture.
         checks.getValue("api-architecture") += diagnostics
         // C3/C4: consumer compile proofs are fail-soft producers. Read their
@@ -1685,45 +1836,54 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             "java" to ":examples:java-consumer-smoke",
             "kotlin" to ":examples:kotlin-consumer-smoke",
         ).forEach { (language, fixturePath) ->
-            val marker = File(
-                project.project(fixturePath).layout.buildDirectory.get().asFile,
-                "reports/maintainability/consumer-$language.json"
-            )
-            if (!marker.isFile) {
-                checks.getValue("api-architecture") += VerificationDiagnostic.failure(
-                    DiagnosticCode.API_COMPATIBILITY_FAILED,
-                    "Consumer compile proof for '$language' produced no marker evidence at ${marker.path}",
+            val marker =
+                File(
+                    project
+                        .project(fixturePath)
+                        .layout.buildDirectory
+                        .get()
+                        .asFile,
+                    "reports/maintainability/consumer-$language.json",
                 )
+            if (!marker.isFile) {
+                checks.getValue("api-architecture") +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.API_COMPATIBILITY_FAILED,
+                        "Consumer compile proof for '$language' produced no marker evidence at ${marker.path}",
+                    )
                 return@forEach
             }
             val state = ReportNormalizer.readJson(marker, Map::class.java)
             val ok = state?.get("ok") == true
             if (!ok) {
-                checks.getValue("api-architecture") += VerificationDiagnostic.failure(
-                    DiagnosticCode.API_COMPATIBILITY_FAILED,
-                    "Consumer compile proof FAILED for '$language': " +
-                        "sources=${state?.get("sources")} classes=${state?.get("classes")} " +
-                        "exitCode=${state?.get("exitCode")} — the stable API is not usable from this consumer",
-                    baselineValue = state?.get("sources")?.toString(),
-                    currentValue = state?.get("classes")?.toString(),
-                )
+                checks.getValue("api-architecture") +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.API_COMPATIBILITY_FAILED,
+                        "Consumer compile proof FAILED for '$language': " +
+                            "sources=${state?.get("sources")} classes=${state?.get("classes")} " +
+                            "exitCode=${state?.get("exitCode")} — the stable API is not usable from this consumer",
+                        baselineValue = state?.get("sources")?.toString(),
+                        currentValue = state?.get("classes")?.toString(),
+                    )
             }
         }
     }
 
     private companion object {
-        val publishingTopologyCodes = setOf(
-            DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
-            DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
-        )
-        val baselineCheckIds = setOf(
-            "module-manifest",
-            "dependency-boundaries",
-            "dependency-cycles",
-            "global-state",
-            "api-architecture",
-            "protocol-catalog",
-            "cancellation-safety",
-        )
+        val publishingTopologyCodes =
+            setOf(
+                DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
+                DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
+            )
+        val baselineCheckIds =
+            setOf(
+                "module-manifest",
+                "dependency-boundaries",
+                "dependency-cycles",
+                "global-state",
+                "api-architecture",
+                "protocol-catalog",
+                "cancellation-safety",
+            )
     }
 }
