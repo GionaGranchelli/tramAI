@@ -2,6 +2,7 @@ package dev.tramai.build.quality
 
 import org.junit.jupiter.api.Test
 import java.io.File
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -33,5 +34,20 @@ class DependencyHygieneWiringTest : StaticAnalysisContractTestBase() {
             join.containsMatchIn(rootBuild),
             "root build.gradle.kts must join verifyDependencyHygiene into verifyPr",
         )
+    }
+
+    @Test
+    fun `coordinate extraction works on both path separator styles`() {
+        // 10.1c review: the jar-coordinate scan must not silently go vacuous on
+        // Windows, where Gradle cache paths use backslashes.
+        val unix =
+            File("/home/ci/.gradle/caches/modules-2/files-2.1/com.example/used-lib/1.0/abc123/used-lib-1.0.jar")
+        val windows =
+            File(
+                "C:\\Users\\ci\\.gradle\\caches\\modules-2\\files-2.1\\com.example\\used-lib" +
+                    "\\1.0\\abc123\\used-lib-1.0.jar",
+            )
+        assertEquals("com.example:used-lib", coordinateFromPath(unix))
+        assertEquals("com.example:used-lib", coordinateFromPath(windows))
     }
 }

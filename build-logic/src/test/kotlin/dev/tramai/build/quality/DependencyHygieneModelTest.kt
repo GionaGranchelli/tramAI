@@ -226,6 +226,11 @@ class DependencyHygieneModelTest {
         assertEquals("com.example", importPrefixOf("import com.example.api"))
         assertEquals("org.postgresql", importPrefixOf("import static org.postgresql.Driver.getVersion"))
         assertEquals("com.example", importPrefixOf("  import com.example.api.Service  "))
+        // Java imports carry a mandatory trailing semicolon; Kotlin aliases too.
+        assertEquals("com.example", importPrefixOf("import com.example.api.Service;"))
+        assertEquals("com.example", importPrefixOf("import com.example.api.*;"))
+        assertEquals("org.postgresql", importPrefixOf("import static org.postgresql.Driver.getVersion;"))
+        assertEquals("foo.bar", importPrefixOf("import foo.bar.Type as Alias"))
     }
 
     @Test

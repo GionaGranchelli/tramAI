@@ -67,13 +67,15 @@ object CompilerWarningsBaselineGrowthVerifier {
             }
         }
 
-    /** True when the base parses as a baseline with an older schemaVersion (schema migration, not corruption). */
+    /** True only for an explicit v1 baseline; anything else falls through to fail-closed parsing. */
     private fun isLegacySchema(baseJson: String): Boolean {
         val tree = runCatching { CompilerWarningsBaselineIo.readTree(baseJson) }.getOrNull() ?: return false
         val entries = tree.get("entries")
         return entries != null && entries.isArray &&
-            tree.get("schemaVersion")?.asInt() != CompilerWarningsBaselineIo.SCHEMA_VERSION
+            tree.get("schemaVersion")?.asInt() == LEGACY_SCHEMA_VERSION
     }
+
+    private const val LEGACY_SCHEMA_VERSION = 1
 
     private fun compareBaselines(
         baseJson: String,

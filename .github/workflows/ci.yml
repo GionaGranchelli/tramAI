@@ -115,7 +115,7 @@ jobs:
           for f in glob.glob('build-logic/build/test-results/test/TEST-*.CompilerWarnings*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.DependencyHygiene*Test.xml'):
               m = re.search(r'tests="(\d+)"', open(f).read())
               total += int(m.group(1)) if m else 0
-          assert total == 45, f'expected exactly 45 new-gate contract tests, discovered {total}'
+          assert total == 50, f'expected exactly 50 new-gate contract tests, discovered {total}'
           EOF
 
       - name: Run static-analysis contract tests

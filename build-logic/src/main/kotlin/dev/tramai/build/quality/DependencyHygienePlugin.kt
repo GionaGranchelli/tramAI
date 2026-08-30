@@ -173,4 +173,4 @@ internal fun importPrefixOf(line: String): String? {
 }
 
 private val IMPORT_REGEX =
-    Regex("^import(?:\\s+static)?\\s+([\\w.*]+)")
+    Regex("^import(?:\\s+static)?\\s+([\\w.*]+?)(?:\\s+as\\s+[\\w.]+)?;?$")

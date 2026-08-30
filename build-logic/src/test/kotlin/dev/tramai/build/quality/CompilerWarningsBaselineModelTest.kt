@@ -6,6 +6,7 @@ import org.junit.jupiter.api.assertThrows
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -132,6 +133,43 @@ class CompilerWarningsBaselineModelTest {
         val json = CompilerWarningsBaselineIo.toJson(listOf(entryA, entryB))
         val parsed = CompilerWarningsBaselineIo.fromJson(json)
         assertEquals(listOf(entryA, entryB), parsed)
+    }
+
+    // ── Baseline JSON fail-closed strictness (10.1c review round) ─────────
+    private fun entryJson(
+        path: String,
+        diagnostic: String,
+        message: String,
+        count: Int = 1,
+    ) = """{"path":"$path","diagnostic":"$diagnostic","message":"$message","count":$count}"""
+
+    private fun baselineJson(
+        schemaVersion: String,
+        vararg entries: String,
+    ) = """{"schemaVersion":$schemaVersion,"entries":[${entries.joinToString(",")}]}"""
+
+    @Test
+    fun `malformed entry in multi-entry baseline fails closed`() {
+        val json = baselineJson("2", entryJson("a.kt", "D1", "m1"), """{"path":"b.kt"}""")
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
+    @Test
+    fun `missing schemaVersion fails closed`() {
+        val json = """{"entries":[${entryJson("a.kt", "D1", "m1")}]}"""
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
+    @Test
+    fun `unknown schemaVersion fails closed`() {
+        val json = baselineJson("3", entryJson("a.kt", "D1", "m1"))
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
+    @Test
+    fun `duplicate identity fails closed`() {
+        val json = baselineJson("2", entryJson("a.kt", "D1", "m1"), entryJson("a.kt", "D1", "m1"))
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
     }
 
     // ── Fail-closed runner (C8: tool failure is NOT zero findings) ────────

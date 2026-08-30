@@ -32,7 +32,6 @@ import java.util.zip.ZipFile
 abstract class VerifyDependencyHygieneTask : DefaultTask() {
     private companion object {
         const val MAX_VIOLATIONS_REPORTED = 50
-        const val MIN_PATH_SEGMENTS = 3
         const val PACKAGE_SEGMENTS = 2
     }
 
@@ -108,8 +107,10 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
         logger.lifecycle("dependency-hygiene: ${units.get().size} modules clean (${allInfo.size} info entries)")
     }
 
-    private fun coordinateFromPath(file: File): String? {
-        val path = file.absolutePath
+    internal fun coordinateFromPath(file: File): String? {
+        // invariantSeparatorsPath normalizes Windows \ to / so the cache-layout
+        // marker and split work identically on every platform (10.1c review).
+        val path = file.invariantSeparatorsPath
         // .../modules-2/files-2.1/<group>/<name>/<version>/<hash>/<name>-<version>.jar
         val marker = "files-2.1/"
         val idx = path.indexOf(marker)
@@ -157,3 +158,25 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
         }
     }
 }
+
+/**
+ * Extracts `<group>:<name>` from a Gradle module-cache jar path
+ * (.../modules-2/files-2.1/<group>/<name>/<version>/<hash>/<name>-<version>.jar),
+ * or null when the path does not match the cache layout. Top-level so the
+ * separator normalization is unit-testable without a task instance.
+ */
+internal fun coordinateFromPath(file: File): String? {
+    // Normalize BOTH separators to / — invariantSeparatorsPath only converts the
+    // host separator, so on Linux a Windows-style path would keep its backslashes
+    // and the cache-layout marker would never match (10.1c review).
+    val path = file.path.replace('\\', '/')
+    val marker = "files-2.1/"
+    val idx = path.indexOf(marker)
+    if (idx < 0) return null
+    val segments = path.substring(idx + marker.length).split("/")
+    // groups can contain dots only, names may contain dashes; version dir is
+    // the third segment after group/name.
+    return if (segments.size < MIN_PATH_SEGMENTS) null else "${segments[0]}:${segments[1]}"
+}
+
+private const val MIN_PATH_SEGMENTS = 3

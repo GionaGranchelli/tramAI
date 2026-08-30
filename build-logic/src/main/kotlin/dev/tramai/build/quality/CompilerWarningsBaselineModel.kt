@@ -165,8 +165,18 @@ object CompilerWarningsBaselineIo {
             ?.get("entries")
             ?.takeIf { it.isArray }
             ?.let { entries ->
-                val parsed = entries.mapNotNull { parseEntry(it) }
-                parsed.takeIf { parsed.isNotEmpty() || entries.size() == ZERO_COUNT }
+                // All-or-nothing: a single malformed entry, or a duplicate
+                // identity, invalidates the whole baseline (10.1c review) —
+                // nothing may silently disappear from the evidence set.
+                val parsed = ArrayList<WarningEntry>(entries.size())
+                val seen = HashSet<Triple<String, String, String>>()
+                for (e in entries) {
+                    val entry = parseEntry(e) ?: return null
+                    val identity = Triple(entry.path, entry.diagnostic, entry.message)
+                    if (!seen.add(identity)) return null
+                    parsed.add(entry)
+                }
+                parsed
             }
 
     private fun parseEntry(node: JsonNode): WarningEntry? {
