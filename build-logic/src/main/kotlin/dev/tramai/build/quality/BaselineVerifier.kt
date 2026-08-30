@@ -9,6 +9,7 @@ import java.io.File
  * each field is the execution authority for its file/model read; nulls keep
  * the legacy conventional-path behavior for the fromProject caller.
  */
+@Suppress("LongParameterList") // named-arg value object; keeps BaselineVerifier ctor short
 class DeclaredBaselineInputs(
     val committedBaselineFile: File? = null,
     val resolvedDependenciesFile: File? = null,
@@ -16,7 +17,20 @@ class DeclaredBaselineInputs(
     val deviationsFile: File? = null,
     val moduleCatalogFile: File? = null,
     val moduleBoundariesFile: File? = null,
+    /**
+     * Project dependency graph captured from the Gradle model at
+     * configuration time (Epic 9.2d-a3c2 round 2). Directory mode cannot
+     * rediscover edges; the declared snapshot is the execution authority.
+     * Null keeps the legacy generator behavior for the fromProject caller.
+     */
+    val dependencyGraph: DependencyGraphSnapshot? = null,
 )
+
+/** Configuration-time snapshot of the Gradle project dependency model. */
+class DependencyGraphSnapshot(
+    val production: DependencyGraphData,
+    val test: DependencyGraphData,
+) : java.io.Serializable
 
 /**
  * Compares the currently generated baseline against the committed baseline.
@@ -126,11 +140,30 @@ class BaselineVerifier(
                     return diagnosticsToReport(diagnostics)
                 }
 
+            // a3c2 round 2: directory mode cannot rediscover Gradle project
+            // edges (ModuleGraphAnalyzer returns an empty edge set with
+            // gradleProject == null). The declared configuration-time snapshot
+            // is the execution authority: restore production/test graphs so
+            // cycle, forbidden-edge and dependency-policy enforcement keep the
+            // same authority the fromProject path always had.
+            val effectiveCurrent =
+                if (declaredInputs?.dependencyGraph != null) {
+                    current.copy(
+                        structural =
+                            current.structural.copy(
+                                moduleDependencies = declaredInputs.dependencyGraph.production,
+                                moduleDependenciesTest = declaredInputs.dependencyGraph.test,
+                            ),
+                    )
+                } else {
+                    current
+                }
+
             // 7. Verify module catalogue against CURRENT projects (not committed)
-            verifyModuleCatalog(current, catalogResult, diagnostics)
+            verifyModuleCatalog(effectiveCurrent, catalogResult, diagnostics)
 
             // 8. Verify mandatory sections
-            verifyMandatorySections(current, diagnostics)
+            verifyMandatorySections(effectiveCurrent, diagnostics)
 
             // 9. Verify API and resolved dependency baselines with typed diagnostics
             val apiModules =
@@ -146,12 +179,12 @@ class BaselineVerifier(
                     repositoryRoot = ctx.rootDir,
                     catalogModules = catalogResult.modules,
                     apiValidationModules = apiModules,
-                ).verify(committed.api, current.api),
+                ).verify(committed.api, effectiveCurrent.api),
             )
             val dependencyDiagnostics =
                 DependencyBaselineVerifier().verify(
                     committed.dependencies.resolvedDependencies,
-                    current.dependencies.resolvedDependencies,
+                    effectiveCurrent.dependencies.resolvedDependencies,
                 )
             diagnostics.addAll(dependencyDiagnostics)
             ReportNormalizer.writeJson(
@@ -167,14 +200,14 @@ class BaselineVerifier(
             )
 
             // 10. Compare dimensions with FindingIdentity
-            verifyCancellationCatches(committed, current, deviationResult.deviations, diagnostics)
-            verifyGlobalState(committed, current, deviationResult.deviations, diagnostics)
-            verifyNondeterminism(committed, current, deviationResult.deviations, diagnostics)
-            verifyDependencyCycles(committed, current, deviationResult.deviations, diagnostics)
-            verifyProtocolCatalog(committed, current, diagnostics)
-            verifyStructuralHotspots(committed, current, deviationResult.deviations, diagnostics)
-            verifyForbiddenEdges(committed, current, diagnostics)
-            verifyDependencyPolicies(current, diagnostics)
+            verifyCancellationCatches(committed, effectiveCurrent, deviationResult.deviations, diagnostics)
+            verifyGlobalState(committed, effectiveCurrent, deviationResult.deviations, diagnostics)
+            verifyNondeterminism(committed, effectiveCurrent, deviationResult.deviations, diagnostics)
+            verifyDependencyCycles(committed, effectiveCurrent, deviationResult.deviations, diagnostics)
+            verifyProtocolCatalog(committed, effectiveCurrent, diagnostics)
+            verifyStructuralHotspots(committed, effectiveCurrent, deviationResult.deviations, diagnostics)
+            verifyForbiddenEdges(committed, effectiveCurrent, diagnostics)
+            verifyDependencyPolicies(effectiveCurrent, diagnostics)
             verifyDocumentDrift(committed, diagnostics)
         } finally {
             // Always write report, even on partial failures

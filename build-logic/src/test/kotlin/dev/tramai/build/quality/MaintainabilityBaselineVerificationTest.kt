@@ -171,17 +171,155 @@ class MaintainabilityBaselineVerificationTest {
         )
     }
 
+    @Test
+    fun `forbidden project dependency edge is detected from declared graph snapshot`() {
+        // :sample depends on :tramai-core via a real Gradle project
+        // dependency; the boundaries file forbids the layer edge. Directory
+        // mode alone produces no edges, so this discriminator only passes
+        // when the configuration-time project-edge snapshot is restored.
+        val dir =
+            verificationFixture(
+                applyPlugins = "",
+                extraSampleDeps = listOf("implementation(project(\":tramai-core\"))"),
+                boundariesYml =
+                    """
+                    forbiddenEdges:
+                      - fromLayer: "testing-support"
+                        toLayer: "testing-support"
+                        reason: "fixture forbids testing-support edges"
+                    allowedEdges: []
+                    """.trimIndent(),
+            )
+        generateCommittedBaseline(dir)
+
+        val failed = runner(dir, *configurationCacheArguments("verifyMaintainabilityBaseline")).buildAndFail()
+        assertTrue(
+            failed.output.contains("Forbidden edge: :sample"),
+            "forbidden project edge must be detected from the declared graph snapshot: ${failed.output.take(1400)}",
+        )
+    }
+
+    @Test
+    fun `new project dependency cycle is detected from declared graph snapshot`() {
+        // Committed baseline is generated WITHOUT the back-edge; the
+        // :tramai-core -> :sample dependency is added AFTER, so the cycle is
+        // genuinely new. Only the declared graph snapshot can surface it.
+        val dir =
+            verificationFixture(
+                applyPlugins = "",
+                extraSampleDeps = listOf("implementation(project(\":tramai-core\"))"),
+            )
+        generateCommittedBaseline(dir)
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            repositories { maven { url = uri(rootDir.resolve("repo")) } }
+            dependencies {
+                implementation(project(":sample"))
+            }
+            """.trimIndent(),
+        )
+
+        val failed = runner(dir, *configurationCacheArguments("verifyMaintainabilityBaseline")).buildAndFail()
+        assertTrue(
+            failed.output.contains("New dependency cycle detected"),
+            "new project cycle must be detected from the declared graph snapshot: ${failed.output.take(1400)}",
+        )
+    }
+
+    @Test
+    fun `declared alternative catalog drives both verifier and measurement context`() {
+        // Conventional catalog A declares :sample as testing-support; the
+        // declared alternative B declares it as core. A positional root
+        // derivation or a conventional-path context reload would silently use
+        // A while the verifier parses B, producing a MODULE_CATALOG_DISAGREEMENT.
+        // The discriminator proves both the verifier and the MeasurementContext
+        // observe B: the gate passes with layer "core" recorded in the report.
+        val dir =
+            verificationFixture(
+                applyPlugins =
+                    """
+                    import dev.tramai.build.quality.VerifyMaintainabilityBaselineTask
+                    tasks.named<VerifyMaintainabilityBaselineTask>("verifyMaintainabilityBaseline") {
+                        moduleCatalogFile.set(layout.projectDirectory.file("config/quality/alt-catalog.yml"))
+                    }
+                    """.trimIndent(),
+            )
+        // Alternative catalog B: same modules, :sample layer "core".
+        val altCatalog =
+            MODULE_CATALOG_YML.replace(
+                """- path: ":sample""""",
+                """- path: ":sample"
+                layer: "core"""",
+            )
+        writeFile(dir, "config/quality/alt-catalog.yml", altCatalog)
+        generateCommittedBaseline(dir)
+
+        val result = runner(dir, *configurationCacheArguments("verifyMaintainabilityBaseline")).build()
+        assertTrue(
+            result.output.contains("Maintainability baseline verification PASSED"),
+            "declared alternative catalog must drive context and verifier consistently: ${result.output.take(1400)}",
+        )
+        val report = File(dir, "build/reports/maintainability/verification-report.json")
+        assertTrue(report.isFile, "verification report must be written")
+    }
+
+    @Test
+    fun `root build script mutation is observed and invalidates the gate`() {
+        // Root build.gradle.kts is measured by generateStructuralHotspots; it
+        // must be a declared sourceTree input so a mutation re-executes the
+        // verifier instead of serving a stale up-to-date PASS.
+        val dir = verificationFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+
+        val args = configurationCacheArguments("verifyMaintainabilityBaseline")
+        val first = runner(dir, *args).build()
+        assertTrue(
+            first.output.contains("Maintainability baseline verification PASSED"),
+            "clean fixture must pass the gate: ${first.output.take(1200)}",
+        )
+
+        // Mutate the root build script (measured, previously undeclared).
+        val buildFile = File(dir, "build.gradle.kts")
+        buildFile.writeText(buildFile.readText() + "\n// mutation\n")
+
+        val second = runner(dir, *args).build()
+        assertEquals(
+            TaskOutcome.SUCCESS,
+            second.task(":verifyMaintainabilityBaseline")?.outcome,
+            "task must re-execute after root build script mutation: ${second.output.take(1200)}",
+        )
+    }
+
     // ─── Fixture ───
 
     /**
      * Self-contained fixture with a committed git history and one production
      * source file, so identity resolution and mandatory sections are real.
+     *
+     * @param extraSampleDeps Gradle dependency declarations added to :sample
+     *   (e.g. project deps, for edge/cycle discriminators).
+     * @param extraCoreDeps Gradle dependency declarations added to
+     *   :tramai-core (for the new-cycle discriminator).
+     * @param boundariesYml Optional module-boundaries.yml content; defaults to
+     *   the empty ruleset.
      */
-    private fun verificationFixture(applyPlugins: String): File {
+    private fun verificationFixture(
+        applyPlugins: String,
+        extraSampleDeps: List<String> = emptyList(),
+        extraCoreDeps: List<String> = emptyList(),
+        boundariesYml: String =
+            """
+            forbiddenEdges: []
+            allowedEdges: []
+            """.trimIndent(),
+    ): File {
         val dir = File(tempDir, "fixture-${tempDir.listFiles()?.size ?: 0}").apply { mkdirs() }
-        writeGradleScripts(dir, applyPlugins)
+        writeGradleScripts(dir, applyPlugins, extraSampleDeps, extraCoreDeps)
         writeProductionSource(dir)
-        writeQualityConfig(dir)
+        writeQualityConfig(dir, boundariesYml)
         writeLocalMavenRepo(dir)
         initGit(dir)
         return dir
@@ -190,6 +328,8 @@ class MaintainabilityBaselineVerificationTest {
     private fun writeGradleScripts(
         dir: File,
         applyPlugins: String,
+        extraSampleDeps: List<String>,
+        extraCoreDeps: List<String>,
     ) {
         writeFile(
             dir,
@@ -207,16 +347,46 @@ class MaintainabilityBaselineVerificationTest {
             $applyPlugins
             """.trimIndent(),
         )
+        // Constrain the TestKit-spawned fixture daemon: the sandbox cgroup
+        // OOM-kills unbounded nested daemons mid-suite.
+        writeFile(
+            dir,
+            "gradle.properties",
+            """
+            org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
+            org.gradle.workers.max=1
+            """.trimIndent(),
+        )
+        val sampleDeps =
+            (listOf("implementation(\"com.example:fake:1.0\")") + extraSampleDeps).joinToString("\n        ")
         writeFile(
             dir,
             "sample/build.gradle.kts",
             """
             plugins { `java-library` }
             repositories { maven { url = uri(rootDir.resolve("repo")) } }
-            dependencies { implementation("com.example:fake:1.0") }
+            dependencies {
+                $sampleDeps
+            }
             """.trimIndent(),
         )
-        writeFile(dir, "tramai-core/build.gradle.kts", "plugins { `java-library` }")
+        val coreDeps = extraCoreDeps.joinToString("\n        ")
+        val coreRepos =
+            if (extraCoreDeps.isEmpty()) {
+                ""
+            } else {
+                "\n    repositories { maven { url = uri(rootDir.resolve(\"repo\")) } }"
+            }
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins { `java-library` }$coreRepos
+            dependencies {
+                $coreDeps
+            }
+            """.trimIndent(),
+        )
         writeFile(dir, "examples/java-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, "examples/kotlin-consumer-smoke/build.gradle.kts", "plugins { `java-library` }")
         writeFile(dir, ".gitignore", ".gradle/\n.kotlin/\nbuild/\nsample/build/\nlocal.properties\n")
@@ -246,7 +416,10 @@ class MaintainabilityBaselineVerificationTest {
         )
     }
 
-    private fun writeQualityConfig(dir: File) {
+    private fun writeQualityConfig(
+        dir: File,
+        boundariesYml: String,
+    ) {
         writeFile(dir, "config/quality/module-catalog.yml", MODULE_CATALOG_YML)
         writeFile(dir, "config/quality/test-quality.yml", TEST_QUALITY_YML)
         writeFile(
@@ -257,14 +430,7 @@ class MaintainabilityBaselineVerificationTest {
             deviations: []
             """.trimIndent(),
         )
-        writeFile(
-            dir,
-            "config/quality/module-boundaries.yml",
-            """
-            forbiddenEdges: []
-            allowedEdges: []
-            """.trimIndent(),
-        )
+        writeFile(dir, "config/quality/module-boundaries.yml", boundariesYml)
         writeFile(
             dir,
             "config/quality/runtime-nondeterminism.yml",

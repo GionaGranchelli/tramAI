@@ -6,6 +6,7 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
@@ -41,6 +42,23 @@ abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
     @get:InputFile
     abstract val moduleBoundariesFile: RegularFileProperty
 
+    /**
+     * Settings script the root is derived from (Epic 9.2d-a3c2 round 2).
+     * Root = settingsFile.parentFile — never a positional guess from the
+     * catalog path. Declared so a settings change invalidates the gate.
+     */
+    @get:InputFile
+    abstract val settingsFile: RegularFileProperty
+
+    /**
+     * Project dependency graph captured from the Gradle model at
+     * configuration time (Epic 9.2d-a3c2 round 2). Directory mode cannot
+     * rediscover project edges; this declared snapshot is the execution
+     * authority for cycle / forbidden-edge / dependency-policy checks.
+     */
+    @get:Input
+    abstract val dependencyGraph: Property<DependencyGraphSnapshot>
+
     /** Aggregate resolved-dependency baseline produced by generateResolvedDependencyBaseline. */
     @get:InputFile
     abstract val resolvedDependenciesFile: RegularFileProperty
@@ -64,11 +82,16 @@ abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
 
     @TaskAction
     fun verify() {
-        val catalogFile = moduleCatalogFile.get().asFile
-        // Root derived from the declared catalog file
-        // (config/quality/module-catalog.yml -> three parents up to the root).
-        val rootDir = catalogFile.parentFile.parentFile.parentFile
-        val ctx = MeasurementContext.fromDirectory(rootDir)
+        // Root derived from the DECLARED settings file — never a positional
+        // guess from the catalog path (a3c2 round 2: an alternative declared
+        // catalog must not break root resolution or fall back to the
+        // conventional catalog).
+        val rootDir = settingsFile.get().asFile.parentFile
+        val catalog = ModuleCatalog(moduleCatalogFile.get().asFile)
+        // Parse before building the context: discoverModulesFromSettings reads
+        // layer/publishability via entryFor, which requires parsed state.
+        catalog.parse()
+        val ctx = MeasurementContext.fromDirectory(rootDir, catalog)
         val generator =
             BaselineGenerator(
                 ctx = ctx,
@@ -88,6 +111,7 @@ abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
                         deviationsFile = deviationsFile.get().asFile,
                         moduleCatalogFile = moduleCatalogFile.get().asFile,
                         moduleBoundariesFile = moduleBoundariesFile.get().asFile,
+                        dependencyGraph = dependencyGraph.get(),
                     ),
             )
         val report = verifier.verify()

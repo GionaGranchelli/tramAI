@@ -501,8 +501,20 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .filter { it.tasks.findByName("apiCheck") != null }
                     .map { it.path }
                     .toList()
+            // a3c2 round 2: capture the project dependency model as a declared
+            // plain-value snapshot at configuration time. Directory mode cannot
+            // rediscover Gradle edges; the snapshot is the execution authority
+            // for cycle / forbidden-edge / dependency-policy enforcement.
+            val graphCtx = MeasurementContext.fromProject(project)
+            val graph = ModuleGraphAnalyzer(graphCtx).analyze()
             project.tasks.withType(VerifyMaintainabilityBaselineTask::class.java).configureEach {
                 apiValidationModules.set(apiModules)
+                dependencyGraph.set(
+                    DependencyGraphSnapshot(
+                        production = graph.moduleDependencies,
+                        test = graph.moduleDependenciesTest,
+                    ),
+                )
             }
         }
 
@@ -529,6 +541,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             deviationsFile.set(project.layout.projectDirectory.file("config/quality/maintainability-deviations.yml"))
             moduleCatalogFile.set(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
             moduleBoundariesFile.set(project.layout.projectDirectory.file("config/quality/module-boundaries.yml"))
+            settingsFile.set(project.layout.projectDirectory.file("settings.gradle.kts"))
             this.reportDir.set(project.layout.buildDirectory.dir("reports/maintainability"))
             // Typed signal from the a3c1 aggregate task — never a conventional path.
             resolvedDependenciesFile.set(
@@ -537,8 +550,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .flatMap { it.aggregateFile },
             )
             // Measured tree: module sources/build files, settings, version
-            // properties, committed api dumps, release notes. Declared so a
-            // source change invalidates the gate (never a stale CC PASS).
+            // properties, root build script + version catalog, committed api
+            // dumps, release notes. Declared so a source change invalidates the
+            // gate (never a stale CC PASS). Candidates are declared WITHOUT an
+            // existence filter: @InputFiles fingerprints absent paths, so a
+            // source directory created later still invalidates the gate.
             val measuredDirs =
                 project.allprojects
                     .filter { it != project && it.buildFile.exists() }
@@ -551,11 +567,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             sub.buildFile,
                         )
                     }
-            sourceTree.from(project.files(measuredDirs).filter { it.exists() })
+            sourceTree.from(project.files(measuredDirs))
             sourceTree.from(
-                project
-                    .files(project.rootDir.resolve("settings.gradle.kts"), project.rootDir.resolve("gradle.properties"))
-                    .filter { it.exists() },
+                project.files(
+                    project.rootDir.resolve("settings.gradle.kts"),
+                    project.rootDir.resolve("gradle.properties"),
+                    project.rootDir.resolve("build.gradle.kts"),
+                    project.rootDir.resolve("gradle/libs.versions.toml"),
+                ),
             )
             sourceTree.from(
                 project.fileTree(project.rootDir) {
