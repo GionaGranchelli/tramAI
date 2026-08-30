@@ -486,49 +486,101 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
-        project.tasks.register("verifyMaintainabilityBaseline") {
+        // ---- Maintainability baseline verification (Epic 9.2d-a3c2) ----
+        // apiCheck module set snapshotted once configuration has finished
+        // (a3c1 discipline: model inspected while configuring task
+        // properties, never lazily inside the task action — a lazy
+        // provider would capture Project and walk the model at execution).
+        // Registered at apply scope, NOT inside the register action: register
+        // actions run at task realization (post-evaluation), where
+        // projectsEvaluated is illegal; configureEach applies whenever the
+        // task is realized.
+        project.gradle.projectsEvaluated {
+            val apiModules =
+                project.allprojects
+                    .filter { it.tasks.findByName("apiCheck") != null }
+                    .map { it.path }
+                    .toList()
+            // a3c2 round 2: capture the project dependency model as a declared
+            // plain-value snapshot at configuration time. Directory mode cannot
+            // rediscover Gradle edges; the snapshot is the execution authority
+            // for cycle / forbidden-edge / dependency-policy enforcement.
+            val graphCtx = MeasurementContext.fromProject(project)
+            val graph = ModuleGraphAnalyzer(graphCtx).analyze()
+            project.tasks.withType(VerifyMaintainabilityBaselineTask::class.java).configureEach {
+                apiValidationModules.set(apiModules)
+                dependencyGraph.set(
+                    DependencyGraphSnapshot(
+                        production = graph.moduleDependencies,
+                        test = graph.moduleDependenciesTest,
+                    ),
+                )
+            }
+        }
+
+        // Typed, configuration-cache-safe: declared inputs (committed baseline,
+        // deviations, catalog, boundaries, aggregate resolved-dependency output,
+        // measured source tree, apiCheck snapshot) are the execution authority.
+        // The action builds a directory-mode MeasurementContext from the
+        // declared catalog file — never Task.project.
+        project.tasks.register<VerifyMaintainabilityBaselineTask>("verifyMaintainabilityBaseline") {
             group = "maintainability"
             description = "Compares current measurements against committed baseline and rejects regressions"
             dependsOn("generateResolvedDependencyBaseline")
             dependsOn("verifyRuntimeNondeterminism")
-            doLast {
-                val ctx = MeasurementContext.fromProject(project)
-                val generator = BaselineGenerator(ctx)
-                val reportDir =
-                    File(
-                        project.layout.buildDirectory
-                            .get()
-                            .asFile,
-                        "reports/maintainability",
-                    )
-                val verifier = BaselineVerifier(generator, ctx, reportDir)
-                val report = verifier.verify()
-
-                report.failures.forEach { project.logger.error("FAIL: $it") }
-                report.warnings.take(100).forEach { project.logger.warn("WARN: $it") }
-                if (report.warnings.size > 100) {
-                    project.logger.warn("WARN: ${report.warnings.size - 100} additional warnings; see dependency-changes.json")
-                }
-                report.acceptedDeviations.forEach { project.logger.info("ACCEPTED: $it") }
-
-                if (!report.passed) {
-                    val summary =
-                        "Maintainability baseline verification FAILED:\n" +
-                            report.failures.joinToString("\n") { "  - $it" } +
-                            "\n\nRun './gradlew generateMaintainabilityBaseline' to regenerate." +
-                            "\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."
-                    throw GradleException(summary)
-                }
-
-                println("Maintainability baseline verification PASSED.")
-                if (report.acceptedDeviations.isNotEmpty()) {
-                    println("Accepted deviations: ${report.acceptedDeviations.size}")
-                }
-                if (report.warnings.isNotEmpty()) {
-                    println("Warnings: ${report.warnings.size}")
-                }
-                println("Reports: ${project.buildDir}/reports/maintainability/")
+            // Only declare the committed baseline when it exists; an unset
+            // property keeps @Optional semantics so the action's fail-closed
+            // "Committed baseline not found" diagnostic runs (Gradle 9
+            // validates set-but-missing @InputFile eagerly).
+            val committedBaseline = project.layout.projectDirectory.file("config/quality/0.6.0-baseline.json")
+            if (committedBaseline.asFile.isFile) {
+                committedBaselineFile.set(committedBaseline)
+            } else {
+                committedBaselineFile.unset()
             }
+            deviationsFile.set(project.layout.projectDirectory.file("config/quality/maintainability-deviations.yml"))
+            moduleCatalogFile.set(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
+            moduleBoundariesFile.set(project.layout.projectDirectory.file("config/quality/module-boundaries.yml"))
+            settingsFile.set(project.layout.projectDirectory.file("settings.gradle.kts"))
+            this.reportDir.set(project.layout.buildDirectory.dir("reports/maintainability"))
+            // Typed signal from the a3c1 aggregate task — never a conventional path.
+            resolvedDependenciesFile.set(
+                project.tasks
+                    .named("generateResolvedDependencyBaseline", AggregateResolvedDependencyBaselineTask::class.java)
+                    .flatMap { it.aggregateFile },
+            )
+            // Measured tree: module sources/build files, settings, version
+            // properties, root build script + version catalog, committed api
+            // dumps, release notes. Declared so a source change invalidates the
+            // gate (never a stale CC PASS). Candidates are declared WITHOUT an
+            // existence filter: @InputFiles fingerprints absent paths, so a
+            // source directory created later still invalidates the gate.
+            val measuredDirs =
+                project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .flatMap { sub ->
+                        listOf(
+                            File(sub.projectDir, "src/main/kotlin"),
+                            File(sub.projectDir, "src/main/java"),
+                            File(sub.projectDir, "src/test/kotlin"),
+                            File(sub.projectDir, "src/testFixtures/kotlin"),
+                            sub.buildFile,
+                        )
+                    }
+            sourceTree.from(project.files(measuredDirs))
+            sourceTree.from(
+                project.files(
+                    project.rootDir.resolve("settings.gradle.kts"),
+                    project.rootDir.resolve("gradle.properties"),
+                    project.rootDir.resolve("build.gradle.kts"),
+                    project.rootDir.resolve("gradle/libs.versions.toml"),
+                ),
+            )
+            sourceTree.from(
+                project.fileTree(project.rootDir) {
+                    include("**/api/*.api", "docs/releases/0.6.0-maintainability-baseline.md")
+                },
+            )
         }
 
         // ── Epic 8.3d PR 2: nondeterminism authority contract verifier ──

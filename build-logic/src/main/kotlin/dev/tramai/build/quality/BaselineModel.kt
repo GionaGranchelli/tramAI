@@ -23,7 +23,7 @@ data class BaselineDocument(
     @JsonProperty("deviations") val deviations: DeviationsSection = DeviationsSection(),
     @JsonProperty("generatedAt") val generatedAt: String? = null,
     @JsonProperty("generatedBy") val generatedBy: String? = null,
-    @JsonProperty("environment") val environment: EnvironmentInfo = EnvironmentInfo()
+    @JsonProperty("environment") val environment: EnvironmentInfo = EnvironmentInfo(),
 )
 
 @JsonPropertyOrder(alphabetic = true)
@@ -41,7 +41,7 @@ data class BaselineIdentity(
     @JsonProperty("analyzerSchemaVersion") val analyzerSchemaVersion: String = "1",
     @JsonProperty("commitTimestamp") val commitTimestamp: String = "",
     @JsonProperty("tramaiVersion") val tramaiVersion: String = "0.5.0",
-    @JsonProperty("toolchain") val toolchain: ToolchainInfo = ToolchainInfo()
+    @JsonProperty("toolchain") val toolchain: ToolchainInfo = ToolchainInfo(),
 )
 
 @JsonPropertyOrder(alphabetic = true)
@@ -49,7 +49,7 @@ data class ToolchainInfo(
     @JsonProperty("gradle") val gradle: String = "",
     @JsonProperty("kotlin") val kotlin: String = "",
     @JsonProperty("jvmTarget") val jvmTarget: String = "21",
-    @JsonProperty("ciJdk") val ciJdk: String = "21"
+    @JsonProperty("ciJdk") val ciJdk: String = "21",
 )
 
 @JsonPropertyOrder(alphabetic = true)
@@ -58,31 +58,31 @@ data class StructuralBaseline(
     @JsonProperty("moduleDependencies") val moduleDependencies: DependencyGraphData = DependencyGraphData(),
     @JsonProperty("moduleDependenciesTest") val moduleDependenciesTest: DependencyGraphData = DependencyGraphData(),
     @JsonProperty("sourceMetrics") val sourceMetrics: SourceMetricsData = SourceMetricsData(),
-    @JsonProperty("structuralHotspots") val structuralHotspots: StructuralHotspots = StructuralHotspots()
+    @JsonProperty("structuralHotspots") val structuralHotspots: StructuralHotspots = StructuralHotspots(),
 )
 
 data class ModuleInfo(
     val name: String,
     val path: String,
     val layer: String = "unknown",
-    val publishable: Boolean = false
+    val publishable: Boolean = false,
 )
 
 data class DependencyGraphData(
     val modules: List<String> = emptyList(),
     val edges: List<DependencyEdge> = emptyList(),
-    val cycles: List<List<String>> = emptyList()
-)
+    val cycles: List<List<String>> = emptyList(),
+) : java.io.Serializable
 
 data class DependencyEdge(
     val from: String,
     val to: String,
-    val scope: String
-)
+    val scope: String,
+) : java.io.Serializable
 
 data class SourceMetricsData(
     val byModule: Map<String, ModuleSourceMetrics> = emptyMap(),
-    val totals: SourceTotals = SourceTotals()
+    val totals: SourceTotals = SourceTotals(),
 )
 
 data class ModuleSourceMetrics(
@@ -90,7 +90,7 @@ data class ModuleSourceMetrics(
     val production: SourceSetMetrics = SourceSetMetrics(),
     val test: SourceSetMetrics = SourceSetMetrics(),
     val testFixtures: SourceSetMetrics = SourceSetMetrics(),
-    val testToProductionRatio: Double = 0.0
+    val testToProductionRatio: Double = 0.0,
 )
 
 data class SourceSetMetrics(
@@ -98,14 +98,14 @@ data class SourceSetMetrics(
     val totalLines: Int = 0,
     val nonBlankLines: Int = 0,
     val commentLines: Int = 0,
-    val codeLines: Int = 0
+    val codeLines: Int = 0,
 )
 
 data class SourceTotals(
     val totalProductionFiles: Int = 0,
     val totalProductionLines: Int = 0,
     val totalTestFiles: Int = 0,
-    val totalTestLines: Int = 0
+    val totalTestLines: Int = 0,
 )
 
 data class StructuralHotspots(
@@ -120,7 +120,7 @@ data class StructuralHotspots(
     val mostConstructorParameters: List<StructuralHotspot> = emptyList(),
     val mostFunctionParameters: List<StructuralHotspot> = emptyList(),
     val highestFanOut: List<StructuralHotspot> = emptyList(),
-    val highestFanIn: List<StructuralHotspot> = emptyList()
+    val highestFanIn: List<StructuralHotspot> = emptyList(),
 )
 
 data class StructuralHotspot(
@@ -128,12 +128,12 @@ data class StructuralHotspot(
     val path: String,
     val declaration: String,
     val metric: String,
-    val value: Int
+    val value: Int,
 )
 
 data class ApiBaseline(
     val modules: List<ApiDumpRecord> = emptyList(),
-    val aggregateHash: String = ""
+    val aggregateHash: String = "",
 )
 
 data class ApiDumpRecord(
@@ -142,13 +142,13 @@ data class ApiDumpRecord(
     val applicable: Boolean,
     val dumpPath: String,
     val sha256: String,
-    val exclusionReason: String? = null
+    val exclusionReason: String? = null,
 )
 
 data class DependencyBaseline(
     val resolvedDependencies: List<ResolvedDependency> = emptyList(),
     val convergenceIssues: List<String> = emptyList(),
-    val unexpectedTransitives: List<String> = emptyList()
+    val unexpectedTransitives: List<String> = emptyList(),
 )
 
 data class ResolvedDependency(
@@ -160,13 +160,13 @@ data class ResolvedDependency(
     val configuration: String,
     val selectionReason: String,
     val dependencyPath: List<String>,
-    val consumers: List<String>
+    val consumers: List<String>,
 )
 
 data class TestQualityBaseline(
     val testPerformance: TestPerformanceData = TestPerformanceData(),
     val coverage: CoverageData = CoverageData(),
-    val mutation: MutationData = MutationData()
+    val mutation: MutationData = MutationData(),
 )
 
 data class TestPerformanceData(
@@ -178,7 +178,7 @@ data class TestPerformanceData(
     val allTests: List<TestTiming> = emptyList(),
     val byIdentity: Map<String, TestTiming> = emptyMap(),
     val totalDurationMs: Long = 0,
-    val totalTestCount: Int = 0
+    val totalTestCount: Int = 0,
 )
 
 data class ModuleTestPerformance(
@@ -189,7 +189,7 @@ data class ModuleTestPerformance(
     val skippedCount: Int = 0,
     val failureCount: Int = 0,
     val sourceSet: String = "test",
-    val testTaskName: String = "test"
+    val testTaskName: String = "test",
 )
 
 data class TestTiming(
@@ -200,7 +200,7 @@ data class TestTiming(
     val sourceSet: String = "test",
     val testTaskName: String = "test",
     val skipped: Boolean = false,
-    val failed: Boolean = false
+    val failed: Boolean = false,
 )
 
 data class TestPerformanceObservation(
@@ -216,7 +216,7 @@ data class TestPerformanceObservation(
     val gradleVersion: String = "",
     val classTimings: List<TestTiming> = emptyList(),
     val testTimings: List<TestTiming> = emptyList(),
-    val byIdentity: Map<String, TestTiming> = emptyMap()
+    val byIdentity: Map<String, TestTiming> = emptyMap(),
 )
 
 data class CoverageData(
@@ -226,7 +226,7 @@ data class CoverageData(
     val criticalModules: Map<String, ModuleCoverage> = emptyMap(),
     val exclusions: List<CoverageExclusion> = emptyList(),
     val overallLineCoverage: Double = 0.0,
-    val overallBranchCoverage: Double = 0.0
+    val overallBranchCoverage: Double = 0.0,
 )
 
 data class ModuleCoverage(
@@ -238,12 +238,12 @@ data class ModuleCoverage(
     val linesTotal: Int = 0,
     val branchesCovered: Int = 0,
     val branchesMissed: Int = 0,
-    val branchesTotal: Int = 0
+    val branchesTotal: Int = 0,
 )
 
 data class CoverageExclusion(
     val pattern: String,
-    val reason: String
+    val reason: String,
 )
 
 data class MutationData(
@@ -259,7 +259,7 @@ data class MutationData(
     val byFamily: Map<String, MutationFamilyMetrics> = emptyMap(),
     val survivingMutants: List<SurvivingMutant> = emptyList(),
     val equivalentMutants: List<SurvivingMutant> = emptyList(),
-    val unclassifiedMutants: List<SurvivingMutant> = emptyList()
+    val unclassifiedMutants: List<SurvivingMutant> = emptyList(),
 )
 
 data class ModuleMutationMetrics(
@@ -269,7 +269,7 @@ data class ModuleMutationMetrics(
     val survived: Int = 0,
     val noCoverage: Int = 0,
     val timedOut: Int = 0,
-    val mutationScore: Double = 0.0
+    val mutationScore: Double = 0.0,
 )
 
 data class MutationFamilyMetrics(
@@ -279,7 +279,7 @@ data class MutationFamilyMetrics(
     val killedMutants: Int = 0,
     val survivedMutants: Int = 0,
     val noCoverageMutants: Int = 0,
-    val mutationScore: Double = 0.0
+    val mutationScore: Double = 0.0,
 )
 
 data class SurvivingMutant(
@@ -295,14 +295,14 @@ data class SurvivingMutant(
     val identity: String = "",
     val behaviourFamily: String = "",
     val issue: String? = null,
-    val targetPhase: String? = null
+    val targetPhase: String? = null,
 )
 
 data class RuntimeSafetyBaseline(
     val cancellationCatches: List<CancellationCatchFinding> = emptyList(),
     val testCancellationCatches: List<CancellationCatchFinding> = emptyList(),
     val globalState: List<GlobalStateFinding> = emptyList(),
-    val nondeterminism: List<NondeterminismFinding> = emptyList()
+    val nondeterminism: List<NondeterminismFinding> = emptyList(),
 )
 
 data class CancellationCatchFinding(
@@ -322,7 +322,7 @@ data class CancellationCatchFinding(
      * Used ONLY by the comparator's relocation pass to prove a catch actually
      * moved across files — the line number alone is never identity.
      */
-    @get:JsonIgnore val sourceFingerprint: String = ""
+    @get:JsonIgnore val sourceFingerprint: String = "",
 )
 
 data class GlobalStateFinding(
@@ -333,7 +333,7 @@ data class GlobalStateFinding(
     @JsonProperty("type") val type: String,
     @JsonProperty("mutable") val mutable: Boolean = true,
     @JsonProperty("lifecycle") val lifecycle: String = "process",
-    @JsonProperty("threadSafety") val threadSafety: String = "unknown"
+    @JsonProperty("threadSafety") val threadSafety: String = "unknown",
 )
 
 data class NondeterminismFinding(
@@ -342,7 +342,7 @@ data class NondeterminismFinding(
     @JsonProperty("line") val line: Int,
     @JsonProperty("source") val source: String,
     @JsonProperty("classification") val classification: String = "unknown",
-    @JsonProperty("category") val category: String = "unknown"
+    @JsonProperty("category") val category: String = "unknown",
 )
 
 /**
@@ -350,11 +350,10 @@ data class NondeterminismFinding(
  * Line numbers never participate — line movement must not invalidate an
  * otherwise unchanged allowlist entry (Epic 8.3d PR 2).
  */
-fun NondeterminismFinding.identityKey(): String =
-    "$module\u0000$file\u0000$source"
+fun NondeterminismFinding.identityKey(): String = "$module\u0000$file\u0000$source"
 
 data class ProtocolCatalog(
-    val entries: List<ProtocolEntry> = emptyList()
+    val entries: List<ProtocolEntry> = emptyList(),
 )
 
 data class ProtocolEntry(
@@ -363,22 +362,22 @@ data class ProtocolEntry(
     val value: String,
     val source: String,
     val consumers: List<String> = emptyList(),
-    val stability: String = "unclassified"
+    val stability: String = "unclassified",
 )
 
 data class VerificationReport(
     val passed: Boolean,
     val failures: List<String> = emptyList(),
     val warnings: List<String> = emptyList(),
-    val acceptedDeviations: List<String> = emptyList()
+    val acceptedDeviations: List<String> = emptyList(),
 )
 
 data class DeviationsSection(
     val acceptedRegressions: List<String> = emptyList(),
-    val knownHotspots: List<String> = emptyList()
+    val knownHotspots: List<String> = emptyList(),
 )
 
 data class EnvironmentInfo(
     val os: String? = null,
-    val javaVersion: String? = null
+    val javaVersion: String? = null,
 )

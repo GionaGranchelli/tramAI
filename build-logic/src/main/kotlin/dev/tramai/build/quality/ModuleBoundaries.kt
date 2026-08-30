@@ -8,15 +8,18 @@ import java.io.FileInputStream
  * Parses and evaluates module boundary rules (config/quality/module-boundaries.yml).
  * Used by the verifier to reject forbidden architectural edges.
  */
-class ModuleBoundaries(private val rootDir: File) {
-
+class ModuleBoundaries(
+    private val rootDir: File,
+    /** Declared boundaries-file input (Epic 9.2d-a3c2). Null keeps the legacy conventional path. */
+    private val boundariesFile: File? = null,
+) {
     data class ForbiddenEdgeRule(
         val fromLayer: String? = null,
         val toLayer: String? = null,
         val fromPublished: Boolean? = null,
         val toPublishability: String? = null,
         val selfEdge: Boolean? = null,
-        val reason: String
+        val reason: String,
     )
 
     data class AllowedEdgeRule(
@@ -24,13 +27,13 @@ class ModuleBoundaries(private val rootDir: File) {
         val toLayer: String? = null,
         val fromModule: String? = null,
         val toModule: String? = null,
-        val reason: String
+        val reason: String,
     )
 
     data class BoundaryResult(
         val forbiddenEdges: List<ForbiddenEdgeRule>,
         val allowedEdges: List<AllowedEdgeRule>,
-        val errors: List<VerificationDiagnostic>
+        val errors: List<VerificationDiagnostic>,
     )
 
     /** Parsed rules, stored as instance fields populated during parse(). */
@@ -48,12 +51,18 @@ class ModuleBoundaries(private val rootDir: File) {
     }
 
     fun parse(): BoundaryResult {
-        val file = File(rootDir, "config/quality/module-boundaries.yml")
+        val file = boundariesFile ?: File(rootDir, "config/quality/module-boundaries.yml")
         if (!file.isFile) {
-            return BoundaryResult(emptyList(), emptyList(), listOf(
-                VerificationDiagnostic.failure(DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-                    "Boundary rules not found: ${file.absolutePath}")
-            ))
+            return BoundaryResult(
+                emptyList(),
+                emptyList(),
+                listOf(
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                        "Boundary rules not found: ${file.absolutePath}",
+                    ),
+                ),
+            )
         }
 
         val errors = mutableListOf<VerificationDiagnostic>()
@@ -69,9 +78,12 @@ class ModuleBoundaries(private val rootDir: File) {
                 val reason = entry["reason"]?.toString() ?: ""
 
                 if (reason.isBlank()) {
-                    errors.add(VerificationDiagnostic.failure(
-                        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-                        "Forbidden edge rule $index: reason is blank"))
+                    errors.add(
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                            "Forbidden edge rule $index: reason is blank",
+                        ),
+                    )
                     continue
                 }
 
@@ -87,8 +99,8 @@ class ModuleBoundaries(private val rootDir: File) {
                         toLayer = entry["toLayer"]?.toString(),
                         fromPublished = entry["fromPublished"] as? Boolean,
                         toPublishability = entry["toPublishability"]?.toString(),
-                        reason = reason
-                    )
+                        reason = reason,
+                    ),
                 )
             }
 
@@ -96,9 +108,12 @@ class ModuleBoundaries(private val rootDir: File) {
             for ((index, entry) in allowedRaw.withIndex()) {
                 val reason = entry["reason"]?.toString() ?: ""
                 if (reason.isBlank()) {
-                    errors.add(VerificationDiagnostic.failure(
-                        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-                        "Allowed edge rule $index: reason is blank"))
+                    errors.add(
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                            "Allowed edge rule $index: reason is blank",
+                        ),
+                    )
                     continue
                 }
                 parsedAllowed.add(
@@ -107,15 +122,17 @@ class ModuleBoundaries(private val rootDir: File) {
                         toLayer = entry["toLayer"]?.toString(),
                         fromModule = entry["fromModule"]?.toString(),
                         toModule = entry["toModule"]?.toString(),
-                        reason = reason
-                    )
+                        reason = reason,
+                    ),
                 )
             }
-
         } catch (e: Exception) {
-            errors.add(VerificationDiagnostic.failure(
-                DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-                "Failed to parse boundary rules: ${e.message}"))
+            errors.add(
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                    "Failed to parse boundary rules: ${e.message}",
+                ),
+            )
         }
 
         // Store parsed rules as instance fields
@@ -136,13 +153,13 @@ class ModuleBoundaries(private val rootDir: File) {
     fun checkEdge(
         fromPath: String,
         toPath: String,
-        catalog: ModuleCatalog
+        catalog: ModuleCatalog,
     ): VerificationDiagnostic? {
         // Self-edge check
         if (fromPath == toPath) {
             return VerificationDiagnostic.failure(
                 DiagnosticCode.SELF_DEPENDENCY,
-                "Module $fromPath depends on itself"
+                "Module $fromPath depends on itself",
             )
         }
 
@@ -160,19 +177,22 @@ class ModuleBoundaries(private val rootDir: File) {
             val pubMatch = rule.toPublishability == null || (rule.toPublishability == toPublishability)
 
             // Check allowed edge exceptions first (supports layer and module matching)
-            val isAllowed = allowedEdges.any { edge ->
-                val fromOk = (edge.fromLayer == null || edge.fromLayer == fromLayer || edge.fromLayer == "*") &&
-                    (edge.fromModule == null || edge.fromModule == fromPath)
-                val toOk = (edge.toLayer == null || edge.toLayer == toLayer || edge.toLayer == "*") &&
-                    (edge.toModule == null || edge.toModule == toPath)
-                fromOk && toOk
-            }
+            val isAllowed =
+                allowedEdges.any { edge ->
+                    val fromOk =
+                        (edge.fromLayer == null || edge.fromLayer == fromLayer || edge.fromLayer == "*") &&
+                            (edge.fromModule == null || edge.fromModule == fromPath)
+                    val toOk =
+                        (edge.toLayer == null || edge.toLayer == toLayer || edge.toLayer == "*") &&
+                            (edge.toModule == null || edge.toModule == toPath)
+                    fromOk && toOk
+                }
 
             if (layerMatch && toLayerMatch && publishedMatch && pubMatch && !isAllowed) {
                 return VerificationDiagnostic.failure(
                     DiagnosticCode.FORBIDDEN_LAYER_EDGE,
                     "Forbidden edge: $fromPath ($fromLayer) -> $toPath ($toLayer): ${rule.reason}",
-                    modulePath = fromPath
+                    modulePath = fromPath,
                 )
             }
         }
