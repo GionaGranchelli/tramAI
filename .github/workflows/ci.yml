@@ -195,7 +195,15 @@ jobs:
         # Rerunning here doubles the exposure to probabilistic concurrency flakes
         # (observed: JdbcStepAttemptRecordStoreContractTest #19 failed only in
         # the closure re-run, with the same head passing the initial Run tests).
-        run: ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=
+        # The aggregate pulls verifyStaticAnalysis, which on a bootstrap PR needs
+        # the explicit baseline-migration class (label-gated, like the step above).
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
+          else
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=
+          fi
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
