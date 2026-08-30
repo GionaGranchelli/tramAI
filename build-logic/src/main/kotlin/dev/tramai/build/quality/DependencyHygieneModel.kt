@@ -28,9 +28,26 @@ data class DependencyUnitSpec(
     @get:Input val modulePath: String,
     /** configuration name -> declared external coordinates (group:artifact). */
     @get:Input val declared: Map<String, List<String>>,
-    /** source set -> 2-segment import prefixes found in that source set. */
+    /** source set -> full import symbols found in that source set (see importSymbolOf). */
     @get:Input val importsBySourceSet: Map<String, Set<String>>,
 )
+
+/**
+ * Static evidence extracted from a dependency's class-bearing jars.
+ *
+ * `classes` holds full top-level class names (org.foo.Bar); `packages` holds
+ * the package of each such class. Exact-class matching means sibling artifacts
+ * that share a package family (org.springframework.context vs org.springframework.jdbc)
+ * can no longer justify each other (10.1c round-3 review).
+ */
+data class JarEvidence(
+    val classes: Set<String>,
+    val packages: Set<String>,
+) {
+    companion object {
+        val EMPTY = JarEvidence(emptySet(), emptySet())
+    }
+}
 
 object DependencyUsageEvaluator {
     private fun requiredSourceSet(configuration: String): String? =
@@ -47,25 +64,27 @@ object DependencyUsageEvaluator {
     )
 
     private fun staticallyUsed(
-        prefixes: Set<String>,
+        evidence: JarEvidence,
         imports: Set<String>,
     ): Boolean =
-        prefixes.any { p ->
-            imports.any { i ->
-                // Both sides are 2-segment prefixes (import 'com.example.api.X' → 'com.example';
-                // jar package com.example.api.Y → 'com.example'). Match when the import is at
-                // least as specific as the package prefix — a BROADER import (e.g. 'kotlinx'
-                // from kotlinx.serialization) must NOT count as usage of kotlinx-coroutines.
-                i == p || i.startsWith(p + ".")
+        imports.any { symbol ->
+            if (symbol.endsWith(".*")) {
+                // wildcard import org.foo.* → coordinate must contain a class in org.foo
+                val pkg = symbol.dropLast(2)
+                pkg in evidence.packages || pkg in evidence.classes
+            } else {
+                // plain import org.foo.Bar → exact class; static import org.foo.Bar.method
+                // and nested org.foo.Outer.Inner → owner class must be present.
+                evidence.classes.any { c -> symbol == c || symbol.startsWith(c + ".") }
             }
         }
 
     /**
-     * @param packagePrefixes coordinate -> 2-segment package prefixes from its jars.
+     * @param jarEvidence coordinate -> class/package evidence from its jars.
      */
     fun evaluate(
         unit: DependencyUnitSpec,
-        packagePrefixes: Map<String, Set<String>>,
+        jarEvidence: Map<String, JarEvidence>,
         exemptions: List<Exemption>,
     ): Result {
         val violations = mutableListOf<String>()
@@ -73,7 +92,7 @@ object DependencyUsageEvaluator {
         val context =
             EvalContext(
                 unit,
-                packagePrefixes,
+                jarEvidence,
                 exemptions.filter { it.module == unit.modulePath },
                 violations,
                 info,
@@ -90,7 +109,7 @@ object DependencyUsageEvaluator {
 
     private class EvalContext(
         val unit: DependencyUnitSpec,
-        val packagePrefixes: Map<String, Set<String>>,
+        val jarEvidence: Map<String, JarEvidence>,
         val exemptionsForModule: List<Exemption>,
         val violations: MutableList<String>,
         val info: MutableList<String>,
@@ -102,8 +121,8 @@ object DependencyUsageEvaluator {
         srcset: String,
         coordinate: String,
     ) {
-        val prefixes = context.packagePrefixes[coordinate].orEmpty()
-        if (prefixes.isEmpty()) {
+        val evidence = context.jarEvidence[coordinate] ?: JarEvidence.EMPTY
+        if (evidence.classes.isEmpty() && evidence.packages.isEmpty()) {
             // No class-bearing jars on the compile classpath for this coordinate —
             // a BOM/platform declaration or an unresolvable artifact. Not provable
             // either way; report as info, never flag.
@@ -114,7 +133,7 @@ object DependencyUsageEvaluator {
             return
         }
         val imports = context.unit.importsBySourceSet[srcset].orEmpty()
-        val used = staticallyUsed(prefixes, imports)
+        val used = staticallyUsed(evidence, imports)
         if (used) return
         val exempt =
             context.exemptionsForModule.any {
@@ -152,8 +171,8 @@ object DependencyUsageEvaluator {
             }
             val srcset = requiredSourceSet(exemption.configuration) ?: return@forEach
             val imports = unit.importsBySourceSet[srcset].orEmpty()
-            val prefixes = context.packagePrefixes[exemption.dependency].orEmpty()
-            val nowUsed = staticallyUsed(prefixes, imports)
+            val evidence = context.jarEvidence[exemption.dependency] ?: JarEvidence.EMPTY
+            val nowUsed = staticallyUsed(evidence, imports)
             if (nowUsed) {
                 context.violations.add(
                     "stale exemption: ${unit.modulePath} ${exemption.configuration} ${exemption.dependency} " +

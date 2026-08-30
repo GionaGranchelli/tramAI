@@ -126,50 +126,51 @@ class DependencyHygienePlugin : Plugin<Project> {
     private fun collectImports(p: Project): Map<String, Set<String>> {
         val importsBySourceSet = mutableMapOf<String, Set<String>>()
         listOf("main", "test", "testFixtures").forEach { ss ->
-            val prefixes = importPrefixesIn(p, ss)
-            if (prefixes.isNotEmpty()) importsBySourceSet[ss] = prefixes
+            val symbols = importSymbolsIn(p, ss)
+            if (symbols.isNotEmpty()) importsBySourceSet[ss] = symbols
         }
         return importsBySourceSet
     }
 
-    private fun importPrefixesIn(
+    private fun importSymbolsIn(
         p: Project,
         ss: String,
     ): Set<String> {
-        val prefixes = mutableSetOf<String>()
+        val symbols = mutableSetOf<String>()
         listOf("kotlin", "java").forEach { lang ->
             val dir = File(p.projectDir, "src/$ss/$lang")
-            if (dir.isDirectory) prefixes += importsIn(dir)
+            if (dir.isDirectory) symbols += importsIn(dir)
         }
-        return prefixes
+        return symbols
     }
 
     private fun importsIn(dir: File): Set<String> {
-        val prefixes = mutableSetOf<String>()
+        val symbols = mutableSetOf<String>()
         dir
             .walkTopDown()
             .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
             .forEach { file ->
-                file.readLines().forEach { line -> importPrefixOf(line)?.let { prefixes += it } }
+                file.readLines().forEach { line -> importSymbolOf(line)?.let { symbols += it } }
             }
-        return prefixes
+        return symbols
     }
 }
 
 /**
- * Extracts the 2-segment package prefix from a Kotlin/Java import line, or null
- * when the line is not an import. Handles the three forms that matter for
- * dependency evidence (10.1c review thread): plain (`import foo.bar.Baz`),
- * wildcard (`import foo.bar.*`), and Java static (`import static foo.Bar.baz`).
+ * Extracts the full import symbol from a Kotlin/Java import line, or null when
+ * the line is not a usable import. Handles the forms that matter for dependency
+ * evidence (10.1c): plain (`import foo.bar.Baz`), wildcard (`import foo.bar.*`,
+ * kept as-is), Java static (`import static foo.Bar.baz` → owner + member), Kotlin
+ * alias (`import foo.bar.Baz as X` → the aliased symbol), and Java trailing ';'.
+ *
+ * Exact-symbol evidence (round-3 review): the dependency gate matches these
+ * against full class names from the dependency jars, so sibling artifacts that
+ * share a package family can no longer justify each other.
  */
-internal fun importPrefixOf(line: String): String? {
+internal fun importSymbolOf(line: String): String? {
     val m = IMPORT_REGEX.matchEntire(line.trim()) ?: return null
-    val parts =
-        m.groupValues[1]
-            .trimEnd('*')
-            .trimEnd('.')
-            .split(".")
-    return if (parts.size >= 2) parts.take(2).joinToString(".") else null
+    val symbol = m.groupValues[1]
+    return symbol.takeIf { it.contains(".") }
 }
 
 private val IMPORT_REGEX =

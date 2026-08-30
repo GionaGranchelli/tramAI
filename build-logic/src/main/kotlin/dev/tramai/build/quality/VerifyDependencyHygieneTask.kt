@@ -32,7 +32,6 @@ import java.util.zip.ZipFile
 abstract class VerifyDependencyHygieneTask : DefaultTask() {
     private companion object {
         const val MAX_VIOLATIONS_REPORTED = 50
-        const val PACKAGE_SEGMENTS = 2
     }
 
     @get:Nested
@@ -59,21 +58,27 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
         val exemptions = DependencyExemptionsParser.parse(exemptionFile?.readText())
         val reportDir = reportsDir.get().asFile.apply { mkdirs() }
 
-        // coordinate -> package prefixes, extracted from the resolved classpath jars.
+        // coordinate -> class/package evidence, extracted from the resolved classpath jars.
         // Jar paths follow the module-cache layout .../<group>/<name>/<version>/.../<name>-<version>.jar
-        val packagePrefixes = mutableMapOf<String, MutableSet<String>>()
+        val classEvidence = mutableMapOf<String, MutableSet<String>>()
+        val packageEvidence = mutableMapOf<String, MutableSet<String>>()
         classpathEvidence.files.forEach { file ->
             if (!file.isFile || !file.name.endsWith(".jar")) return@forEach
             val coordinate = coordinateFromPath(file) ?: return@forEach
-            val pkgs = packagePrefixes.getOrPut(coordinate) { mutableSetOf() }
-            pkgs += jarPackagePrefixes(file)
+            val (classes, packages) = jarClassesAndPackages(file)
+            classEvidence.getOrPut(coordinate) { mutableSetOf() } += classes
+            packageEvidence.getOrPut(coordinate) { mutableSetOf() } += packages
         }
+        val jarEvidence =
+            classEvidence.mapValues { (coordinate, classes) ->
+                JarEvidence(classes, packageEvidence[coordinate].orEmpty())
+            }
 
         val allViolations = mutableListOf<String>()
         val allInfo = mutableListOf<String>()
         val report = StringBuilder()
         for (unit in units.get().sortedBy { it.modulePath }) {
-            val result = DependencyUsageEvaluator.evaluate(unit, packagePrefixes, exemptions)
+            val result = DependencyUsageEvaluator.evaluate(unit, jarEvidence, exemptions)
             allViolations += result.violations
             allInfo += result.info
             report.appendLine("[${unit.modulePath}]")
@@ -107,22 +112,9 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
         logger.lifecycle("dependency-hygiene: ${units.get().size} modules clean (${allInfo.size} info entries)")
     }
 
-    internal fun coordinateFromPath(file: File): String? {
-        // invariantSeparatorsPath normalizes Windows \ to / so the cache-layout
-        // marker and split work identically on every platform (10.1c review).
-        val path = file.invariantSeparatorsPath
-        // .../modules-2/files-2.1/<group>/<name>/<version>/<hash>/<name>-<version>.jar
-        val marker = "files-2.1/"
-        val idx = path.indexOf(marker)
-        if (idx < 0) return null
-        val segments = path.substring(idx + marker.length).split("/")
-        // groups can contain dots only, names may contain dashes; version dir is
-        // the third segment after group/name.
-        return if (segments.size < MIN_PATH_SEGMENTS) null else "${segments[0]}:${segments[1]}"
-    }
-
-    private fun jarPackagePrefixes(file: File): Set<String> {
-        val pkgs = mutableSetOf<String>()
+    private fun jarClassesAndPackages(file: File): Pair<Set<String>, Set<String>> {
+        val classes = mutableSetOf<String>()
+        val packages = mutableSetOf<String>()
         try {
             ZipFile(file).use { zip ->
                 zip
@@ -130,32 +122,26 @@ abstract class VerifyDependencyHygieneTask : DefaultTask() {
                     .toList()
                     .map { it.name }
                     .filter { isClassFile(it) }
-                    .forEach { name -> pkgs.add(prefixOf(name)) }
+                    .forEach { name ->
+                        val fqn = name.removeSuffix(".class").replace("/", ".")
+                        classes.add(fqn)
+                        fqn.substringBeforeLast('.').takeIf { it.isNotEmpty() }?.let { packages.add(it) }
+                    }
             }
         } catch (e: ZipException) {
-            // An unreadable jar fails closed — a dependency whose packages cannot be
+            // An unreadable jar fails closed — a dependency whose classes cannot be
             // determined can never be proven used.
             throw GradleException(
                 "verifyDependencyHygiene: cannot read jar ${file.absolutePath}: ${e.message}",
                 e,
             )
         }
-        return pkgs
+        return classes to packages
     }
 
     private fun isClassFile(name: String): Boolean {
         if (!name.endsWith(".class") || !name.contains("/")) return false
         return !name.substringAfterLast("/").contains("$") // inner classes
-    }
-
-    private fun prefixOf(name: String): String {
-        val pkg = name.substringBeforeLast("/").replace("/", ".")
-        val parts = pkg.split(".")
-        return if (parts.size >= PACKAGE_SEGMENTS) {
-            parts.take(PACKAGE_SEGMENTS).joinToString(".")
-        } else {
-            pkg
-        }
     }
 }
 

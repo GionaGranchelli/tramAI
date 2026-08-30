@@ -23,21 +23,33 @@ class DependencyHygieneModelTest {
                 ),
             importsBySourceSet =
                 mapOf(
-                    "main" to setOf("com.example"),
-                    "test" to setOf("org.junit"),
+                    "main" to setOf("com.example.UsedService"),
+                    "test" to setOf("org.junit.jupiter.api.Test"),
                 ),
         )
 
-    private val packages =
+    private val evidence =
         mapOf(
-            "org.jetbrains.kotlinx:kotlinx-coroutines-core" to setOf("kotlinx.coroutines"),
-            "com.example:used-lib" to setOf("com.example"),
-            "org.junit.jupiter:junit-jupiter" to setOf("org.junit"),
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core" to
+                JarEvidence(
+                    classes = setOf("kotlinx.coroutines.launch", "kotlinx.coroutines.runBlocking"),
+                    packages = setOf("kotlinx.coroutines"),
+                ),
+            "com.example:used-lib" to
+                JarEvidence(
+                    classes = setOf("com.example.UsedService"),
+                    packages = setOf("com.example"),
+                ),
+            "org.junit.jupiter:junit-jupiter" to
+                JarEvidence(
+                    classes = setOf("org.junit.jupiter.api.Test"),
+                    packages = setOf("org.junit.jupiter.api"),
+                ),
         )
 
     @Test
     fun `unused main dependency fails`() {
-        val result = DependencyUsageEvaluator.evaluate(unit, packages, emptyList())
+        val result = DependencyUsageEvaluator.evaluate(unit, evidence, emptyList())
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("kotlinx-coroutines-core"))
     }
@@ -48,7 +60,7 @@ class DependencyHygieneModelTest {
             unit.copy(
                 declared = mapOf("testImplementation" to listOf("org.jetbrains.kotlinx:kotlinx-coroutines-core")),
             )
-        val result = DependencyUsageEvaluator.evaluate(unusedTest, packages, emptyList())
+        val result = DependencyUsageEvaluator.evaluate(unusedTest, evidence, emptyList())
         assertTrue(result.violations.isEmpty())
         assertTrue(result.info.any { it.contains("test-scope") })
     }
@@ -62,7 +74,7 @@ class DependencyHygieneModelTest {
                 dependency = "org.jetbrains.kotlinx:kotlinx-coroutines-core",
                 reason = "runtime provider via Spring auto-configuration",
             )
-        val result = DependencyUsageEvaluator.evaluate(unit, packages, listOf(exemption))
+        val result = DependencyUsageEvaluator.evaluate(unit, evidence, listOf(exemption))
         assertTrue(result.violations.isEmpty())
         assertTrue(result.info.any { it.contains("exempted") })
     }
@@ -81,7 +93,7 @@ class DependencyHygieneModelTest {
                 dependency = "com.example:used-lib",
                 reason = "was reflection-only",
             )
-        val result = DependencyUsageEvaluator.evaluate(usedOnly, packages, listOf(exemption))
+        val result = DependencyUsageEvaluator.evaluate(usedOnly, evidence, listOf(exemption))
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("now statically used"))
     }
@@ -99,7 +111,7 @@ class DependencyHygieneModelTest {
                 dependency = "com.example:removed-lib",
                 reason = "historical",
             )
-        val result = DependencyUsageEvaluator.evaluate(usedOnly, packages, listOf(exemption))
+        val result = DependencyUsageEvaluator.evaluate(usedOnly, evidence, listOf(exemption))
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("not a declared dependency"))
     }
@@ -123,10 +135,15 @@ class DependencyHygieneModelTest {
         val unitWithRuntime =
             unit.copy(
                 declared = mapOf("runtimeOnly" to listOf("com.example:driver-lib")),
-                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework.context.ApplicationContext")),
             )
-        val packagesWithDriver = packages + ("com.example:driver-lib" to setOf("com.example.driver"))
-        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, packagesWithDriver, emptyList())
+        val evidenceWithDriver =
+            evidence +
+                (
+                    "com.example:driver-lib" to
+                        JarEvidence(classes = setOf("com.example.driver.Driver"), packages = setOf("com.example.driver"))
+                )
+        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, evidenceWithDriver, emptyList())
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("driver-lib"))
     }
@@ -136,9 +153,14 @@ class DependencyHygieneModelTest {
         val unitWithRuntime =
             unit.copy(
                 declared = mapOf("runtimeOnly" to listOf("com.example:driver-lib")),
-                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework.context.ApplicationContext")),
             )
-        val packagesWithDriver = packages + ("com.example:driver-lib" to setOf("com.example.driver"))
+        val evidenceWithDriver =
+            evidence +
+                (
+                    "com.example:driver-lib" to
+                        JarEvidence(classes = setOf("com.example.driver.Driver"), packages = setOf("com.example.driver"))
+                )
         val exemption =
             Exemption(
                 ":tramai-spring-provider",
@@ -146,7 +168,7 @@ class DependencyHygieneModelTest {
                 "com.example:driver-lib",
                 "JDBC driver loaded by class name",
             )
-        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, packagesWithDriver, listOf(exemption))
+        val result = DependencyUsageEvaluator.evaluate(unitWithRuntime, evidenceWithDriver, listOf(exemption))
         assertTrue(result.violations.isEmpty())
     }
 
@@ -221,24 +243,24 @@ class DependencyHygieneModelTest {
 
     @Test
     fun `import prefix handles plain wildcard and static imports`() {
-        assertEquals("com.example", importPrefixOf("import com.example.api.Service"))
-        assertEquals("com.example", importPrefixOf("import com.example.api.*"))
-        assertEquals("com.example", importPrefixOf("import com.example.api"))
-        assertEquals("org.postgresql", importPrefixOf("import static org.postgresql.Driver.getVersion"))
-        assertEquals("com.example", importPrefixOf("  import com.example.api.Service  "))
+        assertEquals("com.example.api.Service", importSymbolOf("import com.example.api.Service"))
+        assertEquals("com.example.api.*", importSymbolOf("import com.example.api.*"))
+        assertEquals("com.example.api", importSymbolOf("import com.example.api"))
+        assertEquals("org.postgresql.Driver.getVersion", importSymbolOf("import static org.postgresql.Driver.getVersion"))
+        assertEquals("com.example.api.Service", importSymbolOf("  import com.example.api.Service  "))
         // Java imports carry a mandatory trailing semicolon; Kotlin aliases too.
-        assertEquals("com.example", importPrefixOf("import com.example.api.Service;"))
-        assertEquals("com.example", importPrefixOf("import com.example.api.*;"))
-        assertEquals("org.postgresql", importPrefixOf("import static org.postgresql.Driver.getVersion;"))
-        assertEquals("foo.bar", importPrefixOf("import foo.bar.Type as Alias"))
+        assertEquals("com.example.api.Service", importSymbolOf("import com.example.api.Service;"))
+        assertEquals("com.example.api.*", importSymbolOf("import com.example.api.*;"))
+        assertEquals("org.postgresql.Driver.getVersion", importSymbolOf("import static org.postgresql.Driver.getVersion;"))
+        assertEquals("foo.bar.Type", importSymbolOf("import foo.bar.Type as Alias"))
     }
 
     @Test
     fun `import prefix ignores non-import lines`() {
-        assertNull(importPrefixOf("package com.example"))
-        assertNull(importPrefixOf("val x = 1"))
-        assertNull(importPrefixOf(""))
-        assertNull(importPrefixOf("import a"))
+        assertNull(importSymbolOf("package com.example"))
+        assertNull(importSymbolOf("val x = 1"))
+        assertNull(importSymbolOf(""))
+        assertNull(importSymbolOf("import a"))
     }
 
     @Test
@@ -247,10 +269,10 @@ class DependencyHygieneModelTest {
         // count as static usage — otherwise the dependency is falsely flagged.
         val unitWildcard =
             unit.copy(
-                importsBySourceSet = mapOf("main" to setOf("com.example")),
+                importsBySourceSet = mapOf("main" to setOf("com.example.*")),
             )
-        val result = DependencyUsageEvaluator.evaluate(unitWildcard, packages, emptyList())
-        // used-lib (com.example) is used via the wildcard prefix; kotlinx is not.
+        val result = DependencyUsageEvaluator.evaluate(unitWildcard, evidence, emptyList())
+        // used-lib (package com.example) is used via the wildcard; kotlinx is not.
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("kotlinx-coroutines-core"))
     }
@@ -262,7 +284,7 @@ class DependencyHygieneModelTest {
             unit.copy(
                 modulePath = ":tramai-other-module",
                 declared = mapOf("implementation" to listOf("org.jetbrains.kotlinx:kotlinx-coroutines-core")),
-                importsBySourceSet = mapOf("main" to setOf("org.springframework")),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework.context.ApplicationContext")),
             )
         val exemption =
             Exemption(
@@ -271,8 +293,44 @@ class DependencyHygieneModelTest {
                 "org.jetbrains.kotlinx:kotlinx-coroutines-core",
                 "runtime provider",
             )
-        val result = DependencyUsageEvaluator.evaluate(unitB, packages, listOf(exemption))
+        val result = DependencyUsageEvaluator.evaluate(unitB, evidence, listOf(exemption))
         assertEquals(1, result.violations.size)
         assertTrue(result.violations.single().contains("kotlinx-coroutines-core"))
+    }
+
+    @Test
+    fun `sibling artifact sharing a package family cannot justify another`() {
+        // 10.1c round-3 review: two-segment package-family evidence let
+        // org.springframework.context and org.springframework.jdbc justify each
+        // other. Exact-class evidence must flag the genuinely unused sibling.
+        val unitCollision =
+            DependencyUnitSpec(
+                modulePath = ":tramai-collision",
+                declared =
+                    mapOf(
+                        "implementation" to
+                            listOf(
+                                "org.springframework:spring-context",
+                                "org.springframework:spring-jdbc",
+                            ),
+                    ),
+                importsBySourceSet = mapOf("main" to setOf("org.springframework.context.ApplicationContext")),
+            )
+        val collisionEvidence =
+            mapOf(
+                "org.springframework:spring-context" to
+                    JarEvidence(
+                        classes = setOf("org.springframework.context.ApplicationContext"),
+                        packages = setOf("org.springframework.context"),
+                    ),
+                "org.springframework:spring-jdbc" to
+                    JarEvidence(
+                        classes = setOf("org.springframework.jdbc.core.JdbcTemplate"),
+                        packages = setOf("org.springframework.jdbc"),
+                    ),
+            )
+        val result = DependencyUsageEvaluator.evaluate(unitCollision, collisionEvidence, emptyList())
+        assertEquals(1, result.violations.size)
+        assertTrue(result.violations.single().contains("spring-jdbc"))
     }
 }

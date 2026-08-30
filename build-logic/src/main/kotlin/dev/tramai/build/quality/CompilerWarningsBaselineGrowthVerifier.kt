@@ -71,8 +71,9 @@ object CompilerWarningsBaselineGrowthVerifier {
     private fun isLegacySchema(baseJson: String): Boolean {
         val tree = runCatching { CompilerWarningsBaselineIo.readTree(baseJson) }.getOrNull() ?: return false
         val entries = tree.get("entries")
+        val schema = tree.get("schemaVersion")
         return entries != null && entries.isArray &&
-            tree.get("schemaVersion")?.asInt() == LEGACY_SCHEMA_VERSION
+            schema != null && schema.isIntegralNumber && schema.asInt() == LEGACY_SCHEMA_VERSION
     }
 
     private const val LEGACY_SCHEMA_VERSION = 1

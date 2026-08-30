@@ -172,6 +172,30 @@ class CompilerWarningsBaselineModelTest {
         assertNull(CompilerWarningsBaselineIo.fromJson(json))
     }
 
+    // ── Strict JSON types (10.1c round-3: no Jackson coercion) ─────────────
+    @Test
+    fun `textual schemaVersion fails closed`() {
+        assertNull(CompilerWarningsBaselineIo.fromJson("""{"schemaVersion":"2","entries":[]}"""))
+    }
+
+    @Test
+    fun `textual count fails closed`() {
+        val json = baselineJson("2", """{"path":"a.kt","diagnostic":"D1","message":"m1","count":"999"}""")
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
+    @Test
+    fun `boolean count fails closed`() {
+        val json = baselineJson("2", """{"path":"a.kt","diagnostic":"D1","message":"m1","count":true}""")
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
+    @Test
+    fun `numeric path fails closed`() {
+        val json = baselineJson("2", """{"path":123,"diagnostic":"D1","message":"m1","count":1}""")
+        assertNull(CompilerWarningsBaselineIo.fromJson(json))
+    }
+
     // ── Fail-closed runner (C8: tool failure is NOT zero findings) ────────
 
     @Test

@@ -134,7 +134,6 @@ object CompilerWarningsBaselineIo {
     private val MAPPER = ObjectMapper()
 
     const val SCHEMA_VERSION = 2
-    private const val ZERO_COUNT = 0
 
     fun readTree(json: String): JsonNode = MAPPER.readTree(json)
 
@@ -159,33 +158,42 @@ object CompilerWarningsBaselineIo {
             else -> parseTree(runCatching { MAPPER.readTree(json) }.getOrNull())
         }
 
-    private fun parseTree(root: JsonNode?): List<WarningEntry>? =
-        root
-            ?.takeIf { it.get("schemaVersion")?.asInt() == SCHEMA_VERSION }
-            ?.get("entries")
-            ?.takeIf { it.isArray }
-            ?.let { entries ->
-                // All-or-nothing: a single malformed entry, or a duplicate
-                // identity, invalidates the whole baseline (10.1c review) —
-                // nothing may silently disappear from the evidence set.
-                val parsed = ArrayList<WarningEntry>(entries.size())
-                val seen = HashSet<Triple<String, String, String>>()
-                for (e in entries) {
-                    val entry = parseEntry(e) ?: return null
-                    val identity = Triple(entry.path, entry.diagnostic, entry.message)
-                    if (!seen.add(identity)) return null
-                    parsed.add(entry)
-                }
-                parsed
-            }
+    private fun parseTree(root: JsonNode?): List<WarningEntry>? {
+        val schemaNode = root?.get("schemaVersion") ?: return null
+        // Strict: no Jackson coercion — schemaVersion must be an actual integral
+        // number equal to SCHEMA_VERSION, never a textual "2" (10.1c round-3).
+        if (!schemaNode.isIntegralNumber || schemaNode.asInt() != SCHEMA_VERSION) return null
+        val entries = root.get("entries") ?: return null
+        if (!entries.isArray) return null
+        // All-or-nothing: a single malformed entry, or a duplicate identity,
+        // invalidates the whole baseline — nothing may silently disappear from
+        // the evidence set.
+        val parsed = ArrayList<WarningEntry>(entries.size())
+        val seen = HashSet<Triple<String, String, String>>()
+        for (e in entries) {
+            val entry = parseEntry(e) ?: return null
+            val identity = Triple(entry.path, entry.diagnostic, entry.message)
+            if (!seen.add(identity)) return null
+            parsed.add(entry)
+        }
+        return parsed
+    }
 
     private fun parseEntry(node: JsonNode): WarningEntry? {
-        val path = node.get("path")?.asText()?.trim()
-        val diagnostic = node.get("diagnostic")?.asText()?.trim()
-        val message = node.get("message")?.asText()?.trim()
-        val count = node.get("count")?.asInt()
-        val invalid = path.isNullOrBlank() || diagnostic.isNullOrBlank() || message.isNullOrBlank()
-        val invalidCount = count == null || count < ZERO_COUNT
-        return if (invalid || invalidCount) null else WarningEntry(path, diagnostic, message, count)
+        val pathNode = node.get("path") ?: return null
+        val diagnosticNode = node.get("diagnostic") ?: return null
+        val messageNode = node.get("message") ?: return null
+        val countNode = node.get("count") ?: return null
+        // Strict node types: textual identity fields, integral count — coercible
+        // values (numeric path, textual count, booleans) are REJECTED.
+        if (!pathNode.isTextual || !diagnosticNode.isTextual || !messageNode.isTextual) return null
+        if (!countNode.isIntegralNumber) return null
+        val path = pathNode.asText().trim()
+        val diagnostic = diagnosticNode.asText().trim()
+        val message = messageNode.asText().trim()
+        if (path.isBlank() || diagnostic.isBlank() || message.isBlank()) return null
+        val count = countNode.asInt()
+        if (count < 1) return null // an entry with zero occurrences is meaningless
+        return WarningEntry(path, diagnostic, message, count)
     }
 }
