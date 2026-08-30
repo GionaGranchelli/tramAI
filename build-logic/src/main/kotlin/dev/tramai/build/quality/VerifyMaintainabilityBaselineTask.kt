@@ -79,6 +79,9 @@ abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
                 committedBaselineFile = committedBaselineFile.orNull?.asFile,
                 resolvedDependenciesFile = resolvedDependenciesFile.get().asFile,
                 apiValidationModules = apiValidationModules.get().toSet(),
+                deviationsFile = deviationsFile.get().asFile,
+                moduleCatalogFile = moduleCatalogFile.get().asFile,
+                moduleBoundariesFile = moduleBoundariesFile.get().asFile,
             )
         val report = verifier.verify()
 

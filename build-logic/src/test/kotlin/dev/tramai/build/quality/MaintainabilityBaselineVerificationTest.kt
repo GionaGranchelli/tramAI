@@ -315,6 +315,7 @@ class MaintainabilityBaselineVerificationTest {
         identity.put("measuredCommitSha", head)
         identity.put("measuredGitTreeSha", tree)
         identity.put("measuredSourceTreeHash", "fixture-source-tree-hash")
+        identity.put("analyzerCommitSha", head)
         baselineFile.writeText(doc.toPrettyString())
 
         git(dir, "add", ".")

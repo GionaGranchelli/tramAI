@@ -28,11 +28,27 @@ class BaselineVerifier(
      * allprojects walk for the fromProject caller.
      */
     private val apiValidationModules: Set<String>? = null,
+    /**
+     * Declared deviations-file input (Epic 9.2d-a3c2). Null keeps the legacy
+     * conventional-path lookup.
+     */
+    private val deviationsFile: File? = null,
+    /**
+     * Declared module-catalog input (Epic 9.2d-a3c2). Null keeps the legacy
+     * conventional-path lookup.
+     */
+    private val moduleCatalogFile: File? = null,
+    /**
+     * Declared module-boundaries input (Epic 9.2d-a3c2). Null keeps the legacy
+     * conventional-path lookup.
+     */
+    private val moduleBoundariesFile: File? = null,
 ) {
-    private val deviationParser = DeviationParser(ctx.rootDir)
+    private val deviationParser = DeviationParser(ctx.rootDir, deviationsFile)
     private val budgetEvaluator = DeviationBudgetEvaluator(deviationParser)
-    private val moduleCatalog = ModuleCatalog.fromRootDir(ctx.rootDir)
-    private val moduleBoundaries = ModuleBoundaries(ctx.rootDir)
+    private val moduleCatalog =
+        moduleCatalogFile?.let { ModuleCatalog(it) } ?: ModuleCatalog.fromRootDir(ctx.rootDir)
+    private val moduleBoundaries = ModuleBoundaries(ctx.rootDir, moduleBoundariesFile)
 
     fun verify(): VerificationReport {
         // Delete old report before starting

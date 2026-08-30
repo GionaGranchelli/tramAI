@@ -487,6 +487,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         }
 
         // ---- Maintainability baseline verification (Epic 9.2d-a3c2) ----
+        // apiCheck module set snapshotted once configuration has finished
+        // (a3c1 discipline: model inspected while configuring task
+        // properties, never lazily inside the task action — a lazy
+        // provider would capture Project and walk the model at execution).
+        // Registered at apply scope, NOT inside the register action: register
+        // actions run at task realization (post-evaluation), where
+        // projectsEvaluated is illegal; configureEach applies whenever the
+        // task is realized.
+        project.gradle.projectsEvaluated {
+            val apiModules =
+                project.allprojects
+                    .filter { it.tasks.findByName("apiCheck") != null }
+                    .map { it.path }
+                    .toList()
+            project.tasks.withType(VerifyMaintainabilityBaselineTask::class.java).configureEach {
+                apiValidationModules.set(apiModules)
+            }
+        }
+
         // Typed, configuration-cache-safe: declared inputs (committed baseline,
         // deviations, catalog, boundaries, aggregate resolved-dependency output,
         // measured source tree, apiCheck snapshot) are the execution authority.
@@ -516,17 +535,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 project.tasks
                     .named("generateResolvedDependencyBaseline", AggregateResolvedDependencyBaselineTask::class.java)
                     .flatMap { it.aggregateFile },
-            )
-            // apiCheck module set as a configuration-time snapshot (a3c1
-            // discipline: model inspected while configuring the provider, the
-            // task action never walks the model).
-            apiValidationModules.set(
-                project.provider {
-                    project.allprojects
-                        .filter { it.tasks.findByName("apiCheck") != null }
-                        .map { it.path }
-                        .toList()
-                },
             )
             // Measured tree: module sources/build files, settings, version
             // properties, committed api dumps, release notes. Declared so a
