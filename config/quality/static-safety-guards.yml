@@ -47,6 +47,10 @@ exemptions:
     symbol: addShutdownHook
     rationale: "Deliberate JVM shutdown hook to stop supervised workers on process exit."
   - rule: raw-lifecycle-creation
+    path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
+    symbol: Thread
+    rationale: "Shutdown-hook thread owned by the worker lifecycle controller; hooked via addShutdownHook and joined during shutdown."
+  - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt
     symbol: CoroutineScope
     rationale: "Per-step SSE drain scope; bounded by step execution and completed by step teardown."
