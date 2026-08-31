@@ -18,7 +18,7 @@ class StaticSafetyGuardsModelTest {
         exemptions:
         $extra
     """.trimIndent()
-    private fun exemption(path: String = "tramai-core/src/main/kotlin/dev/tramai/core/provider/Provider.kt", symbol: String = "Thread", rationale: String = "owned") =
+    private fun exemption(path: String = "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderRegistry.kt", symbol: String = "Thread", rationale: String = "owned") =
         """  - rule: x
            path: $path
            symbol: $symbol

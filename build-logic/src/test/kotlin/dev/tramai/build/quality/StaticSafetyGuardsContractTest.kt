@@ -18,7 +18,7 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     @Test fun `L4 raw Thread fails`() { assertFails(run("fun x() = Thread { }"),"L4") }
     @Test fun `L5 unowned executor fails`() { assertFails(run("fun x() = Executors.newSingleThreadExecutor()"),"L5") }
     @Test fun `L6 scoped exemption passes`() { assertPasses(run("fun x() = CoroutineScope(Job())", "raw-lifecycle-creation"),"L6") }
-    @Test fun `L7 stale exemption fails`() { assertFails(run("val safe = 1"),"L7") }
+    @Test fun `L7 stale exemption fails`() { assertFails(run("val safe = 1", "raw-lifecycle-creation"),"L7") }
     @Test fun `L8 exemption cannot cross path`() { assertFails(run("fun x() = CoroutineScope(Job())"),"L8") }
     @Test fun `S1 bounded helper passes`() { assertPasses(run("fun x(response: Any) = readBoundedResponseBody(response)"),"S1") }
     @Test fun `S2 direct response read fails`() { assertFails(run("fun x(response: Any) = response.body().use { it.readAllBytes() }\nfun y() = BodyHandlers.ofString()"),"S2") }

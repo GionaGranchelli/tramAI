@@ -36,7 +36,8 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
         val path = root.toPath().relativize(file.toPath()).toString().replace(File.separatorChar, '/'); val tokens = Lexer(file.readText()).lex(); val out = mutableListOf<SafetyFinding>()
         fun approved(rule: StaticSafetyRule) = rule.approvedPaths.any { path.startsWith(it.trimEnd('/') + "/") || path == it.trimEnd('/') }
         for ((i,t) in tokens.withIndex()) {
-            if (t.kind != Kind.ID || i+1 >= tokens.size || tokens[i+1].text != "(") continue
+            // Call site = identifier followed by '(' or by '{' (trailing-lambda call without parens).
+            if (t.kind != Kind.ID || i+1 >= tokens.size || (tokens[i+1].text != "(" && tokens[i+1].text != "{")) continue
             val q = qualified(tokens, i); val simple=t.text
             config.rules.forEach { r -> if (!approved(r)) {
                 // An approved owning factory also owns nested lifecycle arguments
