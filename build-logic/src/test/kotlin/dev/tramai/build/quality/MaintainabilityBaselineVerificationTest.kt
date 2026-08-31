@@ -247,12 +247,11 @@ class MaintainabilityBaselineVerificationTest {
                     }
                     """.trimIndent(),
             )
-        // Alternative catalog B: same modules, :sample layer "core".
+        // Alternative catalog B: same modules, :sample layer "core-contracts".
         val altCatalog =
             MODULE_CATALOG_YML.replace(
-                """- path: ":sample""""",
-                """- path: ":sample"
-                layer: "core"""",
+                "- path: \":sample\"",
+                "- path: \":sample\"\n    layer: \"core-contracts\"",
             )
         writeFile(dir, "config/quality/alt-catalog.yml", altCatalog)
         generateCommittedBaseline(dir)
@@ -293,7 +292,281 @@ class MaintainabilityBaselineVerificationTest {
         )
     }
 
+    // ─── Epic 9.2d-a3c3: typed verify060Architecture discriminators ───
+
+    @Test
+    fun `verify060Architecture stores and reuses configuration cache on fixture`() {
+        // C5 north star: the architecture gate must be configuration-cache
+        // compatible (cold store, warm reuse). The fixture fails closed on
+        // enrollment evidence (no architectureContractEnrollmentTest classes),
+        // but the CC contract itself is observable on both runs.
+        val dir = architectureFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+
+        val args = configurationCacheArguments("verify060Architecture")
+        val first = runner(dir, *args).buildAndFail()
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "cold run must store the configuration cache: ${first.output.take(1200)}",
+        )
+        val report = File(dir, "build/reports/tramai/architecture/architecture-report.json")
+        assertTrue(report.isFile, "architecture report must be written before the terminal exception")
+
+        val second = runner(dir, *args).buildAndFail()
+        assertTrue(
+            second.output.contains("Reusing configuration cache"),
+            "warm run must reuse the configuration cache: ${second.output.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture forbidden project edge fails closed with FORBIDDEN_LAYER_EDGE`() {
+        // The configuration-time project-edge snapshot must flow into the
+        // architecture gate: :sample -> :tramai-core violates the fixture
+        // boundaries, and the failure must surface as the exact architecture
+        // diagnostic in the report (fail-closed, report written before throw).
+        val dir =
+            architectureFixture(
+                applyPlugins = "",
+                extraSampleDeps = listOf("implementation(project(\":tramai-core\"))"),
+                boundariesYml =
+                    """
+                    forbiddenEdges:
+                      - fromLayer: "testing-support"
+                        toLayer: "testing-support"
+                        reason: "fixture forbids testing-support edges"
+                    allowedEdges: []
+                    """.trimIndent(),
+            )
+        generateCommittedBaseline(dir)
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("FORBIDDEN_LAYER_EDGE"),
+            "report must contain the exact FORBIDDEN_LAYER_EDGE diagnostic: ${report.take(1200)}",
+        )
+        assertTrue(
+            report.contains("Forbidden edge: :sample"),
+            "report must name the offending edge: ${report.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture new project cycle is detected as NEW_DEPENDENCY_CYCLE`() {
+        // Committed baseline generated WITHOUT the back-edge; the
+        // :tramai-core -> :sample dependency is added AFTER, so the cycle is
+        // genuinely new. Only the declared graph snapshot can surface it.
+        val dir =
+            architectureFixture(
+                applyPlugins = "",
+                extraSampleDeps = listOf("implementation(project(\":tramai-core\"))"),
+            )
+        generateCommittedBaseline(dir)
+        // The gate depends on the consumer compile tasks, which depend on
+        // :tramai-core:jar. With a real sample<->tramai-core project cycle,
+        // that pulls :sample:jar back into the task graph -> circular task
+        // dependency -> Gradle aborts BEFORE the gate action runs (no report).
+        // The consumer fixtures are irrelevant to this discriminator, so drop
+        // them from the settings: the snapshot still carries the new cycle.
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "maintainability-verification"
+            include(":sample", ":tramai-core", ":tramai-testing")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            repositories { maven { url = uri(rootDir.resolve("repo")) } }
+            dependencies {
+                implementation(project(":sample"))
+            }
+            """.trimIndent(),
+        )
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("NEW_DEPENDENCY_CYCLE"),
+            "report must contain the exact NEW_DEPENDENCY_CYCLE diagnostic: ${report.take(
+                1200,
+            )}. FIXTURE OUTPUT:\n${failed.output.take(2500)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture missing dependency probe evidence fails closed`() {
+        // Break dependency resolution by removing the local repo :sample
+        // resolves from. The fail-soft probe tasks record a typed resolution
+        // failure; the gate must fail EVERY baseline-backed check with
+        // DEPENDENCY_RESOLUTION_FAILED instead of claiming a stale PASS.
+        val dir = architectureFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+        File(dir, "repo").deleteRecursively()
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("DEPENDENCY_RESOLUTION_FAILED"),
+            "report must fail closed with DEPENDENCY_RESOLUTION_FAILED: ${report.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture bad consumer compile evidence fails closed with API_COMPATIBILITY_FAILED`() {
+        // The java consumer smoke fixture compiles zero sources (no src tree),
+        // so its fail-soft producer marker records ok=false. The gate must read
+        // the marker as typed api-architecture evidence and fail closed.
+        val dir = architectureFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("API_COMPATIBILITY_FAILED"),
+            "report must contain API_COMPATIBILITY_FAILED: ${report.take(1200)}",
+        )
+        assertTrue(
+            report.contains("Consumer compile proof"),
+            "report must carry the consumer compile proof message: ${report.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture declared alternative catalog drives boundary enforcement`() {
+        // Declared alt catalog B marks :sample as layer "core"; the fixture
+        // boundaries forbid core -> testing-support. If the gate fell back to
+        // the conventional catalog A (:sample testing-support), the
+        // :sample -> :tramai-core edge would be testing-support ->
+        // testing-support and NOT forbidden by these rules. Only the declared
+        // catalog driving both context and verifier produces FORBIDDEN_LAYER_EDGE
+        // without MODULE_CATALOG_DISAGREEMENT.
+        val dir =
+            architectureFixture(
+                applyPlugins =
+                    """
+                    import dev.tramai.build.quality.VerifyArchitectureTask
+                    tasks.named<VerifyArchitectureTask>("verify060Architecture") {
+                        moduleCatalogFile.set(layout.projectDirectory.file("config/quality/alt-catalog.yml"))
+                    }
+                    """.trimIndent(),
+                extraSampleDeps = listOf("implementation(project(\":tramai-core\"))"),
+                boundariesYml =
+                    """
+                    forbiddenEdges:
+                      - fromLayer: "core-contracts"
+                        toLayer: "testing-support"
+                        reason: "fixture forbids core-to-testing-support edges"
+                    allowedEdges: []
+                    """.trimIndent(),
+            )
+        val altCatalog =
+            architectureCatalogYml().replace(
+                "- path: \":sample\"",
+                "- path: \":sample\"\n    layer: \"core-contracts\"",
+            )
+        writeFile(dir, "config/quality/alt-catalog.yml", altCatalog)
+        generateCommittedBaseline(dir)
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("FORBIDDEN_LAYER_EDGE"),
+            "declared catalog must drive boundary enforcement: ${report.take(2000)}",
+        )
+        assertTrue(
+            !report.contains("MODULE_CATALOG_DISAGREEMENT"),
+            "verifier and context must observe the same declared catalog: ${report.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `verify060Architecture root build script mutation invalidates the gate`() {
+        // Root build.gradle.kts is a declared sourceTree input; a mutation must
+        // invalidate the configuration-cache entry (reconfiguration) and
+        // re-execute the gate rather than replaying a stale result.
+        val dir = architectureFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+
+        val args = configurationCacheArguments("verify060Architecture")
+        val first = runner(dir, *args).buildAndFail()
+        assertTrue(
+            first.output.contains("Configuration cache entry stored"),
+            "cold run must store the configuration cache: ${first.output.take(1200)}",
+        )
+
+        val buildFile = File(dir, "build.gradle.kts")
+        buildFile.writeText(buildFile.readText() + "\n// mutation\n")
+
+        val second = runner(dir, *args).buildAndFail()
+        assertTrue(
+            !second.output.contains("Reusing configuration cache"),
+            "root build script mutation must invalidate the configuration cache: ${second.output.take(1200)}",
+        )
+        assertEquals(
+            TaskOutcome.FAILED,
+            second.task(":verify060Architecture")?.outcome,
+            "gate must re-execute after root build script mutation: ${second.output.take(800)}",
+        )
+    }
+
     // ─── Fixture ───
+
+    /** Module catalog for the architecture gate fixture (adds :tramai-testing,
+     *  which the enrollment test task requires at realization). */
+    private fun architectureCatalogYml(): String =
+        MODULE_CATALOG_YML.replace(
+            """- path: ":examples:kotlin-consumer-smoke"
+    <<: *internal""",
+            """- path: ":examples:kotlin-consumer-smoke"
+    <<: *internal
+  - path: ":tramai-testing"
+    <<: *internal""",
+        )
+
+    /**
+     * Architecture-gate fixture: the maintainability fixture plus the
+     * :tramai-testing project the architectureContractEnrollmentTest task
+     * touches at realization, and a catalog covering it. The enrollment test
+     * produces no XML results (no matching classes) — enrollment evidence is
+     * missing by design, which exercises the fail-closed path.
+     */
+    private fun architectureFixture(
+        applyPlugins: String,
+        extraSampleDeps: List<String> = emptyList(),
+        boundariesYml: String =
+            """
+            forbiddenEdges: []
+            allowedEdges: []
+            """.trimIndent(),
+    ): File {
+        val dir = File(tempDir, "fixture-${tempDir.listFiles()?.size ?: 0}").apply { mkdirs() }
+        writeGradleScripts(dir, applyPlugins, extraSampleDeps, emptyList())
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "maintainability-verification"
+            include(":sample", ":tramai-core", ":examples:java-consumer-smoke", ":examples:kotlin-consumer-smoke", ":tramai-testing")
+            """.trimIndent(),
+        )
+        writeFile(dir, "tramai-testing/build.gradle.kts", "plugins { `java` }")
+        writeProductionSource(dir)
+        writeQualityConfig(dir, boundariesYml, architectureCatalogYml())
+        writeLocalMavenRepo(dir)
+        initGit(dir)
+        return dir
+    }
+
+    private fun architectureReport(dir: File): String {
+        val report = dir.resolve("build/reports/tramai/architecture/architecture-report.json")
+        return report.readText()
+    }
 
     /**
      * Self-contained fixture with a committed git history and one production
@@ -419,8 +692,9 @@ class MaintainabilityBaselineVerificationTest {
     private fun writeQualityConfig(
         dir: File,
         boundariesYml: String,
+        catalogYml: String = MODULE_CATALOG_YML,
     ) {
-        writeFile(dir, "config/quality/module-catalog.yml", MODULE_CATALOG_YML)
+        writeFile(dir, "config/quality/module-catalog.yml", catalogYml)
         writeFile(dir, "config/quality/test-quality.yml", TEST_QUALITY_YML)
         writeFile(
             dir,
