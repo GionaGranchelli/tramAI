@@ -252,23 +252,7 @@ abstract class VerifyArchitectureTask : DefaultTask() {
     ) {
         val apiProjectPaths = apiValidationModules.get().toSet()
         val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(rootDir, apiProjectPaths)
-        // Ordered pairing contract (a3c1 discipline): owner[i] <-> file[i].
-        // ConfigurableFileCollection iterates in insertion order (toList()),
-        // unlike the unordered Set<File> view of .files. Fail closed on
-        // cardinality mismatch and duplicate owners instead of mispairing.
-        val dumpOwners = generatedApiDumpOwners.get()
-        val dumpFiles = generatedApiDumpFiles.toList()
-        require(dumpOwners.size == dumpFiles.size) {
-            "Generated API dump owner/file evidence mismatch: " +
-                "${dumpOwners.size} owners, ${dumpFiles.size} files"
-        }
-        require(dumpOwners.distinct().size == dumpOwners.size) {
-            "Duplicate generated API dump owner evidence: ${dumpOwners.sorted()}"
-        }
-        val generated =
-            dumpOwners.zip(dumpFiles).associate { (modulePath, file) ->
-                modulePath to file.readText(Charsets.UTF_8)
-            }
+        val generated = readDeclaredGeneratedDumps()
         val base = ApiCompatibilityEvidenceReader.readBaseDumps(rootDir, baseRef.get(), committed.keys)
         val migrationResult =
             ApiCompatibilityEvidenceReader.parseMigrations(
@@ -314,6 +298,28 @@ abstract class VerifyArchitectureTask : DefaultTask() {
                         currentValue = state?.get("classes")?.toString(),
                     )
             }
+        }
+    }
+
+    /**
+     * Read the declared generated dump files into a module→content map.
+     * Ordered pairing contract (a3c1 discipline): owner[i] <-> file[i].
+     * ConfigurableFileCollection iterates in insertion order (toList()),
+     * unlike the unordered Set<File> view of .files. Fail closed on
+     * cardinality mismatch and duplicate owners instead of mispairing.
+     */
+    private fun readDeclaredGeneratedDumps(): Map<String, String> {
+        val dumpOwners = generatedApiDumpOwners.get()
+        val dumpFiles = generatedApiDumpFiles.toList()
+        require(dumpOwners.size == dumpFiles.size) {
+            "Generated API dump owner/file evidence mismatch: " +
+                "${dumpOwners.size} owners, ${dumpFiles.size} files"
+        }
+        require(dumpOwners.distinct().size == dumpOwners.size) {
+            "Duplicate generated API dump owner evidence: ${dumpOwners.sorted()}"
+        }
+        return dumpOwners.zip(dumpFiles).associate { (modulePath, file) ->
+            modulePath to file.readText(Charsets.UTF_8)
         }
     }
 

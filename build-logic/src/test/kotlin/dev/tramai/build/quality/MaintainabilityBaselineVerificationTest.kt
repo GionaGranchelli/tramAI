@@ -508,6 +508,9 @@ class MaintainabilityBaselineVerificationTest {
         // Each module's declared dump differs from its committed dump with a
         // distinct byte length, so a mispairing would emit the wrong delta.
         val dir = architectureFixture(applyPlugins = "")
+        // NON-natural order: settings declares :tramai-core before :sample, so
+        // the plugin adds core's owner+file first, while the relocated file
+        // paths sort sample first. A mispairing would emit the wrong delta.
         writeFile(
             dir,
             "settings.gradle.kts",
@@ -520,54 +523,11 @@ class MaintainabilityBaselineVerificationTest {
         val committedCore = "committed core dump"
         val declaredSample = "declared sample dump content"
         val declaredCore = "declared core dump content"
-        // apiCheck enters the module into apiValidationModules; apiBuild's
-        // RELOCATED output is the declared generated evidence (never the
-        // conventional build/api path).
-        writeFile(
-            dir,
-            "sample/build.gradle.kts",
-            """
-            plugins { `java-library` }
-            tasks.register("apiCheck")
-            tasks.register("apiBuild") {
-                val relocated = layout.buildDirectory.file("relocated/sample.api")
-                outputs.file(relocated)
-                doLast {
-                    relocated.get().asFile.parentFile.mkdirs()
-                    relocated.get().asFile.writeText("$declaredSample")
-                }
-            }
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "tramai-core/build.gradle.kts",
-            """
-            plugins { `java-library` }
-            tasks.register("apiCheck")
-            tasks.register("apiBuild") {
-                val relocated = layout.buildDirectory.file("relocated/core.api")
-                outputs.file(relocated)
-                doLast {
-                    relocated.get().asFile.parentFile.mkdirs()
-                    relocated.get().asFile.writeText("$declaredCore")
-                }
-            }
-            """.trimIndent(),
-        )
+        writeRelocatedApiDumpModule(dir, "sample", "sample", declaredSample)
+        writeRelocatedApiDumpModule(dir, "tramai-core", "tramai-core", declaredCore)
         writeFile(dir, "sample/api/sample.api", committedSample)
         writeFile(dir, "tramai-core/api/tramai-core.api", committedCore)
-        writeFile(
-            dir,
-            "build.gradle.kts",
-            """
-            plugins { id("tramai.maintainability-baseline") }
-            import dev.tramai.build.quality.VerifyArchitectureTask
-            tasks.named<VerifyArchitectureTask>("verify060Architecture") {
-                baseRef.set("HEAD")
-            }
-            """.trimIndent(),
-        )
+        writeHeadBaseRefRoot(dir)
         generateCommittedBaseline(dir)
 
         val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
@@ -717,6 +677,51 @@ class MaintainabilityBaselineVerificationTest {
     private fun architectureReport(dir: File): String {
         val report = dir.resolve("build/reports/tramai/architecture/architecture-report.json")
         return report.readText()
+    }
+
+    /**
+     * Writes a module build script that enters apiValidationModules (apiCheck)
+     * and produces a RELOCATED generated dump (apiBuild output under
+     * build/relocated/<name>.api — never the conventional build/api path).
+     */
+    private fun writeRelocatedApiDumpModule(
+        dir: File,
+        moduleDir: String,
+        moduleName: String,
+        declaredContent: String,
+    ) {
+        writeFile(
+            dir,
+            "$moduleDir/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            tasks.register("apiCheck")
+            tasks.register("apiBuild") {
+                val relocated = layout.buildDirectory.file("relocated/$moduleName.api")
+                outputs.file(relocated)
+                doLast {
+                    relocated.get().asFile.parentFile.mkdirs()
+                    relocated.get().asFile.writeText("$declaredContent")
+                }
+            }
+            """.trimIndent(),
+        )
+        writeFile(dir, "$moduleDir/api/$moduleName.api", declaredContent)
+    }
+
+    /** Root script pinning baseRef to HEAD (fixture repo has no origin remote). */
+    private fun writeHeadBaseRefRoot(dir: File) {
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.maintainability-baseline") }
+            import dev.tramai.build.quality.VerifyArchitectureTask
+            tasks.named<VerifyArchitectureTask>("verify060Architecture") {
+                baseRef.set("HEAD")
+            }
+            """.trimIndent(),
+        )
     }
 
     /**
