@@ -33,7 +33,7 @@ import java.net.http.HttpResponse
  * results and far beyond any legitimate provider/embedding/store response
  * seen in the test suite.
  */
-const val PROVIDER_SUCCESS_BODY_LIMIT_BYTES = 16 * 1024 * 1024
+private const val PROVIDER_SUCCESS_BODY_LIMIT_BYTES = 16 * 1024 * 1024
 
 /**
  * Reads at most [limitBytes] bytes from [input] as UTF-8 text, reusing the

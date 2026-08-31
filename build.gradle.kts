@@ -63,6 +63,20 @@ tasks.named("verifyPr") {
     dependsOn("spotlessCheck")
 }
 
+// ── Epic 10.2: BCV public-surface boundary ──
+// BCV's committed API dumps are the signature authority. Declarations carrying
+// a sanctioned non-public marker are technically public only for cross-module
+// composition — they are not stable application-facing API and "may change or
+// move in any release" (their own KDoc). nonPublicMarkers removes them from
+// the dump so Contract-1/Contract-2 stay byte-exact on the true stable
+// surface. Adding a marker here is the ONLY way to opt a declaration out of
+// the stable freeze: an unmarked new public declaration still enters the dump
+// and Contract-2 still fails.
+apiValidation {
+    nonPublicMarkers.add("dev.tramai.core.provider.transport.ExperimentalProviderTransportApi")
+    nonPublicMarkers.add("dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi")
+}
+
 // ── Epic 10.1b: baseline-backed Kotlin static analysis ──
 // One repository-level Detekt authority (tramai.static-analysis plugin): one
 // pinned Detekt version, one central config (config/detekt/detekt.yml), one

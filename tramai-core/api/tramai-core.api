@@ -1611,11 +1611,6 @@ public final class dev/tramai/core/observation/CompositeOperationInterceptor : d
 	public fun interceptResponse (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;)Ldev/tramai/core/model/ModelResponse;
 }
 
-public final class dev/tramai/core/observation/FailureIsolatingOperationObserver : dev/tramai/core/observation/OperationObserver {
-	public fun <init> (Ldev/tramai/core/observation/OperationObserver;)V
-	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
-}
-
 public final class dev/tramai/core/observation/NoOpOperationInterceptor : dev/tramai/core/observation/OperationInterceptor {
 	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationInterceptor;
 	public fun interceptRequest (Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
@@ -1729,10 +1724,6 @@ public final class dev/tramai/core/observation/ProviderFailureDiagnosticEvent {
 
 public abstract interface class dev/tramai/core/observation/ProviderFailureDiagnosticObserver {
 	public abstract fun record (Ldev/tramai/core/observation/ProviderFailureDiagnosticEvent;)V
-}
-
-public abstract interface class dev/tramai/core/observation/SecondaryFailureRecording {
-	public abstract fun getLastCompletionFailure ()Ljava/lang/Throwable;
 }
 
 public final class dev/tramai/core/observation/ToolFailureDiagnosticEvent {
@@ -2153,30 +2144,6 @@ public final class dev/tramai/core/observation/event/RuntimeMetrics {
 }
 
 public abstract interface annotation class dev/tramai/core/observation/secondary/ExperimentalTramaiInternalApi : java/lang/annotation/Annotation {
-}
-
-public final class dev/tramai/core/observation/secondary/SecondaryEffectAuthority : java/lang/Enum {
-	public static final field AUTHORITATIVE Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;
-	public static final field NON_AUTHORITATIVE Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;
-	public static fun values ()[Ldev/tramai/core/observation/secondary/SecondaryEffectAuthority;
-}
-
-public final class dev/tramai/core/observation/secondary/SecondaryFailureDiagnostic {
-	public static final field INSTANCE Ldev/tramai/core/observation/secondary/SecondaryFailureDiagnostic;
-	public final fun report (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-}
-
-public final class dev/tramai/core/observation/secondary/SecondaryFailureDisposition : java/lang/Enum {
-	public static final field BUFFERED Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static final field FAIL_CLOSED Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static final field FAIL_OPEN_DIAGNOSTIC Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static final field IGNORE Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static final field RETRY Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
-	public static fun values ()[Ldev/tramai/core/observation/secondary/SecondaryFailureDisposition;
 }
 
 public final class dev/tramai/core/policy/ApprovalMode : java/lang/Enum {
@@ -2602,20 +2569,6 @@ public abstract interface class dev/tramai/core/provider/StreamCapable {
 }
 
 public abstract interface annotation class dev/tramai/core/provider/transport/ExperimentalProviderTransportApi : java/lang/annotation/Annotation {
-}
-
-public final class dev/tramai/core/provider/transport/ProviderTransportKt {
-	public static final fun providerJsonRequest (Ljava/net/URI;Ldev/tramai/core/model/ModelRequest;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
-	public static final fun readSseDataPayload (Ljava/io/BufferedReader;)Ljava/lang/String;
-	public static final fun rejectedProviderHttpResponse (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpResponse;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/System$Logger;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun rejectedProviderHttpResponse$default (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpResponse;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;Ljava/lang/System$Logger;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static final fun sseDataPayload (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun sseEventName (Ljava/lang/String;)Ljava/lang/String;
-}
-
-public final class dev/tramai/core/provider/transport/RetryAfterKt {
-	public static final fun parseRetryAfterMillis (Ljava/lang/String;Ljava/time/Clock;)Ljava/lang/Long;
-	public static synthetic fun parseRetryAfterMillis$default (Ljava/lang/String;Ljava/time/Clock;ILjava/lang/Object;)Ljava/lang/Long;
 }
 
 public final class dev/tramai/core/retry/DefaultRetryJitterSource : dev/tramai/core/retry/RetryJitterSource {
