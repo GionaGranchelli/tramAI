@@ -6,7 +6,9 @@ import kotlin.test.assertTrue
 class CancellationWiringTest : StaticAnalysisContractTestBase() {
     @Test fun `C1 cancellation authority remains exact base task`() {
         val out = gradle("tasks", "--all").output
-        assertTrue(out.contains("verifyCancellationSafety") && out.contains("tramaiCancellationBaseSha"), out.take(2000))
+        val hasTask = out.contains("verifyCancellationSafety")
+        val hasBase = out.contains("tramaiCancellationBaseSha")
+        assertTrue(hasTask && hasBase, out.take(2000))
     }
 
     @Test fun `C2 check owns cancellation safety`() {
