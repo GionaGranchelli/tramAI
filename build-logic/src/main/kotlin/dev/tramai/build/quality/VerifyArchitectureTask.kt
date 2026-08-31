@@ -252,11 +252,23 @@ abstract class VerifyArchitectureTask : DefaultTask() {
     ) {
         val apiProjectPaths = apiValidationModules.get().toSet()
         val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(rootDir, apiProjectPaths)
+        // Ordered pairing contract (a3c1 discipline): owner[i] <-> file[i].
+        // ConfigurableFileCollection iterates in insertion order (toList()),
+        // unlike the unordered Set<File> view of .files. Fail closed on
+        // cardinality mismatch and duplicate owners instead of mispairing.
+        val dumpOwners = generatedApiDumpOwners.get()
+        val dumpFiles = generatedApiDumpFiles.toList()
+        require(dumpOwners.size == dumpFiles.size) {
+            "Generated API dump owner/file evidence mismatch: " +
+                "${dumpOwners.size} owners, ${dumpFiles.size} files"
+        }
+        require(dumpOwners.distinct().size == dumpOwners.size) {
+            "Duplicate generated API dump owner evidence: ${dumpOwners.sorted()}"
+        }
         val generated =
-            generatedApiDumpOwners
-                .get()
-                .zip(generatedApiDumpFiles.files)
-                .associate { (modulePath, file) -> modulePath to file.readText(Charsets.UTF_8) }
+            dumpOwners.zip(dumpFiles).associate { (modulePath, file) ->
+                modulePath to file.readText(Charsets.UTF_8)
+            }
         val base = ApiCompatibilityEvidenceReader.readBaseDumps(rootDir, baseRef.get(), committed.keys)
         val migrationResult =
             ApiCompatibilityEvidenceReader.parseMigrations(

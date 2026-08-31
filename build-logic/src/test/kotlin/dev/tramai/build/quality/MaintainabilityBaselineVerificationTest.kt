@@ -500,6 +500,95 @@ class MaintainabilityBaselineVerificationTest {
     }
 
     @Test
+    fun `verify060Architecture preserves ordered owner file pairing across two modules`() {
+        // P1 pairing contract: owner[i] <-> file[i] is positional. Two modules
+        // with distinct dump contents are wired in NON-natural order (settings
+        // declares :tramai-core before :sample, so the plugin adds core's
+        // owner+file first, while the relocated file paths sort sample first).
+        // Each module's declared dump differs from its committed dump with a
+        // distinct byte length, so a mispairing would emit the wrong delta.
+        val dir = architectureFixture(applyPlugins = "")
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "maintainability-verification"
+            include(":tramai-core", ":sample", ":examples:java-consumer-smoke", ":examples:kotlin-consumer-smoke", ":tramai-testing")
+            """.trimIndent(),
+        )
+        val committedSample = "committed sample dump"
+        val committedCore = "committed core dump"
+        val declaredSample = "declared sample dump content"
+        val declaredCore = "declared core dump content"
+        // apiCheck enters the module into apiValidationModules; apiBuild's
+        // RELOCATED output is the declared generated evidence (never the
+        // conventional build/api path).
+        writeFile(
+            dir,
+            "sample/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            tasks.register("apiCheck")
+            tasks.register("apiBuild") {
+                val relocated = layout.buildDirectory.file("relocated/sample.api")
+                outputs.file(relocated)
+                doLast {
+                    relocated.get().asFile.parentFile.mkdirs()
+                    relocated.get().asFile.writeText("$declaredSample")
+                }
+            }
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            tasks.register("apiCheck")
+            tasks.register("apiBuild") {
+                val relocated = layout.buildDirectory.file("relocated/core.api")
+                outputs.file(relocated)
+                doLast {
+                    relocated.get().asFile.parentFile.mkdirs()
+                    relocated.get().asFile.writeText("$declaredCore")
+                }
+            }
+            """.trimIndent(),
+        )
+        writeFile(dir, "sample/api/sample.api", committedSample)
+        writeFile(dir, "tramai-core/api/tramai-core.api", committedCore)
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.maintainability-baseline") }
+            import dev.tramai.build.quality.VerifyArchitectureTask
+            tasks.named<VerifyArchitectureTask>("verify060Architecture") {
+                baseRef.set("HEAD")
+            }
+            """.trimIndent(),
+        )
+        generateCommittedBaseline(dir)
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains(
+                "committed API dump for ':sample' does not represent current source " +
+                    "(generated ${declaredSample.length} bytes vs committed ${committedSample.length} bytes)",
+            ),
+            ":sample must receive ITS OWN declared dump content: ${report.take(2000)}",
+        )
+        assertTrue(
+            report.contains(
+                "committed API dump for ':tramai-core' does not represent current source " +
+                    "(generated ${declaredCore.length} bytes vs committed ${committedCore.length} bytes)",
+            ),
+            ":tramai-core must receive ITS OWN declared dump content: ${report.take(2000)}",
+        )
+    }
+
+    @Test
     fun `verify060Architecture declared alternative catalog drives boundary enforcement`() {
         // Declared alt catalog B marks :sample as layer "core"; the fixture
         // boundaries forbid core -> testing-support. If the gate fell back to
