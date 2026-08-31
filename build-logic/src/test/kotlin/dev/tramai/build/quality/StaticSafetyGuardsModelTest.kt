@@ -9,21 +9,19 @@ import kotlin.test.assertEquals
 class StaticSafetyGuardsModelTest {
     private val root get() = File(System.getProperty("tramai.repositoryRoot"))
     private fun parse(yaml: String) = StaticSafetyGuardConfigParser.parse(yaml, root)
-    private fun base(extra: String = "") = """
-        schemaVersion: 1
-        rules:
-          - id: x
-            match: call-name
-            symbols: [Thread]
-        exemptions:
-        $extra
-    """.trimIndent()
+    private fun base(extra: String = "") =
+        "schemaVersion: 1\n" +
+            "rules:\n" +
+            "  - id: x\n" +
+            "    match: call-name\n" +
+            "    symbols: [Thread]\n" +
+            "exemptions:\n" +
+            extra
     private fun exemption(path: String = "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderRegistry.kt", symbol: String = "Thread", rationale: String = "owned") =
-        """  - rule: x
-           path: $path
-           symbol: $symbol
-           rationale: "$rationale"
-        """
+        "  - rule: x\n" +
+            "    path: $path\n" +
+            "    symbol: $symbol\n" +
+            "    rationale: \"$rationale\"\n"
 
     @Test fun `valid config parses`() { assertEquals(1, parse(base(exemption())).schemaVersion) }
     @Test fun `malformed yaml fails`() { assertFailsWith<IllegalArgumentException> { parse("schemaVersion: [") } }
@@ -38,5 +36,5 @@ class StaticSafetyGuardsModelTest {
     @Test fun `test path fails`() { assertFailsWith<IllegalArgumentException> { parse(base(exemption("tramai-core/src/test/kotlin/Foo.kt"))) } }
     @Test fun `missing approved directory fails`() { assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("exemptions:", "rules:\n  - id: y\n    match: call-name\n    symbols: [Thread]\n    approvedPaths: [missing/]\nexemptions:")) } }
     @Test fun `numeric symbol fails`() { assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("symbols: [Thread]", "symbols: [42]")) } }
-    @Test fun `unknown rule field is forward compatible`() { assertEquals(1, parse(base(exemption()).replace("symbols: [Thread]", "symbols: [Thread]\n            futureFlag: true")).schemaVersion) }
+    @Test fun `unknown rule field is forward compatible`() { assertEquals(1, parse(base(exemption()).replace("symbols: [Thread]", "symbols: [Thread]\n    futureFlag: true")).schemaVersion) }
 }
