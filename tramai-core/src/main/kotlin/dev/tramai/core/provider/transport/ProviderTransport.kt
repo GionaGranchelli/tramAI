@@ -28,13 +28,6 @@ import java.net.http.HttpResponse
  * not stable application-facing API; it may change or move in any release.
  */
 
-/** Byte-bounded body read result. */
-@ExperimentalProviderTransportApi
-data class BoundedBody(
-    val text: String,
-    val truncated: Boolean,
-)
-
 /**
  * Success responses are expected to be JSON; 16 MiB is generous for tool
  * results and far beyond any legitimate provider/embedding/store response
@@ -58,15 +51,9 @@ fun readBoundedBody(
         val bytes = ByteArray(limitBytes + 1)
         var read = 0
         while (read < bytes.size) {
-            val count = stream.read(bytes, read, bytes.size - read)
-            if (count < 0) break
-            if (count == 0) {
-                val single = stream.read()
-                if (single < 0) break
-                bytes[read++] = single.toByte()
-            } else {
-                read += count
-            }
+            val chunk = readBoundedChunk(stream, bytes, read)
+            if (chunk < 0) break
+            read += chunk
         }
         val retained = minOf(read, limitBytes)
         var text = String(bytes, 0, retained, Charsets.UTF_8)
@@ -103,18 +90,35 @@ fun readBoundedBodyBytes(
         val bytes = ByteArray(limitBytes + 1)
         var read = 0
         while (read < bytes.size) {
-            val count = stream.read(bytes, read, bytes.size - read)
-            if (count < 0) break
-            if (count == 0) {
-                val single = stream.read()
-                if (single < 0) break
-                bytes[read++] = single.toByte()
+            val chunk = readBoundedChunk(stream, bytes, read)
+            if (chunk < 0) break
+            read += chunk
+        }
+        require(read <= limitBytes) { "Body exceeds limit of $limitBytes bytes" }
+        bytes.copyOf(read)
+    }
+}
+
+/**
+ * Reads up to [bytes.size] - [offset] bytes from [stream] into [bytes],
+ * returning the number of bytes read, or -1 at end of stream. The
+ * zero-length-read edge case of blocking streams is handled with a
+ * single-byte fallback read.
+ */
+private fun readBoundedChunk(stream: InputStream, bytes: ByteArray, offset: Int): Int {
+    val count = stream.read(bytes, offset, bytes.size - offset)
+    return when {
+        count > 0 -> count
+        count == 0 -> {
+            val single = stream.read()
+            if (single >= 0) {
+                bytes[offset] = single.toByte()
+                1
             } else {
-                read += count
+                -1
             }
         }
-        require(read <= limitBytes) { "Response body exceeds limit of $limitBytes bytes" }
-        bytes.copyOf(read)
+        else -> -1
     }
 }
 
