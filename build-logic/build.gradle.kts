@@ -18,6 +18,7 @@ dependencies {
     implementation(kotlin("gradle-plugin", version = "2.3.0"))
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3")
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
     implementation("org.yaml:snakeyaml:2.3")
 
     testImplementation(gradleTestKit())
@@ -99,6 +100,10 @@ gradlePlugin {
         create("tramaiDependencyHygiene") {
             id = "tramai.dependency-hygiene"
             implementationClass = "dev.tramai.build.quality.DependencyHygienePlugin"
+        }
+        create("staticSafetyGuards") {
+            id = "tramai.static-safety-guards"
+            implementationClass = "dev.tramai.build.quality.StaticSafetyGuardsPlugin"
         }
     }
 }
