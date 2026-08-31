@@ -116,11 +116,11 @@ Mutation campaign (M-series) against the discriminators; both gates in the 10.1b
 
 ### Exemption model
 
-`config/quality/static-safety-guards.yml` — rule + exact path + symbol + nonblank rationale, per occurrence family. Fail-closed: malformed YAML, unknown rule, missing path/rationale, duplicate, non-existent path, path escaping the repo root, path outside `*/src/main/**`, non-existent approved directory, and stale exemptions (exemption whose symbol no longer occurs) all fail. **Landing state: 0 unexplained findings, 17 live exemptions** (15 R1 incl. the shutdown-hook `Thread { }` the T0 grep missed, 2 R4). No baseline file.
+**Exemption model** — `config/quality/static-safety-guards.yml`: rule + exact path + symbol + **occurrence count** (strict integral ≥ 1) + nonblank rationale, per occurrence family. Every occurrence is ratcheted: the declared count must equal the actual count — a new same-symbol occurrence in an approved file FAILS, a removal below the declared count is stale and FAILS. No inheritance: each forbidden primitive is independently reported and independently exempted (an exempted `CoroutineScope(...)` does not bless a nested `SupervisorJob()`). Fail-closed: malformed YAML, unknown rule, duplicate rule ids, missing path/rationale/occurrences, zero or non-integral occurrences, duplicate exemption, non-existent path, path escaping the repo root, path outside `*/src/main/**`, non-existent approved directory, and stale exemptions all fail. **Landing state: 0 unexplained findings, 20 exemption entries ratcheting 28 occurrences** (16 R1 incl. the shutdown-hook `Thread { }` T0 missed and the three nested `SupervisorJob()` sites, 2 R4). No baseline file.
 
 ### Scan scope
 
-Production only (`*/src/main/kotlin/**/*.kt`, `*/src/main/java/**/*.java`); build-logic, examples, tests, testFixtures, build output excluded. Lightweight token-aware lexer: line/block comments (nested `/* */` depth), string/char literals, raw strings (`"""…"""`, `${…}` inside raw strings ignored — documented simplification) all skipped; call sites are identifier + `(` or `{` with qualified-name resolution (dotted paths) and wildcard symbols (`Executors.new*`).
+**Scan scope** — Production only (`*/src/main/kotlin/**/*.kt`, `*/src/main/java/**/*.java`); build-logic, examples, tests, testFixtures, build output excluded. Lightweight token-aware lexer: line/block comments (nested `/* */` depth), string/char literals skipped but **executable `${...}` interpolation is still lexed**; call sites are identifier + `(` or `{` with qualified-name resolution (dotted paths), **import canonicalization** (Kotlin/Java imports, `as` aliases, static imports, FQN suffix matching — `Executors.new*` matches `java.util.concurrent.Executors.newSingleThreadExecutor`, `BodyHandlers.ofString` matches `HttpResponse.BodyHandlers.ofString`), wildcard symbols, and an explicit `receiverSymbols` list (only object-receiver usages like `GlobalScope.launch`; `Thread.currentThread()` is not thread creation).
 
 ### Wiring
 
@@ -132,12 +132,17 @@ Production only (`*/src/main/kotlin/**/*.kt`, `*/src/main/java/**/*.java`); buil
 ### Frozen discriminators
 
 - L1–L8 lifecycle: approved factory passes · arbitrary `CoroutineScope` fails · `GlobalScope` fails · raw `Thread` fails · unowned executor fails · scoped exemption passes · stale exemption fails · exemption cannot cross path.
+- A1–A4 occurrence ratchet: second same-symbol occurrence exceeds the declared count → FAIL · removal below count → stale FAIL · nested `Executors.new*` inside an exempted `CoroutineScope` → FAIL · nested `SupervisorJob` passes only with its own exemption.
+- Q1–Q6 imports/canonicalization: fully-qualified `java.util.concurrent.Executors.newSingleThreadExecutor` → FAIL · `GlobalScope as GS` alias → FAIL · imported `Executors` factory → FAIL · `HttpResponse.BodyHandlers.ofString` → FAIL · imported `BodyHandlers.ofString` → FAIL · `kotlin.concurrent.thread { }` → FAIL.
+- H1–H2 direct reads: `response.body().readAllBytes()` → FAIL · `response.body().readBytes()` → FAIL.
+- G1–G4 logging: `this.logger.info(payload)` → FAIL · `logger.sanitize(payload)` → PASS · `logger.info { payload }` → FAIL · trailing-lambda safe log with later `payload` identifier → PASS.
+- T1–T2 strings: raw-string fake forbidden source → PASS · raw-string interpolation executing forbidden source → FAIL.
 - S1–S8 security: bounded helper passes · direct `response.body().use { readAllBytes() }` fails · local `File.readText` passes · sensitive logger fails · sanitized metadata passes · malformed config fails closed · unknown rule fails · duplicate exemption fails.
 - C1–C6 closure: cancellation authority intact · `check` owns cancellation · `verifyPr` owns cancellation · `check` owns static guards · `verifyPr` owns static guards · CI invokes the guard.
 - M01–M05 mutations: arbitrary `GlobalScope`/`Thread`/executor/body-read/sensitive-log all fail.
 
 ### Enforcement proof
 
-`StaticSafetyGuardsContractTest` (21), `StaticSafetyGuardsModelTest` (14), `StaticSafetyGuardsScopeTest` (5), `StaticSafetyGuardsWiringTest` (2), `StaticSafetyGuardsConfigCacheTest` (1), `CancellationWiringTest` (3) — 46 permanent tests; configuration-cache cold→warm certified.
+`StaticSafetyGuardsContractTest` (39), `StaticSafetyGuardsModelTest` (18), `StaticSafetyGuardsScopeTest` (5), `StaticSafetyGuardsWiringTest` (2), `StaticSafetyGuardsConfigCacheTest` (1), `CancellationWiringTest` (3) — 68 permanent tests; configuration-cache cold→warm certified.
 
 **Status: 🚧 PR #351 pending merge** — all six quality authorities land in `check`, `verifyPr`, and CI; the COMPLETE flip happens on exact-head green after merge.
