@@ -15,6 +15,7 @@ plugins {
     id("tramai.static-analysis")
     id("tramai.compiler-warnings")
     id("tramai.dependency-hygiene")
+    id("tramai.static-safety-guards")
     alias(libs.plugins.spotless)
 }
 
@@ -124,6 +125,12 @@ tasks.named("check") {
 tasks.named("verifyPr") {
     dependsOn("verifyDependencyHygiene")
 }
+
+// ── Epic 10.1d: lifecycle/security static safety guards ──
+tasks.named("check") { dependsOn("verifyStaticSafetyGuards") }
+tasks.named("verifyPr") { dependsOn("verifyStaticSafetyGuards") }
+tasks.named("check") { dependsOn("verifyCancellationSafety") }
+tasks.named("verifyPr") { dependsOn("verifyCancellationSafety") }
 
 // The root project carries the Spotless formatting gate (Epic 10.1a); it needs
 // a repository to resolve the pinned KtLint engine. Production modules keep
