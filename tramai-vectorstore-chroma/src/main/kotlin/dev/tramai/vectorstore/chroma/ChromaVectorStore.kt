@@ -1,12 +1,13 @@
 package dev.tramai.vectorstore.chroma
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
+import dev.tramai.core.provider.transport.readBoundedResponseBody
 import dev.tramai.vectorstore.SearchResult
 import dev.tramai.vectorstore.VectorEntry
 import dev.tramai.vectorstore.VectorStore
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -15,6 +16,7 @@ import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.CoroutineContext
 
 /**
  * [VectorStore] implementation backed by Chroma's HTTP API.
@@ -23,13 +25,13 @@ import java.util.concurrent.ConcurrentHashMap
  * @param httpClient   HTTP client for making requests.
  * @param objectMapper Jackson mapper for JSON serialization/deserialization.
  */
+@OptIn(ExperimentalProviderTransportApi::class)
 class ChromaVectorStore(
     private val baseUrl: String = "http://localhost:8000",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : VectorStore {
-
     private val collectionExistsCache = ConcurrentHashMap<String, Boolean>()
 
     /**
@@ -43,30 +45,38 @@ class ChromaVectorStore(
         collectionExistsCache.clear()
     }
 
-    override suspend fun upsert(collection: String, vectors: List<VectorEntry>) = withContext(ioDispatcher) {
+    override suspend fun upsert(
+        collection: String,
+        vectors: List<VectorEntry>,
+    ) = withContext(ioDispatcher) {
         try {
             ensureCollectionExists(collection)
 
-            val payload = mutableMapOf<String, Any?>(
-                "ids" to vectors.map { it.id },
-                "embeddings" to vectors.map { entry -> entry.vector.toList() },
-                "documents" to vectors.map { it.content },
-                "metadatas" to vectors.map { entry ->
-                    entry.metadata.ifEmpty { emptyMap<String, String>() }
-                },
-            )
+            val payload =
+                mutableMapOf<String, Any?>(
+                    "ids" to vectors.map { it.id },
+                    "embeddings" to vectors.map { entry -> entry.vector.toList() },
+                    "documents" to vectors.map { it.content },
+                    "metadatas" to
+                        vectors.map { entry ->
+                            entry.metadata.ifEmpty { emptyMap<String, String>() }
+                        },
+                )
 
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/add"))
-                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
-                .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest =
+                HttpRequest
+                    .newBuilder()
+                    .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/add"))
+                    .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
+                    .timeout(Duration.ofSeconds(30))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            val bounded = readBoundedResponseBody(response)
             if (response.statusCode() !in 200..299) {
                 throw ChromaException(
-                    "Chroma upsert returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+                    "Chroma upsert returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
                 )
             }
         } catch (e: ChromaException) {
@@ -81,38 +91,43 @@ class ChromaVectorStore(
         query: FloatArray,
         topK: Int,
         filter: Map<String, String>?,
-    ): List<SearchResult> = withContext(ioDispatcher) {
-        try {
-            val payload = mutableMapOf<String, Any?>(
-                "query_embeddings" to listOf(query.toList()),
-                "n_results" to topK,
-            )
+    ): List<SearchResult> =
+        withContext(ioDispatcher) {
+            try {
+                val payload =
+                    mutableMapOf<String, Any?>(
+                        "query_embeddings" to listOf(query.toList()),
+                        "n_results" to topK,
+                    )
 
-            if (!filter.isNullOrEmpty()) {
-                payload["where"] = filter
+                if (!filter.isNullOrEmpty()) {
+                    payload["where"] = filter
+                }
+
+                val httpRequest =
+                    HttpRequest
+                        .newBuilder()
+                        .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/query"))
+                        .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
+                        .timeout(Duration.ofSeconds(30))
+                        .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                        .build()
+
+                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+                val bounded = readBoundedResponseBody(response)
+                if (response.statusCode() !in 200..299) {
+                    throw ChromaException(
+                        "Chroma query returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
+                    )
+                }
+
+                parseChromaSearchResponse(objectMapper, bounded.text)
+            } catch (e: ChromaException) {
+                throw e
+            } catch (e: Exception) {
+                throw ChromaException("Chroma search failed: ${e.message}", e)
             }
-
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/query"))
-                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
-                .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
-
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() !in 200..299) {
-                throw ChromaException(
-                    "Chroma query returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
-                )
-            }
-
-            parseChromaSearchResponse(objectMapper, response.body())
-        } catch (e: ChromaException) {
-            throw e
-        } catch (e: Exception) {
-            throw ChromaException("Chroma search failed: ${e.message}", e)
         }
-    }
 
     /**
      * Extracts a single [SearchResult] from the Chroma response arrays at the given [index].
@@ -131,22 +146,36 @@ class ChromaVectorStore(
         distances: JsonNode,
         index: Int,
     ): SearchResult {
-        val entryId = if (!ids.isMissingNode && ids.isArray && ids.size() > index) {
-            ids.get(index).asText("")
-        } else ""
+        val entryId =
+            if (!ids.isMissingNode && ids.isArray && ids.size() > index) {
+                ids.get(index).asText("")
+            } else {
+                ""
+            }
 
-        val metadata = if (!metadatas.isMissingNode && metadatas.isArray && metadatas.size() > index) {
-            val metaNode = metadatas.get(index)
-            if (metaNode.isObject) {
-                metaNode.fieldNames().asSequence().map { name ->
-                    name to metaNode.get(name).asText("")
-                }.toMap()
-            } else emptyMap()
-        } else emptyMap()
+        val metadata =
+            if (!metadatas.isMissingNode && metadatas.isArray && metadatas.size() > index) {
+                val metaNode = metadatas.get(index)
+                if (metaNode.isObject) {
+                    metaNode
+                        .fieldNames()
+                        .asSequence()
+                        .map { name ->
+                            name to metaNode.get(name).asText("")
+                        }.toMap()
+                } else {
+                    emptyMap()
+                }
+            } else {
+                emptyMap()
+            }
 
-        val distance = if (!distances.isMissingNode && distances.isArray && distances.size() > index) {
-            distances.get(index).asDouble()
-        } else 0.0
+        val distance =
+            if (!distances.isMissingNode && distances.isArray && distances.size() > index) {
+                distances.get(index).asDouble()
+            } else {
+                0.0
+            }
 
         // Chroma returns L2 distance by default.
         // This is an approximate conversion from L2 distance to a similarity score in [0, 1].
@@ -177,7 +206,7 @@ class ChromaVectorStore(
 
         if (documents.isMissingNode || !documents.isArray) {
             throw ChromaException(
-                "Chroma response missing 'documents' array: ${rawBody.take(500)}"
+                "Chroma response missing 'documents' array: ${rawBody.take(500)}",
             )
         }
 
@@ -187,21 +216,27 @@ class ChromaVectorStore(
         }
     }
 
-    override suspend fun delete(collection: String, ids: List<String>) = withContext(ioDispatcher) {
+    override suspend fun delete(
+        collection: String,
+        ids: List<String>,
+    ) = withContext(ioDispatcher) {
         try {
             val payload = mapOf("ids" to ids)
 
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/delete"))
-                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
-                .timeout(Duration.ofSeconds(30))
-                .method("DELETE", HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build()
+            val httpRequest =
+                HttpRequest
+                    .newBuilder()
+                    .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/delete"))
+                    .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
+                    .timeout(Duration.ofSeconds(30))
+                    .method("DELETE", HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            val bounded = readBoundedResponseBody(response)
             if (response.statusCode() !in 200..299) {
                 throw ChromaException(
-                    "Chroma delete returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+                    "Chroma delete returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
                 )
             }
         } catch (e: ChromaException) {
@@ -211,34 +246,38 @@ class ChromaVectorStore(
         }
     }
 
-    override suspend fun listCollections(): List<String> = withContext(ioDispatcher) {
-        try {
-            val httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
-                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
-                .timeout(Duration.ofSeconds(30))
-                .GET()
-                .build()
+    override suspend fun listCollections(): List<String> =
+        withContext(ioDispatcher) {
+            try {
+                val httpRequest =
+                    HttpRequest
+                        .newBuilder()
+                        .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
+                        .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
+                        .timeout(Duration.ofSeconds(30))
+                        .GET()
+                        .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() !in 200..299) {
-                throw ChromaException(
-                    "Chroma list collections returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
-                )
-            }
+                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+                val bounded = readBoundedResponseBody(response)
+                if (response.statusCode() !in 200..299) {
+                    throw ChromaException(
+                        "Chroma list collections returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
+                    )
+                }
 
-            val body = objectMapper.readTree(response.body())
-            if (body.isArray) {
-                body.map { it.path("name").asText("") }.filter { it.isNotBlank() }
-            } else {
-                emptyList()
+                val body = objectMapper.readTree(bounded.text)
+                if (body.isArray) {
+                    body.map { it.path("name").asText("") }.filter { it.isNotBlank() }
+                } else {
+                    emptyList()
+                }
+            } catch (e: ChromaException) {
+                throw e
+            } catch (e: Exception) {
+                throw ChromaException("Chroma list collections failed: ${e.message}", e)
             }
-        } catch (e: ChromaException) {
-            throw e
-        } catch (e: Exception) {
-            throw ChromaException("Chroma list collections failed: ${e.message}", e)
         }
-    }
 
     /**
      * Ensures the named collection exists. If not, creates it.
@@ -258,18 +297,21 @@ class ChromaVectorStore(
 
         val payload = mapOf("name" to collection)
 
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
-            .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
-            .timeout(Duration.ofSeconds(30))
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
+        val httpRequest =
+            HttpRequest
+                .newBuilder()
+                .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
+                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
+                .timeout(Duration.ofSeconds(30))
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build()
 
-        val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+        val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+        val bounded = readBoundedResponseBody(response)
         if (response.statusCode() !in 200..299 && response.statusCode() != 409) {
             // Collection may have been created by another caller; ignore if it already exists.
             throw ChromaException(
-                "Chroma create collection returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+                "Chroma create collection returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
             )
         }
         collectionExistsCache[collection] = true

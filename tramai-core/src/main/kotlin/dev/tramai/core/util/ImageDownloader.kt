@@ -1,12 +1,15 @@
 package dev.tramai.core.util
 
 import dev.tramai.core.model.ContentPart
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
+import dev.tramai.core.provider.transport.readBoundedBodyBytes
 import java.net.URI
 
 /**
  * Utility for downloading images from URLs and resolving [ContentPart.ImageUrlContent]
  * to [ContentPart.ImagePart] by fetching the bytes.
  */
+@OptIn(ExperimentalProviderTransportApi::class)
 object ImageDownloader {
     private const val MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024 // 20MB max per image
 
@@ -20,9 +23,11 @@ object ImageDownloader {
         connection.connectTimeout = 10_000
         connection.readTimeout = 30_000
         val stream = connection.getInputStream()
-        return stream.use { it.readBytes().also { bytes ->
-            require(bytes.size <= MAX_DOWNLOAD_SIZE) { "Image download exceeds maximum size: ${bytes.size} > $MAX_DOWNLOAD_SIZE" }
-        }}
+        return try {
+            readBoundedBodyBytes(stream, MAX_DOWNLOAD_SIZE)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Image download exceeds maximum size: $MAX_DOWNLOAD_SIZE", error)
+        }
     }
 
     /**
@@ -30,17 +35,24 @@ object ImageDownloader {
      * the URL. If [part] is already an [ContentPart.ImagePart], returns it as-is.
      * Non-image parts are returned unchanged.
      */
-    fun resolveToImagePart(part: ContentPart): ContentPart = when (part) {
-        is ContentPart.ImagePart -> part
-        is ContentPart.ImageUrlContent -> {
-            val bytes = download(part.url)
-            ContentPart.ImagePart(
-                mimeType = part.mimeType ?: detectMimeType(part.url),
-                data = bytes,
-            )
+    fun resolveToImagePart(part: ContentPart): ContentPart =
+        when (part) {
+            is ContentPart.ImagePart -> {
+                part
+            }
+
+            is ContentPart.ImageUrlContent -> {
+                val bytes = download(part.url)
+                ContentPart.ImagePart(
+                    mimeType = part.mimeType ?: detectMimeType(part.url),
+                    data = bytes,
+                )
+            }
+
+            else -> {
+                part
+            }
         }
-        else -> part
-    }
 
     /**
      * Detects a likely MIME type from a URL's file extension.

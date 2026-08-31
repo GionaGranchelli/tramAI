@@ -21,6 +21,7 @@ kotlin {
 
 dependencies {
     api(project(":tramai-spring-core"))
+    implementation(project(":tramai-core"))
     implementation(libs.jackson.databind)
     implementation(libs.spring.context)
     implementation(libs.spring.boot.autoconfigure)

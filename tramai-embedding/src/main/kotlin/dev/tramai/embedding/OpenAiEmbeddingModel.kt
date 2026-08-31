@@ -2,13 +2,15 @@ package dev.tramai.embedding
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
+import dev.tramai.core.provider.transport.readBoundedResponseBody
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Request payload for the OpenAI Embeddings API.
@@ -36,6 +38,7 @@ internal data class OpenAiEmbeddingRequest(
  * @param timeoutMs    HTTP request timeout in milliseconds (default: 60000).
  * @param httpClient   HTTP client for making requests.
  */
+@OptIn(ExperimentalProviderTransportApi::class)
 class OpenAiEmbeddingModel(
     private val apiKey: String,
     private val model: String = "text-embedding-3-small",
@@ -45,7 +48,6 @@ class OpenAiEmbeddingModel(
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : EmbeddingModel {
-
     override fun providerId(): String = "openai"
 
     @Volatile
@@ -61,44 +63,49 @@ class OpenAiEmbeddingModel(
     override suspend fun embedAll(texts: List<String>): List<FloatArray> {
         require(texts.isNotEmpty()) { "texts must not be empty" }
         // Build the JSON payload on the calling thread (CPU-bound work).
-        val payload = OpenAiEmbeddingRequest(
-            model = model,
-            input = texts,
-            dimensions = dimensions,
-        )
+        val payload =
+            OpenAiEmbeddingRequest(
+                model = model,
+                input = texts,
+                dimensions = dimensions,
+            )
         val jsonPayload = MAPPER.writeValueAsString(payload)
 
         // Only the HTTP send is dispatched to IO.
         return withContext(ioDispatcher) {
             try {
-                val httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("${baseUrl.trimEnd('/')}/embeddings"))
-                    .header("Authorization", "Bearer $apiKey")
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofMillis(timeoutMs))
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                    .build()
+                val httpRequest =
+                    HttpRequest
+                        .newBuilder()
+                        .uri(URI.create("${baseUrl.trimEnd('/')}/embeddings"))
+                        .header("Authorization", "Bearer $apiKey")
+                        .header("Content-Type", "application/json")
+                        .timeout(Duration.ofMillis(timeoutMs))
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                        .build()
 
-                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+                val bounded = readBoundedResponseBody(response)
                 if (response.statusCode() !in 200..299) {
                     throw EmbeddingException(
-                        "OpenAI embeddings API returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+                        "OpenAI embeddings API returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
                     )
                 }
 
-                val body = MAPPER.readTree(response.body())
+                val body = MAPPER.readTree(bounded.text)
                 val data = body.path("data")
                 if (!data.isArray) {
                     throw EmbeddingException("OpenAI embeddings response missing 'data' array")
                 }
 
-                val results = data.map { entry ->
-                    val embeddingArray = entry.path("embedding")
-                    if (!embeddingArray.isArray) {
-                        throw EmbeddingException("OpenAI embeddings response entry missing 'embedding' array")
+                val results =
+                    data.map { entry ->
+                        val embeddingArray = entry.path("embedding")
+                        if (!embeddingArray.isArray) {
+                            throw EmbeddingException("OpenAI embeddings response entry missing 'embedding' array")
+                        }
+                        embeddingArray.map { it.floatValue() }.toFloatArray()
                     }
-                    embeddingArray.map { it.floatValue() }.toFloatArray()
-                }
 
                 // Dynamically derive dimensions from first API response if not hardcoded.
                 if (dimensions == null && results.isNotEmpty()) {
@@ -113,13 +120,12 @@ class OpenAiEmbeddingModel(
         }
     }
 
-    override fun dimensions(): Int {
-        return cachedDimensions
+    override fun dimensions(): Int =
+        cachedDimensions
             ?: throw EmbeddingException(
                 "OpenAI embedding dimensions are not available until after the first successful embed() call. " +
-                    "Call embed() or embedAll() first."
+                    "Call embed() or embedAll() first.",
             )
-    }
 
     companion object {
         const val DEFAULT_BASE_URL: String = "https://api.openai.com/v1"

@@ -15,7 +15,7 @@ import java.net.URI
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
-/**
+/*
  * Low-level HTTP/stream transport machinery shared by provider adapters.
  *
  * This package centralises transport invariants only: request framing,
@@ -27,6 +27,96 @@ import java.net.http.HttpResponse
  * This is cross-module implementation machinery for the built-in adapters,
  * not stable application-facing API; it may change or move in any release.
  */
+
+/** Byte-bounded body read result. */
+@ExperimentalProviderTransportApi
+data class BoundedBody(
+    val text: String,
+    val truncated: Boolean,
+)
+
+/**
+ * Success responses are expected to be JSON; 16 MiB is generous for tool
+ * results and far beyond any legitimate provider/embedding/store response
+ * seen in the test suite.
+ */
+const val PROVIDER_SUCCESS_BODY_LIMIT_BYTES = 16 * 1024 * 1024
+
+/**
+ * Reads at most [limitBytes] bytes from [input] as UTF-8 text, reusing the
+ * proven byte-bounded loop from [readErrorBodyPreview] (byte cap + UTF-8-safe
+ * trim). The stream is always closed. [truncated] reports whether the source
+ * contained more than [limitBytes] bytes.
+ */
+@ExperimentalProviderTransportApi
+fun readBoundedBody(
+    input: InputStream,
+    limitBytes: Int,
+): BoundedBody {
+    require(limitBytes >= 0) { "limitBytes must not be negative" }
+    return input.use { stream ->
+        val bytes = ByteArray(limitBytes + 1)
+        var read = 0
+        while (read < bytes.size) {
+            val count = stream.read(bytes, read, bytes.size - read)
+            if (count < 0) break
+            if (count == 0) {
+                val single = stream.read()
+                if (single < 0) break
+                bytes[read++] = single.toByte()
+            } else {
+                read += count
+            }
+        }
+        val retained = minOf(read, limitBytes)
+        var text = String(bytes, 0, retained, Charsets.UTF_8)
+        while (text.toByteArray(Charsets.UTF_8).size > limitBytes) {
+            text = text.dropLast(1)
+        }
+        BoundedBody(text = text, truncated = read == limitBytes + 1)
+    }
+}
+
+/**
+ * Reads a bounded UTF-8 preview of a java.net.http response body.
+ * Equivalent to [readBoundedBody] applied to [HttpResponse.body]; closes the
+ * body stream on every exit. [truncated] reports overflow beyond [limitBytes].
+ */
+@ExperimentalProviderTransportApi
+fun readBoundedResponseBody(
+    response: HttpResponse<InputStream>,
+    limitBytes: Int = PROVIDER_SUCCESS_BODY_LIMIT_BYTES,
+): BoundedBody = readBoundedBody(response.body(), limitBytes)
+
+/**
+ * Reads at most [limitBytes] bytes from [input] into memory, throwing
+ * IllegalArgumentException when the source exceeds the limit (fail loud, no
+ * silent truncation). The stream is always closed.
+ */
+@ExperimentalProviderTransportApi
+fun readBoundedBodyBytes(
+    input: InputStream,
+    limitBytes: Int,
+): ByteArray {
+    require(limitBytes >= 0) { "limitBytes must not be negative" }
+    return input.use { stream ->
+        val bytes = ByteArray(limitBytes + 1)
+        var read = 0
+        while (read < bytes.size) {
+            val count = stream.read(bytes, read, bytes.size - read)
+            if (count < 0) break
+            if (count == 0) {
+                val single = stream.read()
+                if (single < 0) break
+                bytes[read++] = single.toByte()
+            } else {
+                read += count
+            }
+        }
+        require(read <= limitBytes) { "Response body exceeds limit of $limitBytes bytes" }
+        bytes.copyOf(read)
+    }
+}
 
 /**
  * Builds a JSON HTTP request for a provider endpoint with the normalized
@@ -46,11 +136,13 @@ fun providerJsonRequest(
     uri: URI,
     request: ModelRequest,
     body: String,
-): HttpRequest.Builder = HttpRequest.newBuilder()
-    .uri(uri)
-    .header("Content-Type", "application/json")
-    .applyTramaiTimeout(request)
-    .POST(HttpRequest.BodyPublishers.ofString(body))
+): HttpRequest.Builder =
+    HttpRequest
+        .newBuilder()
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .applyTramaiTimeout(request)
+        .POST(HttpRequest.BodyPublishers.ofString(body))
 
 /**
  * Builds the safe failure for a rejected (non-2xx) provider HTTP response.
@@ -75,12 +167,13 @@ suspend fun rejectedProviderHttpResponse(
     observer: ProviderFailureDiagnosticObserver,
     logger: System.Logger? = null,
 ): ProviderException {
-    val errorBody = try {
-        readErrorBodyPreview(response.body())
-    } catch (error: Throwable) {
-        error.rethrowIfCancellation()
-        return providerTransportFailureObserved(providerId, providerAlias, error, observer)
-    }
+    val errorBody =
+        try {
+            readErrorBodyPreview(response.body())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            return providerTransportFailureObserved(providerId, providerAlias, error, observer)
+        }
     logProviderHttpFailureDebug(logger, providerId, response.statusCode(), errorBody.text)
     return providerHttpFailureObserved(
         providerId = providerId,
@@ -117,8 +210,7 @@ fun readSseDataPayload(reader: BufferedReader): String? {
  * [sseEventName] in their own loop.
  */
 @ExperimentalProviderTransportApi
-fun sseDataPayload(line: String): String? =
-    if (line.startsWith("data: ")) line.substring(6).trim() else null
+fun sseDataPayload(line: String): String? = if (line.startsWith("data: ")) line.substring(6).trim() else null
 
 /**
  * Returns the event name of an SSE `event: ` line, or `null` for any other
@@ -126,5 +218,4 @@ fun sseDataPayload(line: String): String? =
  * [sseDataPayload] in their own loop.
  */
 @ExperimentalProviderTransportApi
-fun sseEventName(line: String): String? =
-    if (line.startsWith("event: ")) line.substring(7).trim() else null
+fun sseEventName(line: String): String? = if (line.startsWith("event: ")) line.substring(7).trim() else null
