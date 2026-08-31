@@ -1488,7 +1488,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 10.1: Formatting and static analysis
 
-**Status: ✅ IN PROGRESS — 10.1a ✅ merged (`731126bf`, PR #339) · 10.1b ✅ merged (`3aa4ef72`, PR #342) · 10.1c ✅ merged (`f7fd192e`, PR #344) · 10.1d 🚧 PR #351** (sliced: see `docs/EPIC-10.1-code-quality.md`)
+**Status: ✅ COMPLETE — 10.1a ✅ merged (`731126bf`, PR #339) · 10.1b ✅ merged (`3aa4ef72`, PR #342) · 10.1c ✅ merged (`f7fd192e`, PR #344) · 10.1d ✅ merged (`868071aa`, PR #351)** (sliced: see `docs/EPIC-10.1-code-quality.md`)
 
 ### Slices (frozen decomposition)
 
@@ -1497,7 +1497,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 | 10.1a | Incremental Kotlin formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base) | ✅ merged (`731126bf`, PR #339) |
 | 10.1b | Static analysis (Detekt or equivalent): baseline, prohibit growth, central suppression rationale | ✅ merged (`3aa4ef72`, PR #342) |
 | 10.1c | Compiler + dependency hygiene: warning review / `-Werror` where feasible, unused-dependency enforcement | ✅ merged (`f7fd192e`, PR #344) |
-| 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | 🚧 PR #351 |
+| 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | ✅ merged (`868071aa`, PR #351) |
 
 ### Required gates
 
