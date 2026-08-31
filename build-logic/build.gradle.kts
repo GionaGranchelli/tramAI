@@ -92,5 +92,20 @@ gradlePlugin {
             id = "tramai.static-analysis"
             implementationClass = "dev.tramai.build.quality.StaticAnalysisPlugin"
         }
+        create("tramaiCompilerWarnings") {
+            id = "tramai.compiler-warnings"
+            implementationClass = "dev.tramai.build.quality.CompilerWarningsPlugin"
+        }
+        create("tramaiDependencyHygiene") {
+            id = "tramai.dependency-hygiene"
+            implementationClass = "dev.tramai.build.quality.DependencyHygienePlugin"
+        }
     }
+}
+
+// The root compiler-warning gate does NOT cover build-logic (kotlin-dsl cannot be
+// reproduced standalone; cross-build output capture is unreliable). The diagnostic
+// name rendering below is kept harmless but unused by the gate.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.freeCompilerArgs.add("-Xrender-internal-diagnostic-names")
 }

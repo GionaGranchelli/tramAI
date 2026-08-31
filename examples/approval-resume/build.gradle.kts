@@ -30,7 +30,6 @@ dependencies {
     implementation(project(":tramai-spring-boot-starter-sovereign-persistence-jdbc"))
     implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
     implementation("org.springframework.boot:spring-boot-starter")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 
     runtimeOnly("org.postgresql:postgresql")

@@ -1,0 +1,35 @@
+# TramAI dependency-hygiene exemption catalog (Epic 10.1c, D-contract).
+#
+# Only non-static usages belong here: drivers/SPI loaded by class name or
+# ServiceLoader, auto-configuration imports, runtime-only providers. Anything
+# statically importable that is unused is a VIOLATION — remove it instead.
+# Stale exemptions (no longer declared, or now statically used) fail the gate.
+exemptions:
+  - module: ":examples:approval-resume"
+    configuration: "runtimeOnly"
+    dependency: "org.postgresql:postgresql"
+    reason: "JDBC driver loaded via DriverManager by class name at runtime"
+  - module: ":examples:spring-sovereign-starter"
+    configuration: "runtimeOnly"
+    dependency: "org.postgresql:postgresql"
+    reason: "JDBC driver loaded via DriverManager by class name at runtime"
+  - module: ":tramai-vectorstore-pgvector"
+    configuration: "implementation"
+    dependency: "org.postgresql:postgresql"
+    reason: "JDBC driver loaded via DriverManager by class name at runtime"
+  - module: ":tramai-scheduler"
+    configuration: "implementation"
+    dependency: "com.zaxxer:HikariCP"
+    reason: "DataSource pool instantiated reflectively from configuration, never statically imported"
+  - module: ":tramai-spring-boot-starter"
+    configuration: "implementation"
+    dependency: "org.springframework.boot:spring-boot-autoconfigure"
+    reason: "auto-configuration registered via META-INF/spring/...AutoConfiguration.imports, no source-level import"
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    configuration: "implementation"
+    dependency: "com.fasterxml.jackson.module:jackson-module-kotlin"
+    reason: "Jackson module auto-registered via META-INF/services (ObjectMapper runtime)"
+  - module: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    configuration: "implementation"
+    dependency: "com.fasterxml.jackson.datatype:jackson-datatype-jsr310"
+    reason: "Jackson module auto-registered via META-INF/services (ObjectMapper runtime)"

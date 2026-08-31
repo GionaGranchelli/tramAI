@@ -54,7 +54,6 @@ dependencies {
 
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 
     // PostgreSQL driver (runtime only)

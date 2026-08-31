@@ -13,9 +13,8 @@ dependencies {
 
     implementation(project(":tramai-server"))
     implementation(libs.coroutines.core)
-    implementation(libs.flyway.core)
+    testImplementation(libs.flyway.core)
     implementation(libs.jackson.module.kotlin)
-    implementation(libs.kotlin.reflect)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.security.crypto)

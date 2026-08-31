@@ -83,6 +83,41 @@ jobs:
           ./gradlew verifyStaticAnalysis --no-daemon \
             -PtramaiStaticAnalysisBaseRef="${{ github.event.before }}"
 
+      - name: Verify compiler warnings against PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            ./gradlew verifyCompilerWarnings --no-daemon \
+              -PtramaiCompilerWarningsBaseRef="${{ github.event.pull_request.base.sha }}" \
+              -PchangeClass=baseline-migration
+          else
+            ./gradlew verifyCompilerWarnings --no-daemon \
+              -PtramaiCompilerWarningsBaseRef="${{ github.event.pull_request.base.sha }}"
+          fi
+
+      - name: Verify compiler warnings against push base
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          ./gradlew verifyCompilerWarnings --no-daemon \
+            -PtramaiCompilerWarningsBaseRef="${{ github.event.before }}"
+
+      - name: Verify dependency hygiene
+        run: ./gradlew verifyDependencyHygiene --no-daemon
+
+      - name: Run compiler-warnings + dependency-hygiene contract tests
+        timeout-minutes: 10
+        run: |
+          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test' --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.CompilerWarnings*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.DependencyHygiene*Test.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == 64, f'expected exactly 64 new-gate contract tests, discovered {total}'
+          EOF
+
       - name: Run static-analysis contract tests
         timeout-minutes: 20
         run: |

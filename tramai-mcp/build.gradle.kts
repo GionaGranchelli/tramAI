@@ -17,7 +17,7 @@ dependencies {
 
     implementation(project(":tramai-structured"))
     implementation(libs.coroutines.core)
-    implementation(libs.jackson.module.kotlin)
+    implementation(libs.jackson.databind)
     implementation(libs.spring.boot.autoconfigure)
     implementation(libs.spring.context)
     implementation(libs.okio)

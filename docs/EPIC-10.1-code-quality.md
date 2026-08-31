@@ -59,3 +59,44 @@ Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, c
 ### Enforcement proof
 
 - P0-A..P0-O permanent contract suite (`StaticAnalysis*Test`, 25 tests) + configuration-cache cold→warm + `ChangePolicyEvaluator` canonical-baseline tests. Mutation campaign M01..M10 against the discriminators.
+
+## 10.1c — Compiler + dependency hygiene (in progress)
+
+**Frozen slice (roadmap):** compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. Deliberately NOT a legacy-cleanup or module-architecture slice.
+
+**Track A decision (2026-08-30):** proceed with a warning baseline + custom dependency verifier; corrections applied: `-Werror` exit status cannot perform baseline identity (rejected as the mechanism); diagnostic identity uses Kotlin internal diagnostic names, not text alone; dependency enforcement starts from zero (genuine removals, not a debt baseline); exemptions are module+configuration+coordinate+rationale scoped.
+
+### T0 evidence (survey, pre-implementation)
+
+- **Compiler warnings:** 526 repository-wide on Kotlin 2.3.0 — 253 main, ~250 test/testFixtures, 23 examples, 67 build-logic. JDK21 vs JDK25 parity proven: 526=526, symmetric difference 0 (the `tramai.kotlin-library` toolchain-21 pin makes the Gradle-daemon JDK irrelevant to the warning set).
+- **Category breakdown:** 197 annotation-target future-change (Kotlin 2.3), 65 unnecessary `!!`, 57 Java-deprecations, 49+39 Tramai internal-API markers (intentional design), 28 supertype param-name mismatch, 21 unchecked casts, 20 AuditEmission deprecation (intentional migration), 15 platform-class-mapped-to-Kotlin, 11 unnecessary safe calls, ~24 misc. ~108 (21%) are intentional patterns.
+- **Global `-Werror` verdict: rejected** — 526 existing warnings make it an adoption migration, not a gate.
+- **Dependency survey:** 63 modules; ~37 declared-but-unused candidates. After triage: ~10 genuine removals (kotlinx-coroutines-core in 7 provider/boundary modules where main never references it; kotlin-test-junit5 in 4 modules whose tests use JUnit directly; okio in tramai-mcp; assertj in one example) and the rest are the known non-static classes: JDBC drivers via URL (h2 ×5, postgresql), kotlin-reflect (Spring Boot Kotlin runtime), auto-config modules (flyway, HikariCP, spring-boot-autoconfigure), Jackson modules via ServiceLoader registration. Those belong in the exemption catalog, not a baseline.
+- **Dependency-analysis plugin (autonomousapps) rejected for this slice:** 3.19.1 imports `kotlin-bom 2.4.0` (leaks kotlin-daemon-client 2.4.0 onto the build classpath → `NoSuchMethodError` against the 2.3.0 daemon) and its kotlin-metadata-jvm caps at metadata 2.2; upstream 3.9.0 deliberately reverted Kotlin 2.3.20 compilation. Not adoptable at the repo's pinned Kotlin without breaking the dependency contract.
+
+### T0.5 proof (diagnostic extraction, PASS)
+
+Standalone `K2JVMCompiler` (kotlin-compiler-embeddable 2.3.0, resolved as a Gradle configuration like the Detekt CLI) reproduces the Gradle warning set exactly on 5 representative module/source-set combinations (13/13, 43/43, 10/10, 30/30, 16/16; symmetric difference 0). Invocation: `-jvm-target 21 -Xrender-internal-diagnostic-names` (+ `-Xfriend-paths` and the module's own output dirs on the classpath for test source sets). Output: `<repo-relative>.kt:<line>:<col>: warning: [DIAGNOSTIC_NAME] message`. Compiler exits 0 with warnings — the gate compares a warning inventory, never `-Werror` exit status.
+
+### Compiler-warning gate (`verifyCompilerWarnings`)
+
+- **Invariant:** existing compiler-warning debt may remain temporarily, but it may only shrink. New warnings must not cross the gate unnoticed or be hidden by editing the baseline.
+- **Baseline:** `config/warnings/baseline.json` — identity = repository-relative path + `[DIAGNOSTIC_NAME]` + whitespace-only normalized message fingerprint (symbols/digits preserved) + multiplicity. Line/column excluded (lines move). Schema v2; frozen from the 526-warning inventory (modules-only exact T0 parity).
+- **Deviation (documented):** build-logic's 67 warnings are NOT gated. kotlin-dsl compilation cannot be reproduced by a standalone kotlinc (embedded-compiler default imports/accessors), and root listeners cannot capture included-build compiler output (empirically proven). The gate baseline is the modules-only 459 occurrences / 129 identities, exact T0 parity; build-logic stays frozen in the T0 inventory only, to be gated by a real-compile-output approach in a follow-up slice.
+- **Mechanism:** per-module standalone `K2JVMCompiler` runs over the module classpaths (compileClasspath / testCompileClasspath + own outputs + friend-paths) for modules touched by the PR delta — a module is invalidated by .kt/.java source changes or its own build script; global compiler/build configuration (libs.versions.toml, settings, gradle.properties, build-logic conventions) or a baseline change triggers full-repository verification; parse with a strict, fail-closed regex (any warning-shaped line that does not match the expected `[DIAGNOSTIC_NAME]` format fails the parse); compare against baseline; any warning without a matching baseline entry fails. Removals allowed; additions fail; malformed/missing baseline fails closed — baseline JSON is parsed all-or-nothing with strict node types (textual identity fields, integral schemaVersion/count; no Jackson coercion). Growth is protected by comparing against the certified base baseline fetched from the base ref; a base baseline with explicit `schemaVersion: 1` is treated as a one-time migration, anything else fails closed.
+- **Wiring:** joins `check`, `verifyPr`, and CI (label-gated bootstrap class where needed, mirroring 10.1b's `baseline-migration`).
+
+### Dependency gate (`verifyDependencyHygiene`)
+
+- **Invariant:** no unused direct dependency declared for main compilation/runtime semantics, except explicitly documented non-static usages.
+- **Model:** start from zero — the ~10 genuine unused declarations are removed in this PR; the gate enforces forward hygiene. No dependency-debt baseline.
+- **Mechanism:** per-module declared-dependency vs source-reference analysis (import evidence + full-class/package evidence scanned from the dependency jars on the compile+runtime classpath union), main vs test configuration scoping. Imports are captured as full symbols (plain, wildcard `foo.bar.*`, Java static, Kotlin alias, trailing `;`) and matched against the exact top-level class names and packages found in the declared coordinate's jars. Matching is ambiguity-aware: exact class/owner matches win; the package fallback (Kotlin top-level functions/properties compile into facade classes) proves usage only when the symbol's package belongs to exactly one declared coordinate — same-package sibling artifacts sharing `org.springframework.context`/`com.example.shared` cannot justify each other, and ambiguous membership fails closed. Not "Dependency Analysis Plugin Lite" — deliberately narrow.
+- **Exemption catalog:** module + configuration + coordinate + rationale entries only (e.g. `tramai-vectorstore-pgvector` / `implementation` / `org.postgresql:postgresql` / "JDBC driver loaded through DriverManager"). No bare coordinate-wide exemptions. A stale exemption (dependency removed or now used) fails.
+
+### Frozen discriminators
+
+Compiler (C): C1 clean compilation passes · C2 introduced warning fails · C3 additional occurrence of a baseline warning fails · C4 warning removal passes · C5 line movement does not create a false new warning · C6 unknown diagnostic fails · C7 malformed/missing baseline fails closed · C8 JDK21/JDK25 same result · C9 `check` owns the verifier · C10 `verifyPr`/CI own the verifier.
+
+Dependency (D): D1 used direct dependency passes · D2 genuinely unused implementation dependency fails · D3 test-only use does not justify an `implementation` declaration · D4 runtimeOnly is not statically misclassified · D5 ServiceLoader exemption passes · D6 reflection/auto-config exemption passes · D7 undeclared/stale exemption fails · D8 module-scoped exemption cannot exempt another module · D9 `check` owns the verifier · D10 `verifyPr`/CI own the verifier.
+
+Mutation campaign (M-series) against the discriminators; both gates in the 10.1b root-owned build-logic pattern; configuration-cache cold→warm certified; docs flip on exact-head green.

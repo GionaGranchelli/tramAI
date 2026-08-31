@@ -13,6 +13,8 @@ plugins {
     id("tramai.sovereign-lab-verification")
     id("tramai.docs-guards")
     id("tramai.static-analysis")
+    id("tramai.compiler-warnings")
+    id("tramai.dependency-hygiene")
     alias(libs.plugins.spotless)
 }
 
@@ -77,6 +79,36 @@ tasks.named("check") {
 }
 tasks.named("verifyPr") {
     dependsOn("verifyStaticAnalysis")
+}
+
+// ── Epic 10.1c: baseline-backed compiler-warning gate ──
+// One repository-level authority (tramai.compiler-warnings plugin): one pinned
+// kotlin-compiler-embeddable (== repo Kotlin version), one central baseline
+// (config/warnings/baseline.json), one verify task (verifyCompilerWarnings).
+// The gate recompiles delta modules with the standalone compiler using the same
+// classpaths/args as the real build and fails on warnings not covered by the
+// baseline. Ratcheted against the exact PR/push base:
+//   -PtramaiCompilerWarningsBaseRef=<sha>  exact base (CI PR: pull_request.base.sha,
+//                                          CI push: github.event.before)
+//   property absent                  origin/master (local default)
+// verifyCompilerWarnings joins the root `check` lifecycle and verifyPr below.
+tasks.named("check") {
+    dependsOn("verifyCompilerWarnings")
+}
+tasks.named("verifyPr") {
+    dependsOn("verifyCompilerWarnings")
+}
+
+// ── Epic 10.1c: unused-dependency gate ──
+// One authority (tramai.dependency-hygiene plugin): one central exemption
+// catalog (config/dependency-hygiene/exemptions.yml), one verify task
+// (verifyDependencyHygiene). No unused direct MAIN-scope dependency may exist
+// without an explicitly documented non-static usage exemption.
+tasks.named("check") {
+    dependsOn("verifyDependencyHygiene")
+}
+tasks.named("verifyPr") {
+    dependsOn("verifyDependencyHygiene")
 }
 
 // The root project carries the Spotless formatting gate (Epic 10.1a); it needs
