@@ -38,7 +38,12 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
 
     @Test
     fun `L1 approved lifecycle factory passes`() {
-        assertPasses(run("fun x() = CoroutineScope(SupervisorJob())", "raw-lifecycle-creation", "CoroutineScope"), "L1")
+        File(worktree, probe).delete()
+        writeKt(probe, "package dev.tramai.core\nfun x() = CoroutineScope(SupervisorJob())")
+        appendExemption("raw-lifecycle-creation", "CoroutineScope")
+        appendExemption("raw-lifecycle-creation", "SupervisorJob")
+        commit("L1 probe")
+        assertPasses(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "L1")
     }
 
     @Test
@@ -73,7 +78,15 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
 
     @Test
     fun `L8 exemption cannot cross path`() {
-        assertFails(run("fun x() = CoroutineScope(Job())", "raw-lifecycle-creation", "CoroutineScope"), "L8")
+        File(worktree, probe).delete()
+        writeKt(probe, "package dev.tramai.core\nfun x() = CoroutineScope(Job())")
+        appendExemption(
+            "raw-lifecycle-creation",
+            "CoroutineScope",
+            path = "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderRegistry.kt",
+        )
+        commit("L8 probe")
+        assertFails(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "L8")
     }
 
     // ── A-series: occurrence ratchet / nested ownership ──
