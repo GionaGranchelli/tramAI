@@ -137,7 +137,7 @@ internal class StaticSafetyLexer(
                     val end = interpolationEnd(j + ESCAPE_STEP, until, l)
                     tokens += lexRange(j + ESCAPE_STEP, end.first, l)
                     l = end.second
-                    j = end.first + 1
+                    j = end.first
                 }
 
                 else -> {
@@ -167,7 +167,7 @@ internal class StaticSafetyLexer(
                     val end = interpolationEnd(j + ESCAPE_STEP, until, l)
                     tokens += lexRange(j + ESCAPE_STEP, end.first, l)
                     l = end.second
-                    j = end.first + 1
+                    j = end.first
                 }
 
                 else -> {
