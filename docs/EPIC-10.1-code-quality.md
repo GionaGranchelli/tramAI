@@ -10,7 +10,7 @@ Slices are implemented in separate PRs; a slice is only "done" when its merge ga
 | **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | ✅ merged (`731126bf`, PR #339) |
 | **10.1b — static analysis** | Detekt 1.23.8 (pinned), one central config + one central baseline, baseline-backed growth protection, fail-closed. | ✅ merged (`3aa4ef72`, PR #342) |
 | **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ✅ merged (`f7fd192e`, PR #344) |
-| **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; consume the existing cancellation verifier (do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | 🚧 PR #… |
+| **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; consume the existing cancellation verifier (do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | 🚧 PR #351 |
 
 ## 10.1a — Incremental Kotlin formatting gate (implemented)
 
@@ -101,7 +101,7 @@ Dependency (D): D1 used direct dependency passes · D2 genuinely unused implemen
 
 Mutation campaign (M-series) against the discriminators; both gates in the 10.1b root-owned build-logic pattern; configuration-cache cold→warm certified; docs flip on exact-head green.
 
-## 10.1d — Forbidden/lifecycle/security static guards + closure (🚧 PR #…)
+## 10.1d — Forbidden/lifecycle/security static guards + closure (🚧 PR #351)
 
 **Invariant:** lifecycle-bearing concurrency primitives, unbounded remote response-body consumption, sensitive-payload logging, and forbidden runtime APIs are fail-closed production gates. Every exception is an explicit ownership exemption with a rationale — there is no debt baseline.
 
@@ -140,4 +140,4 @@ Production only (`*/src/main/kotlin/**/*.kt`, `*/src/main/java/**/*.java`); buil
 
 `StaticSafetyGuardsContractTest` (21), `StaticSafetyGuardsModelTest` (14), `StaticSafetyGuardsScopeTest` (5), `StaticSafetyGuardsWiringTest` (2), `StaticSafetyGuardsConfigCacheTest` (1), `CancellationWiringTest` (3) — 46 permanent tests; configuration-cache cold→warm certified.
 
-**Status: 🚧 PR #… pending merge** — all six quality authorities land in `check`, `verifyPr`, and CI; the COMPLETE flip happens on exact-head green after merge.
+**Status: 🚧 PR #351 pending merge** — all six quality authorities land in `check`, `verifyPr`, and CI; the COMPLETE flip happens on exact-head green after merge.
