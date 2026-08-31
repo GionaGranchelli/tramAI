@@ -3,9 +3,14 @@ package dev.tramai.build.quality
 import java.io.File
 import kotlin.test.Test
 
-/** Frozen L/S/M/T discriminator probes: L1-L8, S1-S8, A1-A4, Q1-Q6, H1-H2, G1-G4, T1-T2. */
+/** Frozen L/S/A/Q/H/G/T/M discriminator probes. Occurrence identity is token offset, not line. */
 class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     private val probe = "tramai-core/src/main/kotlin/dev/tramai/core/StaticSafetyProbe.kt"
+
+    private fun exemptionSymbol(
+        rule: String,
+        symbol: String,
+    ): String = if (rule == "forbidden-api") "System.err.println" else symbol
 
     private fun run(
         content: String,
@@ -16,7 +21,9 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
         writeKt(probe, "package dev.tramai.core\n$content")
         exemption?.let {
             File(worktree, "config/quality/static-safety-guards.yml").appendText(
-                "\n  - rule: $it\n    path: $probe\n    symbol: ${if (it == "forbidden-api") "System.err.println" else symbol}\n    occurrences: 1\n    rationale: \"contract ownership\"\n",
+                "\n  - rule: $it\n    path: $probe\n    symbol: " +
+                    exemptionSymbol(it, symbol) +
+                    "\n    occurrences: 1\n    rationale: \"contract ownership\"\n",
             )
         }
         commit("static safety probe")
@@ -30,7 +37,8 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
         path: String = probe,
     ) {
         File(worktree, "config/quality/static-safety-guards.yml").appendText(
-            "\n  - rule: $rule\n    path: $path\n    symbol: $symbol\n    occurrences: $occurrences\n    rationale: \"contract ownership\"\n",
+            "\n  - rule: $rule\n    path: $path\n    symbol: $symbol\n    occurrences: $occurrences\n" +
+                "    rationale: \"contract ownership\"\n",
         )
     }
 
@@ -89,12 +97,16 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
         assertFails(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "L8")
     }
 
-    // ── A-series: occurrence ratchet / nested ownership ──
+    // ── A-series: occurrence ratchet / nested ownership / same-line identity ──
 
     @Test
     fun `A1 second occurrence exceeds exemption count fails`() {
         assertFails(
-            run("fun x() = CoroutineScope(Job())\nfun y() = CoroutineScope(Job())", "raw-lifecycle-creation", "CoroutineScope"),
+            run(
+                "fun x() = CoroutineScope(Job())\nfun y() = CoroutineScope(Job())",
+                "raw-lifecycle-creation",
+                "CoroutineScope",
+            ),
             "A1",
         )
     }
@@ -107,7 +119,11 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     @Test
     fun `A3 nested Executors inside exempt CoroutineScope fails`() {
         File(worktree, probe).delete()
-        writeKt(probe, "package dev.tramai.core\nfun x() = CoroutineScope(Executors.newSingleThreadExecutor().asCoroutineDispatcher())")
+        writeKt(
+            probe,
+            "package dev.tramai.core\n" +
+                "fun x() = CoroutineScope(Executors.newSingleThreadExecutor().asCoroutineDispatcher())",
+        )
         appendExemption("raw-lifecycle-creation", "CoroutineScope")
         commit("A3 probe")
         assertFails(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "A3")
@@ -125,6 +141,18 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
         assertPasses(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "A4b")
     }
 
+    @Test
+    fun `A5 same-line duplicate occurrence exceeds count fails`() {
+        assertFails(
+            run(
+                "fun x() = CoroutineScope(Job()); fun y() = CoroutineScope(Job())",
+                "raw-lifecycle-creation",
+                "CoroutineScope",
+            ),
+            "A5",
+        )
+    }
+
     // ── S-series: security/config ──
 
     @Test
@@ -134,7 +162,13 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
 
     @Test
     fun `S2 direct response read fails`() {
-        assertFails(run("fun x(response: Any) = response.body().use { it.readAllBytes() }\nfun y() = BodyHandlers.ofString()"), "S2")
+        assertFails(
+            run(
+                "fun x(response: Any) = response.body().use { it.readAllBytes() }\n" +
+                    "fun y() = BodyHandlers.ofString()",
+            ),
+            "S2",
+        )
     }
 
     @Test
@@ -162,7 +196,8 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     @Test
     fun `S7 unknown rule fails closed`() {
         File(worktree, "config/quality/static-safety-guards.yml").appendText(
-            "\n  - rule: unknown\n    path: $probe\n    symbol: Thread\n    occurrences: 1\n    rationale: \"bad\"\n",
+            "\n  - rule: unknown\n    path: $probe\n    symbol: Thread\n    occurrences: 1\n" +
+                "    rationale: \"bad\"\n",
         )
         commit("unknown guard rule")
         assertFails(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "S7")
@@ -171,13 +206,15 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     @Test
     fun `S8 duplicate exemption fails`() {
         File(worktree, "config/quality/static-safety-guards.yml").appendText(
-            "\n  - rule: forbidden-api\n    path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ProcessSupport.kt\n    symbol: System.err.println\n    occurrences: 1\n    rationale: \"duplicate\"\n",
+            "\n  - rule: forbidden-api\n" +
+                "    path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ProcessSupport.kt\n" +
+                "    symbol: System.err.println\n    occurrences: 1\n    rationale: \"duplicate\"\n",
         )
         commit("duplicate guard exemption")
         assertFails(gradle("verifyStaticSafetyGuards", "--no-build-cache"), "S8")
     }
 
-    // ── Q-series: imports / aliases / fully-qualified calls ──
+    // ── Q-series: imports / aliases / fully-qualified / Java static calls ──
 
     @Test
     fun `Q1 fully-qualified executor fails`() {
@@ -207,6 +244,28 @@ class StaticSafetyGuardsContractTest : StaticAnalysisContractTestBase() {
     @Test
     fun `Q6 kotlin concurrent thread fails`() {
         assertFails(run("fun x() = kotlin.concurrent.thread { }"), "Q6")
+    }
+
+    @Test
+    fun `Q7 java static imported executor member fails`() {
+        assertFails(
+            run(
+                "import static java.util.concurrent.Executors.newSingleThreadExecutor;\n" +
+                    "fun x() = newSingleThreadExecutor()",
+            ),
+            "Q7",
+        )
+    }
+
+    @Test
+    fun `Q8 java static wildcard executor fails`() {
+        assertFails(
+            run(
+                "import static java.util.concurrent.Executors.*;\n" +
+                    "fun x() = newSingleThreadExecutor()",
+            ),
+            "Q8",
+        )
     }
 
     // ── H-series: direct unbounded body reads ──

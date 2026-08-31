@@ -12,9 +12,8 @@ class StaticSafetyGuardsConfigCacheTest : StaticAnalysisContractTestBase() {
         assertTrue(cold.output.contains("Configuration cache entry stored"), cold.output.take(1500))
         val warm = gradle("verifyStaticSafetyGuards", "--configuration-cache", "--configuration-cache-problems=fail")
         assertPasses(warm, "warm configuration-cache run")
-        assertTrue(
-            warm.output.contains("Configuration cache entry reused") || warm.output.contains("Configuration cache entry stored"),
-            warm.output.take(1500),
-        )
+        val reused = warm.output.contains("Configuration cache entry reused")
+        val stored = warm.output.contains("Configuration cache entry stored")
+        assertTrue(reused || stored, warm.output.take(1500))
     }
 }

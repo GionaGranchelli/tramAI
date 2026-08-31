@@ -10,19 +10,12 @@ class CancellationWiringTest : StaticAnalysisContractTestBase() {
     }
 
     @Test fun `C2 check owns cancellation safety`() {
-        assertTrue(
-            gradleUntil(":verifyCancellationSafety", "--no-build-cache", "check", "--dry-run").output.contains(":verifyCancellationSafety"),
-        )
+        val out = gradleUntil(":verifyCancellationSafety", "--no-build-cache", "check", "--dry-run").output
+        assertTrue(out.contains(":verifyCancellationSafety"))
     }
 
     @Test fun `C3 verifyPr owns cancellation safety`() {
-        assertTrue(
-            gradleUntil(
-                ":verifyCancellationSafety",
-                "--no-build-cache",
-                "verifyPr",
-                "--dry-run",
-            ).output.contains(":verifyCancellationSafety"),
-        )
+        val out = gradleUntil(":verifyCancellationSafety", "--no-build-cache", "verifyPr", "--dry-run").output
+        assertTrue(out.contains(":verifyCancellationSafety"))
     }
 }

@@ -10,6 +10,10 @@ class StaticSafetyGuardsModelTest {
 
     private fun parse(yaml: String) = StaticSafetyGuardConfigParser.parse(yaml, root)
 
+    private fun fails(yaml: String) {
+        assertFailsWith<IllegalArgumentException> { parse(yaml) }
+    }
+
     private fun base(extra: String = "") =
         "schemaVersion: 1\n" +
             "rules:\n" +
@@ -37,93 +41,87 @@ class StaticSafetyGuardsModelTest {
 
     @Test
     fun `malformed yaml fails`() {
-        assertFailsWith<IllegalArgumentException> { parse("schemaVersion: [") }
+        fails("schemaVersion: [")
     }
 
     @Test
     fun `wrong schema fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("schemaVersion: 1", "schemaVersion: 2")) }
+        fails(base(exemption()).replace("schemaVersion: 1", "schemaVersion: 2"))
     }
 
     @Test
     fun `unknown exemption rule fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("rule: x", "rule: nope")) }
+        fails(base(exemption()).replace("rule: x", "rule: nope"))
     }
 
     @Test
     fun `unknown match fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("match: call-name", "match: nope")) }
+        fails(base(exemption()).replace("match: call-name", "match: nope"))
     }
 
     @Test
     fun `missing symbols fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("symbols: [Thread]", "symbols: []")) }
+        fails(base(exemption()).replace("symbols: [Thread]", "symbols: []"))
     }
 
     @Test
     fun `missing rationale fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("rationale: \"owned\"", "rationale: \"\"")) }
+        fails(base(exemption()).replace("rationale: \"owned\"", "rationale: \"\""))
     }
 
     @Test
     fun `duplicate exemption fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption() + exemption())) }
+        fails(base(exemption() + exemption()))
     }
 
     @Test
     fun `escaping path fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption("../x.kt"))) }
+        fails(base(exemption("../x.kt")))
     }
 
     @Test
     fun `missing path fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption("tramai-core/src/main/kotlin/dev/tramai/core/nope.kt"))) }
+        fails(base(exemption("tramai-core/src/main/kotlin/dev/tramai/core/nope.kt")))
     }
 
     @Test
     fun `test path fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption("tramai-core/src/test/kotlin/Foo.kt"))) }
+        fails(base(exemption("tramai-core/src/test/kotlin/Foo.kt")))
     }
 
     @Test
     fun `missing approved directory fails`() {
-        assertFailsWith<IllegalArgumentException> {
-            parse(
-                base(exemption()).replace(
-                    "exemptions:",
-                    "rules:\n  - id: y\n    match: call-name\n    symbols: [Thread]\n    approvedPaths: [missing/]\nexemptions:",
-                ),
-            )
-        }
+        val rule =
+            "rules:\n  - id: y\n    match: call-name\n    symbols: [Thread]\n" +
+                "    approvedPaths: [missing/]\nexemptions:"
+        fails(base(exemption()).replace("exemptions:", rule))
     }
 
     @Test
     fun `numeric symbol fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption()).replace("symbols: [Thread]", "symbols: [42]")) }
+        fails(base(exemption()).replace("symbols: [Thread]", "symbols: [42]"))
     }
 
     @Test
     fun `unknown rule field is forward compatible`() {
-        assertEquals(
-            1,
-            parse(base(exemption()).replace("symbols: [Thread]", "symbols: [Thread]\n    futureFlag: true")).schemaVersion,
-        )
+        val yaml = base(exemption()).replace("symbols: [Thread]", "symbols: [Thread]\n    futureFlag: true")
+        assertEquals(1, parse(yaml).schemaVersion)
     }
 
     @Test
     fun `missing occurrences fails`() {
         val without = exemption().lines().filterNot { it.startsWith("    occurrences:") }.joinToString("\n") + "\n"
-        assertFailsWith<IllegalArgumentException> { parse(base(without)) }
+        fails(base(without))
     }
 
     @Test
     fun `zero occurrences fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption(occurrences = 0))) }
+        fails(base(exemption(occurrences = 0)))
     }
 
     @Test
     fun `non-integral occurrences fails`() {
-        assertFailsWith<IllegalArgumentException> { parse(base(exemption().replace("occurrences: 1", "occurrences: 1.5"))) }
+        fails(base(exemption().replace("occurrences: 1", "occurrences: 1.5")))
     }
 
     @Test
@@ -139,6 +137,6 @@ class StaticSafetyGuardsModelTest {
                 "    symbols: [Thread]\n" +
                 "exemptions:\n" +
                 exemption()
-        assertFailsWith<IllegalArgumentException> { parse(dup) }
+        fails(dup)
     }
 }

@@ -28,7 +28,8 @@ class StaticSafetyGuardsScopeTest : StaticAnalysisContractTestBase() {
     }
 
     @Test fun `comments and strings are ignored`() {
-        assertTrue(probe("tramai-core/src/main/kotlin/Foo.kt", "// Thread { }\nval x=\"System.err.println(\"\"").exit == 0)
+        val text = "// Thread { }\nval x=\"System.err.println(\"\""
+        assertTrue(probe("tramai-core/src/main/kotlin/Foo.kt", text).exit == 0)
     }
 
     @Test fun `java production source is scanned`() {

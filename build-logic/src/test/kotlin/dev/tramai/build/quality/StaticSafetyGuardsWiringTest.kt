@@ -5,19 +5,12 @@ import kotlin.test.assertTrue
 
 class StaticSafetyGuardsWiringTest : StaticAnalysisContractTestBase() {
     @Test fun `C4 check owns static safety guards`() {
-        assertTrue(
-            gradleUntil(":verifyStaticSafetyGuards", "--no-build-cache", "check", "--dry-run").output.contains(":verifyStaticSafetyGuards"),
-        )
+        val out = gradleUntil(":verifyStaticSafetyGuards", "--no-build-cache", "check", "--dry-run").output
+        assertTrue(out.contains(":verifyStaticSafetyGuards"))
     }
 
     @Test fun `C5 verifyPr owns static safety guards`() {
-        assertTrue(
-            gradleUntil(
-                ":verifyStaticSafetyGuards",
-                "--no-build-cache",
-                "verifyPr",
-                "--dry-run",
-            ).output.contains(":verifyStaticSafetyGuards"),
-        )
+        val out = gradleUntil(":verifyStaticSafetyGuards", "--no-build-cache", "verifyPr", "--dry-run").output
+        assertTrue(out.contains(":verifyStaticSafetyGuards"))
     }
 }

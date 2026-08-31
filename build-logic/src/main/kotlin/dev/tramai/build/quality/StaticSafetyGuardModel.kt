@@ -41,10 +41,8 @@ object StaticSafetyGuardConfigParser {
         val root =
             try {
                 mapper.readTree(text)
-            } catch (
-                e: Exception,
-            ) {
-                throw IllegalArgumentException("static safety config YAML is malformed: ${e.message}")
+            } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
+                throw IllegalArgumentException("static safety config YAML is malformed: ${e.message}", e)
             }
         require(root != null && root.isObject) { "static safety config root must be an object" }
         val schema = root.get("schemaVersion")
@@ -70,10 +68,14 @@ object StaticSafetyGuardConfigParser {
                 val occurrences = occurrences(node)
                 val rationale = text(node, "rationale", true)
                 require(ids.contains(rule)) { "exemption references unknown rule '$rule'" }
-                require(!File(path).isAbsolute && path.split('/').none { it == ".." }) { "exemption path escapes repository root: $path" }
+                require(!File(path).isAbsolute && path.split('/').none { it == ".." }) {
+                    "exemption path escapes repository root: $path"
+                }
                 val file = File(repositoryRoot, path)
                 require(file.exists()) { "exemption path does not exist: $path" }
-                require(path.replace('\\', '/').matches(Regex(".*/src/main/.*"))) { "exemption path is outside production roots: $path" }
+                require(path.replace('\\', '/').matches(Regex(".*/src/main/.*"))) {
+                    "exemption path is outside production roots: $path"
+                }
                 require(seen.add("$rule\u0000$path\u0000$symbol")) { "duplicate exemption: $rule | $path | $symbol" }
                 StaticSafetyExemption(rule, path, symbol, occurrences, rationale)
             }
@@ -131,7 +133,9 @@ object StaticSafetyGuardConfigParser {
             },
         ) { "rule $id is missing required fields for match $match" }
         approved.forEach { p ->
-            require(!File(p).isAbsolute && p.split('/').none { it == ".." }) { "approved path escapes repository root: $p" }
+            require(!File(p).isAbsolute && p.split('/').none { it == ".." }) {
+                "approved path escapes repository root: $p"
+            }
             require(File(root, p).isDirectory) { "approvedPaths entry is not a directory: $p" }
         }
         return StaticSafetyRule(id, match, symbols, receivers, sensitive, blocks, approved, receiverSymbols)
