@@ -19,13 +19,14 @@ data class StaticSafetyRule(
     val sensitiveSymbols: List<String> = emptyList(),
     val blockReadSymbols: List<String> = emptyList(),
     val approvedPaths: List<String> = emptyList(),
-    val receiverOrCall: List<String> = emptyList(),
+    val receiverSymbols: List<String> = emptyList(),
 )
 
 data class StaticSafetyExemption(
     val rule: String,
     val path: String,
     val symbol: String,
+    val occurrences: Int,
     val rationale: String,
 )
 
@@ -53,7 +54,10 @@ object StaticSafetyGuardConfigParser {
         val rulesNode = root.get("rules")
         require(rulesNode != null && rulesNode.isArray) { "static safety config rules must be an array" }
         val rules = rulesNode.map { parseRule(it, repositoryRoot) }
-        val ids = rules.map { it.id }.toSet()
+        val ids = rules.map { it.id }
+        require(ids.size == ids.toSet().size) {
+            "static safety config declares duplicate rule ids: ${ids.groupBy { it }.filterValues { it.size > 1 }.keys}"
+        }
         val exNode = root.get("exemptions")
         require(exNode != null && exNode.isArray) { "static safety config exemptions must be an array" }
         val seen = mutableSetOf<String>()
@@ -63,6 +67,7 @@ object StaticSafetyGuardConfigParser {
                 val rule = text(node, "rule", false)
                 val path = text(node, "path", false)
                 val symbol = text(node, "symbol", false)
+                val occurrences = occurrences(node)
                 val rationale = text(node, "rationale", true)
                 require(ids.contains(rule)) { "exemption references unknown rule '$rule'" }
                 require(!File(path).isAbsolute && path.split('/').none { it == ".." }) { "exemption path escapes repository root: $path" }
@@ -70,7 +75,7 @@ object StaticSafetyGuardConfigParser {
                 require(file.exists()) { "exemption path does not exist: $path" }
                 require(path.replace('\\', '/').matches(Regex(".*/src/main/.*"))) { "exemption path is outside production roots: $path" }
                 require(seen.add("$rule\u0000$path\u0000$symbol")) { "duplicate exemption: $rule | $path | $symbol" }
-                StaticSafetyExemption(rule, path, symbol, rationale)
+                StaticSafetyExemption(rule, path, symbol, occurrences, rationale)
             }
         return StaticSafetyGuardConfig(1, rules, exemptions)
     }
@@ -99,7 +104,7 @@ object StaticSafetyGuardConfigParser {
         val sensitive = texts("sensitiveSymbols")
         val blocks = texts("blockReadSymbols")
         val approved = texts("approvedPaths")
-        val roc = texts("receiverOrCall")
+        val receiverSymbols = texts("receiverSymbols")
         require(
             when (match) {
                 "call-name" -> {
@@ -129,7 +134,15 @@ object StaticSafetyGuardConfigParser {
             require(!File(p).isAbsolute && p.split('/').none { it == ".." }) { "approved path escapes repository root: $p" }
             require(File(root, p).isDirectory) { "approvedPaths entry is not a directory: $p" }
         }
-        return StaticSafetyRule(id, match, symbols, receivers, sensitive, blocks, approved, roc)
+        return StaticSafetyRule(id, match, symbols, receivers, sensitive, blocks, approved, receiverSymbols)
+    }
+
+    private fun occurrences(node: JsonNode): Int {
+        val n = node.get("occurrences")
+        require(n != null && n.isIntegralNumber) { "exemption occurrences must be a strict integral number" }
+        val v = n.intValue()
+        require(v >= 1) { "exemption occurrences must be >= 1" }
+        return v
     }
 
     private fun text(

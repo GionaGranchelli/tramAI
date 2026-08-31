@@ -45,19 +45,13 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
     fun verify() {
         val root = File(repositoryRoot.get())
         val config = StaticSafetyGuardConfigParser.parse(configFile.get().asFile.readText(), root)
-        val exemptions = config.exemptions.associateBy { Triple(it.rule, it.path, it.symbol) }.toMutableMap()
-        val used = mutableSetOf<Triple<String, String, String>>()
+        val exemptionMap = config.exemptions.associateBy { Triple(it.rule, it.path, it.symbol) }
         val findings =
             sourceFiles.files
                 .filter { it.isFile }
                 .flatMap { scan(it, root, config) }
-                .map { f ->
-                    val key = Triple(f.rule, f.path, f.symbol)
-                    val hit = exemptions[key] != null
-                    if (hit) used += key
-                    f.copy(exempt = hit)
-                }.sortedWith(compareBy({ it.path }, { it.line }, { it.rule }, { it.symbol }))
-        val stale = exemptions.keys - used
+                .map { f -> f.copy(exempt = Triple(f.rule, f.path, f.symbol) in exemptionMap) }
+                .sortedWith(compareBy({ it.path }, { it.line }, { it.rule }, { it.symbol }))
         val dir = reportsDir.get().asFile.apply { mkdirs() }
         val reportBody = findings.joinToString("\n") { format(it) } + if (findings.isEmpty()) "" else "\n"
         dir.resolve("findings.txt").writeText(reportBody)
@@ -67,21 +61,54 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
             "Static safety guards\n" +
                 "findings: ${findings.size}\n" +
                 "unexplained: ${unexplained.size}\n" +
-                "exemptions live: ${used.size}\n" +
-                "stale exemptions: ${stale.size}\n" +
+                "exemptions live: ${exemptionMap.size}\n" +
+                "stale exemptions: ${staleTriples(exemptionMap, findings).size}\n" +
                 ruleCounts,
         )
-        if (stale.isNotEmpty() || unexplained.isNotEmpty()) {
-            throw GradleException(
-                buildString {
-                    unexplained.forEach { appendLine(format(it)) }
-                    stale.forEach { appendLine("stale exemption: ${it.first} | ${it.second} | ${it.third}") }
+        val violations =
+            buildString {
+                unexplained.forEach { appendLine(format(it)) }
+                countMismatches(exemptionMap, findings).forEach { appendLine(it) }
+                staleTriples(exemptionMap, findings).forEach { (key, _) ->
+                    appendLine("stale exemption: ${key.first} | ${key.second} | ${key.third}")
+                }
+                if (unexplained.isNotEmpty() || isNotEmpty()) {
                     append("Fix the code or add a scoped exemption with rationale to config/quality/static-safety-guards.yml")
-                },
-            )
-        }
-        logger.lifecycle("static-safety-guards: ${findings.size} findings, ${used.size} live exemptions, 0 unexplained")
+                }
+            }
+        if (violations.isNotBlank()) throw GradleException(violations)
+        logger.lifecycle(
+            "static-safety-guards: ${findings.size} findings, ${exemptionMap.size} exemption entries, 0 unexplained",
+        )
     }
+
+    private fun countMismatches(
+        exemptionMap: Map<Triple<String, String, String>, StaticSafetyExemption>,
+        findings: List<SafetyFinding>,
+    ): List<String> =
+        exemptionMap.mapNotNull { (key, ex) ->
+            val actual = findings.count { Triple(it.rule, it.path, it.symbol) == key }
+            when {
+                actual == 0 -> {
+                    null
+                }
+
+                // stale, reported separately
+                actual != ex.occurrences -> {
+                    "exemption count mismatch: ${key.first} | ${key.second} | ${key.third} | declared ${ex.occurrences}, actual $actual"
+                }
+
+                else -> {
+                    null
+                }
+            }
+        }
+
+    private fun staleTriples(
+        exemptionMap: Map<Triple<String, String, String>, StaticSafetyExemption>,
+        findings: List<SafetyFinding>,
+    ): List<Pair<Triple<String, String, String>, StaticSafetyExemption>> =
+        exemptionMap.filter { (key, _) -> findings.none { Triple(it.rule, it.path, it.symbol) == key } }.toList()
 
     private fun format(f: SafetyFinding): String {
         val prefix = if (f.exempt) "(exempt) " else ""
@@ -99,7 +126,9 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
                 .relativize(file.toPath())
                 .toString()
                 .replace(File.separatorChar, '/')
-        val tokens = Lexer(file.readText()).lex()
+        val text = file.readText()
+        val imports = Imports(text)
+        val tokens = Lexer(text).lex()
         val out = mutableListOf<SafetyFinding>()
 
         fun approved(rule: StaticSafetyRule): Boolean =
@@ -108,37 +137,31 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
         for ((i, t) in tokens.withIndex()) {
             // Call site = identifier followed by '(' or by '{' (trailing-lambda call without parens).
             if (t.kind != Kind.ID || i + 1 >= tokens.size || (tokens[i + 1].text != "(" && tokens[i + 1].text != "{")) continue
-            val q = qualified(tokens, i)
+            val q = imports.resolve(qualified(tokens, i))
             val simple = t.text
             config.rules.forEach { r ->
                 if (!approved(r)) {
-                    // An approved owning factory also owns nested lifecycle arguments
-                    // (for example CoroutineScope(SupervisorJob())). This keeps the
-                    // exemption keyed to the explicit outer construction site.
-                    val nestedOwned = isNestedOwned(r, path, i, tokens, config.exemptions)
                     val matched =
                         when (r.match) {
                             "call-name" -> {
-                                callMatches(simple, q, r.symbols) ||
-                                    (
-                                        simple in r.receiverOrCall && i + 1 < tokens.size &&
-                                            (tokens[i + 1].text == "(" || (i + 2 < tokens.size && tokens[i + 1].text == "."))
-                                    )
+                                callMatches(simple, q, r.symbols, r.receiverSymbols)
                             }
 
                             "multi" -> {
-                                callMatches(simple, q, r.symbols)
+                                callMatches(simple, q, r.symbols, r.receiverSymbols) ||
+                                    (simple in r.blockReadSymbols && bodyReceiver(tokens, i))
                             }
 
                             "receiver-call" -> {
-                                receiverMatch(tokens, i, q, r) && argHas(tokens, i, r.sensitiveSymbols)
+                                simple in r.symbols &&
+                                    receiverMatch(q, r) && argHas(tokens, i, r.sensitiveSymbols)
                             }
 
                             else -> {
                                 false
                             }
                         }
-                    if (matched && !nestedOwned) {
+                    if (matched) {
                         out += SafetyFinding(r.id, path, t.line, matchedSymbol(simple, q, r), snippet(file, t.line))
                     }
                     if ((r.match == "body-use-block" || r.match == "multi") && simple == "use" &&
@@ -158,41 +181,41 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
         s: String,
         q: String,
         r: StaticSafetyRule,
-    ): String = r.symbols.firstOrNull { callMatches(s, q, listOf(it)) } ?: s
-
-    private fun isNestedOwned(
-        r: StaticSafetyRule,
-        path: String,
-        i: Int,
-        ts: List<Tok>,
-        exemptions: List<StaticSafetyExemption>,
-    ): Boolean {
-        val owned = exemptions.filter { it.rule == r.id && it.path == path }
-        for (j in 0 until i) {
-            if (ts[j].kind == Kind.ID && j + 1 < ts.size && ts[j + 1].text == "(") {
-                val q = qualified(ts, j)
-                val symbol = r.symbols.firstOrNull { callMatches(ts[j].text, q, listOf(it)) } ?: continue
-                if (owned.none { it.symbol == symbol }) continue
-                if (i < balanced(ts, j + 1, "(", ")")) return true
-            }
-        }
-        return false
-    }
+    ): String = r.symbols.firstOrNull { symbolMatches(s, q, it, r.receiverSymbols) } ?: s
 
     private fun callMatches(
         s: String,
         q: String,
         syms: List<String>,
-    ): Boolean =
-        syms.any {
-            if (it.endsWith("*")) {
-                q.startsWith(it.dropLast(1))
-            } else if (it.contains('.')) {
-                q == it
-            } else {
-                s == it || (it == "GlobalScope" && q.startsWith("GlobalScope."))
+        receiverSymbols: List<String>,
+    ): Boolean = syms.any { symbolMatches(s, q, it, receiverSymbols) }
+
+    private fun symbolMatches(
+        s: String,
+        q: String,
+        symbol: String,
+        receiverSymbols: List<String>,
+    ): Boolean {
+        val segments = q.split('.')
+        return when {
+            symbol.endsWith("*") -> {
+                val prefix = symbol.dropLast(1).split('.')
+                segments.size >= prefix.size &&
+                    segments.takeLast(prefix.size).dropLast(1) == prefix.dropLast(1) &&
+                    segments.last().startsWith(prefix.last())
+            }
+
+            symbol.contains('.') -> {
+                val symSegs = symbol.split('.')
+                segments.size >= symSegs.size && segments.takeLast(symSegs.size) == symSegs
+            }
+
+            else -> {
+                s == symbol ||
+                    (symbol in receiverSymbols && segments.dropLast(1).contains(symbol))
             }
         }
+    }
 
     private fun qualified(
         ts: List<Tok>,
@@ -204,13 +227,13 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
     }
 
     private fun receiverMatch(
-        ts: List<Tok>,
-        i: Int,
         q: String,
         r: StaticSafetyRule,
     ): Boolean {
         val rec = q.substringBeforeLast('.', "")
-        return rec in r.receivers || rec.endsWith("Logger")
+        return rec in r.receivers ||
+            rec.endsWith("Logger") ||
+            (rec.split('.').lastOrNull() in r.receivers)
     }
 
     private fun argHas(
@@ -218,8 +241,14 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
         i: Int,
         syms: List<String>,
     ): Boolean {
-        val end = balanced(ts, i + 1, "(", ")")
-        return (i + 2 until end).any { n ->
+        val open = ts.getOrNull(i + 1)?.text
+        val (regionStart, regionEnd) =
+            when (open) {
+                "(" -> i + 2 to balanced(ts, i + 1, "(", ")")
+                "{" -> i + 2 to balanced(ts, i + 1, "{", "}")
+                else -> i + 2 to i + 2
+            }
+        return (regionStart until regionEnd).any { n ->
             ts[n].kind == Kind.ID && (
                 ts[n].text in syms ||
                     (
@@ -296,6 +325,39 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
             ?.take(240) ?: ""
 }
 
+/** Lightweight import canonicalization: aliases, normal/static imports, FQN suffix resolution. */
+private class Imports(
+    source: String,
+) {
+    private val aliases = mutableMapOf<String, String>()
+    private val simples = mutableMapOf<String, String>()
+
+    init {
+        source.lineSequence().forEach { raw ->
+            val line = raw.trim()
+            val m = IMPORT_RE.matchEntire(line) ?: return@forEach
+            val fqcn = m.groupValues[1]
+            val alias = m.groupValues[2]
+            val simple = fqcn.substringAfterLast('.')
+            if (alias.isNotEmpty()) aliases[alias] = fqcn else simples[simple] = fqcn
+        }
+    }
+
+    fun resolve(q: String): String {
+        val first = q.substringBefore('.', q)
+        val rest = q.substringAfter('.', "")
+        return when {
+            aliases.containsKey(first) -> aliases.getValue(first) + if (rest.isEmpty()) "" else ".$rest"
+            simples.containsKey(first) -> simples.getValue(first) + if (rest.isEmpty()) "" else ".$rest"
+            else -> q
+        }
+    }
+
+    private companion object {
+        val IMPORT_RE = Regex("""^import\s+([\w.$]+)(?:\s+as\s+(\w+))?\s*$""")
+    }
+}
+
 private enum class Kind { ID, PUNCT }
 
 private data class Tok(
@@ -304,27 +366,34 @@ private data class Tok(
     val kind: Kind,
 )
 
+/** Token-aware lexer; skips comments/strings but still lexes executable `${...}` interpolation. */
 private class Lexer(
     private val s: String,
 ) {
-    fun lex(): List<Tok> {
+    fun lex(): List<Tok> = lexRange(0, s.length, 1)
+
+    private fun lexRange(
+        from: Int,
+        until: Int,
+        startLine: Int,
+    ): List<Tok> {
         val out = mutableListOf<Tok>()
-        var i = 0
-        var line = 1
+        var i = from
+        var line = startLine
         var block = 0
 
         fun id(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c == '$'
 
-        while (i < s.length) {
+        while (i < until) {
             val c = s[i]
             if (block > 0) {
                 when {
-                    i + 1 < s.length && s.startsWith("/*", i) -> {
+                    i + 1 < until && s.startsWith("/*", i) -> {
                         block++
                         i += 2
                     }
 
-                    i + 1 < s.length && s.startsWith("*/", i) -> {
+                    i + 1 < until && s.startsWith("*/", i) -> {
                         block--
                         i += 2
                     }
@@ -336,20 +405,28 @@ private class Lexer(
                 }
                 continue
             }
-            if (i + 1 < s.length && s.startsWith("//", i)) {
+            if (i + 1 < until && s.startsWith("//", i)) {
                 i += 2
-                while (i < s.length && s[i] != '\n') i++
+                while (i < until && s[i] != '\n') i++
                 continue
             }
-            if (i + 1 < s.length && s.startsWith("/*", i)) {
+            if (i + 1 < until && s.startsWith("/*", i)) {
                 block = 1
                 i += 2
                 continue
             }
             if (s.startsWith("\"\"\"", i)) {
                 i += 3
-                while (i < s.length && !s.startsWith("\"\"\"", i)) {
+                while (i < until) {
+                    if (s.startsWith("\"\"\"", i)) break
                     if (s[i] == '\n') line++
+                    if (s[i] == '$' && i + 1 < until && s[i + 1] == '{') {
+                        val (end, contentLine) = interpolationEnd(i + 2, until, line)
+                        out += lexRange(i + 2, end, line)
+                        line = contentLine
+                        i = end + 1
+                        continue
+                    }
                     i++
                 }
                 i += 3
@@ -358,13 +435,20 @@ private class Lexer(
             if (c == '"' || c == '\'') {
                 val q = c
                 i++
-                while (i < s.length && s[i] != q) {
+                while (i < until && s[i] != q) {
                     if (s[i] == '\\') {
                         i += 2
-                    } else {
-                        if (s[i] == '\n') line++
-                        i++
+                        continue
                     }
+                    if (s[i] == '\n') line++
+                    if (s[i] == '$' && i + 1 < until && s[i + 1] == '{') {
+                        val (end, contentLine) = interpolationEnd(i + 2, until, line)
+                        out += lexRange(i + 2, end, line)
+                        line = contentLine
+                        i = end + 1
+                        continue
+                    }
+                    i++
                 }
                 i++
                 continue
@@ -373,7 +457,7 @@ private class Lexer(
                 val l = line
                 val st = i
                 i++
-                while (i < s.length && id(s[i])) i++
+                while (i < until && id(s[i])) i++
                 out += Tok(s.substring(st, i), l, Kind.ID)
                 continue
             }
@@ -382,5 +466,47 @@ private class Lexer(
             i++
         }
         return out
+    }
+
+    /** Returns (index after matching '}', absolute line after the content) for the `${...}` starting at from. */
+    private fun interpolationEnd(
+        from: Int,
+        until: Int,
+        startLine: Int,
+    ): Pair<Int, Int> {
+        var d = 0
+        var i = from
+        var line = startLine
+        while (i < until) {
+            val c = s[i]
+            when {
+                c == '\n' -> {
+                    line++
+                }
+
+                c == '"' || c == '\'' -> {
+                    val q = c
+                    i++
+                    while (i < until && s[i] != q) {
+                        if (s[i] == '\\') {
+                            i += 2
+                        } else {
+                            if (s[i] == '\n') line++
+                            i++
+                        }
+                    }
+                }
+
+                c == '{' -> {
+                    d++
+                }
+
+                c == '}' -> {
+                    if (d == 0) return i to line else d--
+                }
+            }
+            i++
+        }
+        return until to line
     }
 }

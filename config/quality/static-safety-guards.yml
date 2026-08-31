@@ -2,13 +2,12 @@ schemaVersion: 1
 rules:
   - id: raw-lifecycle-creation
     match: call-name
-    symbols: [GlobalScope, Thread, Thread.ofPlatform, Thread.ofVirtual, Executors.new*, newSingleThreadContext, CoroutineScope, SupervisorJob, addShutdownHook]
-    receiverOrCall: [GlobalScope]
+    symbols: [GlobalScope, Thread, Thread.ofPlatform, Thread.ofVirtual, Executors.new*, kotlin.concurrent.thread, newSingleThreadContext, CoroutineScope, SupervisorJob, addShutdownHook]
+    receiverSymbols: [GlobalScope]
   - id: unbounded-http-body-read
     match: multi
     symbols: [BodyHandlers.ofString, BodyHandlers.ofByteArray]
     blockReadSymbols: [readAllBytes, readBytes]
-    approvedPaths: [tramai-core/src/main/kotlin/dev/tramai/core/provider/]
   - id: sensitive-payload-logging
     match: receiver-call
     symbols: [print, println, info, debug, warn, error, trace]
@@ -21,68 +20,100 @@ exemptions:
   - rule: raw-lifecycle-creation
     path: tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt
     symbol: CoroutineScope
+    occurrences: 5
     rationale: "Engine lifecycle scope ownership (lifecycleScope plus caller-injectable scope defaults); closed by TramaiEngine.close()."
   - rule: raw-lifecycle-creation
     path: tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt
     symbol: SupervisorJob
+    occurrences: 5
     rationale: "Engine lifecycle job ownership; closed by TramaiEngine.close()."
   - rule: raw-lifecycle-creation
     path: tramai-mcp/src/main/kotlin/dev/tramai/mcp/TramaiMcpServer.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "MCP server worker scope; cancelled in close()."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowExecutionSupervisor.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Supervisor-owned observer scope; closed with the supervisor."
+  - rule: raw-lifecycle-creation
+    path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowExecutionSupervisor.kt
+    symbol: SupervisorJob
+    occurrences: 1
+    rationale: "Supervisor-owned observer job nested in the exempted observer scope; closed with the supervisor."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
     symbol: SupervisorJob
+    occurrences: 1
     rationale: "Worker lifecycle supervision job; owns worker cancellation."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Worker lifecycle scope; owns supervised worker coroutines."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
     symbol: addShutdownHook
+    occurrences: 1
     rationale: "Deliberate JVM shutdown hook to stop supervised workers on process exit."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
     symbol: Thread
+    occurrences: 1
     rationale: "Authoritative shutdown-hook owner: thread registered via addShutdownHook and tracked by the shutdown coordinator; hook lifetime is JVM shutdown, registration/removal is owned by WorkerLifecycleController."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Per-step SSE drain scope; bounded by step execution and completed by step teardown."
   - rule: raw-lifecycle-creation
     path: tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformConfiguration.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Spring bean factory for the platform workflow-execution scope; bean lifecycle managed by the container."
+  - rule: raw-lifecycle-creation
+    path: tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformConfiguration.kt
+    symbol: SupervisorJob
+    occurrences: 1
+    rationale: "Platform workflow-execution supervisor job nested in the exempted bean scope; container-managed."
   - rule: raw-lifecycle-creation
     path: tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ScheduledWorkflowTimer.kt
     symbol: SupervisorJob
+    occurrences: 1
     rationale: "Scheduler-owned supervisor job (OwnedSchedulerScope); closed by the scheduler."
   - rule: raw-lifecycle-creation
     path: tramai-server/src/main/kotlin/dev/tramai/server/ServerConfiguration.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Bean factory for the server workflow-execution scope; container-managed."
+  - rule: raw-lifecycle-creation
+    path: tramai-server/src/main/kotlin/dev/tramai/server/ServerConfiguration.kt
+    symbol: SupervisorJob
+    occurrences: 1
+    rationale: "Server workflow-execution supervisor job nested in the exempted bean scope; container-managed."
   - rule: raw-lifecycle-creation
     path: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerLifecycle.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Worker lifecycle scope; cancelled in stop()."
   - rule: raw-lifecycle-creation
     path: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerLifecycle.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Worker lifecycle scope; cancelled in stop()."
   - rule: raw-lifecycle-creation
     path: tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/LeasedSovereignOpsAuditOutboxWorkerLifecycle.kt
     symbol: CoroutineScope
+    occurrences: 1
     rationale: "Worker lifecycle scope; cancelled in stop()."
   - rule: forbidden-api
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ProcessSupport.kt
     symbol: System.err.println
+    occurrences: 1
     rationale: "Deliberate stderr diagnostic fallback for subprocess-cleanup failure paths where no logger is guaranteed; content is the sanitized lifecycle-failure marker."
   - rule: forbidden-api
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowRecoveryController.kt
     symbol: System.err.println
+    occurrences: 1
     rationale: "Evidence-recording failure diagnostic in a class that deliberately has no logger; message carries workflow/step identifiers, never payload content."

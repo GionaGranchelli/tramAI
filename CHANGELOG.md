@@ -4,7 +4,7 @@
 
 ### Added
 
-- **build(quality): 10.1d — enforce lifecycle and security static guards (`verifyStaticSafetyGuards` + cancellation wiring + bounded HTTP response-body reads).** New root-owned, fail-closed gate for raw lifecycle creation, unbounded provider response-body reads, sensitive-payload logging, and `System.out/err` in production; `check`/`verifyPr` now own all six 10.1 quality authorities (formatting, static analysis, compiler warnings, dependency hygiene, cancellation safety, static safety guards); remote HTTP response bodies across all providers read through bounded helpers in `tramai-core` transport. Epic 10.1 complete.
+- **build(quality): 10.1d — enforce lifecycle and security static guards (`verifyStaticSafetyGuards` + cancellation wiring + bounded HTTP response-body reads).** New root-owned, fail-closed gate for raw lifecycle creation, unbounded provider response-body reads, sensitive-payload logging, and `System.out/err` in production; `check`/`verifyPr` now own all six 10.1 quality authorities (formatting, static analysis, compiler warnings, dependency hygiene, cancellation safety, static safety guards); remote HTTP response bodies across all providers read through bounded helpers in `tramai-core` transport.
 
 ### Fixed
 
