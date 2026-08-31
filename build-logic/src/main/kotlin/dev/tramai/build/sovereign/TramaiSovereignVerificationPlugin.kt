@@ -5,8 +5,8 @@ import dev.tramai.build.quality.ModuleManifest
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.kotlin.dsl.register
 import org.gradle.api.tasks.Exec
+import org.gradle.kotlin.dsl.register
 import java.io.File
 
 /** Execution args + human-readable display for the consumer smoke invocation. */
@@ -21,15 +21,20 @@ data class ConsumerSmokeInvocation(
  * path. Pure so it can be unit tested with paths containing spaces — the
  * executable arguments must NEVER be derived by splitting the display string.
  */
-fun consumerSmokeInvocation(verificationRepoAbsolutePath: String, tramaiVersion: String): ConsumerSmokeInvocation {
+fun consumerSmokeInvocation(
+    verificationRepoAbsolutePath: String,
+    tramaiVersion: String,
+): ConsumerSmokeInvocation {
     val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew"
-    val args = listOf(
-        "-p", "examples/sovereign-runtime-consumer-smoke",
-        "test",
-        "-PtramaiVersion=$tramaiVersion",
-        "-PsovereignRuntimeVerificationRepo=$verificationRepoAbsolutePath",
-        "--no-configuration-cache",
-    )
+    val args =
+        listOf(
+            "-p",
+            "examples/sovereign-runtime-consumer-smoke",
+            "test",
+            "-PtramaiVersion=$tramaiVersion",
+            "-PsovereignRuntimeVerificationRepo=$verificationRepoAbsolutePath",
+            "--no-configuration-cache",
+        )
     return ConsumerSmokeInvocation(
         gradleWrapper = gradleWrapper,
         args = args,
@@ -48,40 +53,41 @@ fun consumerSmokeInvocation(verificationRepoAbsolutePath: String, tramaiVersion:
  * run against a remote server.
  */
 class TramaiSovereignVerificationPlugin : Plugin<Project> {
-
     /** Sovereign runtime publishable modules (test + publishToMavenLocal scope). Preserved exactly. */
-    val sovereignRuntimePublishableModules = listOf(
-        "tramai-security",
-        "tramai-sovereign",
-        "tramai-persistence-file",
-        "tramai-spring-sovereign",
-        "tramai-spring-boot-starter",
-        "tramai-spring-boot-starter-sovereign-persistence-file",
-        "tramai-spring-boot-starter-sovereign-ops",
-        "tramai-spring-boot-starter-sovereign-ops-actuator",
-        "tramai-spring-boot-starter-sovereign-ops-micrometer",
-        "tramai-spring-boot-starter-sovereign-ops-observability",
-    )
+    val sovereignRuntimePublishableModules =
+        listOf(
+            "tramai-security",
+            "tramai-sovereign",
+            "tramai-persistence-file",
+            "tramai-spring-sovereign",
+            "tramai-spring-boot-starter",
+            "tramai-spring-boot-starter-sovereign-persistence-file",
+            "tramai-spring-boot-starter-sovereign-ops",
+            "tramai-spring-boot-starter-sovereign-ops-actuator",
+            "tramai-spring-boot-starter-sovereign-ops-micrometer",
+            "tramai-spring-boot-starter-sovereign-ops-observability",
+        )
 
     /** Sovereign release modules (JAR collection scope). Preserved exactly. */
-    val sovereignReleaseModules = listOf(
-        ":tramai-core",
-        ":tramai-security",
-        ":tramai-structured",
-        ":tramai-engine",
-        ":tramai-standalone",
-        ":tramai-sovereign",
-        ":tramai-persistence-file",
-        ":tramai-spring-core",
-        ":tramai-observability",
-        ":tramai-spring-sovereign",
-        ":tramai-spring-boot-starter",
-        ":tramai-spring-boot-starter-sovereign-persistence-file",
-        ":tramai-spring-boot-starter-sovereign-ops",
-        ":tramai-spring-boot-starter-sovereign-ops-actuator",
-        ":tramai-spring-boot-starter-sovereign-ops-micrometer",
-        ":tramai-spring-boot-starter-sovereign-ops-observability",
-    )
+    val sovereignReleaseModules =
+        listOf(
+            ":tramai-core",
+            ":tramai-security",
+            ":tramai-structured",
+            ":tramai-engine",
+            ":tramai-standalone",
+            ":tramai-sovereign",
+            ":tramai-persistence-file",
+            ":tramai-spring-core",
+            ":tramai-observability",
+            ":tramai-spring-sovereign",
+            ":tramai-spring-boot-starter",
+            ":tramai-spring-boot-starter-sovereign-persistence-file",
+            ":tramai-spring-boot-starter-sovereign-ops",
+            ":tramai-spring-boot-starter-sovereign-ops-actuator",
+            ":tramai-spring-boot-starter-sovereign-ops-micrometer",
+            ":tramai-spring-boot-starter-sovereign-ops-observability",
+        )
 
     override fun apply(project: Project) {
         val sovereignBundleRepoUrl = TramaiPublishingRepositories.sovereignBundleRepoUrl(project.rootProject).get()
@@ -100,39 +106,38 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
     }
 
     /**
-     * Publishable module set for the sovereign bundle: the root build's
-     * manifest-derived extra (`tramai.publishableModulePaths`) minus the
-     * excluded set. Resolved lazily at task realization — the extra is set in
-     * the root build body AFTER the plugins block, so it must not be read in
-     * [apply]. Falls back to the module manifest directly.
+     * Publishable module set for the sovereign bundle: the module catalog is
+     * the single canonical publishability authority (9.2d-b1); the excluded
+     * set (runtime-scope trimming) is applied on top. Resolved lazily at task
+     * realization. TestKit fixtures without a catalog resolve to empty.
      */
-    private fun sovereignBundleModules(project: Project): Set<String> {
-        val fromExtra = (project.rootProject.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-            ?.map { it.toString().removePrefix(":") }
-            .orEmpty()
-        return if (fromExtra.isNotEmpty()) {
-            fromExtra.toSet() - TramaiPublishingRepositories.sovereignBundleExcludedProjectNames
-        } else {
-            ModuleManifest.publishableModulePaths(project.rootDir)
-                .map { it.removePrefix(":") }
-                .toSet() - TramaiPublishingRepositories.sovereignBundleExcludedProjectNames
-        }
-    }
+    private fun sovereignBundleModules(project: Project): Set<String> =
+        runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
+            .getOrDefault(emptyList())
+            .map { it.removePrefix(":") }
+            .toSet() - TramaiPublishingRepositories.sovereignBundleExcludedProjectNames
 
     private fun consumerSmokeInvocation(project: Project): ConsumerSmokeInvocation {
-        val consumerSmokeVersion = project.providers.gradleProperty("tramaiVersion").orElse("0.5.0").get()
-        val verificationRepo = project.layout.buildDirectory
-            .dir("sovereign-runtime-release-verification-repo")
-            .get()
-            .asFile
-            .absolutePath
-        return dev.tramai.build.sovereign.consumerSmokeInvocation(verificationRepo, consumerSmokeVersion)
+        val consumerSmokeVersion =
+            project.providers
+                .gradleProperty("tramaiVersion")
+                .orElse("0.5.0")
+                .get()
+        val verificationRepo =
+            project.layout.buildDirectory
+                .dir("sovereign-runtime-release-verification-repo")
+                .get()
+                .asFile
+                .absolutePath
+        return dev.tramai.build.sovereign
+            .consumerSmokeInvocation(verificationRepo, consumerSmokeVersion)
     }
 
     private fun registerVerifySovereignRuntimePublication(project: Project) {
         project.tasks.register("verifySovereignRuntimePublication") {
             group = "verification"
-            description = "Validates local publishability of sovereign runtime modules — POM metadata, sources/javadoc JARs, and dependency graph. Does not publish remotely."
+            description =
+                "Validates local publishability of sovereign runtime modules — POM metadata, sources/javadoc JARs, and dependency graph. Does not publish remotely."
             // Missing projects (TestKit fixtures) are skipped; production has all modules.
             sovereignRuntimePublishableModules.forEach { moduleName ->
                 if (project.rootProject.findProject(":$moduleName") != null) {
@@ -155,8 +160,17 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         project: Project,
         sovereignBundleRepoUrl: String,
     ) {
-        val wantsSigning = project.providers.gradleProperty("signingKey").orNull.isNullOrBlank().not() &&
-            project.providers.gradleProperty("signingPassword").orNull.isNullOrBlank().not()
+        val wantsSigning =
+            project.providers
+                .gradleProperty("signingKey")
+                .orNull
+                .isNullOrBlank()
+                .not() &&
+                project.providers
+                    .gradleProperty("signingPassword")
+                    .orNull
+                    .isNullOrBlank()
+                    .not()
 
         project.tasks.register<VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
             group = "verification"
@@ -177,7 +191,7 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
                 throw GradleException(
                     "verifySovereignRuntimeSignedBundle only supports file:// repositories for local " +
                         "verification. Got: $userProvidedUrl. The sovereign bundle dry-run publishes " +
-                        "to a dedicated local-only repository and must never contact a remote server."
+                        "to a dedicated local-only repository and must never contact a remote server.",
                 )
             }
 
@@ -189,18 +203,19 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
             bundleRepositoryRootPath.set(sovereignBundleRepoUrl)
 
             mavenLocalRepositoryDirectory.fileProvider(
-                project.providers.systemProperty("user.home")
-                    .map { home -> File(home, ".m2/repository/${expectedGroup.get().replace('.', '/')}") }
+                project.providers
+                    .systemProperty("user.home")
+                    .map { home -> File(home, ".m2/repository/${expectedGroup.get().replace('.', '/')}") },
             )
             bundleRepositoryDirectory.set(
-                project.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo")
+                project.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo"),
             )
             bundleManifestFile.set(
-                project.layout.buildDirectory.file("sovereign-runtime-release/bundle-manifest.json")
+                project.layout.buildDirectory.file("sovereign-runtime-release/bundle-manifest.json"),
             )
 
-            dependsOn(bundleModules.map { ":${it}:publishToMavenLocal" })
-            dependsOn(bundleModules.map { ":${it}:publishMavenPublicationToSovereignBundleLocalRepository" })
+            dependsOn(bundleModules.map { ":$it:publishToMavenLocal" })
+            dependsOn(bundleModules.map { ":$it:publishMavenPublicationToSovereignBundleLocalRepository" })
 
             doFirst {
                 if (wantsSigning) {
@@ -220,7 +235,11 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
             groupId.set(project.providers.gradleProperty("tramaiGroup").orElse("dev.tramai"))
             version.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             moduleNames.set(sovereignReleaseModules.map { it.removePrefix(":") })
-            gradleVersion.set(org.gradle.util.GradleVersion.current().version)
+            gradleVersion.set(
+                org.gradle.util.GradleVersion
+                    .current()
+                    .version,
+            )
             javaVersion.set(project.providers.systemProperty("java.version").orElse("unknown"))
             artifactsDirectory.set(project.layout.buildDirectory.dir("sovereign-release/artifacts"))
             manifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
@@ -258,7 +277,8 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
     private fun registerVerifySovereignReleaseManifest(project: Project) {
         project.tasks.register<VerifySovereignReleaseManifestTask>("verifySovereignReleaseManifest") {
             group = "verification"
-            description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
+            description =
+                "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
 
             manifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             artifactsDirectory.set(project.layout.buildDirectory.dir("sovereign-release/artifacts"))
@@ -280,7 +300,10 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         }
     }
 
-    private fun registerVerifySovereignRuntimeConsumerSmoke(project: Project, invocation: ConsumerSmokeInvocation) {
+    private fun registerVerifySovereignRuntimeConsumerSmoke(
+        project: Project,
+        invocation: ConsumerSmokeInvocation,
+    ) {
         project.tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
             group = "verification"
             description = "Runs the standalone sovereign runtime consumer smoke test against the dedicated verification repo."
@@ -292,10 +315,14 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
         }
     }
 
-    private fun registerGenerateSovereignReleaseEvidenceIndex(project: Project, invocation: ConsumerSmokeInvocation) {
+    private fun registerGenerateSovereignReleaseEvidenceIndex(
+        project: Project,
+        invocation: ConsumerSmokeInvocation,
+    ) {
         project.tasks.register<GenerateSovereignReleaseEvidenceIndexTask>("generateSovereignReleaseEvidenceIndex") {
             group = "verification"
-            description = "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."
+            description =
+                "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."
 
             expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
             this.consumerSmokeCommand.set(invocation.display)
@@ -327,23 +354,30 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
      * verifySovereignRuntimeReleaseCandidate keep resolving.
      */
     private fun registerVerifySovereignRuntimeApiBoundary(project: Project) {
-        val stableApiSourcePaths = listOf(
-            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalStore.kt",
-            "tramai-engine/src/main/kotlin/dev/tramai/engine/SuspendedInvocationStore.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalContinuationStore.kt",
-            "tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStore.kt",
-            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore.kt",
-            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore.kt",
-            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore.kt",
-        )
+        val stableApiSourcePaths =
+            listOf(
+                "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalStore.kt",
+                "tramai-engine/src/main/kotlin/dev/tramai/engine/SuspendedInvocationStore.kt",
+                "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalContinuationStore.kt",
+                "tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStore.kt",
+                "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore.kt",
+                "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore.kt",
+                "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore.kt",
+            )
         project.tasks.register<SovereignRuntimeApiBoundaryVerifierTask>("verifySovereignRuntimeApiBoundary") {
             group = "verification"
             description = "Verifies the documented Sovereign Runtime API stability boundary."
             manifestFile.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-manifest.yml"))
             boundaryDoc.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-boundary.md"))
             statusDoc.set(project.layout.projectDirectory.file("docs/STATUS.md"))
-            mapperFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappers.kt"))
-            javaFacadeFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt"))
+            mapperFile.set(
+                project.layout.projectDirectory.file(
+                    "tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappers.kt",
+                ),
+            )
+            javaFacadeFile.set(
+                project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt"),
+            )
             stableApiFiles.from(stableApiSourcePaths.map { project.layout.projectDirectory.file(it) })
             readmeFile.set(project.layout.projectDirectory.file("README.md"))
             this.projectDir.set(project.layout.projectDirectory.asFile)
@@ -360,13 +394,16 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
     private fun registerVerifySovereignOpsObservabilityDocs(project: Project) {
         project.tasks.register<SovereignOpsObservabilityDocsVerifierTask>("verifySovereignOpsObservabilityDocs") {
             group = "verification"
-            description = "Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."
+            description =
+                "Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."
             runbook.set(project.layout.projectDirectory.file("docs/operations/sovereign-ops-worker-observability-runbook.md"))
             promql.set(project.layout.projectDirectory.file("docs/operations/prometheus/sovereign-ops-worker-promql.md"))
             alerts.set(project.layout.projectDirectory.file("docs/operations/prometheus/sovereign-ops-worker-alerts.example.yml"))
             actuatorReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-actuator/README.md"))
             micrometerReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-micrometer/README.md"))
-            observabilityReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md"))
+            observabilityReadme.set(
+                project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md"),
+            )
         }
     }
 
@@ -391,12 +428,32 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
             resumeDashboard.set(project.layout.projectDirectory.file("docs/observability/grafana-approved-resume-worker-dashboard.json"))
             resumeRunbook.set(project.layout.projectDirectory.file("docs/runbooks/approved-resume-worker-observability.md"))
             goldenPathGuide.set(project.layout.projectDirectory.file("docs/guides/approval-gateway-golden-path.md"))
-            goldenPathTest.set(project.layout.projectDirectory.file("tramai-core/src/test/kotlin/dev/tramai/core/workflow/ApprovalGatewayGoldenPathErgonomicsTest.kt"))
-            springSmokeTest.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt"))
-            regulatedFactoryFile.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt"))
-            gatewayAutoConfig.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"))
+            goldenPathTest.set(
+                project.layout.projectDirectory.file(
+                    "tramai-core/src/test/kotlin/dev/tramai/core/workflow/ApprovalGatewayGoldenPathErgonomicsTest.kt",
+                ),
+            )
+            springSmokeTest.set(
+                project.layout.projectDirectory.file(
+                    "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt",
+                ),
+            )
+            regulatedFactoryFile.set(
+                project.layout.projectDirectory.file(
+                    "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt",
+                ),
+            )
+            gatewayAutoConfig.set(
+                project.layout.projectDirectory.file(
+                    "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt",
+                ),
+            )
             humanApprovalErgonomics.set(project.layout.projectDirectory.file("docs/architecture/human-approval-workflow-ergonomics.md"))
-            javaInteropTest.set(project.layout.projectDirectory.file("tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java"))
+            javaInteropTest.set(
+                project.layout.projectDirectory.file(
+                    "tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java",
+                ),
+            )
         }
     }
 }

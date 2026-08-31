@@ -20,18 +20,22 @@ import kotlin.test.assertTrue
  * prove zero execution on rejected paths.
  */
 class ReleaseVerificationPluginTest {
-
     @TempDir
     lateinit var tempDir: File
 
-    private fun writeFile(base: File, relativePath: String, content: String) {
+    private fun writeFile(
+        base: File,
+        relativePath: String,
+        content: String,
+    ) {
         val target = File(base, relativePath)
         target.parentFile.mkdirs()
         target.writeText(content)
     }
 
     /** POM fixture content — kept separate so the build-script fixture string stays flat. */
-    private val fixturePom = """
+    private val fixturePom =
+        """
         <?xml version="1.0" encoding="UTF-8"?>
         <project xmlns="http://maven.apache.org/POM/4.0.0">
           <modelVersion>4.0.0</modelVersion>
@@ -47,7 +51,7 @@ class ReleaseVerificationPluginTest {
             <connection>scm:git:https://github.com/GionaGranchelli/tramAI.git</connection>
             <developerConnection>scm:git:ssh://git@github.com/GionaGranchelli/tramAI.git</developerConnection></scm>
         </project>
-    """.trimIndent()
+        """.trimIndent()
 
     /** Triple-quoted form of the POM fixture, embedded inside the fixture build script. */
     private val fixturePomQuoted: String = "\"\"\"" + fixturePom + "\"\"\""
@@ -78,7 +82,6 @@ class ReleaseVerificationPluginTest {
                 id("tramai.release-verification")
                 id("tramai.sovereign-verification")
             }
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
             // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             // Isolate mavenLocal from the real ~/.m2 so tests are hermetic
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
@@ -86,6 +89,20 @@ class ReleaseVerificationPluginTest {
             }
             $extra
             """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            fixtureCatalog(
+                """
+                - path: ":tramai-core"
+                  <<: *core
+                  layer: core-contracts
+                  publishability: published
+                  apiStability: stable
+                  description: "Fixture core module."
+                """.trimIndent(),
+            ),
         )
         writeFile(
             dir,
@@ -101,7 +118,7 @@ class ReleaseVerificationPluginTest {
                 doLast {
                     val pom = layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile
                     pom.parentFile.mkdirs()
-                    pom.writeText(${fixturePomQuoted})
+                    pom.writeText($fixturePomQuoted)
                 }
             }
             tasks.register("publishToMavenLocal") {
@@ -139,8 +156,12 @@ class ReleaseVerificationPluginTest {
         return dir
     }
 
-    private fun runner(dir: File, vararg args: String): GradleRunner =
-        GradleRunner.create()
+    private fun runner(
+        dir: File,
+        vararg args: String,
+    ): GradleRunner =
+        GradleRunner
+            .create()
             .withProjectDir(dir)
             // The repository wrapper is Gradle 9.0.0 (see gradle/wrapper/gradle-wrapper.properties);
             // TestKit must exercise the same version CI runs.
@@ -148,21 +169,39 @@ class ReleaseVerificationPluginTest {
             .withArguments(*args, "--stacktrace")
             .withPluginClasspath()
 
+    /** Minimal schema-3 module catalog with [moduleEntries] appended under the core default. */
+    private fun fixtureCatalog(moduleEntries: String): String =
+        buildString {
+            appendLine("schemaVersion: \"3\"")
+            appendLine("dependencyPolicies:")
+            appendLine("  core: { allowedLayers: [core-contracts, testing-support] }")
+            appendLine("entryDefaults:")
+            appendLine(
+                "  core: &core { maturity: stable, visibility: public, owner: core, " +
+                    "dependencyPolicy: core, releaseInclusion: included, rationale: \"Fixture module.\" }",
+            )
+            appendLine("modules:")
+            // Entries arrive trimmed to column 0 (call-site trimIndent); re-indent
+            // under `modules:` so the merged YAML stays valid.
+            moduleEntries.trimIndent().lines().forEach { appendLine(if (it.isBlank()) it else "  $it") }
+        }
+
     // ── T1: task types ───────────────────────────────────────────────────────
 
     @Test
     fun `T1 task types are typed DefaultTasks not anonymous doLast`() {
         val dir = baseFixture()
-        val result = runner(
-            dir,
-            "verifyPublicationMetadata",
-            "verifyPublishedLocalArtifacts",
-            "verifyReleasePublishInputs",
-            "verifySovereignRuntimeSignedBundle",
-            "prepareSovereignReleaseArtifacts",
-            "verifySovereignReleaseManifest",
-            "generateSovereignReleaseEvidenceIndex",
-        ).buildAndFail()
+        val result =
+            runner(
+                dir,
+                "verifyPublicationMetadata",
+                "verifyPublishedLocalArtifacts",
+                "verifyReleasePublishInputs",
+                "verifySovereignRuntimeSignedBundle",
+                "prepareSovereignReleaseArtifacts",
+                "verifySovereignReleaseManifest",
+                "generateSovereignReleaseEvidenceIndex",
+            ).buildAndFail()
 
         // All tasks must be found as typed tasks. With the sentinel fixture the
         // evidence generators will fail on missing evidence (expected), but the
@@ -191,7 +230,8 @@ class ReleaseVerificationPluginTest {
     // ── W1/W2 — wired description path: catalog → expectedDescriptions → verifier (9.2c-c) ──
 
     /** Minimal schema-v3 catalog with one published module. */
-    private val wiredCatalog = """
+    private val wiredCatalog =
+        """
         schemaVersion: "3"
         dependencyPolicies:
           core: { allowedLayers: [core-contracts] }
@@ -204,23 +244,27 @@ class ReleaseVerificationPluginTest {
             publishability: published
             apiStability: stable
             description: "DESCRIPTION_PLACEHOLDER"
-    """.trimIndent()
+        """.trimIndent()
 
     @Test
     fun `W1 wired expectedDescriptions passes when POM matches the catalog description`() {
-        val dir = baseFixture(extra = """
-            project(":tramai-core") {
-                afterEvaluate {
-                    tasks.named("generatePomFileForMavenPublication") {
-                        doLast {
-                            val pom = layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile
-                            val text = pom.readText().replace("<description>Test module</description>", "<description>Expected description for :tramai-core.</description>")
-                            pom.writeText(text)
+        val dir =
+            baseFixture(
+                extra =
+                    """
+                    project(":tramai-core") {
+                        afterEvaluate {
+                            tasks.named("generatePomFileForMavenPublication") {
+                                doLast {
+                                    val pom = layout.buildDirectory.file("publications/maven/pom-default.xml").get().asFile
+                                    val text = pom.readText().replace("<description>Test module</description>", "<description>Expected description for :tramai-core.</description>")
+                                    pom.writeText(text)
+                                }
+                            }
                         }
                     }
-                }
-            }
-        """.trimIndent())
+                    """.trimIndent(),
+            )
         writeFile(
             dir,
             "config/quality/module-catalog.yml",
@@ -284,11 +328,12 @@ class ReleaseVerificationPluginTest {
     @Test
     fun `T3b sovereign signed bundle fails before sentinel publish executes`() {
         val dir = baseFixture()
-        val result = runner(
-            dir,
-            "verifySovereignRuntimeSignedBundle",
-            "-PtramaiPublishReleaseUrl=https://repo.example.com",
-        ).buildAndFail()
+        val result =
+            runner(
+                dir,
+                "verifySovereignRuntimeSignedBundle",
+                "-PtramaiPublishReleaseUrl=https://repo.example.com",
+            ).buildAndFail()
         assertTrue(result.output.contains("only supports file://"))
         // Sentinel publish tasks must NOT have executed
         assertFalse(
@@ -306,11 +351,12 @@ class ReleaseVerificationPluginTest {
     @Test
     fun `T4 sovereign file repository reaches task execution`() {
         val dir = baseFixture()
-        val result = runner(
-            dir,
-            "verifySovereignRuntimeSignedBundle",
-            "-PtramaiPublishReleaseUrl=file:///tmp/repo",
-        ).buildAndFail()
+        val result =
+            runner(
+                dir,
+                "verifySovereignRuntimeSignedBundle",
+                "-PtramaiPublishReleaseUrl=file:///tmp/repo",
+            ).buildAndFail()
         // With a file URL the config-time guard passes; the task then fails on
         // missing mavenLocal artifacts — proving the typed task action ran
         // (i.e., the file:// path is accepted and reaches verification).
@@ -354,7 +400,6 @@ class ReleaseVerificationPluginTest {
                 id("tramai.release-verification")
                 id("tramai.sovereign-verification")
             }
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core", ":tramai-missing")
             // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
@@ -368,6 +413,29 @@ class ReleaseVerificationPluginTest {
                 }
             }
             """.trimIndent(),
+        )
+        // The catalog (single publishability authority) declares the missing
+        // module as published; the fixture has no such subproject, so the
+        // declared release boundary must fail closed.
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            fixtureCatalog(
+                """
+                - path: ":tramai-core"
+                  <<: *core
+                  layer: core-contracts
+                  publishability: published
+                  apiStability: stable
+                  description: "Fixture core module."
+                - path: ":tramai-missing"
+                  <<: *core
+                  layer: core-contracts
+                  publishability: published
+                  apiStability: preview
+                  description: "Fixture module with no subproject."
+                """.trimIndent(),
+            ),
         )
         val result = runner(dir, "prepareSovereignReleaseArtifacts").buildAndFail()
         // The task must fail because :tramai-missing is part of the declared
@@ -447,7 +515,6 @@ class ReleaseVerificationPluginTest {
                 id("tramai.release-verification")
                 id("tramai.sovereign-verification")
             }
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
             // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
@@ -489,11 +556,12 @@ class ReleaseVerificationPluginTest {
         git(dir, "remote", "add", "origin", "https://github.com/GionaGranchelli/tramAI.git")
         val shaA = git(dir, "rev-parse", "HEAD").trim()
 
-        val args = arrayOf(
-            "generateSovereignReleaseEvidenceIndex",
-            "--configuration-cache",
-            "--configuration-cache-problems=fail",
-        )
+        val args =
+            arrayOf(
+                "generateSovereignReleaseEvidenceIndex",
+                "--configuration-cache",
+                "--configuration-cache-problems=fail",
+            )
         val first = runner(dir, *args).build()
         assertTrue(
             first.task(":generateSovereignReleaseEvidenceIndex") != null,
@@ -529,7 +597,10 @@ class ReleaseVerificationPluginTest {
         )
         assertTrue(
             evidenceCommitSha(dir) == shaB,
-            "evidence must record commit B after a git-only change: ${File(dir, "build/sovereign-runtime-release/evidence-index.json").readText()}",
+            "evidence must record commit B after a git-only change: ${File(
+                dir,
+                "build/sovereign-runtime-release/evidence-index.json",
+            ).readText()}",
         )
     }
 
@@ -578,7 +649,6 @@ class ReleaseVerificationPluginTest {
                 id("tramai.release-verification")
                 id("tramai.sovereign-verification")
             }
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
             // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>("verifySovereignRuntimeSignedBundle") {
                 mavenLocalRepositoryDirectory.set(layout.buildDirectory.dir("fake-m2/repository/dev/tramai"))
@@ -694,7 +764,6 @@ class ReleaseVerificationPluginTest {
                 id("tramai.release-verification")
                 id("tramai.sovereign-verification")
             }
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core")
             // verifySovereignOpsObservabilityDocs is provided by tramai.sovereign-verification (9.2d-a3b1 typed extraction)
             tasks.named("generateSovereignReleaseEvidenceIndex") {
                 setDependsOn(emptyList<String>())
@@ -703,10 +772,14 @@ class ReleaseVerificationPluginTest {
         )
     }
 
-    private fun git(dir: File, vararg args: String): String {
-        val process = ProcessBuilder(listOf("git", "-C", dir.absolutePath) + args)
-            .redirectErrorStream(true)
-            .start()
+    private fun git(
+        dir: File,
+        vararg args: String,
+    ): String {
+        val process =
+            ProcessBuilder(listOf("git", "-C", dir.absolutePath) + args)
+                .redirectErrorStream(true)
+                .start()
         val output = process.inputStream.bufferedReader().readText()
         val exit = process.waitFor()
         check(exit == 0) { "git ${args.joinToString(" ")} failed ($exit): $output" }

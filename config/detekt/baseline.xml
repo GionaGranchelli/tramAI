@@ -619,6 +619,7 @@
     <ID>InvalidPackageDeclaration:BinaryCompatFixture.kt$package dev.tramai.orchestration</ID>
     <ID>LargeClass:ApprovalContinuationStoreTck.kt$ApprovalContinuationStoreTck</ID>
     <ID>LargeClass:ApprovalResumeEngineTest.kt$ApprovalResumeEngineTest</ID>
+    <ID>LargeClass:ReleaseVerificationPluginTest.kt$ReleaseVerificationPluginTest</ID>
     <ID>LargeClass:ApprovalStoreTck.kt$ApprovalStoreTck</ID>
     <ID>LargeClass:AuditEngineTest.kt$AuditEngineTest</ID>
     <ID>LargeClass:BaselineGenerator.kt$BaselineGenerator</ID>
@@ -744,7 +745,7 @@
     <ID>LongMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>LongMethod:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:ModuleGraphAnalyzer.kt$ModuleGraphAnalyzer$fun analyze(): GraphResult</ID>
-    <ID>LongMethod:ModuleTopologyVerificationTest.kt$ModuleTopologyVerificationTest$private fun topologyFixture( publishableExtra: String? = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom")""", bomModules: List&lt;String&gt; = listOf("tramai-core", "tramai-engine"), engineEntry: String? = defaultEngineEntry, catalogFileOverride: String? = null, applyReleasePlugin: Boolean = true, ): File</ID>
+    <ID>LongMethod:ModuleTopologyVerificationTest.kt$ModuleTopologyVerificationTest$private fun topologyFixture( bomModules: List&lt;String&gt; = listOf("tramai-core", "tramai-engine"), engineEntry: String? = defaultEngineEntry, catalogFileOverride: String? = null, applyReleasePlugin: Boolean = true, ): File</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier$fun verify(committed: MutationData, current: MutationData): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier.Companion$fun aggregate( reports: List&lt;ParsedMutationReport&gt;, analyzerVersion: String = "", measuredCommit: String = "" ): MutationData</ID>
     <ID>LongMethod:MutationClassificationLoader.kt$MutationClassificationLoader$fun load(repositoryRoot: File): MutationClassifications</ID>

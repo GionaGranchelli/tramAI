@@ -23,23 +23,15 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
     }
 
     /**
-     * Publishable module set, resolved lazily at task realization. Reads the
-     * root build's manifest-derived extra (`tramai.publishableModulePaths`)
-     * first (the extra is set in the root body AFTER the plugins block), with
-     * a direct module-catalog fallback. Returns empty for TestKit fixtures
-     * that have neither.
+     * Publishable module set, resolved lazily at task realization from the
+     * module catalog — the single canonical publishability authority (9.2d-b1).
+     * Returns empty for TestKit fixtures without a catalog.
      */
-    private fun publishableModuleNames(project: Project): List<String> {
-        val fromExtra =
-            (project.rootProject.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                ?.map { it.toString().removePrefix(":") }
-                .orEmpty()
-        if (fromExtra.isNotEmpty()) return fromExtra.sorted()
-        return runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
+    private fun publishableModuleNames(project: Project): List<String> =
+        runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
             .getOrDefault(emptyList())
             .map { it.removePrefix(":") }
             .sorted()
-    }
 
     private fun jarPublicationModuleNames(project: Project): List<String> = publishableModuleNames(project) - "tramai-bom"
 

@@ -543,9 +543,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         .map { it.path },
                 )
                 publishedModulePaths.set(
-                    (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                        ?.map { it.toString() }
-                        .orEmpty(),
+                    runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
+                        .getOrDefault(emptyList()),
                 )
                 val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
                 bomModulePaths.set(

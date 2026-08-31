@@ -46,30 +46,62 @@ class ModuleTopologyVerificationTest {
     }
 
     @Test
-    fun `mutation 2 - catalog says published but release snapshot omits it fails`() {
-        // Release task snapshot = extra (set before imperative apply): engine omitted.
-        val dir = topologyFixture(publishableExtra = """listOf(":tramai-core", ":tramai-bom")""")
-        val result = runner(dir, "verifyModuleManifest").buildAndFail()
+    fun `mutation 2 - catalog publishability flip propagates to the release model without drift`() {
+        // 9.2d-b1: the release snapshot is catalog-derived (single authority).
+        // Flip engine published → internal in the catalog (and drop it from the
+        // BOM, which must follow the same authority): verifyModuleManifest must
+        // PASS with no MODULE_CATALOG_PUBLISHING_DRIFT. Under the old
+        // extra-driven authority the stale extra would have kept engine
+        // published and produced drift.
+        val dir = topologyFixture(bomModules = listOf("tramai-core"))
+        // Flip engine published → internal as a full entry (visibility and
+        // releaseInclusion follow the internal anchor — a bare publishability
+        // flip would be invalid against the core default's public visibility).
+        val flipped =
+            catalog(
+                """
+              - path: ":tramai-engine"
+                <<: *internal
+                layer: testing-support
+                publishability: internal
+                apiStability: internal
+            """,
+            )
+        writeFile(dir, "config/quality/module-catalog.yml", flipped)
+        val result = runner(dir, "verifyModuleManifest").build()
         assertTrue(
-            result.output.contains(
-                "[MODULE_CATALOG_PUBLISHING_DRIFT] Publishing drift: configured publication set " +
-                    "[:tramai-bom, :tramai-core] but manifest requires " +
-                    "[:tramai-bom, :tramai-core, :tramai-engine]",
-            ),
-            "expected exact publishing-drift diagnostic: ${result.output.take(800)}",
+            result.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS,
+            "catalog flip must not produce publishing drift: ${result.output.take(800)}",
         )
     }
 
     @Test
-    fun `mutation 3 - release snapshot includes unexpected published module fails`() {
+    fun `mutation 3 - catalog-declared published module without a project fails closed`() {
+        // 9.2d-b1: the catalog is the ONLY publishability authority, so an
+        // unexpected published module can only originate there. Declaring one
+        // without a Gradle project must fail with the exact unknown-entry
+        // diagnostic — never be silently accepted via a secondary list.
         val dir =
             topologyFixture(
-                publishableExtra = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom", ":tramai-extra")""",
+                engineEntry = """
+              - path: ":tramai-engine"
+                <<: *core
+                layer: core-contracts
+                publishability: published
+                apiStability: stable
+                description: "Fixture engine module."
+              - path: ":tramai-extra"
+                <<: *core
+                layer: core-contracts
+                publishability: published
+                apiStability: preview
+                description: "Phantom published module with no project."
+            """,
             )
         val result = runner(dir, "verifyModuleManifest").buildAndFail()
         assertTrue(
-            result.output.contains("[MODULE_CATALOG_PUBLISHING_DRIFT]") && result.output.contains(":tramai-extra"),
-            "expected publishing drift mentioning :tramai-extra: ${result.output.take(800)}",
+            result.output.contains("[MODULE_CATALOG_UNKNOWN_ENTRY]") && result.output.contains(":tramai-extra"),
+            "expected unknown-entry for phantom published module: ${result.output.take(800)}",
         )
     }
 
@@ -111,11 +143,11 @@ class ModuleTopologyVerificationTest {
     }
 
     @Test
-    fun `publishedPaths come from the release task model when the root extra is absent`() {
-        // No tramai.publishableModulePaths extra anywhere: the release task's
-        // publishableModules falls back to the module catalog, and
-        // verifyModuleManifest still passes (9.2d-b can delete the extra later).
-        val dir = topologyFixture(publishableExtra = null)
+    fun `publishedPaths come from the release task model with no secondary authority`() {
+        // No tramai.publishableModulePaths extra anywhere (9.2d-b1 deleted it):
+        // the release task's publishableModules derives from the module catalog,
+        // and verifyModuleManifest still passes.
+        val dir = topologyFixture()
         val result = runner(dir, "verifyModuleManifest").build()
         assertTrue(result.task(":verifyModuleManifest")?.outcome == TaskOutcome.SUCCESS, result.output.take(800))
     }
@@ -284,7 +316,6 @@ class ModuleTopologyVerificationTest {
     }
 
     private fun topologyFixture(
-        publishableExtra: String? = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom")""",
         bomModules: List<String> = listOf("tramai-core", "tramai-engine"),
         engineEntry: String? = defaultEngineEntry,
         catalogFileOverride: String? = null,
@@ -299,12 +330,6 @@ class ModuleTopologyVerificationTest {
             include(":tramai-core", ":tramai-engine", ":tramai-testing", ":tramai-bom")
             """.trimIndent(),
         )
-        val extraBlock =
-            if (publishableExtra != null) {
-                "extra[\"tramai.publishableModulePaths\"] = $publishableExtra"
-            } else {
-                ""
-            }
         // Exact-file authority override: point moduleCatalogFile at a
         // non-conventional path so the P1 kill-the-old-implementation
         // discriminator can prove the declared file is parsed directly.
@@ -323,10 +348,6 @@ class ModuleTopologyVerificationTest {
             plugins {
                 id("tramai.maintainability-baseline")
             }
-            $extraBlock
-            // Imperative apply AFTER the extra is set: the release task's
-            // publishableModules snapshot only reads the extra when it exists at
-            // apply time, otherwise it falls back to the module catalog.
             ${
                 if (applyReleasePlugin) {
                     "apply(plugin = \"tramai.release-verification\")"
