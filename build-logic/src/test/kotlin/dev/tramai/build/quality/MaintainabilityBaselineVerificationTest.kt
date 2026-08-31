@@ -438,6 +438,68 @@ class MaintainabilityBaselineVerificationTest {
     }
 
     @Test
+    fun `verify060Architecture consumes declared generated api dump not conventional build path`() {
+        // P1 authority discriminator: the gate must read the EXACT declared
+        // apiBuild output (relocated), never rediscover <module>/build/api.
+        // A conventional dump at the conventional path that matches the
+        // committed dump would PASS if rediscovered; the declared relocated
+        // dump differs and must FAIL.
+        val dir = architectureFixture(applyPlugins = "")
+        // :sample declares apiCheck (so it enters apiValidationModules) and an
+        // apiBuild whose output lands in a RELOCATED build dir.
+        writeFile(
+            dir,
+            "sample/build.gradle.kts",
+            """
+            plugins { `java-library` }
+            repositories { maven { url = uri(rootDir.resolve("repo")) } }
+            dependencies { implementation("com.example:fake:1.0") }
+            tasks.register("apiCheck")
+            tasks.register("apiBuild") {
+                val relocated = layout.buildDirectory.file("relocated/sample.api")
+                outputs.file(relocated)
+                doLast {
+                    relocated.get().asFile.parentFile.mkdirs()
+                    relocated.get().asFile.writeText("declared generated dump B - deliberately different")
+                }
+            }
+            """.trimIndent(),
+        )
+        // Committed dump X (matches the conventional generated A).
+        writeFile(dir, "sample/api/sample.api", "committed dump X")
+        // Conventional generated dump A at the rediscovery path — matches the
+        // committed dump, so a rediscovering implementation would PASS.
+        writeFile(dir, "sample/build/api/sample.api", "committed dump X")
+        // baseRef must resolve in the fixture repo (no origin remote): HEAD
+        // contains the committed dump after generateCommittedBaseline.
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.maintainability-baseline") }
+            import dev.tramai.build.quality.VerifyArchitectureTask
+            tasks.named<VerifyArchitectureTask>("verify060Architecture") {
+                baseRef.set("HEAD")
+            }
+            """.trimIndent(),
+        )
+        generateCommittedBaseline(dir)
+        val committedDump = "committed dump X"
+        val declaredDump = "declared generated dump B - deliberately different"
+
+        val failed = runner(dir, *configurationCacheArguments("verify060Architecture")).buildAndFail()
+        val report = architectureReport(dir)
+        assertTrue(
+            report.contains("does not represent current source"),
+            "gate must consume the DECLARED relocated dump, not conventional build/api: ${report.take(2000)}",
+        )
+        assertTrue(
+            report.contains("generated ${declaredDump.length} bytes vs committed ${committedDump.length} bytes"),
+            "the byte delta must reflect the declared relocated dump B: ${report.take(1200)}",
+        )
+    }
+
+    @Test
     fun `verify060Architecture declared alternative catalog drives boundary enforcement`() {
         // Declared alt catalog B marks :sample as layer "core"; the fixture
         // boundaries forbid core -> testing-support. If the gate fell back to

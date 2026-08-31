@@ -566,11 +566,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 .get()
                         },
                 )
-                // Generated BCV dumps — typed apiBuild task outputs.
+                // Generated BCV dumps — typed apiBuild task outputs, paired
+                // with their module paths so the gate consumes the EXACT
+                // declared files (a3c3 P1: no conventional build/api rediscovery).
                 project.allprojects
                     .filter { sub -> sub != project && sub.tasks.findByName("apiBuild") != null }
                     .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
-                    .forEach { sub -> generatedApiDumps.from(sub.tasks.named("apiBuild").map { it.outputs.files }) }
+                    .forEach { sub ->
+                        generatedApiDumpOwners.add(sub.path)
+                        generatedApiDumpFiles.from(sub.tasks.named("apiBuild").map { it.outputs.files })
+                    }
             }
         }
 

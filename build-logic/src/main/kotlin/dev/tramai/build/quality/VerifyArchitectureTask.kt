@@ -103,10 +103,21 @@ abstract class VerifyArchitectureTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val enrollmentResultsDir: ConfigurableFileCollection
 
-    /** Generated BCV dumps (apiBuild task outputs). */
+    /**
+     * Generated BCV dumps (apiBuild task outputs) — the EXACT files the
+     * action reads. Each entry in [generatedApiDumpOwners] is the module path
+     * of the file at the same index in [generatedApiDumpFiles]; the action
+     * zips them into the module→content map. No conventional-path rediscovery
+     * (a3c3 P1: declared output must be the execution authority, not
+     * <module>/build/api/<name>.api).
+     */
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val generatedApiDumps: ConfigurableFileCollection
+    abstract val generatedApiDumpFiles: ConfigurableFileCollection
+
+    /** Module path per generated dump file, same order as [generatedApiDumpFiles]. */
+    @get:Input
+    abstract val generatedApiDumpOwners: ListProperty<String>
 
     /** Consumer compile-proof markers (fail-soft producer outputs). */
     @get:InputFiles
@@ -241,7 +252,11 @@ abstract class VerifyArchitectureTask : DefaultTask() {
     ) {
         val apiProjectPaths = apiValidationModules.get().toSet()
         val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(rootDir, apiProjectPaths)
-        val generated = ApiCompatibilityEvidenceReader.readGeneratedDumps(rootDir, apiProjectPaths)
+        val generated =
+            generatedApiDumpOwners
+                .get()
+                .zip(generatedApiDumpFiles.files)
+                .associate { (modulePath, file) -> modulePath to file.readText(Charsets.UTF_8) }
         val base = ApiCompatibilityEvidenceReader.readBaseDumps(rootDir, baseRef.get(), committed.keys)
         val migrationResult =
             ApiCompatibilityEvidenceReader.parseMigrations(
