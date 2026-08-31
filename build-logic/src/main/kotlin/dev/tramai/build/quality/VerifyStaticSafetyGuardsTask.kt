@@ -31,7 +31,10 @@ abstract class VerifyStaticSafetyGuardsTask : DefaultTask() {
         if (stale.isNotEmpty() || unexplained.isNotEmpty()) throw GradleException(buildString { unexplained.forEach { appendLine(format(it)) }; stale.forEach { appendLine("stale exemption: ${it.first} | ${it.second} | ${it.third}") }; append("Fix the code or add a scoped exemption with rationale to config/quality/static-safety-guards.yml") })
         logger.lifecycle("static-safety-guards: ${findings.size} findings, ${used.size} live exemptions, 0 unexplained")
     }
-    private fun format(f: SafetyFinding) = "${f.rule} | ${f.path} | ${f.line} | ${f.symbol} | ${if (f.exempt) "(exempt) " else ""}${f.snippet}"
+    private fun format(f: SafetyFinding): String {
+        val prefix = if (f.exempt) "(exempt) " else ""
+        return "${f.rule} | ${f.path} | ${f.line} | ${f.symbol} | $prefix${f.snippet}"
+    }
     private fun scan(file: File, root: File, config: StaticSafetyGuardConfig): List<SafetyFinding> {
         val path = root.toPath().relativize(file.toPath()).toString().replace(File.separatorChar, '/'); val tokens = Lexer(file.readText()).lex(); val out = mutableListOf<SafetyFinding>()
         fun approved(rule: StaticSafetyRule) = rule.approvedPaths.any { path.startsWith(it.trimEnd('/') + "/") || path == it.trimEnd('/') }

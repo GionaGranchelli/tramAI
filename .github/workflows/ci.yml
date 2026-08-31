@@ -83,6 +83,22 @@ jobs:
           ./gradlew verifyStaticAnalysis --no-daemon \
             -PtramaiStaticAnalysisBaseRef="${{ github.event.before }}"
 
+      - name: Verify static safety guards (lifecycle/security forbidden usage)
+        run: ./gradlew verifyStaticSafetyGuards --no-daemon
+
+      - name: Run static-safety-guards contract tests
+        timeout-minutes: 20
+        run: |
+          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest' --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticSafety*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.CancellationWiringTest.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == 46, f'expected exactly 46 static-safety-guards tests, discovered {total}'
+          EOF
+
       - name: Verify compiler warnings against PR base
         if: github.event_name == 'pull_request'
         run: |

@@ -1488,7 +1488,7 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 10.1: Formatting and static analysis
 
-**Status: ✅ IN PROGRESS — 10.1a ✅ merged (`731126bf`, PR #339)** (sliced: see `docs/EPIC-10.1-code-quality.md`)
+**Status: ✅ IN PROGRESS — 10.1a ✅ merged (`731126bf`, PR #339) · 10.1b ✅ merged (`3aa4ef72`, PR #342) · 10.1c ✅ merged (`f7fd192e`, PR #344) · 10.1d 🚧 PR #…** (sliced: see `docs/EPIC-10.1-code-quality.md`)
 
 ### Slices (frozen decomposition)
 
@@ -1496,20 +1496,20 @@ repair feedback. No layer maintains its own independent fixture lists.
 |---|---|---|
 | 10.1a | Incremental Kotlin formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base) | ✅ merged (`731126bf`, PR #339) |
 | 10.1b | Static analysis (Detekt or equivalent): baseline, prohibit growth, central suppression rationale | ✅ merged (`3aa4ef72`, PR #342) |
-| 10.1c | Compiler + dependency hygiene: warning review / `-Werror` where feasible, unused-dependency enforcement | 🚧 in progress (contract frozen) |
-| 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | ⏳ |
+| 10.1c | Compiler + dependency hygiene: warning review / `-Werror` where feasible, unused-dependency enforcement | ✅ merged (`f7fd192e`, PR #344) |
+| 10.1d | Forbidden/lifecycle/security static guards + final `check`/CI closure | 🚧 PR #… |
 
 ### Required gates
 
-- Kotlin formatting enforced in CI
-- Detekt or equivalent static analysis
-- Compiler warnings reviewed and treated as errors for TramAI code where feasible
-- No unused dependencies
-- No forbidden API usage
-- No broad catch in suspend code without cancellation handling
-- No raw thread or global scope creation outside approved lifecycle factories
-- No unbounded response-body reads
-- No direct sensitive payload logging
+- ✅ Kotlin formatting enforced in CI (`spotlessCheck`, ratcheted against the exact base)
+- ✅ Detekt static analysis (`verifyStaticAnalysis`, baseline-backed)
+- ✅ Compiler warnings reviewed and treated as errors for TramAI code where feasible (`verifyCompilerWarnings`)
+- ✅ No unused dependencies (`verifyDependencyHygiene`)
+- ✅ No forbidden API usage (`verifyStaticSafetyGuards` R4)
+- ✅ No broad catch in suspend code without cancellation handling (`verifyCancellationSafety`, exact-base aware)
+- ✅ No raw thread or global scope creation outside approved lifecycle factories (`verifyStaticSafetyGuards` R1, 15 ownership exemptions)
+- ✅ No unbounded response-body reads (`verifyStaticSafetyGuards` R2 + bounded helpers in `tramai-core` transport)
+- ✅ No direct sensitive payload logging (`verifyStaticSafetyGuards` R3)
 
 ### Initial readability budgets
 

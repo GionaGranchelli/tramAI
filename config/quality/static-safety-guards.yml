@@ -49,7 +49,7 @@ exemptions:
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkerLifecycleController.kt
     symbol: Thread
-    rationale: "Shutdown-hook thread owned by the worker lifecycle controller; hooked via addShutdownHook and joined during shutdown."
+    rationale: "Authoritative shutdown-hook owner: thread registered via addShutdownHook and tracked by the shutdown coordinator; hook lifetime is JVM shutdown, registration/removal is owned by WorkerLifecycleController."
   - rule: raw-lifecycle-creation
     path: tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt
     symbol: CoroutineScope

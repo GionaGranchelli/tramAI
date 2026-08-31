@@ -9,8 +9,8 @@ Slices are implemented in separate PRs; a slice is only "done" when its merge ga
 |---|---|---|
 | **10.1a — formatting** | Incremental Kotlin source formatting gate (Spotless + pinned KtLint, git-ratcheted against the exact PR/push base). Changed `.kt` must satisfy one deterministic policy; untouched legacy source is never mass-formatted. | ✅ merged (`731126bf`, PR #339) |
 | **10.1b — static analysis** | Detekt 1.23.8 (pinned), one central config + one central baseline, baseline-backed growth protection, fail-closed. | ✅ merged (`3aa4ef72`, PR #342) |
-| **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ⏳ planned |
-| **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; cancellation broad catches (consume the existing cancellation verifier — do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | ⏳ planned |
+| **10.1c — compiler + dependency hygiene** | Compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. | ✅ merged (`f7fd192e`, PR #344) |
+| **10.1d — forbidden/lifecycle/security static guards + closure** | Forbidden APIs; raw thread/global-scope creation; consume the existing cancellation verifier (do not reimplement); unbounded response-body reads; direct sensitive payload logging; final `check`/CI integration. | 🚧 PR #… |
 
 ## 10.1a — Incremental Kotlin formatting gate (implemented)
 
@@ -37,7 +37,7 @@ The gate is incremental by construction: files unchanged since the formatting ba
 
 ## Out of scope until their own slices
 
-Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, compiler-warning policy changes, global `-Werror`, forbidden-API scanners, cancellation reimplementation, nondeterminism-enforcement changes, mass legacy formatting, `.gradle.kts` formatting, production runtime behavior changes, public API changes, module-architecture changes, `tramai.quality`.
+Sonar rewrite, nondeterminism-enforcement changes, mass legacy formatting, `.gradle.kts` formatting, production runtime behavior changes, public API changes, module-architecture changes, `tramai.quality`.
 
 ## 10.1b — Baseline-backed Kotlin static analysis (merged `3aa4ef72`, PR #342)
 
@@ -60,7 +60,7 @@ Detekt formatting/KtLint wrappers, Sonar rewrite, unused-dependency detection, c
 
 - P0-A..P0-O permanent contract suite (`StaticAnalysis*Test`, 25 tests) + configuration-cache cold→warm + `ChangePolicyEvaluator` canonical-baseline tests. Mutation campaign M01..M10 against the discriminators.
 
-## 10.1c — Compiler + dependency hygiene (in progress)
+## 10.1c — Compiler + dependency hygiene (implemented `f7fd192e`, PR #344)
 
 **Frozen slice (roadmap):** compiler-warning review / `-Werror` where feasible; unused-dependency enforcement. Deliberately NOT a legacy-cleanup or module-architecture slice.
 
@@ -100,3 +100,44 @@ Compiler (C): C1 clean compilation passes · C2 introduced warning fails · C3 a
 Dependency (D): D1 used direct dependency passes · D2 genuinely unused implementation dependency fails · D3 test-only use does not justify an `implementation` declaration · D4 runtimeOnly is not statically misclassified · D5 ServiceLoader exemption passes · D6 reflection/auto-config exemption passes · D7 undeclared/stale exemption fails · D8 module-scoped exemption cannot exempt another module · D9 `check` owns the verifier · D10 `verifyPr`/CI own the verifier.
 
 Mutation campaign (M-series) against the discriminators; both gates in the 10.1b root-owned build-logic pattern; configuration-cache cold→warm certified; docs flip on exact-head green.
+
+## 10.1d — Forbidden/lifecycle/security static guards + closure (🚧 PR #…)
+
+**Invariant:** lifecycle-bearing concurrency primitives, unbounded remote response-body consumption, sensitive-payload logging, and forbidden runtime APIs are fail-closed production gates. Every exception is an explicit ownership exemption with a rationale — there is no debt baseline.
+
+### Rules (frozen contract)
+
+| Rule | Match | Ban | Approved escape |
+|---|---|---|---|
+| R1 `raw-lifecycle-creation` | `call-name` | `GlobalScope`, `Thread`/`Thread.ofPlatform`/`Thread.ofVirtual`, `Executors.new*`, `newSingleThreadContext`, `CoroutineScope`, `SupervisorJob`, `addShutdownHook` — including trailing-lambda call sites (`Thread { }`, `GlobalScope.launch { }`) | explicit exemption |
+| R2 `unbounded-http-body-read` | `multi` | `BodyHandlers.ofString`/`ofByteArray`, and `readAllBytes`/`readBytes` inside `body().use { }` | `tramai-core/src/main/kotlin/dev/tramai/core/provider/` (bounded helpers) |
+| R3 `sensitive-payload-logging` | `receiver-call` | `print/println/info/debug/warn/error/trace` on `log`/`logger`/`LOGGER`/`System.out`/`System.err`/`*Logger` with whole-identifier `prompt`/`requestBody`/`responseBody`/`payload`/`toolArguments`/`arguments`/`document.content` arguments | explicit exemption |
+| R4 `forbidden-api` | `call-name` | `System.out.print`/`println`, `System.err.print`/`println` in production | explicit exemption |
+
+### Exemption model
+
+`config/quality/static-safety-guards.yml` — rule + exact path + symbol + nonblank rationale, per occurrence family. Fail-closed: malformed YAML, unknown rule, missing path/rationale, duplicate, non-existent path, path escaping the repo root, path outside `*/src/main/**`, non-existent approved directory, and stale exemptions (exemption whose symbol no longer occurs) all fail. **Landing state: 0 unexplained findings, 17 live exemptions** (15 R1 incl. the shutdown-hook `Thread { }` the T0 grep missed, 2 R4). No baseline file.
+
+### Scan scope
+
+Production only (`*/src/main/kotlin/**/*.kt`, `*/src/main/java/**/*.java`); build-logic, examples, tests, testFixtures, build output excluded. Lightweight token-aware lexer: line/block comments (nested `/* */` depth), string/char literals, raw strings (`"""…"""`, `${…}` inside raw strings ignored — documented simplification) all skipped; call sites are identifier + `(` or `{` with qualified-name resolution (dotted paths) and wildcard symbols (`Executors.new*`).
+
+### Wiring
+
+- `check` → `spotlessCheck` + `verifyStaticAnalysis` + `verifyCompilerWarnings` + `verifyDependencyHygiene` + `verifyCancellationSafety` + `verifyStaticSafetyGuards`.
+- `verifyPr` owns the same six authorities.
+- CI runs each authority explicitly (diagnosable steps); `verifyCancellationSafety` stays exact-base aware (`base.sha` on PR, `event.before` on push); `verifyStaticSafetyGuards` is self-contained; contract tests run in CI with a pinned count (46 tests).
+- **Cancellation is reused, not reimplemented:** `verifyCancellationSafety` remains the sole cancellation authority (semantic/risk comparison); `verifyStaticSafetyGuards` is the lifecycle/security forbidden-usage authority. Two different jobs, no shared logic.
+
+### Frozen discriminators
+
+- L1–L8 lifecycle: approved factory passes · arbitrary `CoroutineScope` fails · `GlobalScope` fails · raw `Thread` fails · unowned executor fails · scoped exemption passes · stale exemption fails · exemption cannot cross path.
+- S1–S8 security: bounded helper passes · direct `response.body().use { readAllBytes() }` fails · local `File.readText` passes · sensitive logger fails · sanitized metadata passes · malformed config fails closed · unknown rule fails · duplicate exemption fails.
+- C1–C6 closure: cancellation authority intact · `check` owns cancellation · `verifyPr` owns cancellation · `check` owns static guards · `verifyPr` owns static guards · CI invokes the guard.
+- M01–M05 mutations: arbitrary `GlobalScope`/`Thread`/executor/body-read/sensitive-log all fail.
+
+### Enforcement proof
+
+`StaticSafetyGuardsContractTest` (21), `StaticSafetyGuardsModelTest` (14), `StaticSafetyGuardsScopeTest` (5), `StaticSafetyGuardsWiringTest` (2), `StaticSafetyGuardsConfigCacheTest` (1), `CancellationWiringTest` (3) — 46 permanent tests; configuration-cache cold→warm certified.
+
+**Status: 🚧 PR #… pending merge** — all six quality authorities land in `check`, `verifyPr`, and CI; the COMPLETE flip happens on exact-head green after merge.
