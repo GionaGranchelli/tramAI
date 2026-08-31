@@ -131,6 +131,19 @@ object DetektBaselineGrowthVerifier {
         val removed = (baseDoc.currentIssueIds - currentDoc.currentIssueIds).sorted()
         val migrationAuthorized = input.changeClass == "baseline-migration"
 
+        // Formatting-ratchet drift diagnosis: entities appearing in BOTH the
+        // added and removed sets under a different signature shape. ktlint_official
+        // re-wraps declaration signatures (trailing commas, multi-line params),
+        // which changes detekt's signature-embedded IDs without changing the
+        // finding itself. Surfacing these turns an opaque "N added, M removed"
+        // into an actionable migration diagnosis (see the a3c3 drift reference).
+        val driftHint =
+            if (added.any { a -> removed.any { r -> a.substringBeforeLast('$') == r.substringBeforeLast('$') } }) {
+                " Formatting-ratchet ID drift suspected (same entities added and removed — signature text changed)."
+            } else {
+                ""
+            }
+
         if (added.isNotEmpty() && !migrationAuthorized) {
             val detail = added.take(10).joinToString("\n    ") { "  + $it" }
             return fail(
@@ -152,7 +165,7 @@ object DetektBaselineGrowthVerifier {
             message =
                 "Detekt baseline OK: base ${baseDoc.currentIssueIds.size} -> current " +
                     "${currentDoc.currentIssueIds.size}; " +
-                    "${removed.size} removed, ${added.size} added.",
+                    "${removed.size} removed, ${added.size} added.$driftHint",
         )
     }
 

@@ -4761,5 +4761,26 @@
     <ID>WildcardImport:ToolResultSanitizerTest.kt$import dev.tramai.core.security.*</ID>
     <ID>WildcardImport:ToolResultSanitizerTest.kt$import dev.tramai.engine.*</ID>
     <ID>WildcardImport:TramaiEngine.kt$import dev.tramai.core.model.*</ID>
+    <ID>LongMethod:AnthropicProvider.kt$AnthropicProvider$private fun messageToMap(message: dev.tramai.core.model.Message): Map&lt;String, Any?&gt;</ID>
+    <ID>LongMethod:OpenAiProvider.kt$OpenAiCompatibleProvider$private fun messageToMap( message: dev.tramai.core.model.Message, imageDetail: dev.tramai.core.model.ImageDetail = dev.tramai.core.model.ImageDetail.AUTO, ): Map&lt;String, Any?&gt;</ID>
+    <ID>MaxLineLength:AnthropicProvider.kt$AnthropicProvider$// Anthropic accepts the system prompt separately from the conversational message list.</ID>
+    <ID>MaxLineLength:AnthropicProvider.kt$AnthropicProvider$emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))</ID>
+    <ID>MaxLineLength:AnthropicProvider.kt$AnthropicProvider$private suspend</ID>
+    <ID>MaxLineLength:AnthropicProvider.kt$AnthropicProvider$val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content</ID>
+    <ID>MaxLineLength:AzureOpenAiProvider.kt$AzureOpenAiProvider$"Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"</ID>
+    <ID>MaxLineLength:AzureOpenAiProvider.kt$AzureOpenAiProvider$emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))</ID>
+    <ID>MaxLineLength:GeminiProvider.kt$GeminiProvider$emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))</ID>
+    <ID>MaxLineLength:GeminiProvider.kt$GeminiProvider$val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"</ID>
+    <ID>MaxLineLength:OllamaProvider.kt$OllamaProvider$private suspend</ID>
+    <ID>MaxLineLength:OpenAiProvider.kt$OpenAiCompatibleProvider$"Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"</ID>
+    <ID>MaxLineLength:OpenAiProvider.kt$OpenAiCompatibleProvider$"messages" to request.messages.map { message -&gt; messageToMap(message, request.imageDetail) }</ID>
+    <ID>MaxLineLength:OpenAiProvider.kt$OpenAiCompatibleProvider$"url" to "data:${part.mimeType};base64,${Base64.getEncoder().encodeToString(part.data)}"</ID>
+    <ID>MaxLineLength:OpenAiProvider.kt$OpenAiCompatibleProvider$)</ID>
+    <ID>MaxLineLength:OpenAiProvider.kt$OpenAiCompatibleProvider$private suspend</ID>
+    <ID>NestedBlockDepth:AnthropicProvider.kt$AnthropicProvider$private suspend fun FlowCollector&lt;StreamChunk&gt;.parseAnthropicStreamResponse(response: HttpResponse&lt;InputStream&gt;)</ID>
+    <ID>NestedBlockDepth:AzureOpenAiProvider.kt$AzureOpenAiProvider$private suspend fun FlowCollector&lt;StreamChunk&gt;.parseAzureSseResponse(response: HttpResponse&lt;InputStream&gt;)</ID>
+    <ID>NestedBlockDepth:GeminiProvider.kt$GeminiProvider$private suspend fun FlowCollector&lt;StreamChunk&gt;.parseGeminiStreamResponse(response: HttpResponse&lt;InputStream&gt;)</ID>
+    <ID>NestedBlockDepth:OllamaProvider.kt$OllamaProvider$@Suppress("ktlint:standard:max-line-length") private suspend fun FlowCollector&lt;dev.tramai.core.model.StreamChunk&gt;.parseOllamaStreamResponse( response: HttpResponse&lt;InputStream&gt;, )</ID>
+    <ID>ReturnCount:VaultSecretValueResolver.kt$VaultSecretValueResolver$private fun extractValue( payload: JsonNode, explicitField: String?, ): String?</ID>
   </CurrentIssues>
 </SmellBaseline>
