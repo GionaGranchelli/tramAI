@@ -54,7 +54,7 @@ migrations:
 
   - module: ":tramai-orchestration"
     fromSha256: "c5d9c58e5be2036e5786827251c5f44edd8d432e4644ebc5837b070372617cec"
-    toSha256: "5a33d87b2d235c916c50dd33b08d2a01da22d898858f1b99fbf01237cf72aeb6"
+    toSha256: "64c1ff59baae3a49faa0f1d1c8a617ab7cc7773413c302203b230e1ac2c8a733"
     targetVersion: "0.5.0"
-    rationale: "Intentional additive API: JdbcStepAttemptRecordStore.createTableSql() is restored to a single executable DDL statement; multi-statement provisioning is exposed explicitly via createSchemaSql()/createSequenceTableSql() (one statement per entry, generic-JDBC safe). No signature changed; binary compatibility preserved."
+    rationale: "Intentional additive API: JdbcStepAttemptRecordStore.createTableSql() is restored to a single executable DDL statement; multi-statement provisioning is exposed explicitly via createSchemaSql()/createSequenceTableSql() (one statement per entry, generic-JDBC safe). No signature changed; binary compatibility preserved. toSha256 reconciled to the post-BCV-surface (#352) canonical dump: 39 sanctioned-marked (@ExperimentalTramaiInternalApi) declarations removed from the surface, authorization unchanged."
     migration: "Applications executing createTableSql() alone must additionally execute createSequenceTableSql() (or createSchemaSql()) so the sequence counter table exists; source-compatible callers require no other change."

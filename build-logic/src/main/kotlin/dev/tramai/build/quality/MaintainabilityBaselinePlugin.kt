@@ -7,6 +7,7 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
@@ -22,7 +23,15 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Apply in root build.gradle.kts with: `plugins { id("tramai.maintainability-baseline") }`
  */
 abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
+    /** Root project this plugin was applied to (set in apply()). */
+    private lateinit var rootProject: Project
+
+    /** Fail-soft consumer compile-proof producers (Epic 10.2); markers feed the
+     * architecture gate as typed api-architecture evidence (a3c3). */
+    private val consumerMarkerProviders = mutableListOf<TaskProvider<ConsumerSmokeCompileTask>>()
+
     override fun apply(project: Project) {
+        rootProject = project
         if (project != project.rootProject) return
 
         val ctx = MeasurementContext.fromProject(project)
@@ -155,6 +164,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // the gate reads their outputs and converts resolution failure into
         // typed fail-closed evidence, so the report is always written.
         val architectureProbeTasks = mutableListOf<String>()
+        val architectureProbeProviders = mutableListOf<TaskProvider<ArchitectureDependencyProbeTask>>()
         project.allprojects.filter { it != project && it.buildFile.exists() }.forEach { sub ->
             val probe = sub.tasks.register("architectureDependencyProbe", ArchitectureDependencyProbeTask::class.java)
             probe.configure {
@@ -184,6 +194,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 )
             }
             architectureProbeTasks.add("${sub.path}:architectureDependencyProbe")
+            architectureProbeProviders.add(probe)
         }
 
         project.tasks.register("generateModuleDependencyGraph") {
@@ -516,6 +527,56 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     ),
                 )
             }
+            // a3c3: same configuration-time snapshots for the architecture gate
+            // (declared inputs are the execution authority — no Project in the action).
+            project.tasks.withType(VerifyArchitectureTask::class.java).configureEach {
+                apiValidationModules.set(apiModules)
+                dependencyGraph.set(
+                    DependencyGraphSnapshot(
+                        production = graph.moduleDependencies,
+                        test = graph.moduleDependenciesTest,
+                    ),
+                )
+                actualProjectPaths.set(
+                    project.allprojects
+                        .filter { it != project && it.buildFile.exists() }
+                        .map { it.path },
+                )
+                publishedModulePaths.set(
+                    (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
+                        ?.map { it.toString() }
+                        .orEmpty(),
+                )
+                val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
+                bomModulePaths.set(
+                    bomProject
+                        ?.configurations
+                        ?.findByName("api")
+                        ?.dependencyConstraints
+                        .orEmpty()
+                        .mapNotNull { constraint ->
+                            constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
+                        },
+                )
+                enrollmentResultsDir.from(
+                    project.tasks
+                        .named("architectureContractEnrollmentTest", Test::class.java)
+                        .map {
+                            it.reports.junitXml.outputLocation
+                                .get()
+                        },
+                )
+                // Generated BCV dumps — typed apiBuild task outputs, paired
+                // with their module paths so the gate consumes the EXACT
+                // declared files (a3c3 P1: no conventional build/api rediscovery).
+                project.allprojects
+                    .filter { sub -> sub != project && sub.tasks.findByName("apiBuild") != null }
+                    .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
+                    .forEach { sub ->
+                        generatedApiDumpOwners.add(sub.path)
+                        generatedApiDumpFiles.from(sub.tasks.named("apiBuild").map { it.outputs.files })
+                    }
+            }
         }
 
         // Typed, configuration-cache-safe: declared inputs (committed baseline,
@@ -627,7 +688,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verifyCancellationSafety") {
             group = "maintainability"
             description =
-                "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."
+                "Scans all production source for broad catches in suspend-capable code and rejects " +
+                "newly introduced critical/high findings and risk worsenings. Accepts " +
+                "-PtramaiCancellationBaseSha for PR base SHA comparison."
             doLast {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
@@ -776,7 +839,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                     println(delta.diagnostics.joinToString("\n"))
                     println(
-                        "verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.",
+                        "verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, " +
+                            "no new critical/high findings or risk worsenings against origin/master.",
                     )
                 }
             }
@@ -875,7 +939,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         val sourceRoot = project.rootDir.resolve(sourceRootProp).normalize()
                         if (!sourceRoot.isDirectory) {
                             throw GradleException(
-                                "maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory",
+                                "maintainability.sourceRoot='$sourceRootProp' resolved to " +
+                                    "'${sourceRoot.absolutePath}' but is not a directory",
                             )
                         }
                         BaselineGenerator.fromDirectory(sourceRoot, analyzerRoot = project.rootDir)
@@ -1131,7 +1196,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 )
             }
 
-        project.tasks.register("verify060Architecture") {
+        project.tasks.register<VerifyArchitectureTask>("verify060Architecture") {
             group = "verification"
             description = "build(quality): add unified 0.6.0 architecture gate"
             dependsOn(*architectureProbeTasks.toTypedArray())
@@ -1145,117 +1210,71 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .filter { sub -> ApiCompatibilityEvidenceReader.committedDumpPath(sub.projectDir, sub.name).isFile }
                     .map { "${it.path}:apiBuild" }
             dependsOn(*apiBuildTasks.toTypedArray())
-            doLast {
-                val architectureDiagnostics =
-                    ArchitectureReportAggregator.checkIds
-                        .associateWith { mutableListOf<VerificationDiagnostic>() }
-                val context = MeasurementContext.fromProject(project)
-                val verificationReport = File(reportDir, "verification-report.json")
 
-                collectEvidence("baseline verification", baselineCheckIds, architectureDiagnostics) {
-                    // Read the fail-soft per-project dependency probes. Resolution
-                    // failure reaches the gate as typed evidence (the probe tasks
-                    // never abort the task graph), so the report is always written.
-                    val probeFiles =
-                        project.allprojects
-                            .filter { it != project && it.buildFile.exists() }
-                            .sortedBy { it.path }
-                            .map { sub ->
-                                File(
-                                    sub.layout.buildDirectory
-                                        .get()
-                                        .asFile,
-                                    "reports/maintainability/architecture-dependencies.json",
-                                )
-                            }
-                    val evidence = readDependencyProbeEvidence(probeFiles)
-                    if (evidence.failures.isNotEmpty()) {
-                        val message = "Dependency evidence unavailable: ${evidence.failures.joinToString("; ")}"
-                        baselineCheckIds.forEach { checkId ->
-                            architectureDiagnostics.getValue(checkId) +=
-                                VerificationDiagnostic.failure(
-                                    DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
-                                    message,
-                                )
-                        }
-                    } else {
-                        val resolvedDependenciesFile = File(reportDir, "resolved-dependencies.json")
-                        reportDir.mkdirs()
-                        ReportNormalizer.writeJson(
-                            BaselineGenerator.sortResolvedDependencies(evidence.resolvedRecords),
-                            resolvedDependenciesFile,
-                        )
-                        BaselineVerifier(BaselineGenerator(context), context, reportDir).verify()
-                        routeBaselineDiagnostics(
-                            readBaselineDiagnostics(verificationReport),
-                            architectureDiagnostics,
-                            baselineCheckIds,
-                            ::baselineCheckFor,
+            // ---- Declared inputs (execution authority — a3 discipline) ----
+            val committedBaseline = project.layout.projectDirectory.file("config/quality/0.6.0-baseline.json")
+            if (committedBaseline.asFile.isFile) {
+                committedBaselineFile.set(committedBaseline)
+            } else {
+                committedBaselineFile.unset()
+            }
+            deviationsFile.set(project.layout.projectDirectory.file("config/quality/maintainability-deviations.yml"))
+            moduleCatalogFile.set(project.layout.projectDirectory.file("config/quality/module-catalog.yml"))
+            moduleBoundariesFile.set(project.layout.projectDirectory.file("config/quality/module-boundaries.yml"))
+            settingsFile.set(project.layout.projectDirectory.file("settings.gradle.kts"))
+            // api-migrations.yml is optional (absent in minimal fixtures and
+            // handled as empty by parseMigrations); set-but-missing would trip
+            // Gradle 9's eager @InputFile validation before the action runs.
+            val migrationsFile = project.layout.projectDirectory.file("config/quality/api-migrations.yml")
+            if (migrationsFile.asFile.isFile) {
+                apiMigrationsFile.set(migrationsFile)
+            } else {
+                apiMigrationsFile.unset()
+            }
+            baseRef.set(project.findProperty("changePolicyBase")?.toString() ?: "origin/master")
+            projectVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
+            // Architecture gate owns its own report dir (the maintainability
+            // report dir belongs to verifyMaintainabilityBaselineTask).
+            this.reportDir.set(project.layout.buildDirectory.dir("reports/tramai/architecture"))
+            architectureReportFile.set(
+                project.layout.buildDirectory.file("reports/tramai/architecture/architecture-report.json"),
+            )
+            // Fail-soft probe outputs — typed task outputs, never a path walk.
+            dependencyProbeFiles.from(
+                architectureProbeProviders.map { probe -> probe.flatMap { it.outputFile } },
+            )
+            // Fail-soft consumer compile markers — typed task outputs (fixture
+            // projects; registered in registerConsumerCompatibilityTask).
+            consumerMarkers.from(consumerMarkerProviders.map { it.flatMap { task -> task.markerFile } })
+            // Measured tree: module sources/build files, settings, version
+            // properties, root build script + version catalog, committed api
+            // dumps, release notes (same universe as verifyMaintainabilityBaseline).
+            val measuredDirs =
+                project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .flatMap { sub ->
+                        listOf(
+                            File(sub.projectDir, "src/main/kotlin"),
+                            File(sub.projectDir, "src/main/java"),
+                            File(sub.projectDir, "src/test/kotlin"),
+                            File(sub.projectDir, "src/testFixtures/kotlin"),
+                            sub.buildFile,
                         )
                     }
-                }
-
-                collectEvidence("module manifest verification", setOf("module-manifest", "publishing-topology"), architectureDiagnostics) {
-                    val catalog = ModuleManifest.catalog(project.rootDir)
-                    val actualProjects =
-                        project.allprojects
-                            .filter { it != project && it.buildFile.exists() }
-                            .map { it.path }
-                            .toSet()
-                    val actualPublished =
-                        (project.extensions.extraProperties.properties["tramai.publishableModulePaths"] as? Collection<*>)
-                            ?.map { it.toString() }
-                            ?.toSet()
-                            .orEmpty()
-                    val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
-                    val actualBom =
-                        bomProject
-                            ?.configurations
-                            ?.findByName("api")
-                            ?.dependencyConstraints
-                            .orEmpty()
-                            .mapNotNull { constraint ->
-                                constraint.name.takeIf { it.startsWith("tramai-") || it.startsWith("examples:") }?.let { ":$it" }
-                            }.toSet()
-                    addManifestDiagnostics(
-                        ModuleManifestVerifier.verify(catalog.modules, actualProjects, actualPublished, actualBom),
-                        architectureDiagnostics,
-                    )
-                }
-
-                collectEvidence(
-                    "enrollment contract verification",
-                    setOf("provider-contracts", "store-contracts"),
-                    architectureDiagnostics,
-                ) {
-                    addEnrollmentDiagnostics(
-                        File(project.project(":tramai-testing").buildDir, "test-results/architectureContractEnrollmentTest"),
-                        architectureDiagnostics,
-                    )
-                }
-
-                collectEvidence("api compatibility verification", setOf("api-architecture"), architectureDiagnostics) {
-                    addApiCompatibilityDiagnostics(project, architectureDiagnostics)
-                }
-
-                val report = ArchitectureReportAggregator.aggregate(architectureDiagnostics)
-                val reportFile =
-                    File(
-                        project.layout.buildDirectory
-                            .get()
-                            .asFile,
-                        "reports/tramai/architecture/architecture-report.json",
-                    )
-                // Report is written BEFORE the terminal exception — failure must produce evidence.
-                ArchitectureReportJson.write(report, reportFile, project.rootDir)
-                if (report.status == ArchitectureCheckStatus.FAIL) {
-                    throw GradleException(
-                        "0.6.0 architecture verification FAILED: " +
-                            report.checks.filter { it.status == ArchitectureCheckStatus.FAIL }.joinToString { it.id } +
-                            " — see ${reportFile.path}",
-                    )
-                }
-            }
+            sourceTree.from(project.files(measuredDirs))
+            sourceTree.from(
+                project.files(
+                    project.rootDir.resolve("settings.gradle.kts"),
+                    project.rootDir.resolve("gradle.properties"),
+                    project.rootDir.resolve("build.gradle.kts"),
+                    project.rootDir.resolve("gradle/libs.versions.toml"),
+                ),
+            )
+            sourceTree.from(
+                project.fileTree(project.rootDir) {
+                    include("**/api/*.api", "docs/releases/0.6.0-maintainability-baseline.md")
+                },
+            )
         }
 
         // ---- Consumer compile proofs (Epic 10.2): real sources, real classes ----
@@ -1266,32 +1285,34 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // the markers as typed api-architecture evidence (B2 fail-closed model).
 
         registerConsumerCompatibilityTask(
-            project,
             "verifyJavaConsumerCompatibility",
             ":examples:java-consumer-smoke",
-            "src/main/java",
             "java",
             "java",
         )
         registerConsumerCompatibilityTask(
-            project,
             "verifyKotlinConsumerCompatibility",
             ":examples:kotlin-consumer-smoke",
-            "src/main/kotlin",
             "kotlin",
             "org.jetbrains.kotlin.jvm",
         )
         project.tasks.named("verify060Architecture") {
-            dependsOn(
-                ":examples:java-consumer-smoke:verifyJavaConsumerCompatibility",
-                ":examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility",
-            )
+            // Depend on the collected producer providers, not hard-coded task
+            // paths: in minimal fixtures (TestKit) only the producers whose
+            // language plugin actually applied exist, and a missing path would
+            // abort task-graph resolution before the gate's report is written.
+            dependsOn(consumerMarkerProviders)
         }
 
         // Module documentation contract gate (Epic 11.2b3) — wired into the 0.6.0
         // architecture gate (verifyPr wiring follows its registration below).
-        project.tasks.named("verify060Architecture") {
-            dependsOn("verifyModuleDocContract")
+        // Registered by a separate plugin that minimal TestKit fixtures do not
+        // apply; guard so a missing task cannot abort task-graph resolution
+        // before the gate's fail-closed report is written.
+        if (project.tasks.findByName("verifyModuleDocContract") != null) {
+            project.tasks.named("verify060Architecture") {
+                dependsOn("verifyModuleDocContract")
+            }
         }
 
         // ---- PR Verification (primary local check gate) ----
@@ -1300,7 +1321,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             project.tasks.register("verifyPr") {
                 group = "verification"
                 description =
-                    "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
+                    "Primary local verification gate. Runs subproject tests, build-logic tests, " +
+                    "maintainability baseline, and change policy. Not a full CI replica — " +
+                    "see .github/AGENTS.md for additional step commands."
 
                 dependsOn("verifyMaintainabilityBaseline")
                 dependsOn("verifyChangePolicy")
@@ -1528,234 +1551,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
     private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
 
-    private fun readBaselineDiagnostics(reportFile: File): List<VerificationDiagnostic> {
-        if (!reportFile.isFile) {
-            throw GradleException("Baseline verifier did not produce ${reportFile.path}")
-        }
-        val report = ReportNormalizer.readJson(reportFile, Map::class.java)
-        val diagnostics =
-            report["diagnostics"] as? List<*>
-                ?: throw GradleException("Baseline verification report has no diagnostics array")
-        return diagnostics.map { raw ->
-            val entry = raw as? Map<*, *> ?: throw GradleException("Malformed baseline diagnostic")
-            VerificationDiagnostic(
-                code = DiagnosticCode.valueOf(entry["code"]?.toString() ?: error("Baseline diagnostic code missing")),
-                severity = DiagnosticSeverity.valueOf(entry["severity"]?.toString() ?: error("Baseline diagnostic severity missing")),
-                message = entry["message"]?.toString() ?: error("Baseline diagnostic message missing"),
-                modulePath = entry["modulePath"]?.toString(),
-                findingId = entry["findingId"]?.toString(),
-                deviationId = entry["deviationId"]?.toString(),
-                baselineValue = entry["baselineValue"]?.toString(),
-                currentValue = entry["currentValue"]?.toString(),
-            )
-        }
-    }
-
-    /**
-     * Exhaustive classification of every DiagnosticCode. No else branch: adding a
-     * new DiagnosticCode forces a decision at compile time — either it belongs to
-     * an architecture check here, or it is explicitly excluded.
-     */
-    private fun baselineCheckFor(code: DiagnosticCode): String? =
-        when (code) {
-            // Module catalogue (all codes except BOM/publishing drift, which are publishing-topology)
-            DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
-            DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY,
-            DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH,
-            DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
-            DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
-            DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
-            DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
-            DiagnosticCode.MODULE_CATALOG_INVALID_SCHEMA,
-            DiagnosticCode.MODULE_CATALOG_INVALID_MATURITY,
-            DiagnosticCode.MODULE_CATALOG_INVALID_PUBLISHABILITY,
-            DiagnosticCode.MODULE_CATALOG_INVALID_VISIBILITY,
-            DiagnosticCode.MODULE_CATALOG_INVALID_RELEASE_INCLUSION,
-            DiagnosticCode.MODULE_CATALOG_INVALID_POLICY,
-            DiagnosticCode.MODULE_CATALOG_BLANK_OWNER,
-            DiagnosticCode.MODULE_CATALOG_BLANK_RATIONALE,
-            DiagnosticCode.MODULE_CATALOG_MISSING_DESCRIPTION,
-            DiagnosticCode.MODULE_CATALOG_INVALID_COMBINATION,
-            -> "module-manifest"
-
-            DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
-            DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
-            -> "publishing-topology"
-
-            DiagnosticCode.FORBIDDEN_LAYER_EDGE,
-            DiagnosticCode.SELF_DEPENDENCY,
-            -> "dependency-boundaries"
-
-            DiagnosticCode.NEW_DEPENDENCY_CYCLE,
-            -> "dependency-cycles"
-
-            DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-            -> "global-state"
-
-            DiagnosticCode.API_BASELINE_EMPTY,
-            DiagnosticCode.API_DUMP_MISSING,
-            DiagnosticCode.API_DUMP_DUPLICATE,
-            DiagnosticCode.API_MODULE_UNCLASSIFIED,
-            DiagnosticCode.API_VALIDATION_NOT_CONFIGURED,
-            DiagnosticCode.API_COMPATIBILITY_FAILED,
-            DiagnosticCode.API_HASH_CHANGED,
-            DiagnosticCode.API_DUMP_NONDETERMINISTIC,
-            -> "api-architecture"
-
-            DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED,
-            -> "protocol-catalog"
-
-            DiagnosticCode.NEW_CANCELLATION_FINDING,
-            DiagnosticCode.CANCELLATION_RISK_WORSENED,
-            -> "cancellation-safety"
-
-            // Explicitly outside the 0.6.0 architecture gate.
-            DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
-            DiagnosticCode.ANALYZER_COMMIT_NOT_ANCESTOR,
-            DiagnosticCode.MEASURED_TREE_MISMATCH,
-            DiagnosticCode.TAG_COMMIT_MISMATCH,
-            DiagnosticCode.TAG_TREE_MISMATCH,
-            DiagnosticCode.DIRTY_WORKTREE,
-            DiagnosticCode.DEPENDENCY_BASELINE_EMPTY,
-            DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
-            DiagnosticCode.DYNAMIC_DEPENDENCY_VERSION,
-            DiagnosticCode.SNAPSHOT_DEPENDENCY,
-            DiagnosticCode.DEPENDENCY_CONVERGENCE_FAILURE,
-            DiagnosticCode.DEPENDENCY_ADDED,
-            DiagnosticCode.DEPENDENCY_REMOVED,
-            DiagnosticCode.DEPENDENCY_VERSION_CHANGED,
-            DiagnosticCode.TEST_QUALITY_CONFIGURATION_INVALID,
-            DiagnosticCode.COVERAGE_REPORT_MISSING,
-            DiagnosticCode.COVERAGE_REPORT_MALFORMED,
-            DiagnosticCode.COVERAGE_COUNTER_MISSING,
-            DiagnosticCode.COVERAGE_PATH_LEAK,
-            DiagnosticCode.COVERAGE_REGRESSION,
-            DiagnosticCode.COVERAGE_FAMILY_EMPTY,
-            DiagnosticCode.COVERAGE_EXCLUSION_UNDOCUMENTED,
-            DiagnosticCode.MUTATION_REPORT_MISSING,
-            DiagnosticCode.MUTATION_REPORT_MALFORMED,
-            DiagnosticCode.MUTATION_TARGET_EMPTY,
-            DiagnosticCode.MUTATION_REGRESSION,
-            DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED,
-            DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
-            DiagnosticCode.TEST_REPORT_MISSING,
-            DiagnosticCode.TEST_PERFORMANCE_REGRESSION,
-            DiagnosticCode.CRITICAL_TEST_REGRESSION,
-            DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
-            DiagnosticCode.TEST_QUALITY_STATUS_PENDING,
-            DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-            DiagnosticCode.HOTSPOT_REGRESSION,
-            DiagnosticCode.NEW_TOP_FIVE_HOTSPOT,
-            DiagnosticCode.FILE_GROWTH_EXCEEDED,
-            DiagnosticCode.INVALID_DEVIATION_SCOPE,
-            DiagnosticCode.ORPHANED_DEVIATION,
-            DiagnosticCode.EXPIRED_DEVIATION,
-            DiagnosticCode.DUPLICATE_DEVIATION,
-            DiagnosticCode.MALFORMED_DEVIATION,
-            DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
-            DiagnosticCode.DEVIATION_COVERAGE_EXCEEDED,
-            DiagnosticCode.GENERATED_DOCUMENT_DRIFT,
-            DiagnosticCode.EMPTY_SECTION,
-            // Nondeterminism authority contract (Epic 8.3d PR 2) — enforced by the
-            // verifyRuntimeNondeterminism task directly, not the maintainability baseline.
-            DiagnosticCode.NONDETERMINISM_UNCLASSIFIED_FINDING,
-            DiagnosticCode.NONDETERMINISM_STALE_ENTRY,
-            DiagnosticCode.NONDETERMINISM_MISMATCHED_CLASSIFICATION,
-            DiagnosticCode.NONDETERMINISM_OCCURRENCE_MISMATCH,
-            DiagnosticCode.NONDETERMINISM_DUPLICATE_ENTRY,
-            DiagnosticCode.NONDETERMINISM_INVALID_DISPOSITION,
-            DiagnosticCode.NONDETERMINISM_MISSING_RATIONALE,
-            DiagnosticCode.NONDETERMINISM_INVALID_SCHEMA,
-            // Module documentation contract (Epic 11.2b3) — enforced by the
-            // verifyModuleDocContract task directly, not a maintainability baseline.
-            DiagnosticCode.MODULE_CARD_MISSING,
-            DiagnosticCode.MODULE_CARD_ORPHAN,
-            DiagnosticCode.MODULE_CARD_HEADING_MISSING,
-            DiagnosticCode.MODULE_CARD_LINK_BROKEN,
-            DiagnosticCode.MODULE_CARD_INLINE_PATH_BROKEN,
-            DiagnosticCode.MODULE_CARD_LEGACY_CLASSIFICATION,
-            DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
-            DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
-            DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
-            -> null
-        }
-
-    private fun addManifestDiagnostics(
-        diagnostics: List<VerificationDiagnostic>,
-        checks: Map<String, MutableList<VerificationDiagnostic>>,
-    ) {
-        diagnostics.forEach { diagnostic ->
-            val check = if (diagnostic.code in publishingTopologyCodes) "publishing-topology" else "module-manifest"
-            checks.getValue(check) += diagnostic
-        }
-    }
-
-    private fun addEnrollmentDiagnostics(
-        resultsDir: File,
-        checks: Map<String, MutableList<VerificationDiagnostic>>,
-    ) {
-        val reports =
-            resultsDir
-                .listFiles { file -> file.isFile && file.name.startsWith("TEST-") && file.extension == "xml" }
-                ?.sortedBy { it.name }
-                .orEmpty()
-        if (reports.isEmpty()) {
-            listOf("provider-contracts", "store-contracts").forEach { check ->
-                checks.getValue(check) +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.EMPTY_SECTION,
-                        "Enrollment architecture test results are missing from ${resultsDir.path}",
-                    )
-            }
-            return
-        }
-
-        val discoveredClasses = mutableSetOf<String>()
-        reports.forEach { report ->
-            val className = report.name.removePrefix("TEST-").removeSuffix(".xml")
-            discoveredClasses += className
-            val check =
-                when {
-                    className == "dev.tramai.testing.ProviderTckEnrollmentArchitectureTest" -> "provider-contracts"
-                    className.endsWith("EnrollmentArchitectureTest") -> "store-contracts"
-                    else -> null
-                } ?: return@forEach
-            val factory =
-                DocumentBuilderFactory.newInstance().apply {
-                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                    setFeature("http://xml.org/sax/features/external-general-entities", false)
-                    setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                    setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-                    setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
-                    setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
-                    isXIncludeAware = false
-                    isExpandEntityReferences = false
-                }
-            val document = factory.newDocumentBuilder().parse(report)
-            val cases = document.getElementsByTagName("testcase")
-            for (index in 0 until cases.length) {
-                val testCase = cases.item(index) as org.w3c.dom.Element
-                for (childIndex in 0 until testCase.childNodes.length) {
-                    val child = testCase.childNodes.item(childIndex)
-                    if (child.nodeName !in setOf("failure", "error")) continue
-                    val failure = child as org.w3c.dom.Element
-                    val message = failure.getAttribute("message").ifBlank { failure.textContent.trim() }
-                    checks.getValue(check) +=
-                        VerificationDiagnostic.failure(
-                            DiagnosticCode.EMPTY_SECTION,
-                            "$className failed: $message",
-                        )
-                }
-            }
-        }
-
-        // Pin guard identities: deleting/renaming one enrollment class must FAIL
-        // even if the others still run. Discovery by identity, not by count.
-        enrollmentGuardDiagnostics(discoveredClasses).forEach { (check, diagnostics) ->
-            checks.getValue(check) += diagnostics
-        }
-    }
-
     /**
      * Registers a consumer-compatibility PRODUCER task (Epic 10.2, C3/C4).
      *
@@ -1771,171 +1566,58 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
      *   { "sources": N, "classes": M, "exitCode": E, "ok": bool }
      */
     private fun registerConsumerCompatibilityTask(
-        project: Project,
         taskName: String,
         modulePath: String,
-        sourceRelPath: String,
         extension: String,
         languagePluginId: String,
     ) {
-        // D6: the producer task belongs to the FIXTURE project, which owns its
-        // configurations. Resolving them inside the task action is therefore
-        // legal (project-owned, lazy, execution-phase) — a root task resolving
-        // a foreign project's configuration would trip the exclusive-lock rule.
-        // The fixture project applies its language plugin after the root plugin
-        // block, so register lazily via withPlugin: JavaToolchainService only
-        // exists then, and launcherFor/compilerFor providers are CC-serializable.
-        // fixture lookup happens inside the callback so a build that does not
-        // include the fixture (TestKit, minimal settings) never trips eagerly.
-        project.rootProject.subprojects.forEach { fixture ->
+        rootProject.subprojects.forEach { fixture ->
             if (fixture.path != modulePath) return@forEach
             fixture.pluginManager.withPlugin(languagePluginId) {
                 val markerFile = fixture.layout.buildDirectory.file("reports/maintainability/consumer-$extension.json")
                 val classesDir = fixture.layout.buildDirectory.dir("reports/maintainability/consumer-$extension-classes")
 
-                fixture.tasks.register<ConsumerSmokeCompileTask>(taskName) {
-                    group = "verification"
-                    description = "Compiles the $extension consumer smoke fixture against the stable API (fail-soft producer, Epic 10.2)"
+                val task =
+                    fixture.tasks.register<ConsumerSmokeCompileTask>(taskName) {
+                        group = "verification"
+                        description =
+                            "Compiles the $extension consumer smoke fixture against the stable API"
 
-                    // Only the dependency's jar must exist for the classpath. The
-                    // fixture's own compile tasks are deliberately NOT dependencies:
-                    // compileKotlin has no failOnError and would abort the graph
-                    // before verify060Architecture's report is written (C3/C4).
-                    dependsOn(":tramai-core:jar")
+                        dependsOn(":tramai-core:jar")
 
-                    this.extension.set(extension)
-                    this.workDir.set(project.rootDir)
-                    val toolchains = fixture.extensions.getByType(JavaToolchainService::class.java)
-                    if (extension == "java") {
-                        this.javacExecutable.set(
-                            toolchains
-                                .compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-                                .map { it.executablePath.toString() },
+                        this.extension.set(extension)
+                        this.workDir.set(project.rootDir)
+                        val toolchains = fixture.extensions.getByType(JavaToolchainService::class.java)
+                        if (extension == "java") {
+                            this.javacExecutable.set(
+                                toolchains
+                                    .compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                    .map { it.executablePath.toString() },
+                            )
+                        } else {
+                            this.javaExecutable.set(
+                                toolchains
+                                    .launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+                                    .map { it.executablePath.toString() },
+                            )
+                        }
+                        this.classesDir.set(classesDir)
+                        this.markerFile.set(markerFile)
+                        val sourceDir = if (extension == "kotlin") "kotlin" else "java"
+                        val sourceExt = if (extension == "kotlin") "kt" else "java"
+                        val sourceGlob = "**/src/main/$sourceDir/**/*.$sourceExt"
+                        sources.from(
+                            fixture.fileTree(fixture.projectDir) {
+                                include(sourceGlob)
+                            },
                         )
-                    } else {
-                        this.javaExecutable.set(
-                            toolchains
-                                .launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-                                .map { it.executablePath.toString() },
-                        )
+                        compileClasspath.from(fixture.configurations.getByName("compileClasspath"))
+                        if (extension == "kotlin") {
+                            kotlinCompilerClasspath.from(fixture.configurations.getByName("kotlinCompilerClasspath"))
+                        }
                     }
-                    this.classesDir.set(classesDir)
-                    this.markerFile.set(markerFile)
-                    sources.from(
-                        fixture.fileTree(fixture.projectDir) {
-                            include("**/$sourceRelPath/**/*.${if (extension == "kotlin") "kt" else "java"}")
-                        },
-                    )
-                    compileClasspath.from(fixture.configurations.getByName("compileClasspath"))
-                    if (extension == "kotlin") {
-                        kotlinCompilerClasspath.from(fixture.configurations.getByName("kotlinCompilerClasspath"))
-                    }
-                }
+                consumerMarkerProviders.add(task)
             }
         }
-    }
-
-    /**
-     * Epic 10.2 (Track B3): semantic API compatibility evidence for the
-     * api-architecture check. Two contracts:
-     *   Contract 1 — current source (apiBuild output) vs committed dump.
-     *   Contract 2 — base-branch dump (git show) vs current committed dump;
-     *                drives stability policy via ApiCompatibilityVerifier.
-     * Plus migration-registry enforcement and stability-inversion leak scan.
-     * All diagnostics are API_* codes routed to api-architecture; the report
-     * is written before any terminal exception (fail-closed via collectEvidence).
-     */
-    private fun addApiCompatibilityDiagnostics(
-        project: Project,
-        checks: Map<String, MutableList<VerificationDiagnostic>>,
-    ) {
-        val catalog = ModuleManifest.catalog(project.rootDir)
-        val apiProjectPaths =
-            project.allprojects
-                .filter { it != project && it.tasks.findByName("apiCheck") != null }
-                .map { it.path }
-                .toSet()
-        val committed = ApiCompatibilityEvidenceReader.readCommittedDumps(project.rootDir, apiProjectPaths)
-        val generated = ApiCompatibilityEvidenceReader.readGeneratedDumps(project)
-        val baseRef = project.findProperty("changePolicyBase")?.toString() ?: "origin/master"
-        val base = ApiCompatibilityEvidenceReader.readBaseDumps(project.rootDir, baseRef, committed.keys)
-        val migrationResult =
-            ApiCompatibilityEvidenceReader.parseMigrations(
-                File(project.rootDir, "config/quality/api-migrations.yml"),
-            )
-        checks.getValue("api-architecture") += migrationResult.diagnostics
-        val projectVersion =
-            project.providers
-                .gradleProperty("tramaiVersion")
-                .orElse("0.5.0")
-                .get()
-        val verifier =
-            ApiCompatibilityVerifier(
-                catalogModules = catalog.modules,
-                projectVersion = projectVersion,
-            )
-        val diagnostics =
-            verifier.verify(
-                ApiDumpEvidence(generated = generated, committed = committed, base = base),
-                migrations = migrationResult.entries,
-            )
-        // Contract-1/2 and migration diagnostics flow straight to api-architecture.
-        checks.getValue("api-architecture") += diagnostics
-        // C3/C4: consumer compile proofs are fail-soft producers. Read their
-        // markers; a failed compile surfaces as typed evidence here, and the
-        // report is written before the gate throws (B2 fail-closed contract).
-        listOf(
-            "java" to ":examples:java-consumer-smoke",
-            "kotlin" to ":examples:kotlin-consumer-smoke",
-        ).forEach { (language, fixturePath) ->
-            val marker =
-                File(
-                    project
-                        .project(fixturePath)
-                        .layout.buildDirectory
-                        .get()
-                        .asFile,
-                    "reports/maintainability/consumer-$language.json",
-                )
-            if (!marker.isFile) {
-                checks.getValue("api-architecture") +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.API_COMPATIBILITY_FAILED,
-                        "Consumer compile proof for '$language' produced no marker evidence at ${marker.path}",
-                    )
-                return@forEach
-            }
-            val state = ReportNormalizer.readJson(marker, Map::class.java)
-            val ok = state?.get("ok") == true
-            if (!ok) {
-                checks.getValue("api-architecture") +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.API_COMPATIBILITY_FAILED,
-                        "Consumer compile proof FAILED for '$language': " +
-                            "sources=${state?.get("sources")} classes=${state?.get("classes")} " +
-                            "exitCode=${state?.get("exitCode")} — the stable API is not usable from this consumer",
-                        baselineValue = state?.get("sources")?.toString(),
-                        currentValue = state?.get("classes")?.toString(),
-                    )
-            }
-        }
-    }
-
-    private companion object {
-        val publishingTopologyCodes =
-            setOf(
-                DiagnosticCode.MODULE_CATALOG_BOM_DRIFT,
-                DiagnosticCode.MODULE_CATALOG_PUBLISHING_DRIFT,
-            )
-        val baselineCheckIds =
-            setOf(
-                "module-manifest",
-                "dependency-boundaries",
-                "dependency-cycles",
-                "global-state",
-                "api-architecture",
-                "protocol-catalog",
-                "cancellation-safety",
-            )
     }
 }

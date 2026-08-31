@@ -20,8 +20,7 @@
     <ID>CyclomaticComplexMethod:AiToolScanner.kt$AiToolScanner$private fun findAnnotatedBeans(factory: ListableBeanFactory): List&lt;AnnotatedBean&gt;</ID>
     <ID>CyclomaticComplexMethod:ApiBaselineVerifier.kt$ApiBaselineVerifier$private fun validate( label: String, baseline: ApiBaseline, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
     <ID>CyclomaticComplexMethod:ApiCompatibilityVerifier.kt$ApiCompatibilityEvidenceReader$fun parseMigrations(file: File): ApiMigrationParseResult</ID>
-    <ID>CyclomaticComplexMethod:ApiCompatibilityVerifier.kt$ApiCompatibilityVerifier$private fun verifyRegistryHygiene( evidence: ApiDumpEvidence, migrations: List&lt;ApiMigrationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
-    <ID>CyclomaticComplexMethod:ApprovalContinuationLifecycleActionGenerator.kt$ApprovalContinuationLifecycleActionGenerator$fun generate( seed: Long, count: Int = ACTIONS_PER_SEQUENCE, initialNow: Instant, expiresAt: Instant, ): List&lt;ApprovalContinuationLifecycleAction&gt;</ID>
+        <ID>CyclomaticComplexMethod:ApprovalContinuationLifecycleActionGenerator.kt$ApprovalContinuationLifecycleActionGenerator$fun generate( seed: Long, count: Int = ACTIONS_PER_SEQUENCE, initialNow: Instant, expiresAt: Instant, ): List&lt;ApprovalContinuationLifecycleAction&gt;</ID>
     <ID>CyclomaticComplexMethod:ApprovalContinuationLifecycleActionGenerator.kt$ApprovalContinuationLifecycleActionGenerator$private fun pickPending( rng: Random, model: ApprovalContinuationLifecycleModel, expiresAt: Instant, ): ApprovalContinuationLifecycleAction</ID>
     <ID>CyclomaticComplexMethod:ApprovalContinuationLifecycleActionGeneratorTest.kt$ApprovalContinuationLifecycleActionGeneratorTest$private fun record( events: MutableList&lt;RecordedEvent&gt;, seed: Long, step: Int, action: ApprovalContinuationLifecycleAction, before: ApprovalContinuationLifecycleModel, outcome: ApprovalContinuationLifecycleOutcome, )</ID>
     <ID>CyclomaticComplexMethod:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleAction$fun describe(): String</ID>
@@ -65,8 +64,7 @@
     <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun checkRethrowsCancellation(lines: List&lt;String&gt;, catchIdx: Int): Boolean</ID>
     <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
     <ID>CyclomaticComplexMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
-    <ID>CyclomaticComplexMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addEnrollmentDiagnostics( resultsDir: File, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
-    <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun checkEdge( fromPath: String, toPath: String, catalog: ModuleCatalog, ): VerificationDiagnostic?</ID>
+        <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun checkEdge( fromPath: String, toPath: String, catalog: ModuleCatalog, ): VerificationDiagnostic?</ID>
     <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
     <ID>CyclomaticComplexMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>CyclomaticComplexMethod:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
@@ -739,8 +737,7 @@
     <ID>LongMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addApiCompatibilityDiagnostics( project: Project, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
-    <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun baselineCheckFor(code: DiagnosticCode): String?</ID>
-    <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
+        <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
     <ID>LongMethod:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
     <ID>LongMethod:McpStep.kt$McpWorkflowStep$suspend fun execute( workflowName: String, state: S, context: WorkflowContext, observer: WorkflowObserver, failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver, ): S</ID>
     <ID>LongMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
@@ -3821,8 +3818,7 @@
     <ID>NestedBlockDepth:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$private fun createAndClaimDueTicks( connection: Connection, now: Instant, ownerId: String, claimExpiresAt: Instant, limit: Int, ): List&lt;ClaimedScheduledTick&gt;</ID>
     <ID>NestedBlockDepth:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
     <ID>NestedBlockDepth:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun joinCatchLines(lines: List&lt;String&gt;): JoinedLines</ID>
-    <ID>NestedBlockDepth:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addEnrollmentDiagnostics( resultsDir: File, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
-    <ID>NestedBlockDepth:MavenPublishedArtifactResolver.kt$MavenPublishedArtifactResolver$private fun snapshotValueForExtension(metadata: File, extension: String): String?</ID>
+        <ID>NestedBlockDepth:MavenPublishedArtifactResolver.kt$MavenPublishedArtifactResolver$private fun snapshotValueForExtension(metadata: File, extension: String): String?</ID>
     <ID>NestedBlockDepth:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>NestedBlockDepth:ModuleGraphAnalyzer.kt$ModuleGraphAnalyzer$fun analyze(): GraphResult</ID>
     <ID>NestedBlockDepth:MutationBaselineVerifier.kt$MutationBaselineVerifier$fun verify(committed: MutationData, current: MutationData): List&lt;VerificationDiagnostic&gt;</ID>
@@ -3860,8 +3856,7 @@
     <ID>ReturnCount:ApiBaselineVerifier.kt$ApiBaselineVerifier$private fun isSafeRepositoryPath(value: String): Boolean</ID>
     <ID>ReturnCount:ApiBaselineVerifier.kt$ApiBaselineVerifier$private fun validateDumpContent( label: String, record: ApiDumpRecord, diagnostics: MutableList&lt;VerificationDiagnostic&gt; )</ID>
     <ID>ReturnCount:ApiCompatibilityVerifier.kt$ApiCompatibilityEvidenceReader$fun parseMigrations(file: File): ApiMigrationParseResult</ID>
-    <ID>ReturnCount:ApiCompatibilityVerifier.kt$ApiCompatibilityVerifier$private fun actualTransition(evidence: ApiDumpEvidence, module: String): Pair&lt;String, String&gt;?</ID>
-    <ID>ReturnCount:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleModel$private fun applyCancel( expectedVersion: Long, expiresAt: Instant, ): ApprovalContinuationLifecycleOutcome</ID>
+        <ID>ReturnCount:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleModel$private fun applyCancel( expectedVersion: Long, expiresAt: Instant, ): ApprovalContinuationLifecycleOutcome</ID>
     <ID>ReturnCount:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleModel$private fun applyClaim( worker: String, expectedVersion: Long, expiresAt: Instant, ): ApprovalContinuationLifecycleOutcome</ID>
     <ID>ReturnCount:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleModel$private fun applyComplete( worker: String, expectedVersion: Long, expiresAt: Instant, ): ApprovalContinuationLifecycleOutcome</ID>
     <ID>ReturnCount:ApprovalContinuationLifecycleModel.kt$ApprovalContinuationLifecycleModel$private fun applyExpire( expectedVersion: Long, expiresAt: Instant, ): ApprovalContinuationLifecycleOutcome</ID>
@@ -4112,8 +4107,7 @@
     <ID>ThrowsCount:JdbcSuspendedInvocationStore.kt$JdbcSuspendedInvocationStore$private fun handleCreateConflict( conn: java.sql.Connection, approvalId: String, error: SQLException, ): Nothing</ID>
     <ID>ThrowsCount:JdbcSuspendedInvocationStore.kt$JdbcSuspendedInvocationStore$private fun readEncryptedFromRow(rs: ResultSet): JdbcEncryptedReplayEnvelope</ID>
     <ID>ThrowsCount:JdbcWorkflowLeaseStore.kt$JdbcWorkflowLeaseStore$private suspend fun replaceExpiredLease( lease: WorkflowLease, previous: WorkflowLease, ): WorkflowLease</ID>
-    <ID>ThrowsCount:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun readBaselineDiagnostics(reportFile: File): List&lt;VerificationDiagnostic&gt;</ID>
-    <ID>ThrowsCount:McpStep.kt$McpWorkflowStep$private fun validateDefinition(toolCall: McpToolCall)</ID>
+        <ID>ThrowsCount:McpStep.kt$McpWorkflowStep$private fun validateDefinition(toolCall: McpToolCall)</ID>
     <ID>ThrowsCount:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
     <ID>ThrowsCount:McpStep.kt$McpWorkflowStep$suspend fun execute( workflowName: String, state: S, context: WorkflowContext, observer: WorkflowObserver, failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver, ): S</ID>
     <ID>ThrowsCount:ModelRegistryEnforcer.kt$ModelRegistryEnforcer$suspend fun authorize(providerId: String, modelName: String): RegisteredModel?</ID>
@@ -4782,5 +4776,14 @@
     <ID>NestedBlockDepth:GeminiProvider.kt$GeminiProvider$private suspend fun FlowCollector&lt;StreamChunk&gt;.parseGeminiStreamResponse(response: HttpResponse&lt;InputStream&gt;)</ID>
     <ID>NestedBlockDepth:OllamaProvider.kt$OllamaProvider$@Suppress("ktlint:standard:max-line-length") private suspend fun FlowCollector&lt;dev.tramai.core.model.StreamChunk&gt;.parseOllamaStreamResponse( response: HttpResponse&lt;InputStream&gt;, )</ID>
     <ID>ReturnCount:VaultSecretValueResolver.kt$VaultSecretValueResolver$private fun extractValue( payload: JsonNode, explicitField: String?, ): String?</ID>
+    <ID>CyclomaticComplexMethod:ApiCompatibilityVerifier.kt$ApiCompatibilityVerifier$private fun verifyRegistryHygiene( evidence: ApiDumpEvidence, migrations: List&lt;ApiMigrationEntry&gt;, diagnostics: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
+    <ID>CyclomaticComplexMethod:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun addEnrollmentDiagnostics( resultsFiles: Set&lt;File&gt;, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
+    <ID>LongMethod:VerifyArchitectureTask.kt$VerifyArchitectureTask$@TaskAction fun verify()</ID>
+    <ID>LongMethod:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun addEnrollmentDiagnostics( resultsFiles: Set&lt;File&gt;, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
+    <ID>LongMethod:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun baselineCheckFor(code: DiagnosticCode): String?</ID>
+    <ID>NestedBlockDepth:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun addEnrollmentDiagnostics( resultsFiles: Set&lt;File&gt;, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
+    <ID>ReturnCount:ApiCompatibilityVerifier.kt$ApiCompatibilityVerifier$private fun actualTransition( evidence: ApiDumpEvidence, module: String, ): Pair&lt;String, String&gt;?</ID>
+    <ID>ThrowsCount:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun readBaselineDiagnostics(reportFile: File): List&lt;VerificationDiagnostic&gt;</ID>
+    <ID>LargeClass:MaintainabilityBaselineVerificationTest.kt$MaintainabilityBaselineVerificationTest</ID>
   </CurrentIssues>
 </SmellBaseline>
