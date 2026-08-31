@@ -105,10 +105,17 @@ fun readBoundedBodyBytes(
  * zero-length-read edge case of blocking streams is handled with a
  * single-byte fallback read.
  */
-private fun readBoundedChunk(stream: InputStream, bytes: ByteArray, offset: Int): Int {
+private fun readBoundedChunk(
+    stream: InputStream,
+    bytes: ByteArray,
+    offset: Int,
+): Int {
     val count = stream.read(bytes, offset, bytes.size - offset)
     return when {
-        count > 0 -> count
+        count > 0 -> {
+            count
+        }
+
         count == 0 -> {
             val single = stream.read()
             if (single >= 0) {
@@ -118,7 +125,10 @@ private fun readBoundedChunk(stream: InputStream, bytes: ByteArray, offset: Int)
                 -1
             }
         }
-        else -> -1
+
+        else -> {
+            -1
+        }
     }
 }
 
