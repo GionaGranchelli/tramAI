@@ -17,6 +17,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -352,25 +353,42 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         reportDir: File,
         verifyModules: Set<String>,
     ): List<WarningEntry> {
-        val current = mutableListOf<WarningEntry>()
         val outBase = File(reportDir, "kotlinc-out").apply { mkdirs() }
-        compileUnits
-            .get()
-            .sortedBy { it.modulePath }
-            .filter { it.modulePath in verifyModules }
-            .forEach { unit ->
-                val out = File(outBase, unit.modulePath.removePrefix(":").replace(':', '_') + "-" + unit.sourceSet)
-                out.mkdirs()
-                current +=
-                    KotlincRunner.compileWarnings(
-                        unit,
-                        kotlinCompilerClasspath.files,
-                        compileClasspath.files,
-                        root,
-                        out,
-                    )
-            }
-        return current
+        val units =
+            compileUnits
+                .get()
+                .sortedBy { it.modulePath }
+                .filter { it.modulePath in verifyModules }
+        if (units.isEmpty()) return emptyList()
+        // The units are independent standalone compiles; run them in parallel so
+        // full-repository verification fits the CI step budget (baseline/build
+        // changes force all modules; sequential kotlinc was ~15m, over the cap).
+        // ponytail: fixed 4-way fan-out — more helps only on 16+ core runners.
+        val parallelism =
+            Runtime.getRuntime().availableProcessors().coerceIn(MIN_COMPILE_PARALLELISM, MAX_COMPILE_PARALLELISM)
+        val executor = Executors.newFixedThreadPool(parallelism)
+        try {
+            val futures =
+                units.map { unit ->
+                    executor.submit<List<WarningEntry>> {
+                        val out =
+                            File(outBase, unit.modulePath.removePrefix(":").replace(':', '_') + "-" + unit.sourceSet)
+                        out.mkdirs()
+                        KotlincRunner.compileWarnings(
+                            unit,
+                            kotlinCompilerClasspath.files,
+                            compileClasspath.files,
+                            root,
+                            out,
+                        )
+                    }
+                }
+            // Deterministic order: units are sorted; a failure surfaced inside a
+            // future rethrows here (fail-closed — no silent partial inventory).
+            return futures.flatMap { it.get() }
+        } finally {
+            executor.shutdown()
+        }
     }
 
     private fun writeReports(
@@ -553,6 +571,8 @@ private fun moduleOf(line: String): String? {
 }
 
 private const val MIN_DELTA_SEGMENTS = 3
+private const val MIN_COMPILE_PARALLELISM = 2
+private const val MAX_COMPILE_PARALLELISM = 4
 
 /**
  * True when the delta touches global compiler/build configuration: a future
