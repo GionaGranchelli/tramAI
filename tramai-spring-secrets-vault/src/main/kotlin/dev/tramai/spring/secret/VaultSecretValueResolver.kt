@@ -2,6 +2,8 @@ package dev.tramai.spring.secret
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
+import dev.tramai.core.provider.transport.readBoundedResponseBody
 import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.spring.SpringBuiltInSecretValueResolver
 import java.net.URI
@@ -15,6 +17,7 @@ import java.net.http.HttpResponse
  * By default, the resolver assumes a KV v2 mount and returns the `value` field
  * when no explicit `#field` selector is present.
  */
+@OptIn(ExperimentalProviderTransportApi::class)
 class VaultSecretValueResolver(
     private val baseUrl: String,
     private val token: String,
@@ -24,7 +27,8 @@ class VaultSecretValueResolver(
     private val defaultField: String = "value",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
-) : SecretValueResolver, SpringBuiltInSecretValueResolver {
+) : SecretValueResolver,
+    SpringBuiltInSecretValueResolver {
     init {
         require(baseUrl.isNotBlank()) { "Vault baseUrl must not be blank" }
         require(token.isNotBlank()) { "Vault token must not be blank" }
@@ -35,16 +39,18 @@ class VaultSecretValueResolver(
 
     override fun resolve(secretRef: String): String? {
         val reference = parse(secretRef) ?: return null
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create(vaultPath(reference.path)))
-            .header("X-Vault-Token", token)
-            .apply {
-                namespace?.takeIf { it.isNotBlank() }?.let { header("X-Vault-Namespace", it) }
-            }
-            .GET()
-            .build()
+        val request =
+            HttpRequest
+                .newBuilder()
+                .uri(URI.create(vaultPath(reference.path)))
+                .header("X-Vault-Token", token)
+                .apply {
+                    namespace?.takeIf { it.isNotBlank() }?.let { header("X-Vault-Namespace", it) }
+                }.GET()
+                .build()
 
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+        val bounded = readBoundedResponseBody(response)
         if (response.statusCode() == 404) {
             return null
         }
@@ -52,11 +58,12 @@ class VaultSecretValueResolver(
             "Vault secret lookup failed for '${reference.path}' with HTTP ${response.statusCode()}"
         }
 
-        val body = objectMapper.readTree(response.body())
-        val payload = when (kvVersion) {
-            1 -> body.path("data")
-            else -> body.path("data").path("data")
-        }
+        val body = objectMapper.readTree(bounded.text)
+        val payload =
+            when (kvVersion) {
+                1 -> body.path("data")
+                else -> body.path("data").path("data")
+            }
 
         return extractValue(payload, reference.field)
     }
@@ -71,13 +78,17 @@ class VaultSecretValueResolver(
         }
     }
 
-    private fun extractValue(payload: JsonNode, explicitField: String?): String? {
+    private fun extractValue(
+        payload: JsonNode,
+        explicitField: String?,
+    ): String? {
         if (payload.isMissingNode || payload.isNull) {
             return null
         }
 
         if (!explicitField.isNullOrBlank()) {
-            return payload.path(explicitField)
+            return payload
+                .path(explicitField)
                 .takeIf { !it.isMissingNode && !it.isNull && it.isValueNode }
                 ?.asText()
                 ?.takeIf { it.isNotBlank() }
@@ -87,7 +98,8 @@ class VaultSecretValueResolver(
             return payload.asText().takeIf { it.isNotBlank() }
         }
 
-        payload.path(defaultField)
+        payload
+            .path(defaultField)
             .takeIf { !it.isMissingNode && !it.isNull && it.isValueNode }
             ?.asText()
             ?.takeIf { it.isNotBlank() }

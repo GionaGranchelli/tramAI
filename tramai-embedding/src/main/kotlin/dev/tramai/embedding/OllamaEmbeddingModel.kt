@@ -1,13 +1,15 @@
 package dev.tramai.embedding
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
+import dev.tramai.core.provider.transport.readBoundedResponseBody
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import kotlin.coroutines.CoroutineContext
 
 /**
  * [EmbeddingModel] implementation backed by a local Ollama API.
@@ -20,6 +22,7 @@ import java.time.Duration
  * @param timeoutMs    HTTP request timeout in milliseconds (default: 60000).
  * @param httpClient   HTTP client for making requests.
  */
+@OptIn(ExperimentalProviderTransportApi::class)
 class OllamaEmbeddingModel(
     private val baseUrl: String = "http://localhost:11434",
     private val model: String = "nomic-embed-text",
@@ -28,7 +31,6 @@ class OllamaEmbeddingModel(
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : EmbeddingModel {
-
     override fun providerId(): String = "ollama"
 
     @Volatile
@@ -43,39 +45,44 @@ class OllamaEmbeddingModel(
     override suspend fun embedAll(texts: List<String>): List<FloatArray> {
         require(texts.isNotEmpty()) { "texts must not be empty" }
 
-        val payload = mapOf(
-            "model" to model,
-            "input" to texts,
-        )
+        val payload =
+            mapOf(
+                "model" to model,
+                "input" to texts,
+            )
         val jsonPayload = MAPPER.writeValueAsString(payload)
 
         return withContext(ioDispatcher) {
             try {
-                val requestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create("${baseUrl.trimEnd('/')}/api/embed"))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofMillis(timeoutMs))
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                val requestBuilder =
+                    HttpRequest
+                        .newBuilder()
+                        .uri(URI.create("${baseUrl.trimEnd('/')}/api/embed"))
+                        .header("Content-Type", "application/json")
+                        .timeout(Duration.ofMillis(timeoutMs))
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
 
                 token?.let { requestBuilder.header("Authorization", "Bearer $it") }
 
                 val httpRequest = requestBuilder.build()
-                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+                val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+                val bounded = readBoundedResponseBody(response)
                 if (response.statusCode() !in 200..299) {
                     throw EmbeddingException(
-                        "Ollama embeddings API returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+                        "Ollama embeddings API returned HTTP ${response.statusCode()}: ${bounded.text.take(500)}",
                     )
                 }
 
-                val body = MAPPER.readTree(response.body())
+                val body = MAPPER.readTree(bounded.text)
                 val embeddingsArray = body.path("embeddings")
                 if (!embeddingsArray.isArray) {
                     throw EmbeddingException("Ollama embeddings response missing 'embeddings' array")
                 }
 
-                val results = embeddingsArray.map { entry ->
-                    entry.map { it.floatValue() }.toFloatArray()
-                }
+                val results =
+                    embeddingsArray.map { entry ->
+                        entry.map { it.floatValue() }.toFloatArray()
+                    }
 
                 // Validate all results have the same positive dimension.
                 require(results.all { it.isNotEmpty() }) {
@@ -99,13 +106,12 @@ class OllamaEmbeddingModel(
         }
     }
 
-    override fun dimensions(): Int {
-        return cachedDimensions
+    override fun dimensions(): Int =
+        cachedDimensions
             ?: throw IllegalStateException(
                 "Ollama embeddings dimensions are not available until after the first successful embed() call. " +
-                    "Call embed() or embedAll() first."
+                    "Call embed() or embedAll() first.",
             )
-    }
 
     companion object {
         private val MAPPER: ObjectMapper = ObjectMapper()

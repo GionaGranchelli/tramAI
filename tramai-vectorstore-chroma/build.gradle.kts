@@ -11,8 +11,8 @@ plugins {
 dependencies {
     api(project(":tramai-vectorstore-spi"))
 
+    implementation(project(":tramai-core"))
     implementation(libs.coroutines.core)
     implementation(libs.jackson.databind)
 
             }
-
