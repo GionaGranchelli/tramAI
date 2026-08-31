@@ -96,7 +96,7 @@ jobs:
           for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticSafety*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.CancellationWiringTest.xml'):
               m = re.search(r'tests="(\d+)"', open(f).read())
               total += int(m.group(1)) if m else 0
-          assert total == 68, f'expected exactly 68 static-safety-guards tests, discovered {total}'
+          assert total == 71, f'expected exactly 71 static-safety-guards tests, discovered {total}'
           EOF
 
       - name: Verify compiler warnings against PR base
