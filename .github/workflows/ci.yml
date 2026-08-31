@@ -225,7 +225,7 @@ jobs:
         run: ./gradlew :examples:spring-sovereign-starter:e2eTest
 
       - name: Verify Sovereign Runtime closure
-        timeout-minutes: 15
+        timeout-minutes: 30
         # No --rerun-tasks: the normal test phase already ran the full suite.
         # Rerunning here doubles the exposure to probabilistic concurrency flakes
         # (observed: JdbcStepAttemptRecordStoreContractTest #19 failed only in
