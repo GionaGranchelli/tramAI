@@ -33,10 +33,11 @@
 `test-quality.yml` already encodes the architecture-derived set — no re-derivation needed; this is the authoritative registry:
 
 - **9 critical modules**: core, engine, security, sovereign, standalone, structured, orchestration, persistence-file, persistence-jdbc
-- **7 mutation domains**, mapping 1:1 to the roadmap's risk list:
-  policy/DLP → `policy` · approvals → `approval` · provider routing → `routing` · retry/circuit breaker → `retry` · evidence/audit → `evidence` · workflow/state machines → `tools` (ToolRegistry) + `structuredOutput`
+- **7 configured mutation domains** in the registry: policy, approval, routing, retry, tools, evidence, structuredOutput
 
-Not yet represented (candidate for 10.3c expansion): workflow **recovery/replay**, **lifecycle/fencing/concurrency** (currently guarded by 10.1d static-safety instead of mutation), persistence **concurrency** (file/jdbc stores).
+The existing registry does **not** cover several other critical behavioral domains — workflow recovery/replay, lifecycle/fencing, worker state machines, checkpoint generations, and persistence concurrency are absent from the mutation families. That is a valuable T0 finding, not a weakness: it defines the 10.3c expansion surface.
+
+Lifecycle/fencing/concurrency **behavior** is already strongly protected by the Phase-8 model-based, TCK, property, race, and mutation-discriminator suites. 10.1d adds complementary static lifecycle/security guards (raw-thread/GlobalScope/body-read/sensitive-log), but is **not** the behavioral authority for those state machines.
 
 ## 4. Cost model
 
@@ -46,7 +47,7 @@ Not yet represented (candidate for 10.3c expansion): workflow **recovery/replay*
 | Targeted mutation | PITest on the 7 configured families (~30 declared classes; engines are large — likely 50–200 mutants/family) | **medium–high** (10–40 min on top of PR build, serializable per family) | **PR subset + nightly full** |
 | Broad mutation | Repo-wide PITest | very high (hours) | **nightly/release only** |
 
-Current PR build is already ~25–60 min (`build` job). Do **not** serialize full mutation into it (matches 10.5 lane redesign; 10.3 defines the policy, 10.5 makes lanes authoritative).
+**These are planning estimates, not measurements** — JaCoCo and PITest have never executed in this repository. They will be measured during 10.3a/10.3c activation and the table then replaced with recorded figures.
 
 ## 5. Gap analysis
 
