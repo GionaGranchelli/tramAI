@@ -144,6 +144,77 @@ class TypedTaskConfigurationCacheTest {
         )
     }
 
+    @Test
+    fun `verify cancellation safety scope matches historical subproject population`() {
+        // Scope-parity discriminator (9.2d-b3 P1.5): the candidate population
+        // must match the historical verifier — ordinary non-example Gradle
+        // subprojects only. An included build (like build-logic, declared via
+        // includeBuild, absent from the settings include(...) population the
+        // base side discovers) and :examples modules must be excluded; a
+        // normal module must still be scanned.
+        val dir = maintainabilityFixture()
+        // Register an included build with a forbidden catch.
+        writeFile(dir, "tooling/settings.gradle.kts", "rootProject.name = \"tooling\"\n")
+        writeForbiddenCatch(dir, "tooling/src/main/kotlin/tooling/IncludedBad.kt", "tooling", "includedRisky")
+        val settingsFile = File(dir, "settings.gradle.kts")
+        settingsFile.writeText(settingsFile.readText() + "\nincludeBuild(\"tooling\")\n")
+        // Forbidden catch in an example module: excluded like the historical
+        // filterNot(":examples:").
+        writeForbiddenCatch(
+            dir,
+            "examples/java-consumer-smoke/src/main/kotlin/example/ExampleBad.kt",
+            "example",
+            "exampleRisky",
+        )
+        writeFile(dir, "tramai-core/src/main/kotlin/example/Good.kt", "package example\nclass Good\n")
+        git(dir, "init", "-q")
+        git(dir, "config", "user.email", "test@example.com")
+        git(dir, "config", "user.name", "Test")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "initial fixture")
+        git(dir, "remote", "add", "origin", "https://example.invalid/tramai.git")
+        git(dir, "update-ref", "refs/remotes/origin/master", "HEAD")
+
+        // Both excluded populations carry forbidden catches, yet must not be
+        // scanned: the task passes with zero findings.
+        val passing = runner(dir, "verifyCancellationSafety").build()
+        assertTrue(
+            passing.output.contains("0 findings") && passing.output.contains("PASSED"),
+            "included-build and examples sources must be excluded: ${passing.output.take(800)}",
+        )
+
+        // A normal module's forbidden catch must still be detected.
+        writeForbiddenCatch(dir, "tramai-core/src/main/kotlin/example/NowBad.kt", "example", "nowRisky")
+        val failing = runner(dir, "verifyCancellationSafety").buildAndFail()
+        assertTrue(
+            failing.output.contains("PASSED").not(),
+            "normal module source must still be scanned: ${failing.output.take(800)}",
+        )
+    }
+
+    private fun writeForbiddenCatch(
+        dir: File,
+        relativePath: String,
+        pkg: String,
+        functionName: String,
+    ) {
+        writeFile(
+            dir,
+            relativePath,
+            """
+            package $pkg
+
+            suspend fun $functionName() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e)
+                }
+            }
+            """.trimIndent(),
+        )
+    }
+
     private fun assertConfigurationCacheReuse(
         dir: File,
         task: String,

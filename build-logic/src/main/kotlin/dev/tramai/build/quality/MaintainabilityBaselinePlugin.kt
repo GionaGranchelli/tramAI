@@ -711,19 +711,24 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "-PtramaiCancellationBaseSha for PR base SHA comparison."
             rootDir.set(project.rootDir)
             baseSha.set(project.providers.gradleProperty("tramaiCancellationBaseSha"))
-            // FileTree base is rootDir; exclude task-output dirs (build/, api/)
-            // or Gradle 9 flags the input as overlapping a task output. The
-            // scanner inspects src/main sources plus settings/catalog (module
-            // discovery), so excluding outputs changes no semantics.
+            // Candidate population must match the historical verifier:
+            // ordinary non-example Gradle subprojects only. Recursively
+            // matching rootDir's **/src/main/** would also capture
+            // includeBuild("build-logic") sources (not a settings include, so
+            // absent from the base-side population), breaking candidate/base
+            // parity. Build the collection from project.allprojects instead.
+            // Exclude task-output dirs (build/, api/) or Gradle 9 flags the
+            // input as overlapping a task output.
             scanInputs.from(
-                project.fileTree(project.rootDir) {
-                    include("settings.gradle.kts", "config/quality/module-catalog.yml")
-                    exclude("**/build/**", "**/api/**")
-                },
-                project.fileTree(project.rootDir) {
-                    include("**/src/main/**/*.kt", "**/src/main/**/*.java")
-                    exclude("**/build/**", "**/api/**")
-                },
+                project.allprojects
+                    .filter { it != project }
+                    .filterNot { it.path.startsWith(":examples:") }
+                    .map { subproject ->
+                        project.fileTree(subproject.projectDir) {
+                            include("src/main/**/*.kt", "src/main/**/*.java")
+                            exclude("**/build/**", "**/api/**")
+                        }
+                    },
             )
         }
 

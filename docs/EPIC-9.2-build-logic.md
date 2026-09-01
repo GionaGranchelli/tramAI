@@ -215,9 +215,13 @@ cleanly as `build-logic` with no baseline-migration exemption.
     the a-series matrix — was converted to a typed task whose declared
     `@InputFiles` candidate sources are the execution authority (the scanner
     consumes `scanInputs` directly; module identity derives from each file's
-    location, never rediscovered from the tree). Base-side comparison
-    materializes a worktree at the base SHA, which is itself the declared
-    authority for that immutable tree.
+    location, never rediscovered from the tree). The declared population is
+    the ordinary non-example Gradle subprojects (built from
+    `project.allprojects` at configuration time), matching the base-side
+    settings `include(...)` population — `includeBuild("build-logic")` and
+    `:examples` are excluded on both sides, preserving candidate/base
+    parity. Base-side comparison materializes a worktree at the base SHA,
+    which is itself the declared authority for that immutable tree.
   - CC closure proof: `test` cold → stored → warm reused; `check` cold →
     stored → warm reused (both with `--configuration-cache-problems=fail`).
   - Kill discriminators: T18 (root no longer wires release readiness into
@@ -226,4 +230,6 @@ cleanly as `build-logic` with no baseline-migration exemption.
     invoked explicitly), `TypedTaskConfigurationCacheTest` (CC reuse **and**
     input-authority: redirecting `scanInputs` to a clean module passes while
     a forbidden uncommitted catch sits in an unscanned module's conventional
-    source tree; redirecting to the forbidden module fails).
+    source tree; redirecting to the forbidden module fails **and**
+    scope-parity: forbidden catches under an `includeBuild` and under
+    `:examples` are excluded while a normal module's catch still fails).
