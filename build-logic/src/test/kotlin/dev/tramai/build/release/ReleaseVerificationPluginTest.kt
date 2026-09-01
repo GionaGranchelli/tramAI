@@ -447,7 +447,7 @@ class ReleaseVerificationPluginTest {
         )
     }
 
-    // ── T7: incomplete bundle fails closed ───────────────────────────────────
+    // ── T7: incomplete evidence fails closed ───────────────────────────────────
 
     @Test
     fun `T7 incomplete evidence deletes stale manifest`() {
@@ -464,6 +464,45 @@ class ReleaseVerificationPluginTest {
         )
         // The stale manifest must be gone after the failed run
         assertFalse(stale.exists(), "stale bundle-manifest.json must be invalidated on failure; output was: ${result.output.take(1200)}")
+    }
+
+    // ── T7b/T7c: corrupt catalog fails closed (9.2d-b1 P1) ────────────────────
+    // The catalog is the single publishability authority. A corrupt catalog
+    // must STOP the release/sovereign paths, never degrade to an empty module
+    // set (fail-open). One kill test per consumer boundary.
+
+    private fun corruptCatalog(dir: File) {
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            "schemaVersion: \"3\"\nmodules:\n  - malformed\n",
+        )
+    }
+
+    @Test
+    fun `T7b release verification fails closed on corrupt catalog`() {
+        val dir = baseFixture()
+        corruptCatalog(dir)
+        // publishableModuleNames is resolved eagerly at plugin apply; a corrupt
+        // catalog must abort configuration instead of verifying "no modules".
+        val result = runner(dir, "verifyPublicationMetadata").buildAndFail()
+        assertTrue(
+            result.output.contains("MODULE_CATALOG") || result.output.contains("catalog"),
+            "corrupt catalog must fail closed with a catalog diagnostic, got: ${result.output.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `T7c sovereign bundle fails closed on corrupt catalog`() {
+        val dir = baseFixture()
+        corruptCatalog(dir)
+        // sovereignBundleModules is resolved lazily at task realization; the
+        // bundle set must never silently become empty.
+        val result = runner(dir, "verifySovereignRuntimeSignedBundle").buildAndFail()
+        assertTrue(
+            result.output.contains("MODULE_CATALOG") || result.output.contains("catalog"),
+            "corrupt catalog must fail closed with a catalog diagnostic, got: ${result.output.take(1200)}",
+        )
     }
 
     // ── T9: evidence index depends on all producers ─────────────────────────

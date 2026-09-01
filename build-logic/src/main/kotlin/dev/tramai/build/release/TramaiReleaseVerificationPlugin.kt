@@ -25,11 +25,12 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
     /**
      * Publishable module set, resolved lazily at task realization from the
      * module catalog — the single canonical publishability authority (9.2d-b1).
-     * Returns empty for TestKit fixtures without a catalog.
+     * A missing or corrupt catalog throws (fail closed): the authority must
+     * never degrade to an empty module set.
      */
     private fun publishableModuleNames(project: Project): List<String> =
-        runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
-            .getOrDefault(emptyList())
+        ModuleManifest
+            .publishableModulePaths(project.rootDir)
             .map { it.removePrefix(":") }
             .sorted()
 

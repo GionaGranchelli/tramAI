@@ -543,8 +543,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         .map { it.path },
                 )
                 publishedModulePaths.set(
-                    runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
-                        .getOrDefault(emptyList()),
+                    ModuleManifest.publishableModulePaths(project.rootDir),
                 )
                 val bomProject = project.allprojects.firstOrNull { it.name == "tramai-bom" }
                 bomModulePaths.set(

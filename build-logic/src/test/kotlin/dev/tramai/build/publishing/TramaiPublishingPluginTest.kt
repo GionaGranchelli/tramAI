@@ -52,6 +52,33 @@ class TramaiPublishingPluginTest {
             group=dev.tramai
             """.trimIndent(),
         )
+        // The module catalog is the single publishability authority (9.2d-b1):
+        // publishability-sensitive fixtures must carry a minimal valid catalog
+        // instead of relying on production fail-open behavior. `:sample` is
+        // declared internal so the fixture keeps the no-sovereign-repo / no-
+        // description semantics of the original no-catalog fixtures. Tests
+        // that need a published `:sample` (D6/D7) write their catalog first.
+        val catalogFile = File(dir, "config/quality/module-catalog.yml")
+        if (!catalogFile.isFile) {
+            writeFile(
+                dir,
+                "config/quality/module-catalog.yml",
+                """
+                schemaVersion: "3"
+                dependencyPolicies:
+                  core: { allowedLayers: [core-contracts, testing-support] }
+                entryDefaults:
+                  core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
+                  internal: &internal { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: core, releaseInclusion: internal_only, rationale: "Fixture internal module." }
+                modules:
+                  - path: ":sample"
+                    <<: *internal
+                    layer: core-contracts
+                    publishability: internal
+                    apiStability: internal
+                """.trimIndent(),
+            )
+        }
         writeFile(
             dir,
             "build.gradle.kts",
@@ -415,6 +442,51 @@ class TramaiPublishingPluginTest {
         // tramai-spring is excluded from the sovereign bundle → no sovereignBundleLocal.
         val springProbe = runProbe(dir, task = ":tramai-spring:probe")
         assertFalse(springProbe["repos"]!!.contains("sovereignBundleLocal"), "non-selected project must not get the sovereign repo")
+    }
+
+    @Test
+    fun `P8b sovereign repo selection fails closed on corrupt catalog`(
+        @TempDir tempDir: File,
+    ) {
+        // 9.2d-b1 P1: the module catalog is the single publishability
+        // authority. A corrupt catalog must abort sovereign repo selection,
+        // never silently select an empty module set.
+        val dir = File(tempDir, "p8b")
+        dir.mkdirs()
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "fixture"
+            include("tramai-core")
+            """.trimIndent(),
+        )
+        writeFile(dir, "build.gradle.kts", "")
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            "schemaVersion: \"3\"\nmodules:\n  - malformed\n",
+        )
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins {
+                `java-library`
+                id("tramai.publishing")
+            }
+            group = "dev.tramai"
+            version = "0.6.0"
+            tasks.register("probe") {
+                doLast { println("PROBE:repos=" + publishing.repositories.map { it.name }.joinToString(",")) }
+            }
+            """.trimIndent(),
+        )
+        val result = runner(dir, ":tramai-core:probe").buildAndFail()
+        assertTrue(
+            result.output.contains("MODULE_CATALOG") || result.output.contains("catalog"),
+            "corrupt catalog must fail closed during repo selection, got: ${result.output.take(1200)}",
+        )
     }
 
     // ── P9 — publication metadata parity ─────────────────────────────────────

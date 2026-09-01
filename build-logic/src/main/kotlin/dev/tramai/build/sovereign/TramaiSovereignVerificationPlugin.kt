@@ -109,11 +109,11 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
      * Publishable module set for the sovereign bundle: the module catalog is
      * the single canonical publishability authority (9.2d-b1); the excluded
      * set (runtime-scope trimming) is applied on top. Resolved lazily at task
-     * realization. TestKit fixtures without a catalog resolve to empty.
+     * realization. A missing or corrupt catalog throws (fail closed).
      */
     private fun sovereignBundleModules(project: Project): Set<String> =
-        runCatching { ModuleManifest.publishableModulePaths(project.rootDir) }
-            .getOrDefault(emptyList())
+        ModuleManifest
+            .publishableModulePaths(project.rootDir)
             .map { it.removePrefix(":") }
             .toSet() - TramaiPublishingRepositories.sovereignBundleExcludedProjectNames
 

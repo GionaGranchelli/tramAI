@@ -51,12 +51,12 @@ object TramaiPublishingRepositories {
     /**
      * Sovereign bundle module names for the root build: the publishable set
      * (module-catalog derived — the single canonical authority) minus the
-     * excluded set. TestKit fixtures without a catalog resolve to empty.
+     * excluded set. A missing or corrupt catalog throws (fail closed).
      */
     fun sovereignBundleModuleNames(rootProject: Project): Set<String> {
         val publishable =
-            runCatching { ModuleManifest.publishableModulePaths(rootProject.rootDir) }
-                .getOrDefault(emptyList())
+            ModuleManifest
+                .publishableModulePaths(rootProject.rootDir)
                 .map { it.removePrefix(":") }
         return publishable.toSet() - sovereignBundleExcludedProjectNames
     }

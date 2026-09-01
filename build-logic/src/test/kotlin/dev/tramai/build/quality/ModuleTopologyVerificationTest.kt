@@ -106,6 +106,25 @@ class ModuleTopologyVerificationTest {
     }
 
     @Test
+    fun `mutation 3b - corrupt catalog fails closed in the architecture model`() {
+        // 9.2d-b1 P1: MaintainabilityBaselinePlugin.publishedModulePaths is
+        // fed by ModuleManifest.publishableModulePaths(rootDir), which THROWS
+        // on a corrupt catalog. A malformed catalog must abort the gate at
+        // configuration, never silently supply an empty published set.
+        val dir = topologyFixture()
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            "schemaVersion: \"3\"\nmodules:\n  - malformed\n",
+        )
+        val result = runner(dir, "verifyModuleManifest").buildAndFail()
+        assertTrue(
+            result.output.contains("MODULE_CATALOG") || result.output.contains("catalog"),
+            "corrupt catalog must fail closed in the architecture model, got: ${result.output.take(800)}",
+        )
+    }
+
+    @Test
     fun `mutation 4 - BOM constraint removed fails`() {
         val dir = topologyFixture(bomModules = listOf("tramai-core"))
         val result = runner(dir, "verifyModuleManifest").buildAndFail()
