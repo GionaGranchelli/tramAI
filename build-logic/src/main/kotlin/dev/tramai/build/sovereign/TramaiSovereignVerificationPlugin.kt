@@ -283,11 +283,13 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
             manifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             artifactsDirectory.set(project.layout.buildDirectory.dir("sovereign-release/artifacts"))
             // Pure verifier by design: validates an EXISTING manifest/artifact
-            // bundle (e.g. one downloaded from another CI job). Aggregates that
-            // need the artifacts produced must depend on
-            // prepareSovereignReleaseArtifacts explicitly (they all do:
-            // generateSovereignReleaseEvidenceIndex and
-            // verifySovereignDocumentIntelligenceEvidenceRun).
+            // bundle (e.g. one downloaded from another CI job). mustRunAfter
+            // only orders execution when prepareSovereignReleaseArtifacts is
+            // ALSO scheduled in the same graph (RC closure) — satisfying
+            // Gradle's implicit-dependency validation — without creating a
+            // hard dependency, so the standalone download→verify path never
+            // triggers the producer graph.
+            mustRunAfter("prepareSovereignReleaseArtifacts")
         }
     }
 
