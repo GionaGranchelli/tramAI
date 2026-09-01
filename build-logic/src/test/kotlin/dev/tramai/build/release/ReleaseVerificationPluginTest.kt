@@ -970,18 +970,21 @@ class ReleaseVerificationPluginTest {
     }
 
     @Test
-    fun `T18 root build script no longer carries the release-readiness implementation`() {
+    fun `T18 root build script no longer wires release readiness into check or carries the implementation`() {
         val prop =
             System.getProperty("tramai.repositoryRoot")
                 ?: error("tramai.repositoryRoot system property not set (wired by build-logic/build.gradle.kts)")
         val rootBuildScript = File(prop, "build.gradle.kts").readText()
 
-        // The root may compose the task into `check`…
-        assertTrue(
+        // 9.2d-b3: the release-only gate must NOT contaminate the normal
+        // developer check lifecycle (which must stay configuration-cache
+        // reusable). The task itself remains registered by the plugin and is
+        // invoked explicitly by release tooling.
+        assertFalse(
             rootBuildScript.contains("dependsOn(\"verify050ReleaseReadiness\")"),
-            "root must still wire verify050ReleaseReadiness into check",
+            "root build.gradle.kts must not wire verify050ReleaseReadiness into check (release-only, CC-incompatible)",
         )
-        // …but must not contain the moved implementation markers.
+        // …and must not contain the moved implementation markers.
         for (marker in listOf(
             "Missing \$expectedVersion release-readiness document",
             "Duplicate PR entries in Added section",
@@ -991,6 +994,78 @@ class ReleaseVerificationPluginTest {
             assertFalse(
                 rootBuildScript.contains(marker),
                 "root build.gradle.kts must not contain release-readiness implementation marker: $marker",
+            )
+        }
+
+        // 9.2d-b3: the release gate stays reachable via release tooling.
+        // Pin the workflow contract so a future cleanup cannot accidentally
+        // make verify050ReleaseReadiness unreachable from the release path.
+        val publishWorkflow = File(prop, ".github/workflows/publish.yml")
+        assertTrue(publishWorkflow.isFile, "publish workflow must exist")
+        val publishText = publishWorkflow.readText()
+        assertTrue(
+            publishText.contains("verify050ReleaseReadiness --no-configuration-cache"),
+            "publish workflow must invoke verify050ReleaseReadiness with --no-configuration-cache",
+        )
+    }
+
+    @Test
+    fun `T19 verify050ReleaseReadiness retains its release dependencies when invoked explicitly`() {
+        // 9.2d-b3 discriminator: removing the check wiring must not have
+        // removed the task's own release dependencies. Each dependency is a
+        // sentinel that writes a marker; running the task explicitly must
+        // execute all five, proving the aggregation survived intact.
+        val dir =
+            readinessFixture(
+                """
+                val depMarkers = layout.buildDirectory.dir("dep-markers")
+                fun markerTask(name: String) = tasks.named(name) {
+                    doLast {
+                        depMarkers.get().asFile.resolve(name).apply {
+                            parentFile.mkdirs()
+                            writeText("ran")
+                        }
+                    }
+                }
+                markerTask("verifyVersionAlignment")
+                markerTask("verifyWorkflowApiStabilityBoundary")
+                markerTask("verifySovereignRuntimeApiBoundary")
+                markerTask("verifyToolGovernanceExample")
+                """.trimIndent(),
+            )
+        // readinessFixture neutralizes verifyReleaseReadiness's real deps; add
+        // its marker here (it is plugin-registered, so use named not register).
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            File(dir, "build.gradle.kts").readText() +
+                "\n" +
+                """
+                tasks.named("verifyReleaseReadiness") {
+                    setDependsOn(emptyList<String>())
+                    doLast {
+                        depMarkers.get().asFile.resolve("verifyReleaseReadiness").apply {
+                            parentFile.mkdirs()
+                            writeText("ran")
+                        }
+                    }
+                }
+                """.trimIndent(),
+        )
+
+        val result = runner(dir, "verify050ReleaseReadiness").build()
+        assertTrue(result.output.contains("all checks passed."), "completion marker required")
+        for (name in listOf(
+            "verifyVersionAlignment",
+            "verifyWorkflowApiStabilityBoundary",
+            "verifySovereignRuntimeApiBoundary",
+            "verifyToolGovernanceExample",
+            "verifyReleaseReadiness",
+        )) {
+            val marker = File(dir, "build/dep-markers/$name")
+            assertTrue(
+                marker.isFile,
+                "release dependency $name must run when verify050ReleaseReadiness is invoked explicitly",
             )
         }
     }

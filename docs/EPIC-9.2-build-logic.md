@@ -3,7 +3,7 @@
 **Goal:** Make Gradle configuration modular, typed, testable, and mostly declarative.
 
 **Owner:** build-logic conventions
-**Status:** in progress (9.2a, 9.2b done; 9.2c in progress)
+**Status:** ✅ complete (9.2a, 9.2b, 9.2c, 9.2d)
 
 ## Slicing
 
@@ -20,7 +20,7 @@ published module) is extracted first.
 | 9.2c-a | `tramai.kotlin-library` / `tramai.java-platform` / `tramai.test-fixtures` | ✅ done — PR #319 |
 | 9.2c-b | `tramai.testing` convention — common test-dependency baseline | ✅ done — PR #322 |
 | 9.2c-c | manifest-derived publication descriptions (module-catalog.yml schema v3 `description` + analyzer/parser + independent publication verifier input) | ✅ done — PR #325 |
-| 9.2d | configuration-cache closure; root build reduced to composition | planned |
+| 9.2d | configuration-cache closure; root build reduced to composition | ✅ complete — PR #353 (b1), PR #357 (b2), PR #359 (b3) |
 
 The `tramai.integration-test` convention is **deferred** until a dedicated
 integration-test source set exists in at least one production module — a
@@ -189,5 +189,47 @@ cleanly as `build-logic` with no baseline-migration exemption.
 
 ## 9.2d — configuration-cache closure
 
-- Normal developer tasks (`test`, `check`) configuration-cache compatible.
-- Root build reduced to high-level composition.
+✅ **COMPLETE** — closure lineage:
+
+- **a-series** — typed/config-cache conversions of verification tasks;
+  C1 `help`, C2 `test`, C6 `verifyPublicationMetadata` are
+  configuration-cache reusable.
+- **b1 — PR #353** — module-catalog.yml as the single publishability
+  authority; all four consumers fail closed on a missing/corrupt catalog.
+- **b2 — PR #357** — root responsibility extraction: SBOM →
+  `tramai.supply-chain`, sovereign-lab verification → `tramai.sovereign-lab-
+  verification`, `verify050ReleaseReadiness` → `tramai.release-verification`;
+  root `build.gradle.kts` reduced to composition.
+- **b3 — PR #359** — developer-lifecycle CC closure:
+  - Release-only `verify050ReleaseReadiness` detached from `check` (the
+    normal developer `test`/`check` lifecycle no longer traverses the
+    deliberate CC-incompatible release boundary).
+  - The task itself is unchanged: same name, dependencies, diagnostics,
+    fail-closed document inspection, `notCompatibleWithConfigurationCache`
+    (C3 = 1 deliberate), explicit release invocation, and publish workflow
+    invocation with `--no-configuration-cache`.
+  - Final offender matrix: **C4 = 0** (no execution-time `Task.project`),
+    **C5 = 0** (no remaining typed-task execution-model offender),
+    **C3 = 1 deliberate** (release-orchestration exclusion). The last C5
+    offender — `verifyCancellationSafety`, wired into `check` by 10.1d after
+    the a-series matrix — was converted to a typed task whose declared
+    `@InputFiles` candidate sources are the execution authority (the scanner
+    consumes `scanInputs` directly; module identity derives from each file's
+    location, never rediscovered from the tree). The declared population is
+    the ordinary non-example Gradle subprojects (built from
+    `project.allprojects` at configuration time), matching the base-side
+    settings `include(...)` population — `includeBuild("build-logic")` and
+    `:examples` are excluded on both sides, preserving candidate/base
+    parity. Base-side comparison materializes a worktree at the base SHA,
+    which is itself the declared authority for that immutable tree.
+  - CC closure proof: `test` cold → stored → warm reused; `check` cold →
+    stored → warm reused (both with `--configuration-cache-problems=fail`).
+  - Kill discriminators: T18 (root no longer wires release readiness into
+    `check`; publish workflow still invokes it with
+    `--no-configuration-cache`), T19 (release dependencies retained when
+    invoked explicitly), `TypedTaskConfigurationCacheTest` (CC reuse **and**
+    input-authority: redirecting `scanInputs` to a clean module passes while
+    a forbidden uncommitted catch sits in an unscanned module's conventional
+    source tree; redirecting to the forbidden module fails **and**
+    scope-parity: forbidden catches under an `includeBuild` and under
+    `:examples` are excluded while a normal module's catch still fails).

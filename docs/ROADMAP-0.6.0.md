@@ -1438,9 +1438,9 @@ repair feedback. No layer maintains its own independent fixture lists.
 **Goal:** Make Gradle configuration modular, typed, testable, and mostly declarative.
 
 > **Slicing:** see [docs/EPIC-9.2-build-logic.md](./EPIC-9.2-build-logic.md).
-> 9.2a (`tramai.publishing` convention plugin) is done; 9.2b–9.2d are planned slices.
+> 9.2a–9.2d complete.
 
-### Status: 🔄 In progress (9.2a ✅, 9.2b–9.2d planned)
+### Status: ✅ Complete (9.2a, 9.2b, 9.2c, 9.2d)
 
 - **9.2a — `tramai.publishing` convention plugin** — ✅ PR #308: extracted
   publication/signing/repository/POM configuration from the root
@@ -1450,9 +1450,28 @@ repair feedback. No layer maintains its own independent fixture lists.
   semantics, and sovereignBundleLocal membership. Discriminator suite
   P1–P10 + S1 in `TramaiPublishingPluginTest`; `verifyChangePolicy`
   auto-classifies as `build-logic`.
-- **9.2b** — typed release/evidence tasks (`tramai.release-verification`).
-- **9.2c** — quality/test conventions + manifest-derived metadata.
-- **9.2d** — configuration-cache closure; root reduced to composition.
+- **9.2b — typed release/evidence tasks** (`tramai.release-verification`,
+  `tramai.sovereign-verification`) — ✅ PR #313: typed/cache-aware release
+  and evidence tasks extracted from root `doLast` closures.
+- **9.2c — quality/test conventions + manifest-derived metadata** —
+  ✅ PR #319 (`tramai.kotlin-library`/`tramai.java-platform`/
+  `tramai.test-fixtures`), PR #322 (`tramai.testing`), PR #325
+  (module-catalog.yml schema v3 descriptions).
+- **9.2d — configuration-cache closure; root reduced to composition** —
+  ✅ COMPLETE:
+  - **a-series** — typed/config-cache conversions of verification tasks
+    (C1 `help`/C2 `test`/C6 `verifyPublicationMetadata` CC-reusable).
+  - **b1 — PR #353** — module-catalog.yml as single publishability
+    authority (4 consumers fail-closed).
+  - **b2 — PR #357** — root responsibility extraction: SBOM →
+    `tramai.supply-chain`, sovereign-lab → `tramai.sovereign-lab-
+    verification`, `verify050ReleaseReadiness` → `tramai.release-
+    verification`; root is composition-only.
+  - **b3 — PR #359** — developer lifecycle CC closure: release-only
+    `verify050ReleaseReadiness` detached from `check` (C3 = 1 deliberate,
+    invoked explicitly by publish workflow with `--no-configuration-cache`);
+    final offender matrix C4 = 0, C5 = 0; `test` CC cold → stored →
+    reused; `check` CC cold → stored → reused.
 
 ### Target convention plugins
 

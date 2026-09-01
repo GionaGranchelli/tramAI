@@ -1,0 +1,10 @@
+public final class dev/tramai/examples/kotlinconsumer/KotlinConsumerSmoke {
+	public static final field INSTANCE Ldev/tramai/examples/kotlinconsumer/KotlinConsumerSmoke;
+	public final fun getMarker ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/examples/kotlinconsumer/KotlinConsumerSmoke$GreetingService {
+	public abstract fun greet (Ljava/lang/String;I)Ljava/lang/String;
+	public abstract fun summarize (Ljava/util/List;)Ljava/util/List;
+}
+

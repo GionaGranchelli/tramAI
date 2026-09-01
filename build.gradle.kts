@@ -285,7 +285,10 @@ tasks.named("check") {
 
 // ──────────────────────────────────────────────
 // Task: check
-
-tasks.named("check") {
-    dependsOn("verify050ReleaseReadiness")
-}
+//
+// verify050ReleaseReadiness is deliberately NOT wired into the normal
+// developer check lifecycle: it is release-only orchestration and stays
+// notCompatibleWithConfigurationCache (C3 = 1 deliberate). Normal test/check
+// must remain configuration-cache reusable; the release gate is invoked
+// explicitly by release tooling (see .github/workflows/publish.yml, which
+// runs it with --no-configuration-cache).
