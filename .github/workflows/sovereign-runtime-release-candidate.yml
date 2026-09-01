@@ -49,6 +49,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The closure aggregate pulls check -> spotless/static-analysis,
+          # which auto-resolve their base against origin/master. A shallow
+          # checkout has no such ref; full history is required.
+          fetch-depth: 0
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
