@@ -21,8 +21,10 @@ import java.io.File
  * in the normal developer `check` lifecycle (9.2d-b3: C5 = 0).
  *
  * PR mode compares against `tramaiCancellationBaseSha`; local dev mode
- * auto-resolves the merge base against origin/master. The scan itself is a
- * pure directory walk via [MeasurementContext.fromDirectory] — no Gradle
+ * auto-resolves the merge base against origin/master. The current-tree scan
+ * consumes the declared [scanInputs] directly (declared input = execution
+ * authority); the base-side scan materializes a worktree at the base SHA,
+ * which is itself the declared authority for that immutable tree. No Gradle
  * project model access at execution time.
  */
 abstract class VerifyCancellationSafetyTask : DefaultTask() {
@@ -55,18 +57,27 @@ abstract class VerifyCancellationSafetyTask : DefaultTask() {
     @TaskAction
     fun verify() {
         val repoRoot = rootDir.get().asFile
-        val scanningCtx = MeasurementContext.fromDirectory(repoRoot)
-        val inventory = CancellationCatchInventory(scanningCtx)
-        val findings = inventory.inventory()
 
-        // Derive scope from all non-example modules
+        // The declared candidate inputs are the execution authority: the
+        // current-tree scan consumes scanInputs directly (module identity
+        // derived from each file's location), never rediscovering the tree
+        // through MeasurementContext.
         val scopedModules =
-            scanningCtx.modules
-                .map { it.path }
+            scanInputs.files
+                .mapNotNull { moduleOf(repoRoot, it) }
                 .filterNot { it.startsWith(":examples:") }
                 .toSet()
-
-        val scopedFindings = findings.filter { it.module in scopedModules }
+        val scopedFindings =
+            scanInputs.files
+                .asSequence()
+                .filter { it.isFile && it.extension == "kt" }
+                .mapNotNull { file ->
+                    val module = moduleOf(repoRoot, file) ?: return@mapNotNull null
+                    if (module !in scopedModules) return@mapNotNull null
+                    val relativePath = ReportNormalizer.repoRelativePath(file, repoRoot)
+                    KotlinCancellationCatchScanner.scan(file.readText(), module, relativePath)
+                }.flatten()
+                .toList()
 
         val configuredBaseSha = baseSha.orNull
 
@@ -106,6 +117,24 @@ abstract class VerifyCancellationSafetyTask : DefaultTask() {
                     "worsenings against origin/master.",
             )
         }
+    }
+
+    /**
+     * Derives the module path (":a:b") for a declared candidate file from its
+     * location relative to the repository root, using the conventional
+     * "<module>/src/..." layout. Returns null for files outside any module
+     * source tree (e.g. settings.gradle.kts, catalog).
+     */
+    private fun moduleOf(
+        repoRoot: File,
+        file: File,
+    ): String? {
+        val relative = file.toRelativeString(repoRoot).replace(File.separatorChar, '/')
+        val srcSegment = "src"
+        val segments = relative.split("/")
+        val srcIndex = segments.indexOf(srcSegment)
+        if (srcIndex <= 0) return null
+        return ":" + segments.subList(0, srcIndex).joinToString(":")
     }
 
     private fun compareAndReport(

@@ -210,10 +210,20 @@ cleanly as `build-logic` with no baseline-migration exemption.
     invocation with `--no-configuration-cache`.
   - Final offender matrix: **C4 = 0** (no execution-time `Task.project`),
     **C5 = 0** (no remaining typed-task execution-model offender),
-    **C3 = 1 deliberate** (release-orchestration exclusion).
+    **C3 = 1 deliberate** (release-orchestration exclusion). The last C5
+    offender — `verifyCancellationSafety`, wired into `check` by 10.1d after
+    the a-series matrix — was converted to a typed task whose declared
+    `@InputFiles` candidate sources are the execution authority (the scanner
+    consumes `scanInputs` directly; module identity derives from each file's
+    location, never rediscovered from the tree). Base-side comparison
+    materializes a worktree at the base SHA, which is itself the declared
+    authority for that immutable tree.
   - CC closure proof: `test` cold → stored → warm reused; `check` cold →
     stored → warm reused (both with `--configuration-cache-problems=fail`).
   - Kill discriminators: T18 (root no longer wires release readiness into
     `check`; publish workflow still invokes it with
     `--no-configuration-cache`), T19 (release dependencies retained when
-    invoked explicitly).
+    invoked explicitly), `TypedTaskConfigurationCacheTest` (CC reuse **and**
+    input-authority: redirecting `scanInputs` to a clean module passes while
+    a forbidden uncommitted catch sits in an unscanned module's conventional
+    source tree; redirecting to the forbidden module fails).

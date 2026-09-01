@@ -79,6 +79,71 @@ class TypedTaskConfigurationCacheTest {
         assertTrue(second.output.contains("Reusing configuration cache"), "second run must reuse cache: ${second.output.take(800)}")
     }
 
+    @Test
+    fun `verify cancellation safety scans declared inputs not rediscovered sources`() {
+        // Authority discriminator (9.2d-b3 P1): the declared scanInputs must be
+        // the execution authority. The base commit is clean. Module B (sample)
+        // then receives a forbidden broad catch as an UNCOMMITTED working-tree
+        // change (present on disk, absent from base). Redirecting scanInputs to
+        // clean module A must pass even though B's forbidden source exists on
+        // disk; redirecting to B must fail. A rediscovery-based implementation
+        // would always scan B regardless of the declared input.
+        val dir = maintainabilityFixture()
+        git(dir, "init", "-q")
+        git(dir, "config", "user.email", "test@example.com")
+        git(dir, "config", "user.name", "Test")
+        writeFile(dir, "tramai-core/src/main/kotlin/example/Good.kt", "package example\nclass Good\n")
+        git(dir, "add", ".")
+        git(dir, "commit", "-q", "-m", "initial fixture")
+        git(dir, "remote", "add", "origin", "https://example.invalid/tramai.git")
+        git(dir, "update-ref", "refs/remotes/origin/master", "HEAD")
+
+        // Uncommitted forbidden catch in module B's conventional source tree.
+        writeFile(
+            dir,
+            "sample/src/main/kotlin/example/Bad.kt",
+            """
+            package example
+
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e)
+                }
+            }
+            """.trimIndent(),
+        )
+
+        fun configureInputs(module: String) {
+            val buildScript = File(dir, "build.gradle.kts").readText()
+            File(dir, "build.gradle.kts").writeText(
+                buildScript +
+                    """
+                |tasks.named<dev.tramai.build.quality.VerifyCancellationSafetyTask>("verifyCancellationSafety") {
+                |    scanInputs.setFrom(layout.projectDirectory.dir("$module/src/main/kotlin").asFileTree)
+                |}
+                |
+                    """.trimMargin(),
+            )
+        }
+
+        // Point at clean module A: must pass even though module B on disk
+        // contains an uncommitted forbidden catch.
+        configureInputs("tramai-core")
+        val passing = runner(dir, "verifyCancellationSafety").build()
+        assertTrue(passing.output.contains("PASSED"), "clean declared source must pass: ${passing.output.take(800)}")
+
+        // Invert: point at forbidden module B: the uncommitted catch is new
+        // against the clean base and must fail.
+        configureInputs("sample")
+        val failing = runner(dir, "verifyCancellationSafety").buildAndFail()
+        assertTrue(
+            failing.output.contains("PASSED").not(),
+            "declared forbidden source must fail: ${failing.output.take(800)}",
+        )
+    }
+
     private fun assertConfigurationCacheReuse(
         dir: File,
         task: String,
