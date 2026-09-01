@@ -15,24 +15,24 @@
     },
     ":tramai-engine": {
       "module": ":tramai-engine",
-      "lineCoverage": 93.52313167259787,
-      "branchCoverage": 76.66459240821406,
-      "linesCovered": 3942,
-      "linesMissed": 273,
+      "lineCoverage": 93.4994068801898,
+      "branchCoverage": 76.47790914747978,
+      "linesCovered": 3941,
+      "linesMissed": 274,
       "linesTotal": 4215,
-      "branchesCovered": 1232,
-      "branchesMissed": 375,
+      "branchesCovered": 1229,
+      "branchesMissed": 378,
       "branchesTotal": 1607
     },
     ":tramai-orchestration": {
       "module": ":tramai-orchestration",
-      "lineCoverage": 91.68108611739652,
-      "branchCoverage": 72.2124516355962,
-      "linesCovered": 6888,
-      "linesMissed": 625,
+      "lineCoverage": 91.66777585518435,
+      "branchCoverage": 72.35314808301091,
+      "linesCovered": 6887,
+      "linesMissed": 626,
       "linesTotal": 7513,
-      "branchesCovered": 2053,
-      "branchesMissed": 790,
+      "branchesCovered": 2057,
+      "branchesMissed": 786,
       "branchesTotal": 2843
     },
     ":tramai-persistence-file": {
@@ -116,24 +116,24 @@
     },
     ":tramai-engine": {
       "module": ":tramai-engine",
-      "lineCoverage": 93.52313167259787,
-      "branchCoverage": 76.66459240821406,
-      "linesCovered": 3942,
-      "linesMissed": 273,
+      "lineCoverage": 93.4994068801898,
+      "branchCoverage": 76.47790914747978,
+      "linesCovered": 3941,
+      "linesMissed": 274,
       "linesTotal": 4215,
-      "branchesCovered": 1232,
-      "branchesMissed": 375,
+      "branchesCovered": 1229,
+      "branchesMissed": 378,
       "branchesTotal": 1607
     },
     ":tramai-orchestration": {
       "module": ":tramai-orchestration",
-      "lineCoverage": 91.68108611739652,
-      "branchCoverage": 72.2124516355962,
-      "linesCovered": 6888,
-      "linesMissed": 625,
+      "lineCoverage": 91.66777585518435,
+      "branchCoverage": 72.35314808301091,
+      "linesCovered": 6887,
+      "linesMissed": 626,
       "linesTotal": 7513,
-      "branchesCovered": 2053,
-      "branchesMissed": 790,
+      "branchesCovered": 2057,
+      "branchesMissed": 786,
       "branchesTotal": 2843
     },
     ":tramai-persistence-file": {
@@ -209,9 +209,9 @@
       "reason": "Generated model classes"
     }
   ],
-  "overallLineCoverage": 92.52163721601154,
-  "overallBranchCoverage": 76.162925248785,
+  "overallLineCoverage": 92.51262170934007,
+  "overallBranchCoverage": 76.1744966442953,
   "jacocoVersion": "0.8.13",
-  "measuredCommit": "b77bcef948f4cb95b932124eaffcf5d93dcf4da9",
+  "measuredCommit": "15f4ffb600e2eb11f6580bce5594b79a9ee24295",
   "schemaVersion": "1"
 }
