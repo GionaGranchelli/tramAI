@@ -62,13 +62,13 @@ Restructure `ci.yml` from one `build` job into the six jobs above.
 - `quality`, `tests`, `consumer-smoke` run in parallel, no `needs`.
 - `artifact-prep` runs in parallel with `quality`/`tests`/`consumer-smoke` (no `needs: build`).
 - `zero-egress` has `needs: artifact-prep` only.
-- `sovereign-rc` has `needs: tests` only (closure depends on the full suite having passed — preserves the current "closure runs after Run tests" invariant; do NOT run it in parallel with tests).
+- **NO `sovereign-rc` job in ci.yml** (removed in review round 1) — sovereign/RC verification lives exclusively in the dedicated `sovereign-runtime-release-candidate.yml` workflow (see below).
 
 **Per-job step assignments (from current ci.yml):**
 
-- `quality`: steps 41–148 (spotlessCheck ×2 event variants, formatting contract tests, static analysis ×2, static safety guards + contract tests, compiler warnings ×2, dependency hygiene, compiler-warnings + dependency-hygiene contract tests, static-analysis contract tests). Keep all `if:` event conditions and `baseline-migration` label handling verbatim.
+- `quality`: the one multi-task gate invocation (`spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyCompilerWarnings verifyDependencyHygiene --no-daemon`) with base-ref props and `baseline-migration` label handling verbatim. Contract-test suites live in the `contract-tests` matrix, not here.
 - `tests`: steps 150–215 (Run tests with containment watchdog + thread-dump upload, Print compiled fingerprints, cancellation safety ×2, critical coverage ×2).
-- `consumer-smoke`: steps 217–225 (Publish to Maven Local, Run example smoke test).
+- `consumer-smoke`: Publish to Maven Local, Run example smoke test, Upload test reports on failure (`if: failure()`, `**/build/test-results/test/` + `**/build/reports/tests/test/`).
 - `artifact-prep`: steps 236–247 (cyclonedxBom, prepareCycloneDxBom, prepareSovereignReleaseArtifacts, verifySovereignReleaseManifest) + upload SBOM/digest/artifacts steps 273–293 + attest step 295.
 - `zero-egress`: keep steps 308–389, but REPLACE the four rebuild steps (Generate CycloneDX SBOM, Compute SBOM digest, Prepare sovereign release artifacts, Verify sovereign release manifest) with `actions/download-artifact@v4` downloads of the artifacts uploaded by `artifact-prep`:
   - `cyclonedx-sbom` → `build/supply-chain/sbom/`
@@ -163,7 +163,7 @@ contract-tests:
 
 - **P2 configuration cache** — `org.gradle.configuration-cache=false` stays. Incremental enablement is a separate PR with build-logic compat work.
 - **P2 lazy build-logic configuration** — eager project/task enumeration is a build-logic code change; separate PR.
-- **P3 consolidate build-logic suites** — covered for CI by P1.2's single invocation; source-level suite consolidation is optional later.
+- **P3 consolidate build-logic suites** — covered for CI by P1.2's 4-entry contract-test matrix; source-level suite consolidation is optional later.
 
 ## Verification
 
