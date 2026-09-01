@@ -20,7 +20,6 @@ import org.gradle.kotlin.dsl.register
  * because prepare writes its inputs (Gradle 9 undeclared-output validation).
  */
 class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
         registerVerifySovereignLabProfile(project)
         registerVerifySovereignLabEvidenceBundle(project)
@@ -28,13 +27,18 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
         registerVerifySovereignEvidenceBundleReleaseManifest(project)
         registerVerifySovereignEvidencePackContainsReleaseBundle(project)
         registerVerifySovereignDocumentIntelligenceEvidenceRun(project)
+        registerVerifySovereignLabRuntimeSmoke(project)
+        registerVerifySovereignLabLocalModel(project)
+        registerBenchmarkSovereignLabLocalModel(project)
     }
 
     private fun registerVerifySovereignLabProfile(project: Project) {
         project.tasks.register<SovereignLabProfileVerifierTask>("verifySovereignLabProfile") {
             group = "verification"
             description = "Verifies the physical sovereign lab profile and documentation exist."
-            labProfileFile.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml"))
+            labProfileFile.set(
+                project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml"),
+            )
             labReadmeFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/README.md"))
             evidenceFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/EVIDENCE.md"))
             benchmarkTemplateFile.set(project.layout.projectDirectory.file("examples/sovereign-lab/evidence-template/benchmark.md"))
@@ -65,7 +69,7 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
             evidenceTemplates.from(
                 project.fileTree("examples/sovereign-lab/evidence-template") {
                     include("*.md")
-                }
+                },
             )
             workingDirectory.set(project.layout.projectDirectory.dir("examples/sovereign-lab/build"))
         }
@@ -83,8 +87,9 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
             releaseManifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             releaseArtifactsDirectory.set(project.layout.buildDirectory.dir("sovereign-release/artifacts"))
             artifactsJars.from(
-                project.layout.buildDirectory.dir("sovereign-release/artifacts")
-                    .map { dir -> dir.asFileTree.matching { include("*.jar") } }
+                project.layout.buildDirectory
+                    .dir("sovereign-release/artifacts")
+                    .map { dir -> dir.asFileTree.matching { include("*.jar") } },
             )
             outputDirectory.set(project.layout.buildDirectory.dir("sovereign-evidence"))
 
@@ -99,12 +104,14 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
     private fun registerVerifySovereignEvidenceBundleReleaseManifest(project: Project) {
         project.tasks.register<VerifySovereignEvidenceBundleReleaseManifestTask>("verifySovereignEvidenceBundleReleaseManifest") {
             group = "verification"
-            description = "Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."
+            description =
+                "Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."
 
             manifestFile.set(project.layout.buildDirectory.file("sovereign-evidence/release/release-artifacts-v1.json"))
             artifactJars.from(
-                project.layout.buildDirectory.dir("sovereign-evidence/release/artifacts")
-                    .map { dir -> dir.asFileTree.matching { include("*.jar") } }
+                project.layout.buildDirectory
+                    .dir("sovereign-evidence/release/artifacts")
+                    .map { dir -> dir.asFileTree.matching { include("*.jar") } },
             )
             // Required edge: prepareSovereignEvidenceBundle WRITES this task's
             // inputs (release/artifacts + manifest). Without the explicit
@@ -125,23 +132,94 @@ class TramaiSovereignLabVerificationPlugin : Plugin<Project> {
     }
 
     private fun registerVerifySovereignDocumentIntelligenceEvidenceRun(project: Project) {
-        val documentIntelligenceRunCommand = listOf(
-            if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew",
-            ":examples:sovereign-document-intelligence:run",
-            "--no-configuration-cache",
-            "--args=--release-bundle-manifest=${project.rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
-        )
+        val documentIntelligenceRunCommand =
+            listOf(
+                if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew",
+                ":examples:sovereign-document-intelligence:run",
+                "--no-configuration-cache",
+                "--args=--release-bundle-manifest=${project.rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
+            )
 
         project.tasks.register<Exec>("verifySovereignDocumentIntelligenceEvidenceRun") {
             group = "verification"
             description =
                 "Runs the sovereign document intelligence reference example against the generated release bundle " +
-                    "manifest. Validates evidence pack generation against release artifacts."
+                "manifest. Validates evidence pack generation against release artifacts."
 
             dependsOn("prepareSovereignReleaseArtifacts", "verifySovereignReleaseManifest")
 
             workingDir = project.projectDir
             commandLine(documentIntelligenceRunCommand)
+        }
+    }
+
+    /**
+     * Sovereign lab runtime smoke (Epic 9.2d-b2 slice B). Moved from the root
+     * build script; the XML report inspection is now a typed CC-safe task with
+     * the report file declared as an input. dependsOn preserved exactly.
+     */
+    private fun registerVerifySovereignLabRuntimeSmoke(project: Project) {
+        project.tasks.register<VerifySovereignLabRuntimeSmokeTask>("verifySovereignLabRuntimeSmoke") {
+            group = "verification"
+            description = "Runs the sovereign lab runtime smoke test against embedded PostgreSQL."
+
+            dependsOn(":examples:spring-sovereign-starter:e2eTest")
+
+            smokeReportFile.set(
+                project.layout.projectDirectory.file(
+                    "examples/spring-sovereign-starter/build/test-results/e2eTest/TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml",
+                ),
+            )
+        }
+    }
+
+    /**
+     * Opt-in sovereign lab local-model invocation proof (Epic 9.2d-b2 slice B).
+     * Env-gate + dependsOn moved verbatim from the root build script; the
+     * plugin owns the registration, the root build stays composition-only.
+     */
+    private fun registerVerifySovereignLabLocalModel(project: Project) {
+        project.tasks.register("verifySovereignLabLocalModel") {
+            group = "verification"
+            description = "Runs the opt-in sovereign lab local-model invocation proof (requires a real local OpenAI-compatible endpoint)."
+
+            dependsOn(":examples:spring-sovereign-starter:localModelTest")
+
+            doFirst {
+                if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") != "true") {
+                    logger.lifecycle(
+                        "verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST=true.",
+                    )
+                    logger.lifecycle(
+                        "Set it and ensure a local OpenAI-compatible endpoint is running.",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Opt-in sovereign lab local-model benchmark diagnostics (Epic 9.2d-b2
+     * slice B). Env-gate + dependsOn moved verbatim from the root build
+     * script.
+     */
+    private fun registerBenchmarkSovereignLabLocalModel(project: Project) {
+        project.tasks.register("benchmarkSovereignLabLocalModel") {
+            group = "verification"
+            description = "Runs opt-in sovereign lab local-model benchmark diagnostics."
+
+            dependsOn(":examples:spring-sovereign-starter:localModelBenchmark")
+
+            doFirst {
+                if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK") != "true") {
+                    logger.lifecycle(
+                        "benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true.",
+                    )
+                    logger.lifecycle(
+                        "Set it and ensure a local OpenAI-compatible endpoint is running.",
+                    )
+                }
+            }
         }
     }
 }

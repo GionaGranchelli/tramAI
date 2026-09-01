@@ -837,4 +837,161 @@ class ReleaseVerificationPluginTest {
             "stable TramAI diagnostic required, got: ${result.output.take(1200)}",
         )
     }
+
+    // ── T16–T18: verify050ReleaseReadiness extraction (9.2d-b2 slice C) ─────
+    // The document/file inspection implementation moved from the root build
+    // script into TramaiReleaseVerificationPlugin. These tests prove the
+    // plugin — not a residual root convention — executes the behavior, and
+    // that the root build script no longer carries the implementation.
+
+    /**
+     * Fixture where the aggregation dependencies (provided by other plugins in
+     * the real build) are registered as no-ops, so running
+     * verify050ReleaseReadiness reaches ONLY the moved doLast implementation.
+     */
+    private fun readinessFixture(extra: String = ""): File {
+        val dir = baseFixture()
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins {
+                id("tramai.release-verification")
+            }
+            // The real build provides these dependencies from other plugins;
+            // register no-ops so the aggregation reaches the moved doLast.
+            tasks.register("verifyVersionAlignment")
+            tasks.register("verifyWorkflowApiStabilityBoundary")
+            tasks.register("verifySovereignRuntimeApiBoundary")
+            tasks.register("verifyToolGovernanceExample")
+            // verifyReleaseReadiness is a plugin-registered aggregation whose
+            // deps run real verification (POM/artifacts); neutralize them so
+            // the fixture isolates the moved verify050ReleaseReadiness doLast.
+            tasks.named("verifyReleaseReadiness") {
+                setDependsOn(emptyList<String>())
+            }
+            $extra
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "gradle.properties",
+            """
+            tramaiVersion=0.6.0
+            tramaiGroup=dev.tramai
+            tramaiReleaseDate=2026-08-31
+            """.trimIndent(),
+        )
+        // Valid 0.5.0 release-readiness evidence: doc, changelog, status,
+        // roadmap, publish workflow — matching exactly what the moved
+        // implementation requires.
+        writeFile(
+            dir,
+            "docs/releases/0.5.0-release-readiness.md",
+            """
+            # 0.5.0 Release Readiness
+            All checks passed.
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "CHANGELOG.md",
+            """
+            # Changelog
+
+            ## 0.5.0 - 2026-08-31
+
+            ### Added
+
+            - Feature one (PR #10)
+            - Feature two (PR #11)
+
+            ### Changed
+
+            - Refactor one
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "docs/STATUS.md",
+            """
+            # Status
+
+            0.5.0 release candidate prepared
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "docs/POST-SOVEREIGNTY-ROADMAP.md",
+            """
+            # Roadmap
+
+            Release prepared — publication pending
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            ".github/workflows/publish.yml",
+            """
+            name: publish
+            on: [workflow_dispatch]
+            jobs:
+              publish:
+                steps:
+                  - run: echo "Verify version alignment"
+            """.trimIndent(),
+        )
+        return dir
+    }
+
+    @Test
+    fun `T16 verify050ReleaseReadiness fails closed on missing release-readiness evidence`() {
+        val dir = readinessFixture()
+        // Delete the required doc: the moved implementation must fail with the
+        // exact historical diagnostic.
+        File(dir, "docs/releases/0.5.0-release-readiness.md").delete()
+        val result = runner(dir, "verify050ReleaseReadiness").buildAndFail()
+        assertTrue(
+            result.output.contains("Missing 0.5.0 release-readiness document at"),
+            "exact release-readiness diagnostic required, got: ${result.output.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `T17 verify050ReleaseReadiness passes with valid evidence from the plugin implementation`() {
+        val dir = readinessFixture()
+        // No evidence may be missing: the moved implementation must pass and
+        // log the completion marker exactly as the root script did.
+        val result = runner(dir, "verify050ReleaseReadiness").build()
+        assertTrue(
+            result.output.contains("verify050ReleaseReadiness: all checks passed."),
+            "completion marker required, got: ${result.output.take(1200)}",
+        )
+    }
+
+    @Test
+    fun `T18 root build script no longer carries the release-readiness implementation`() {
+        val prop =
+            System.getProperty("tramai.repositoryRoot")
+                ?: error("tramai.repositoryRoot system property not set (wired by build-logic/build.gradle.kts)")
+        val rootBuildScript = File(prop, "build.gradle.kts").readText()
+
+        // The root may compose the task into `check`…
+        assertTrue(
+            rootBuildScript.contains("dependsOn(\"verify050ReleaseReadiness\")"),
+            "root must still wire verify050ReleaseReadiness into check",
+        )
+        // …but must not contain the moved implementation markers.
+        for (marker in listOf(
+            "Missing \$expectedVersion release-readiness document",
+            "Duplicate PR entries in Added section",
+            "sovereign-runtime-release-readiness.md must not claim",
+            "verify050ReleaseReadiness: all checks passed.",
+        )) {
+            assertFalse(
+                rootBuildScript.contains(marker),
+                "root build.gradle.kts must not contain release-readiness implementation marker: $marker",
+            )
+        }
+    }
 }

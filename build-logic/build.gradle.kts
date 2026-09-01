@@ -105,6 +105,10 @@ gradlePlugin {
             id = "tramai.static-safety-guards"
             implementationClass = "dev.tramai.build.quality.StaticSafetyGuardsPlugin"
         }
+        create("tramaiSupplyChain") {
+            id = "tramai.supply-chain"
+            implementationClass = "dev.tramai.build.supplychain.TramaiSupplyChainPlugin"
+        }
     }
 }
 

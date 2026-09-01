@@ -8,6 +8,7 @@ plugins {
     id("tramai.release-verification")
     id("tramai.sovereign-verification")
     id("tramai.sovereign-lab-verification")
+    id("tramai.supply-chain")
     id("tramai.docs-guards")
     id("tramai.static-analysis")
     id("tramai.compiler-warnings")
@@ -183,38 +184,6 @@ subprojects {
     apply(plugin = "tramai.publishing")
 }
 // ──────────────────────────────────────────────
-// Task: prepareCycloneDxBom
-// ──────────────────────────────────────────────
-// Plugin is applied above via: alias(libs.plugins.cyclonedx.bom)
-// Default output goes to build/reports/cyclonedx/bom.json and is post-processed
-// by the copy task below, avoiding typed extension resolution issues.
-
-tasks.register("prepareCycloneDxBom") {
-    group = "verification"
-    description = "Run cyclonedxBom and place the result plus digest under build/supply-chain/sbom/"
-    dependsOn("cyclonedxBom")
-    doLast {
-        val sbomDir = rootProject.layout.buildDirectory.dir("supply-chain/sbom").get().asFile
-        sbomDir.mkdirs()
-        val sourceBom = rootProject.layout.buildDirectory.file("reports/cyclonedx/bom.json").get().asFile
-        val targetBom = sbomDir.resolve("tramai-cyclonedx-sbom.json")
-        if (sourceBom.exists()) {
-            sourceBom.copyTo(targetBom, overwrite = true)
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            val hex = digest.digest(targetBom.readBytes())
-                .joinToString("") { "%02x".format(it) }
-            sbomDir.resolve("tramai-cyclonedx-sbom.sha256")
-                .writeText("sha256:$hex")
-            logger.lifecycle("SBOM generated: ${targetBom.absolutePath}")
-            logger.lifecycle("SBOM digest: build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256")
-        } else {
-            logger.warn("cyclonedxBom did not produce reports/cyclonedx/bom.json in the build directory; skipping SBOM copy.")
-        }
-    }
-}
-
-
-// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeReleaseCandidate
 // ──────────────────────────────────────────────
 
@@ -258,88 +227,6 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
     }
 }
 
-
-// ──────────────────────────────────────────────
-// Task: verifySovereignLabEvidenceBundle
-// ──────────────────────────────────────────────
-
-// ──────────────────────────────────────────────
-// Task: verifySovereignLabRuntimeSmoke
-// ──────────────────────────────────────────────
-
-tasks.register("verifySovereignLabRuntimeSmoke") {
-    group = "verification"
-    description = "Runs the sovereign lab runtime smoke test against embedded PostgreSQL."
-
-    dependsOn(":examples:spring-sovereign-starter:e2eTest")
-
-    doLast {
-        val reportDir = file(
-            "examples/spring-sovereign-starter/build/test-results/e2eTest/"
-        )
-        val reportFile = reportDir.resolve(
-            "TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml"
-        )
-
-        require(reportFile.exists()) {
-            "SovereignLabProfileSmokeTest did not run. " +
-                "verifySovereignLabRuntimeSmoke must prove the lab smoke test executed.\n" +
-                "Expected report: ${reportFile.absolutePath}"
-        }
-
-        val xml = reportFile.readText()
-        require(xml.contains("failures=\"0\"") && xml.contains("errors=\"0\"")) {
-            "SovereignLabProfileSmokeTest did not pass cleanly. " +
-                "Check the test report at:\n  ${reportFile.absolutePath}"
-        }
-
-        logger.lifecycle("verifySovereignLabRuntimeSmoke: sovereign lab runtime smoke tests passed.")
-    }
-}
-
-// ──────────────────────────────────────────────
-// Task: verifySovereignLabLocalModel
-// ──────────────────────────────────────────────
-
-tasks.register("verifySovereignLabLocalModel") {
-    group = "verification"
-    description = "Runs the opt-in sovereign lab local-model invocation proof (requires a real local OpenAI-compatible endpoint)."
-
-    dependsOn(":examples:spring-sovereign-starter:localModelTest")
-
-    doFirst {
-        if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") != "true") {
-            logger.lifecycle(
-                "verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST=true."
-            )
-            logger.lifecycle(
-                "Set it and ensure a local OpenAI-compatible endpoint is running."
-            )
-        }
-    }
-}
-
-// ──────────────────────────────────────────────
-// Task: benchmarkSovereignLabLocalModel
-// ──────────────────────────────────────────────
-
-tasks.register("benchmarkSovereignLabLocalModel") {
-    group = "verification"
-    description = "Runs opt-in sovereign lab local-model benchmark diagnostics."
-
-    dependsOn(":examples:spring-sovereign-starter:localModelBenchmark")
-
-    doFirst {
-        if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK") != "true") {
-            logger.lifecycle(
-                "benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true."
-            )
-            logger.lifecycle(
-                "Set it and ensure a local OpenAI-compatible endpoint is running."
-            )
-        }
-    }
-}
 
 // ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeClosure
@@ -395,116 +282,6 @@ tasks.named("check") {
     dependsOn("verifyJvmAiFrameworkComparison")
 }
 
-
-// ──────────────────────────────────────────────
-// Task: verify050ReleaseReadiness
-// ──────────────────────────────────────────────
-
-tasks.register("verify050ReleaseReadiness") {
-    group = "verification"
-    description = "Aggregates all 0.5.0 release-readiness verification tasks."
-    notCompatibleWithConfigurationCache("Release readiness aggregates execution-time verification tasks.")
-
-    dependsOn(
-        "verifyVersionAlignment",
-        "verifyReleaseReadiness",
-        "verifyWorkflowApiStabilityBoundary",
-        "verifySovereignRuntimeApiBoundary",
-        "verifyToolGovernanceExample",
-    )
-
-    doLast {
-        val rootDir = rootProject.layout.projectDirectory.asFile
-        val expectedVersion = "0.5.0"
-        val expectedReleaseDate = project.findProperty("tramaiReleaseDate") as? String
-            ?: error("tramaiReleaseDate must be set in gradle.properties")
-
-        // 0.5.0 release-readiness document exists
-        val releaseReadinessDoc = rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md")
-        require(releaseReadinessDoc.isFile) {
-            "Missing $expectedVersion release-readiness document at ${releaseReadinessDoc.path}"
-        }
-
-        // CHANGELOG has 0.5.0 section
-        val changelog = rootDir.resolve("CHANGELOG.md")
-        val changelogText = changelog.readText()
-        require(changelogText.contains("## $expectedVersion - $expectedReleaseDate")) {
-            "CHANGELOG.md must contain ## $expectedVersion - $expectedReleaseDate section"
-        }
-
-        // STATUS and roadmap state are correct
-        val statusDoc = rootDir.resolve("docs/STATUS.md")
-        val statusText = statusDoc.readText()
-        require(statusText.contains("0.5.0 release candidate prepared")) {
-            "STATUS.md must mention 0.5.0 release candidate prepared"
-        }
-
-        val roadmap = rootDir.resolve("docs/POST-SOVEREIGNTY-ROADMAP.md")
-        val roadmapText = roadmap.readText()
-        require(roadmapText.contains("Release prepared — publication pending")) {
-            "Roadmap must indicate release prepared — publication pending"
-        }
-
-        // Publish workflow has tag/version matching
-        val publishWorkflow = rootDir.resolve(".github/workflows/publish.yml")
-        val publishText = publishWorkflow.readText()
-        require(publishText.contains("Verify version alignment") || publishText.contains("version alignment")) {
-            "Publish workflow must contain version alignment check"
-        }
-
-        // No absolute /home/... links in release docs (allow placeholder /home/...)
-        val localHomePath = Regex("""/home/(?!\.\.\.)[^/\s]+/""")
-        val releaseDocs = listOf(
-            rootDir.resolve("docs/reference/release-validation.md"),
-            rootDir.resolve("docs/reference/releasing.md"),
-            rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md"),
-            rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md"),
-        )
-        for (doc in releaseDocs) {
-            if (!doc.isFile) continue
-            val docText = doc.readText()
-            require(!localHomePath.containsMatchIn(docText)) {
-                "${doc.name} must not contain absolute /home/<user>/ paths — use repository-relative links"
-            }
-        }
-
-        // No duplicate PR entries in the Added section
-        val addedSection = changelogText.substringAfter("### Added").substringBefore("### Changed")
-        val prPattern = Regex("""\(PR #(\d+)\)""")
-        val prCounts = prPattern.findAll(addedSection).map { it.groupValues[1] }.groupingBy { it }.eachCount()
-        val duplicates = prCounts.filter { it.value > 1 }
-        require(duplicates.isEmpty()) {
-            "Duplicate PR entries in Added section: ${duplicates.keys.joinToString(", ") { "PR #$it appears ${duplicates[it]} times" }}"
-        }
-
-        // No stale "no DB outbox" or "single-node only" claims in sovereign-runtime-release-readiness.md
-        val sovereignReadiness = rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md")
-        if (sovereignReadiness.isFile) {
-            val sovereignText = sovereignReadiness.readText()
-            require(!sovereignText.contains("Database persistence is future work")) {
-                "sovereign-runtime-release-readiness.md must not claim 'Database persistence is future work'"
-            }
-            require(!sovereignText.contains("No DB-backed outbox")) {
-                "sovereign-runtime-release-readiness.md must not claim 'No DB-backed outbox'"
-            }
-            require(!sovereignText.contains("worker assumes single-node operation")) {
-                "sovereign-runtime-release-readiness.md must not claim 'worker assumes single-node operation'"
-            }
-        }
-
-        logger.lifecycle("verify050ReleaseReadiness: all checks passed.")
-        logger.lifecycle("  - Version alignment: verified")
-        logger.lifecycle("  - Release readiness: verified")
-        logger.lifecycle("  - Workflow API stability boundary: verified")
-        logger.lifecycle("  - Sovereign runtime API boundary: verified")
-        logger.lifecycle("  - Tool governance example: verified")
-        logger.lifecycle("  - 0.5.0 release-readiness doc: verified")
-        logger.lifecycle("  - CHANGELOG: 0.5.0 section verified")
-        logger.lifecycle("  - STATUS/roadmap: release-ready state verified")
-        logger.lifecycle("  - Publish workflow: version alignment check verified")
-        logger.lifecycle("  - Release docs: no absolute paths or stale claims")
-    }
-}
 
 // ──────────────────────────────────────────────
 // Task: check
