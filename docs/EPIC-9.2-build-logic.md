@@ -20,7 +20,7 @@ published module) is extracted first.
 | 9.2c-a | `tramai.kotlin-library` / `tramai.java-platform` / `tramai.test-fixtures` | ✅ done — PR #319 |
 | 9.2c-b | `tramai.testing` convention — common test-dependency baseline | ✅ done — PR #322 |
 | 9.2c-c | manifest-derived publication descriptions (module-catalog.yml schema v3 `description` + analyzer/parser + independent publication verifier input) | ✅ done — PR #325 |
-| 9.2d | configuration-cache closure; root build reduced to composition | ✅ complete — PR #353 (b1), PR #357 (b2), PR #358 (b3) |
+| 9.2d | configuration-cache closure; root build reduced to composition | ✅ complete — PR #353 (b1), PR #357 (b2), PR #359 (b3) |
 
 The `tramai.integration-test` convention is **deferred** until a dedicated
 integration-test source set exists in at least one production module — a
@@ -200,7 +200,7 @@ cleanly as `build-logic` with no baseline-migration exemption.
   `tramai.supply-chain`, sovereign-lab verification → `tramai.sovereign-lab-
   verification`, `verify050ReleaseReadiness` → `tramai.release-verification`;
   root `build.gradle.kts` reduced to composition.
-- **b3 — PR #358** — developer-lifecycle CC closure:
+- **b3 — PR #359** — developer-lifecycle CC closure:
   - Release-only `verify050ReleaseReadiness` detached from `check` (the
     normal developer `test`/`check` lifecycle no longer traverses the
     deliberate CC-incompatible release boundary).

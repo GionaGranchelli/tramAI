@@ -1467,7 +1467,7 @@ repair feedback. No layer maintains its own independent fixture lists.
     `tramai.supply-chain`, sovereign-lab → `tramai.sovereign-lab-
     verification`, `verify050ReleaseReadiness` → `tramai.release-
     verification`; root is composition-only.
-  - **b3 — PR #358** — developer lifecycle CC closure: release-only
+  - **b3 — PR #359** — developer lifecycle CC closure: release-only
     `verify050ReleaseReadiness` detached from `check` (C3 = 1 deliberate,
     invoked explicitly by publish workflow with `--no-configuration-cache`);
     final offender matrix C4 = 0, C5 = 0; `test` CC cold → stored →
