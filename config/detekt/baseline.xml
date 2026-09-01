@@ -2,6 +2,16 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
+    <ID>LongMethod:ReleaseVerificationPluginTest.kt$ReleaseVerificationPluginTest$private fun readinessFixture(extra: String = ""): File</ID>
+    <ID>LongMethod:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin$private fun verify050ReadinessDocs(rootProject: Project)</ID>
+    <ID>MaxLineLength:PrepareCycloneDxBomTask.kt$PrepareCycloneDxBomTask$logger.warn("cyclonedxBom did not produce reports/cyclonedx/bom.json in the build directory; skipping SBOM copy.")</ID>
+    <ID>MaxLineLength:SovereignLabVerifierTasksTest.kt$SovereignLabVerifierTasksTest$"examples/spring-sovereign-starter/build/test-results/e2eTest/TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml"</ID>
+    <ID>MaxLineLength:SovereignLabVerifierTasksTest.kt$SovereignLabVerifierTasksTest$assertTrue(result.output.contains("benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true"))</ID>
+    <ID>MaxLineLength:TramaiSovereignLabVerificationPlugin.kt$TramaiSovereignLabVerificationPlugin$"Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."</ID>
+    <ID>MaxLineLength:TramaiSovereignLabVerificationPlugin.kt$TramaiSovereignLabVerificationPlugin$"examples/spring-sovereign-starter/build/test-results/e2eTest/TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml"</ID>
+    <ID>MaxLineLength:TramaiSovereignLabVerificationPlugin.kt$TramaiSovereignLabVerificationPlugin$description = "Runs the opt-in sovereign lab local-model invocation proof (requires a real local OpenAI-compatible endpoint)."</ID>
+    <ID>MaxLineLength:TramaiSovereignLabVerificationPlugin.kt$TramaiSovereignLabVerificationPlugin$project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml")</ID>
+    <ID>TooManyFunctions:TramaiReleaseVerificationPlugin.kt$TramaiReleaseVerificationPlugin : Plugin</ID>
     <ID>ComplexCondition:ApiCompatibilityVerifier.kt$ApiCompatibilityEvidenceReader$fromSha256.isBlank() || toSha256.isBlank() || !SHA256_HEX.matches(fromSha256) || !SHA256_HEX.matches(toSha256)</ID>
     <ID>ComplexCondition:ApiCompatibilityVerifier.kt$ApiCompatibilityEvidenceReader$module.isBlank() || targetVersion.isBlank() || rationale.isBlank() || migration.isBlank()</ID>
     <ID>ComplexCondition:ChangePolicyEvaluator.kt$ChangePolicyEvaluator$reasonBlank || phaseBlank || dateBlank || ownerBlank</ID>

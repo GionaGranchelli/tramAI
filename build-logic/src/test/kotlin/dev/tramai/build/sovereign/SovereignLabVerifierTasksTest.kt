@@ -30,7 +30,6 @@ import kotlin.test.assertTrue
  * reused").
  */
 class SovereignLabVerifierTasksTest {
-
     @TempDir
     lateinit var tempDir: File
 
@@ -42,10 +41,14 @@ class SovereignLabVerifierTasksTest {
         dir
     }
 
-    private fun copyFromRepo(dir: File, vararg relativePaths: String) {
-        val git = ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", *relativePaths)
-            .redirectErrorStream(true)
-            .start()
+    private fun copyFromRepo(
+        dir: File,
+        vararg relativePaths: String,
+    ) {
+        val git =
+            ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", *relativePaths)
+                .redirectErrorStream(true)
+                .start()
         val listing = git.inputStream.bufferedReader().readText()
         check(git.waitFor() == 0) { "git ls-files failed: $listing" }
         listing.lineSequence().filter { it.isNotBlank() }.forEach { rel ->
@@ -65,45 +68,57 @@ class SovereignLabVerifierTasksTest {
         return dir
     }
 
-    private fun runner(dir: File, vararg args: String): GradleRunner =
-        GradleRunner.create()
+    private fun runner(
+        dir: File,
+        vararg args: String,
+    ): GradleRunner =
+        GradleRunner
+            .create()
             .withProjectDir(dir)
             .withGradleVersion("9.0.0")
             .withArguments(*args, "--no-build-cache", "--stacktrace")
             .withPluginClasspath()
 
-    private fun writeFile(base: File, relativePath: String, content: String) {
+    private fun writeFile(
+        base: File,
+        relativePath: String,
+        content: String,
+    ) {
         val target = File(base, relativePath)
         target.parentFile.mkdirs()
         target.writeText(content)
     }
 
-    private fun runTask(dir: File, task: String): org.gradle.testkit.runner.BuildResult {
+    private fun runTask(
+        dir: File,
+        task: String,
+    ): org.gradle.testkit.runner.BuildResult {
         val result = runner(dir, task).build()
         assertTrue(
             result.task(":$task")?.outcome == TaskOutcome.SUCCESS,
-            "$task must succeed: ${result.output.take(1200)}"
+            "$task must succeed: ${result.output.take(1200)}",
         )
         return result
     }
 
     /** All files read by verifySovereignLabProfile — committed repo files (real oracles). */
-    private val labProfileFiles = listOf(
-        "examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml",
-        "examples/sovereign-lab/README.md",
-        "examples/sovereign-lab/EVIDENCE.md",
-        "examples/sovereign-lab/evidence-template/benchmark.md",
-        "examples/sovereign-lab/create-evidence-bundle.sh",
-        "examples/sovereign-lab/evidence-template/MANIFEST.md",
-        "examples/sovereign-lab/evidence-template/command-log.md",
-        "examples/sovereign-lab/finalize-evidence-bundle.sh",
-        "examples/sovereign-lab/RELEASE-READINESS.md",
-        "examples/sovereign-lab/REVIEWER-GUIDE.md",
-        "examples/sovereign-lab/EVIDENCE-CHAIN.md",
-        "examples/sovereign-lab/package-evidence-bundle.sh",
-        "examples/sovereign-lab/verify-evidence-archive.sh",
-        "examples/sovereign-lab/ARCHIVE-SIGNING.md",
-    )
+    private val labProfileFiles =
+        listOf(
+            "examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml",
+            "examples/sovereign-lab/README.md",
+            "examples/sovereign-lab/EVIDENCE.md",
+            "examples/sovereign-lab/evidence-template/benchmark.md",
+            "examples/sovereign-lab/create-evidence-bundle.sh",
+            "examples/sovereign-lab/evidence-template/MANIFEST.md",
+            "examples/sovereign-lab/evidence-template/command-log.md",
+            "examples/sovereign-lab/finalize-evidence-bundle.sh",
+            "examples/sovereign-lab/RELEASE-READINESS.md",
+            "examples/sovereign-lab/REVIEWER-GUIDE.md",
+            "examples/sovereign-lab/EVIDENCE-CHAIN.md",
+            "examples/sovereign-lab/package-evidence-bundle.sh",
+            "examples/sovereign-lab/verify-evidence-archive.sh",
+            "examples/sovereign-lab/ARCHIVE-SIGNING.md",
+        )
 
     /**
      * The REAL sovereign-evidence-pack-v1.json produced by
@@ -113,7 +128,8 @@ class SovereignLabVerifierTasksTest {
      * releaseBundle key, exactly as the document-intelligence evidence run
      * attaches it.
      */
-    private val evidencePackWithNullReleaseBundle = """
+    private val evidencePackWithNullReleaseBundle =
+        """
         {
             "schemaVersion": 1,
             "deploymentMode": "OFFLINE",
@@ -164,14 +180,16 @@ class SovereignLabVerifierTasksTest {
             "attestation": null,
             "generatedAt": "2026-08-25T19:06:28.737090617Z"
         }
-    """.trimIndent()
+        """.trimIndent()
 
-    private val evidencePackWithReleaseBundle: String = evidencePackWithNullReleaseBundle.replace(
-        "\"releaseBundle\": null,",
-        "\"releaseBundle\": { \"schemaVersion\": 1, \"releaseManifestFileName\": \"release-artifacts-v1.json\", \"releaseManifestSha256\": \"sha256:4aea20c0c82afe32230ef9a8332f7a854ed399238fedc9674aebdbe923b6ab02\", \"artifactCount\": 1 },",
-    )
+    private val evidencePackWithReleaseBundle: String =
+        evidencePackWithNullReleaseBundle.replace(
+            "\"releaseBundle\": null,",
+            "\"releaseBundle\": { \"schemaVersion\": 1, \"releaseManifestFileName\": \"release-artifacts-v1.json\", \"releaseManifestSha256\": \"sha256:4aea20c0c82afe32230ef9a8332f7a854ed399238fedc9674aebdbe923b6ab02\", \"artifactCount\": 1 },",
+        )
 
-    private val zeroEgressReport = """
+    private val zeroEgressReport =
+        """
         {
             "schemaVersion": 1,
             "deploymentMode": "OFFLINE",
@@ -186,9 +204,10 @@ class SovereignLabVerifierTasksTest {
             "artifactVerificationReceiptCount": 1,
             "auditChainValid": true
         }
-    """.trimIndent()
+        """.trimIndent()
 
-    private val minimalSbom = """
+    private val minimalSbom =
+        """
         {
             "bomFormat": "CycloneDX",
             "specVersion": "1.6",
@@ -202,18 +221,21 @@ class SovereignLabVerifierTasksTest {
             },
             "components": []
         }
-    """.trimIndent()
+        """.trimIndent()
 
     private fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     /** release-artifacts-v1.json whose entries carry digest+size computed from the jar bytes. */
     private fun releaseManifestJson(vararg entries: Pair<String, ByteArray>): String {
-        val artifacts = entries.map { (name, bytes) ->
-            val sha = sha256Hex(bytes)
-            """{"groupId": "dev.tramai", "artifactId": "tramai-core", "version": "0.1.0", "classifier": null, "extension": "jar", "fileName": "$name", "sha256": "sha256:$sha", "sizeBytes": ${bytes.size}}"""
-        }
-        return """{"schemaVersion": 1, "buildTool": "Gradle", "javaVersion": "21", "gradleVersion": "9.0.0", "artifacts": [${artifacts.joinToString(",")}]}"""
+        val artifacts =
+            entries.map { (name, bytes) ->
+                val sha = sha256Hex(bytes)
+                """{"groupId": "dev.tramai", "artifactId": "tramai-core", "version": "0.1.0", "classifier": null, "extension": "jar", "fileName": "$name", "sha256": "sha256:$sha", "sizeBytes": ${bytes.size}}"""
+            }
+        return """{"schemaVersion": 1, "buildTool": "Gradle", "javaVersion": "21", "gradleVersion": "9.0.0", "artifacts": [${artifacts.joinToString(
+            ",",
+        )}]}"""
     }
 
     /**
@@ -233,7 +255,11 @@ class SovereignLabVerifierTasksTest {
         }
         writeFile(dir, "build/zero-egress-report/zero-egress-report.json", zeroEgressReport)
         writeFile(dir, "build/supply-chain/sbom/tramai-cyclonedx-sbom.json", minimalSbom)
-        writeFile(dir, "build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256", "sha256:4aea20c0c82afe32230ef9a8332f7a854ed399238fedc9674aebdbe923b6ab02\n")
+        writeFile(
+            dir,
+            "build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256",
+            "sha256:4aea20c0c82afe32230ef9a8332f7a854ed399238fedc9674aebdbe923b6ab02\n",
+        )
         writeFile(dir, "build/sovereign-release/release-artifacts-v1.json", manifest)
         jars.forEach { (name, bytes) ->
             File(dir, "build/sovereign-release/artifacts/$name").apply {
@@ -312,10 +338,11 @@ class SovereignLabVerifierTasksTest {
         val bBytes = "jar-b".toByteArray()
         writeEvidenceBundleInputs(
             dir,
-            jars = mapOf(
-                "a-0.1.0.jar" to aBytes,
-                "b-0.1.0.jar" to bBytes,
-            ),
+            jars =
+                mapOf(
+                    "a-0.1.0.jar" to aBytes,
+                    "b-0.1.0.jar" to bBytes,
+                ),
         )
         writeFile(
             dir,
@@ -370,10 +397,11 @@ class SovereignLabVerifierTasksTest {
         val manifest = releaseManifestJson("a-0.1.0.jar" to aBytes)
         writeEvidenceBundleInputs(
             dir,
-            jars = mapOf(
-                "a-0.1.0.jar" to aBytes,
-                "b-0.1.0.jar" to bBytes,
-            ),
+            jars =
+                mapOf(
+                    "a-0.1.0.jar" to aBytes,
+                    "b-0.1.0.jar" to bBytes,
+                ),
             manifest = manifest,
         )
         writeFile(
@@ -435,5 +463,193 @@ class SovereignLabVerifierTasksTest {
             """.trimIndent(),
         )
         runTask(dir, "execRegistrationSmoke")
+    }
+
+    // ------------------------------------------------------------------
+    // 9.2d-b2 slice B: verifySovereignLabRuntimeSmoke / LocalModel / benchmark
+    // moved from the root build script into this plugin.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `verifySovereignLabRuntimeSmoke passes on a clean JUnit report`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build/test-results/e2eTest/TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml",
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="SovereignLabProfileSmokeTest" tests="1" failures="0" errors="0">
+              <testcase name="smoke" classname="dev.tramai.examples.spring.SovereignLabProfileSmokeTest"/>
+            </testsuite>
+            """.trimIndent(),
+        )
+        // dependsOn :examples:spring-sovereign-starter:e2eTest must still
+        // resolve: include the subproject and register a no-op e2eTest so the
+        // fixture reaches the moved typed verification action.
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "sovereign-lab-fixture"
+            include("examples:spring-sovereign-starter")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            """
+            tasks.register("e2eTest") { doLast { logger.lifecycle("fixture e2eTest ran") } }
+            """.trimIndent(),
+        )
+        val result = runner(dir, "verifySovereignLabRuntimeSmoke").build()
+        assertTrue(result.output.contains("sovereign lab runtime smoke tests passed"))
+    }
+
+    @Test
+    fun `verifySovereignLabRuntimeSmoke fails closed on missing report`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "sovereign-lab-fixture"
+            include("examples:spring-sovereign-starter")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            """
+            tasks.register("e2eTest") { doLast { logger.lifecycle("fixture e2eTest ran") } }
+            """.trimIndent(),
+        )
+        val result = runner(dir, "verifySovereignLabRuntimeSmoke").buildAndFail()
+        assertContains(result.output, "SovereignLabProfileSmokeTest did not run")
+    }
+
+    @Test
+    fun `verifySovereignLabRuntimeSmoke fails on non-clean report`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build/test-results/e2eTest/TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml",
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="SovereignLabProfileSmokeTest" tests="1" failures="1" errors="0">
+              <testcase name="smoke" classname="dev.tramai.examples.spring.SovereignLabProfileSmokeTest">
+                <failure message="boom"/>
+              </testcase>
+            </testsuite>
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "sovereign-lab-fixture"
+            include("examples:spring-sovereign-starter")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            """
+            tasks.register("e2eTest") { doLast { logger.lifecycle("fixture e2eTest ran") } }
+            """.trimIndent(),
+        )
+        val result = runner(dir, "verifySovereignLabRuntimeSmoke").buildAndFail()
+        assertContains(result.output, "SovereignLabProfileSmokeTest did not pass cleanly")
+    }
+
+    @Test
+    fun `sovereign lab local model tasks keep their names and env-gate semantics`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.sovereign-lab-verification") }
+            tasks.register("labRegistrationSmoke") {
+                doLast {
+                    val smoke = tasks.named("verifySovereignLabRuntimeSmoke").get()
+                    check(smoke.group == "verification") { "smoke group" }
+                    check(smoke.description!!.contains("embedded PostgreSQL")) { "smoke description" }
+                    val local = tasks.named("verifySovereignLabLocalModel").get()
+                    check(local.group == "verification") { "local group" }
+                    check(local.description!!.contains("opt-in sovereign lab local-model")) { "local description" }
+                    val bench = tasks.named("benchmarkSovereignLabLocalModel").get()
+                    check(bench.group == "verification") { "bench group" }
+                    check(bench.description!!.contains("benchmark diagnostics")) { "bench description" }
+                }
+            }
+            """.trimIndent(),
+        )
+        runTask(dir, "labRegistrationSmoke")
+    }
+
+    @Test
+    fun `sovereign lab local model env-gate fires when disabled`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "sovereign-lab-fixture"
+            include("examples:spring-sovereign-starter")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            """
+            tasks.register("localModelTest") { doLast { logger.lifecycle("fixture localModelTest ran") } }
+            """.trimIndent(),
+        )
+        // No TRAMAI_ENABLE_LOCAL_MODEL_TEST: the moved doFirst env-gate must
+        // fire and log the guidance message.
+        val result = runner(dir, "verifySovereignLabLocalModel").build()
+        assertTrue(result.output.contains("verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST=true"))
+    }
+
+    @Test
+    fun `benchmark sovereign lab local model env-gate fires when disabled`() {
+        val dir = fixture()
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "sovereign-lab-fixture"
+            include("examples:spring-sovereign-starter")
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            """
+            tasks.register("localModelBenchmark") { doLast { logger.lifecycle("fixture localModelBenchmark ran") } }
+            """.trimIndent(),
+        )
+        val result = runner(dir, "benchmarkSovereignLabLocalModel").build()
+        assertTrue(result.output.contains("benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true"))
+    }
+
+    @Test
+    fun `root build script no longer carries sovereign lab execution implementation`() {
+        val prop =
+            System.getProperty("tramai.repositoryRoot")
+                ?: error("tramai.repositoryRoot system property not set (wired by build-logic/build.gradle.kts)")
+        val rootBuildScript = File(prop, "build.gradle.kts").readText()
+
+        for (marker in listOf(
+            "verifySovereignLabRuntimeSmoke must prove the lab smoke test executed",
+            "SovereignLabProfileSmokeTest did not pass cleanly",
+            "verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST",
+            "benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK",
+        )) {
+            assertTrue(
+                !rootBuildScript.contains(marker),
+                "root build.gradle.kts must not contain sovereign-lab implementation marker: $marker",
+            )
+        }
     }
 }

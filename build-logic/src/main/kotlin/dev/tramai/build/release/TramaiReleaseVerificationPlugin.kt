@@ -20,6 +20,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         registerVerifyReleasePublishInputs(project)
         registerVerifySignedPublicationBundle(project)
         registerVerifyReleaseReadiness(project)
+        registerVerify050ReleaseReadiness(project)
     }
 
     /**
@@ -228,5 +229,139 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 "verifySovereignOpsObservabilityDocs",
             )
         }
+    }
+
+    /**
+     * Aggregates all 0.5.0 release-readiness verification tasks (Epic 9.2d-b2).
+     * The document/file inspection implementation moved verbatim from the root
+     * build script into this plugin, so the root build remains composition-only.
+     * Deliberately NOT configuration-cache compatible: it aggregates
+     * execution-time verification tasks (C3 = 1 deliberate, per 9.2d scope).
+     */
+    private fun registerVerify050ReleaseReadiness(project: Project) {
+        project.tasks.register("verify050ReleaseReadiness") {
+            group = "verification"
+            description = "Aggregates all 0.5.0 release-readiness verification tasks."
+            notCompatibleWithConfigurationCache("Release readiness aggregates execution-time verification tasks.")
+
+            dependsOn(
+                "verifyVersionAlignment",
+                "verifyReleaseReadiness",
+                "verifyWorkflowApiStabilityBoundary",
+                "verifySovereignRuntimeApiBoundary",
+                "verifyToolGovernanceExample",
+            )
+
+            doLast {
+                verify050ReadinessDocs(project.rootProject)
+            }
+        }
+    }
+
+    /**
+     * The 0.5.0 release-readiness document/file inspection (moved verbatim
+     * from the root build script; extracted into its own function so the
+     * registration stays short). Fails closed with the exact historical
+     * diagnostics.
+     */
+    private fun verify050ReadinessDocs(rootProject: Project) {
+        val rootDir = rootProject.layout.projectDirectory.asFile
+        val expectedVersion = "0.5.0"
+        val expectedReleaseDate =
+            rootProject.findProperty("tramaiReleaseDate") as? String
+                ?: error("tramaiReleaseDate must be set in gradle.properties")
+
+        // 0.5.0 release-readiness document exists
+        val releaseReadinessDoc = rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md")
+        require(releaseReadinessDoc.isFile) {
+            "Missing $expectedVersion release-readiness document at ${releaseReadinessDoc.path}"
+        }
+
+        // CHANGELOG has 0.5.0 section
+        val changelog = rootDir.resolve("CHANGELOG.md")
+        val changelogText = changelog.readText()
+        require(changelogText.contains("## $expectedVersion - $expectedReleaseDate")) {
+            "CHANGELOG.md must contain ## $expectedVersion - $expectedReleaseDate section"
+        }
+
+        // STATUS and roadmap state are correct
+        val statusDoc = rootDir.resolve("docs/STATUS.md")
+        val statusText = statusDoc.readText()
+        require(statusText.contains("0.5.0 release candidate prepared")) {
+            "STATUS.md must mention 0.5.0 release candidate prepared"
+        }
+
+        val roadmap = rootDir.resolve("docs/POST-SOVEREIGNTY-ROADMAP.md")
+        val roadmapText = roadmap.readText()
+        require(roadmapText.contains("Release prepared — publication pending")) {
+            "Roadmap must indicate release prepared — publication pending"
+        }
+
+        // Publish workflow has tag/version matching
+        val publishWorkflow = rootDir.resolve(".github/workflows/publish.yml")
+        val publishText = publishWorkflow.readText()
+        require(publishText.contains("Verify version alignment") || publishText.contains("version alignment")) {
+            "Publish workflow must contain version alignment check"
+        }
+
+        // No absolute /home/... links in release docs (allow placeholder /home/...)
+        val localHomePath = Regex("""/home/(?!\.\.\.)[^/\s]+/""")
+        val releaseDocs =
+            listOf(
+                rootDir.resolve("docs/reference/release-validation.md"),
+                rootDir.resolve("docs/reference/releasing.md"),
+                rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md"),
+                rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md"),
+            )
+        for (doc in releaseDocs) {
+            if (!doc.isFile) continue
+            val docText = doc.readText()
+            require(!localHomePath.containsMatchIn(docText)) {
+                "${doc.name} must not contain absolute /home/<user>/ paths — use repository-relative links"
+            }
+        }
+
+        // No duplicate PR entries in the Added section
+        val addedSection = changelogText.substringAfter("### Added").substringBefore("### Changed")
+        val prPattern = Regex("""\(PR #(\d+)\)""")
+        val prCounts =
+            prPattern
+                .findAll(addedSection)
+                .map { it.groupValues[1] }
+                .groupingBy { it }
+                .eachCount()
+        val duplicates = prCounts.filter { it.value > 1 }
+        require(duplicates.isEmpty()) {
+            "Duplicate PR entries in Added section: ${duplicates.keys.joinToString(
+                ", ",
+            ) { "PR #$it appears ${duplicates[it]} times" }}"
+        }
+
+        // No stale "no DB outbox" or "single-node only" claims in sovereign-runtime-release-readiness.md
+        val sovereignReadiness = rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md")
+        if (sovereignReadiness.isFile) {
+            val sovereignText = sovereignReadiness.readText()
+            require(!sovereignText.contains("Database persistence is future work")) {
+                "sovereign-runtime-release-readiness.md must not claim 'Database persistence is future work'"
+            }
+            require(!sovereignText.contains("No DB-backed outbox")) {
+                "sovereign-runtime-release-readiness.md must not claim 'No DB-backed outbox'"
+            }
+            require(!sovereignText.contains("worker assumes single-node operation")) {
+                "sovereign-runtime-release-readiness.md must not claim 'worker assumes single-node operation'"
+            }
+        }
+
+        rootProject.logger.lifecycle("verify050ReleaseReadiness: all checks passed.")
+        rootProject.logger.lifecycle("  - Version alignment: verified")
+        rootProject.logger.lifecycle("  - Release readiness: verified")
+        rootProject.logger.lifecycle("  - Workflow API stability boundary: verified")
+        rootProject.logger.lifecycle("  - Sovereign runtime API boundary: verified")
+        rootProject.logger.lifecycle("  - Tool governance example: verified")
+        rootProject.logger.lifecycle("  - 0.5.0 release-readiness doc: verified")
+        rootProject.logger.lifecycle("  - CHANGELOG: 0.5.0 section verified")
+        rootProject.logger.lifecycle("  - STATUS/roadmap: release-ready state verified")
+        rootProject.logger.lifecycle("  - Publish workflow: version alignment check verified")
+        rootProject.logger.lifecycle("  - Release docs: no absolute paths or stale claims")
     }
 }

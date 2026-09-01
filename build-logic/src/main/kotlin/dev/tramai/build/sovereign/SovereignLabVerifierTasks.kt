@@ -6,22 +6,22 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 
-/**
- * Typed CC-safe replacements for the five root build.gradle.kts lab/evidence
- * closures (Epic 9.2d-a3b2a). Each task declares the EXACT files it reads as
- * [InputFiles] (never a directory), has no project access at execution, and
- * preserves the historical diagnostics byte-for-byte (every require() message
- * and the failure order are unchanged).
+/*
+ * Typed CC-safe replacements for the root build.gradle.kts lab/evidence
+ * closures. Each task declares the EXACT files it reads as inputs (never a
+ * directory), has no project access at execution, and preserves the historical
+ * diagnostics byte-for-byte (every require() message and the failure order are
+ * unchanged).
  *
- * Missing-file inputs are marked [Optional] deliberately: the historical
+ * Missing-file inputs are marked Optional deliberately: the historical
  * closures fail closed with their OWN require() diagnostics (e.g.
  * "sovereign-evidence-missing-evidence-pack"), and non-optional input
  * validation would replace those messages with Gradle's generic
@@ -36,7 +36,6 @@ import org.gradle.work.DisableCachingByDefault
  */
 @DisableCachingByDefault(because = "Verification task has no output artifact")
 abstract class SovereignLabProfileVerifierTask : DefaultTask() {
-
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -171,8 +170,8 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
         }
         require(
             evidenceText.contains("no cloud", ignoreCase = true) ||
-            evidenceText.contains("zero egress", ignoreCase = true) ||
-            evidenceText.contains("No Cloud", ignoreCase = true),
+                evidenceText.contains("zero egress", ignoreCase = true) ||
+                evidenceText.contains("No Cloud", ignoreCase = true),
         ) {
             "Sovereign lab evidence guide must explain no-cloud / zero-egress proof."
         }
@@ -187,7 +186,7 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
         }
         require(
             evidenceText.contains("does not define production performance thresholds", ignoreCase = true) ||
-            evidenceText.contains("does not define production performance", ignoreCase = true),
+                evidenceText.contains("does not define production performance", ignoreCase = true),
         ) {
             "Sovereign lab evidence guide must state the benchmark is diagnostic, not a production threshold."
         }
@@ -210,7 +209,7 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
         val bundleScriptText = evidenceBundleScript.readText()
         require(
             bundleScriptText.contains("does not certify", ignoreCase = true) ||
-            bundleScriptText.contains("does not define production", ignoreCase = true),
+                bundleScriptText.contains("does not define production", ignoreCase = true),
         ) {
             "Evidence bundle helper must avoid implying certification or production guarantees."
         }
@@ -356,7 +355,7 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
             require(
                 labReadmeText.contains(required) ||
                     evidenceText.contains(required) ||
-                    reviewerGuideText.contains(required)
+                    reviewerGuideText.contains(required),
             ) {
                 "Sovereign lab archive export docs must mention $required."
             }
@@ -409,7 +408,7 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
                 labReadmeText.contains(required) ||
                     evidenceChainText.contains(required) ||
                     reviewerGuideText.contains(required) ||
-                    readinessText.contains(required)
+                    readinessText.contains(required),
             ) {
                 "Sovereign lab archive verifier docs must mention $required."
             }
@@ -452,7 +451,6 @@ abstract class SovereignLabProfileVerifierTask : DefaultTask() {
  * root closure (sovereign-evidence-missing-* require messages).
  */
 abstract class PrepareSovereignEvidenceBundleTask : DefaultTask() {
-
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -514,9 +512,10 @@ abstract class PrepareSovereignEvidenceBundleTask : DefaultTask() {
         require(releaseArtifactsSrc.isDirectory()) { "sovereign-evidence-missing-release-artifacts-dir" }
         // Declared input authority: artifactsJars determines the JAR inputs,
         // NOT whatever happens to be in the directory (9.2d input-model rule).
-        val jarFiles = artifactsJars.files
-            .filter { it.isFile && it.extension == "jar" }
-            .sortedBy { it.name }
+        val jarFiles =
+            artifactsJars.files
+                .filter { it.isFile && it.extension == "jar" }
+                .sortedBy { it.name }
         require(jarFiles.isNotEmpty()) { "sovereign-evidence-empty-release-artifacts-dir" }
 
         // Clean output
@@ -549,7 +548,6 @@ abstract class PrepareSovereignEvidenceBundleTask : DefaultTask() {
  */
 @DisableCachingByDefault(because = "Verification task has no output artifact")
 abstract class VerifySovereignEvidenceBundleReleaseManifestTask : DefaultTask() {
-
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -577,7 +575,6 @@ abstract class VerifySovereignEvidenceBundleReleaseManifestTask : DefaultTask() 
  */
 @DisableCachingByDefault(because = "Verification task has no output artifact")
 abstract class VerifySovereignEvidencePackContainsReleaseBundleTask : DefaultTask() {
-
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -592,14 +589,51 @@ abstract class VerifySovereignEvidencePackContainsReleaseBundleTask : DefaultTas
         }
 
         val text = evidencePackPath.readText()
-        val hasReleaseBundle = text.contains("\"releaseBundle\":") &&
-            !text.contains("\"releaseBundle\": null") &&
-            !text.contains("\"releaseBundle\": null,")
+        val hasReleaseBundle =
+            text.contains("\"releaseBundle\":") &&
+                !text.contains("\"releaseBundle\": null") &&
+                !text.contains("\"releaseBundle\": null,")
 
         require(hasReleaseBundle) {
             "sovereign-evidence-pack-missing-release-bundle: ${evidencePackPath.absolutePath}"
         }
 
         logger.lifecycle("Evidence pack contains releaseBundle: ${evidencePackPath.absolutePath}")
+    }
+}
+
+/**
+ * Verifies the sovereign lab runtime smoke test report produced by
+ * :examples:spring-sovereign-starter:e2eTest (Epic 9.2d-b2 slice B). Moved
+ * verbatim from the root build script: the task requires the JUnit XML report
+ * to exist and to carry failures="0" errors="0". Typed CC-safe replacement,
+ * with the report file declared as an [InputFiles] input so the execution
+ * model stays honest (the historical closure read the file at execution time
+ * without declaring it).
+ */
+@DisableCachingByDefault(because = "Verification task has no output artifact")
+abstract class VerifySovereignLabRuntimeSmokeTask : DefaultTask() {
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val smokeReportFile: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val reportFile = smokeReportFile.get().asFile
+
+        require(reportFile.exists()) {
+            "SovereignLabProfileSmokeTest did not run. " +
+                "verifySovereignLabRuntimeSmoke must prove the lab smoke test executed.\n" +
+                "Expected report: ${reportFile.absolutePath}"
+        }
+
+        val xml = reportFile.readText()
+        require(xml.contains("failures=\"0\"") && xml.contains("errors=\"0\"")) {
+            "SovereignLabProfileSmokeTest did not pass cleanly. " +
+                "Check the test report at:\n  ${reportFile.absolutePath}"
+        }
+
+        logger.lifecycle("verifySovereignLabRuntimeSmoke: sovereign lab runtime smoke tests passed.")
     }
 }
