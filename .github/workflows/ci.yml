@@ -200,6 +200,20 @@ jobs:
             --no-daemon \
             -PtramaiCancellationBaseSha="${{ github.event.before }}"
 
+      - name: Verify critical coverage against PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          ./gradlew verifyCriticalCoverage \
+            --no-daemon \
+            -PtramaiCoverageBaseSha="${{ github.event.pull_request.base.sha }}"
+
+      - name: Verify critical coverage against previous master
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          ./gradlew verifyCriticalCoverage \
+            --no-daemon \
+            -PtramaiCoverageBaseSha="${{ github.event.before }}"
+
       - name: Publish to Maven Local for example smoke test
         run: ./gradlew publishToMavenLocal
 

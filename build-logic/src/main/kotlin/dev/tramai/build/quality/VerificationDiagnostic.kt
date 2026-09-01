@@ -9,7 +9,7 @@ enum class DiagnosticSeverity {
     FAILURE,
     WARNING,
     ACCEPTED,
-    IMPROVEMENT
+    IMPROVEMENT,
 }
 
 /**
@@ -58,8 +58,8 @@ enum class DiagnosticCode {
     API_MODULE_UNCLASSIFIED,
     API_VALIDATION_NOT_CONFIGURED,
     API_COMPATIBILITY_FAILED,
-    API_HASH_CHANGED,       // NEW: aggregate hash changed (compatible change)
-    API_DUMP_NONDETERMINISTIC,  // NEW: dump contains absolute paths/timestamps
+    API_HASH_CHANGED, // NEW: aggregate hash changed (compatible change)
+    API_DUMP_NONDETERMINISTIC, // NEW: dump contains absolute paths/timestamps
 
     // Resolved external dependency baseline
     DEPENDENCY_BASELINE_EMPTY,
@@ -80,6 +80,11 @@ enum class DiagnosticCode {
     COVERAGE_REGRESSION,
     COVERAGE_FAMILY_EMPTY,
     COVERAGE_EXCLUSION_UNDOCUMENTED,
+    COVERAGE_CRITICAL_MODULE_REMOVED,
+    COVERAGE_TOLERANCE_WEAKENED,
+    COVERAGE_BASELINE_WEAKENED,
+    COVERAGE_NEW_MODULE_UNMEASURED,
+    COVERAGE_BASELINE_INCONSISTENT,
     MUTATION_REPORT_MISSING,
     MUTATION_REPORT_MALFORMED,
     MUTATION_TARGET_EMPTY,
@@ -140,7 +145,7 @@ enum class DiagnosticCode {
     MODULE_CARD_LEGACY_CLASSIFICATION,
     MODULE_CARD_VERSIONLESS_DEPENDENCY,
     MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
-    MODULE_CARD_COVERAGE_MISMATCH
+    MODULE_CARD_COVERAGE_MISMATCH,
 }
 
 /**
@@ -155,23 +160,49 @@ data class VerificationDiagnostic(
     val findingId: String? = null,
     val deviationId: String? = null,
     val baselineValue: String? = null,
-    val currentValue: String? = null
+    val currentValue: String? = null,
 ) {
     companion object {
-        fun failure(code: DiagnosticCode, message: String, modulePath: String? = null,
-                    findingId: String? = null, deviationId: String? = null,
-                    baselineValue: String? = null, currentValue: String? = null): VerificationDiagnostic =
-            VerificationDiagnostic(code, DiagnosticSeverity.FAILURE, message,
-                modulePath = modulePath, findingId = findingId, deviationId = deviationId,
-                baselineValue = baselineValue, currentValue = currentValue)
+        fun failure(
+            code: DiagnosticCode,
+            message: String,
+            modulePath: String? = null,
+            findingId: String? = null,
+            deviationId: String? = null,
+            baselineValue: String? = null,
+            currentValue: String? = null,
+        ): VerificationDiagnostic =
+            VerificationDiagnostic(
+                code,
+                DiagnosticSeverity.FAILURE,
+                message,
+                modulePath = modulePath,
+                findingId = findingId,
+                deviationId = deviationId,
+                baselineValue = baselineValue,
+                currentValue = currentValue,
+            )
 
-        fun warning(code: DiagnosticCode, message: String): VerificationDiagnostic =
-            VerificationDiagnostic(code, DiagnosticSeverity.WARNING, message)
+        fun warning(
+            code: DiagnosticCode,
+            message: String,
+        ): VerificationDiagnostic = VerificationDiagnostic(code, DiagnosticSeverity.WARNING, message)
 
-        fun accepted(code: DiagnosticCode, message: String, deviationId: String? = null): VerificationDiagnostic =
-            VerificationDiagnostic(code, DiagnosticSeverity.ACCEPTED, message, deviationId = deviationId)
+        fun accepted(
+            code: DiagnosticCode,
+            message: String,
+            deviationId: String? = null,
+        ): VerificationDiagnostic =
+            VerificationDiagnostic(
+                code,
+                DiagnosticSeverity.ACCEPTED,
+                message,
+                deviationId = deviationId,
+            )
 
-        fun improvement(code: DiagnosticCode, message: String): VerificationDiagnostic =
-            VerificationDiagnostic(code, DiagnosticSeverity.IMPROVEMENT, message)
+        fun improvement(
+            code: DiagnosticCode,
+            message: String,
+        ): VerificationDiagnostic = VerificationDiagnostic(code, DiagnosticSeverity.IMPROVEMENT, message)
     }
 }

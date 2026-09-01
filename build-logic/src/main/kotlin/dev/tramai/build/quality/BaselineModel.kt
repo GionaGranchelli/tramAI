@@ -227,6 +227,15 @@ data class CoverageData(
     val exclusions: List<CoverageExclusion> = emptyList(),
     val overallLineCoverage: Double = 0.0,
     val overallBranchCoverage: Double = 0.0,
+    // Provenance (10.3b-H): these identify the source state measured when the
+    // baseline was generated. They are INFORMATIONAL — the enforcement
+    // authority is the base SHA (-PtramaiCoverageBaseSha), never these fields.
+    // TramAI squash-merges PRs, so a measurement commit may legitimately be a
+    // pre-squash PR commit and not an ancestor of final master (already true
+    // for the 10.3a baseline: measuredCommit 15f4ffb6).
+    val jacocoVersion: String = "",
+    val measuredCommit: String = "",
+    val schemaVersion: String = "",
 )
 
 data class ModuleCoverage(
