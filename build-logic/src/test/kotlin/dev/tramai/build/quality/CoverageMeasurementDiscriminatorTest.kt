@@ -38,15 +38,27 @@ class CoverageMeasurementDiscriminatorTest {
     }
 
     @Test
-    fun `A2 report with zero class population fails`() {
+    fun `A2 source-bearing zero-line report fails with zero executable lines`() {
         val config = configWith()
         writeAllReports()
         writeModuleSources(":tramai-module1", listOf("X.kt"))
-        // module1 report deleted → collector fails with a zero-source trap
-        root.resolve("tramai-module1/build/reports/jacoco/test/jacocoTestReport.xml").delete()
-        assertFailsWith<GradleException> {
-            CoverageCollector(root, config).collect()
-        }
+        // module1 gets a real report with all-zero counters: production sources
+        // exist but zero executable lines — the collector's population guard
+        // must fire, not the missing-report guard.
+        writeReport(
+            ":tramai-module1",
+            Counters(
+                linesMissed = 0,
+                linesCovered = 0,
+                branchesMissed = 0,
+                branchesCovered = 0,
+            ),
+        )
+        val e =
+            assertFailsWith<GradleException> {
+                CoverageCollector(root, config).collect()
+            }
+        assertTrue(e.message!!.contains("zero executable lines"), e.message)
     }
 
     @Test
