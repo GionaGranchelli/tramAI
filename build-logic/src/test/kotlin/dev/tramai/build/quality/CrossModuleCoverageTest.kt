@@ -49,26 +49,26 @@ class CrossModuleCoverageTest {
 
         val VENDOR_MODULES =
             listOf(
-                VendorModule("org.junit.jupiter", "junit-jupiter-api", "5.11.4", emptyList(), null),
+                VendorModule("org.junit.jupiter", "junit-jupiter-api", "5.12.2", emptyList(), null),
                 VendorModule(
                     "org.junit.jupiter",
                     "junit-jupiter-engine",
-                    "5.11.4",
+                    "5.12.2",
                     listOf(
-                        Dep("org.junit.jupiter", "junit-jupiter-api", "5.11.4"),
-                        Dep("org.junit.platform", "junit-platform-engine", "1.11.4"),
+                        Dep("org.junit.jupiter", "junit-jupiter-api", "5.12.2"),
+                        Dep("org.junit.platform", "junit-platform-engine", "1.12.2"),
                         Dep("org.opentest4j", "opentest4j", "1.3.0"),
                         Dep("org.apiguardian", "apiguardian-api", "1.1.2"),
                     ),
                     null,
                 ),
-                VendorModule("org.junit.platform", "junit-platform-commons", "1.11.4", emptyList(), null),
+                VendorModule("org.junit.platform", "junit-platform-commons", "1.12.2", emptyList(), null),
                 VendorModule(
                     "org.junit.platform",
                     "junit-platform-engine",
-                    "1.11.4",
+                    "1.12.2",
                     listOf(
-                        Dep("org.junit.platform", "junit-platform-commons", "1.11.4"),
+                        Dep("org.junit.platform", "junit-platform-commons", "1.12.2"),
                         Dep("org.opentest4j", "opentest4j", "1.3.0"),
                     ),
                     null,
@@ -76,10 +76,10 @@ class CrossModuleCoverageTest {
                 VendorModule(
                     "org.junit.platform",
                     "junit-platform-launcher",
-                    "1.11.4",
+                    "1.12.2",
                     listOf(
-                        Dep("org.junit.platform", "junit-platform-engine", "1.11.4"),
-                        Dep("org.junit.platform", "junit-platform-commons", "1.11.4"),
+                        Dep("org.junit.platform", "junit-platform-engine", "1.12.2"),
+                        Dep("org.junit.platform", "junit-platform-commons", "1.12.2"),
                     ),
                     null,
                 ),
@@ -253,8 +253,8 @@ class CrossModuleCoverageTest {
             repositories { maven { url = uri(rootDir.resolve("repo")) } }
             dependencies {
                 implementation(project(":critical"))
-                testImplementation("org.junit.jupiter:junit-jupiter-engine:5.11.4")
-                testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
+                testImplementation("org.junit.jupiter:junit-jupiter-engine:5.12.2")
+                testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
             }
             tasks.test { useJUnitPlatform() }
             """.trimIndent(),
