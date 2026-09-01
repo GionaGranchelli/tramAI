@@ -460,6 +460,89 @@ class CoveragePolicyDeltaVerifierTest {
         // hides this → RED.
     }
 
+    // ── B20b/B21b: review P2 — zero-population phantom + config↔baseline key agreement ──
+
+    @Test
+    fun `B20b zero-population candidate baseline with stored percentage fails`() {
+        // A critical module with linesTotal=0 must not be able to carry a
+        // fabricated stored percentage past structural integrity (the old
+        // linesTotal>0 guard skipped the recompute entirely).
+        val phantom =
+            data(80.0, 70.0).copy(
+                byModule =
+                    mapOf(
+                        ":core" to
+                            ModuleCoverage(
+                                module = ":core",
+                                lineCoverage = 93.5, // fabricated — denominator is zero
+                                branchCoverage = 0.0,
+                                linesCovered = 0,
+                                linesMissed = 0,
+                                linesTotal = 0,
+                                branchesCovered = 0,
+                                branchesMissed = 0,
+                                branchesTotal = 0,
+                            ),
+                    ),
+            )
+        val phantomData = phantom.copy(criticalModules = phantom.byModule)
+        val d = verify(candidateBaseline = phantomData)
+        val zeroPopulation =
+            d.any {
+                it.code == DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT &&
+                    it.message.contains("zero executable")
+            }
+        assertTrue(
+            zeroPopulation,
+            "zero-population candidate baseline must fail structural integrity\n${d.joinToString("\n")}",
+        )
+    }
+
+    @Test
+    fun `B21b phantom baseline module not in config criticalModules fails`() {
+        // baseline.criticalModules == byModule internally, but the module is
+        // NOT in the governing config's criticalModules — must be caught.
+        val phantom =
+            data(80.0, 70.0).copy(
+                byModule =
+                    mapOf(
+                        ":core" to moduleCoverage(":core", 80.0, 70.0),
+                        ":phantom" to moduleCoverage(":phantom", 80.0, 70.0),
+                    ),
+            )
+        val phantomData = phantom.copy(criticalModules = phantom.byModule)
+        val d = verify(candidateBaseline = phantomData)
+        val phantomModule =
+            d.any {
+                it.code == DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT &&
+                    it.message.contains("config criticalModules")
+            }
+        assertTrue(
+            phantomModule,
+            "phantom baseline module must fail structural integrity\n${d.joinToString("\n")}",
+        )
+    }
+
+    private fun moduleCoverage(
+        module: String,
+        line: Double,
+        branch: Double,
+    ): ModuleCoverage {
+        val m =
+            ModuleCoverage(
+                module = module,
+                lineCoverage = line,
+                branchCoverage = branch,
+                linesCovered = (line * 10).toInt(),
+                linesMissed = 1000 - (line * 10).toInt(),
+                linesTotal = 1000,
+                branchesCovered = (branch * 10).toInt(),
+                branchesMissed = 1000 - (branch * 10).toInt(),
+                branchesTotal = 1000,
+            )
+        return m
+    }
+
     // ── Candidate baseline weakening against the base (M3 discriminator) ──
 
     @Test

@@ -1365,23 +1365,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 dependsOn("verifyModuleMatrixDrift")
                 dependsOn("verifyCriticalCoverage")
                 // Module documentation contract gate is registered by a
-                // separate plugin (TramaiDocsGuardsPlugin); guard so a minimal
-                // build without it cannot abort task-graph resolution (same
-                // pattern as the verify060Architecture wiring above).
-                if (project.tasks.findByName("verifyModuleDocContract") != null) {
-                    dependsOn("verifyModuleDocContract")
-                }
+                // separate plugin (TramaiDocsGuardsPlugin). It is a REQUIRED
+                // authority: if it disappears, verifyPr must fail closed, never
+                // silently pass without it (10.3b review P1).
+                dependsOn("verifyModuleDocContract")
 
-                // Include build-logic tests (included build — must use includedBuild API)
+                // Include build-logic tests (included build — must use includedBuild API).
+                // Fail-closed: if the build-logic authority is missing, verifyPr must
+                // FAIL, never warn-and-pass (10.3b review P1).
                 val buildLogicTestTask =
                     project.gradle.includedBuilds
                         .firstOrNull { it.name == "build-logic" }
                         ?.task(":test")
-                if (buildLogicTestTask != null) {
-                    dependsOn(buildLogicTestTask)
-                } else {
-                    logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
-                }
+                        ?: throw GradleException(
+                            "verifyPr: included build 'build-logic' not found — " +
+                                "build-logic tests are a required verification authority",
+                        )
+                dependsOn(buildLogicTestTask)
 
                 doLast {
                     logger.lifecycle("verifyPr completed — see individual task results above.")

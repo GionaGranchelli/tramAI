@@ -42,20 +42,66 @@ class CoverageWiringTest {
         )
     }
 
-    private fun wiringFixture(): File {
+    // ── W2/W3: required verifyPr authorities must be fail-closed (review P1) ──
+
+    @Test
+    fun `W2 verifyPr without verifyModuleDocContract fails closed`() {
+        val dir = wiringFixture(includeDocContractTask = false)
+        val result =
+            GradleRunner
+                .create()
+                .withProjectDir(dir)
+                .withGradleVersion("9.0.0")
+                .withArguments("verifyPr", "--dry-run")
+                .withPluginClasspath()
+                .buildAndFail()
+
+        assertTrue(
+            result.output.contains("verifyModuleDocContract"),
+            "verifyPr must fail when verifyModuleDocContract is missing\n${result.output}",
+        )
+    }
+
+    @Test
+    fun `W3 verifyPr without build-logic authority fails closed`() {
+        val dir = wiringFixture(includeBuildLogic = false)
+        val result =
+            GradleRunner
+                .create()
+                .withProjectDir(dir)
+                .withGradleVersion("9.0.0")
+                .withArguments("verifyPr", "--dry-run")
+                .withPluginClasspath()
+                .buildAndFail()
+
+        assertTrue(
+            result.output.contains("build-logic") && result.output.contains("required verification authority"),
+            "verifyPr must fail when the build-logic included build is missing\n${result.output}",
+        )
+    }
+
+    private fun wiringFixture(
+        includeDocContractTask: Boolean = true,
+        includeBuildLogic: Boolean = true,
+    ): File {
         val dir = File(tempDir, "fixture").apply { mkdirs() }
-        writeBuildScripts(dir)
+        writeBuildScripts(dir, includeDocContractTask, includeBuildLogic)
         writeQualityConfig(dir)
         return dir
     }
 
-    private fun writeBuildScripts(dir: File) {
+    private fun writeBuildScripts(
+        dir: File,
+        includeDocContractTask: Boolean,
+        includeBuildLogic: Boolean,
+    ) {
         writeFile(
             dir,
             "settings.gradle.kts",
             """
             rootProject.name = "coverage-wiring"
             include(":sample", ":tramai-core")
+            ${if (includeBuildLogic) "includeBuild(\"build-logic\")" else ""}
             """.trimIndent(),
         )
         writeFile(
@@ -63,8 +109,18 @@ class CoverageWiringTest {
             "build.gradle.kts",
             """
             plugins { id("tramai.maintainability-baseline") }
+            ${if (includeDocContractTask) "tasks.register(\"verifyModuleDocContract\")" else ""}
+            allprojects {
+                repositories {
+                    // jacocoTestReport resolves jacocoAnt from a repository.
+                    mavenCentral()
+                }
+            }
             """.trimIndent(),
         )
+        if (includeBuildLogic) {
+            writeBuildLogicFixture(dir)
+        }
         writeFile(
             dir,
             "gradle.properties",
@@ -85,6 +141,27 @@ class CoverageWiringTest {
             "tramai-core/build.gradle.kts",
             """
             plugins { `java-library` }
+            """.trimIndent(),
+        )
+    }
+
+    /**
+     * Minimal included build named build-logic with a :test task — the
+     * authority verifyPr requires (review P1: fail-closed).
+     */
+    private fun writeBuildLogicFixture(dir: File) {
+        writeFile(
+            dir,
+            "build-logic/settings.gradle.kts",
+            """
+            rootProject.name = "build-logic"
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "build-logic/build.gradle.kts",
+            """
+            tasks.register("test")
             """.trimIndent(),
         )
     }

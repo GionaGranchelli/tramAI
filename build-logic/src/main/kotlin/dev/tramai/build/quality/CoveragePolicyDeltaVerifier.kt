@@ -29,11 +29,14 @@ class CoveragePolicyDeltaVerifier {
         // ── 10.3b-G: structural integrity — raw counters are the authority ──
         // Recompute every stored percentage from raw counters; a stored double
         // that disagrees is evidence of tampering, not a rounding artifact.
+        // Keys must also agree with the governing config's criticalModules
+        // (review P2): a phantom extra baseline module must not be insertable.
+        val candidateCritical = candidateConfiguration.criticalModules.toSet()
         val diagnostics =
             mutableListOf<VerificationDiagnostic>().apply {
-                addAll(structuralIntegrity("base baseline", baseBaseline))
-                addAll(structuralIntegrity("candidate baseline", candidateBaseline))
-                addAll(structuralIntegrity("current measurement", current))
+                addAll(structuralIntegrity("base baseline", baseBaseline, base.criticalModules.toSet()))
+                addAll(structuralIntegrity("candidate baseline", candidateBaseline, candidateCritical))
+                addAll(structuralIntegrity("current measurement", current, candidateCritical))
             }
 
         // Status must be measured on all three inputs.
@@ -296,16 +299,24 @@ class CoveragePolicyDeltaVerifier {
     private fun structuralIntegrity(
         label: String,
         data: CoverageData,
+        expectedModules: Set<String>,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
 
-        // byModule and criticalModules must agree exactly.
-        if (data.byModule.keys != data.criticalModules.keys) {
+        // byModule/criticalModules must agree exactly, and the baseline's
+        // module keys must match the governing config's criticalModules — no
+        // phantom extra module, no missing one (review P2: byModule==
+        // criticalModules alone can't catch a phantom).
+        val keyMismatch =
+            data.byModule.keys != data.criticalModules.keys ||
+                data.criticalModules.keys != expectedModules
+        if (keyMismatch) {
             diagnostics +=
                 VerificationDiagnostic.failure(
                     DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
-                    "$label byModule keys ${data.byModule.keys.sorted()} disagree with " +
-                        "criticalModules keys ${data.criticalModules.keys.sorted()}",
+                    "$label byModule keys ${data.byModule.keys.sorted()} / " +
+                        "criticalModules keys ${data.criticalModules.keys.sorted()} disagree with " +
+                        "config criticalModules ${expectedModules.sorted()}",
                 )
             return diagnostics
         }
@@ -332,6 +343,7 @@ class CoveragePolicyDeltaVerifier {
                 )
             return diagnostics
         }
+        diagnostics += rawEvidenceIntegrity(label, module, m)
         if (m.linesCovered + m.linesMissed != m.linesTotal) {
             diagnostics +=
                 VerificationDiagnostic.failure(
@@ -373,6 +385,58 @@ class CoveragePolicyDeltaVerifier {
                         currentValue = recomputed.toString(),
                     )
             }
+        }
+        return diagnostics
+    }
+
+    /**
+     * Review P2: raw-evidence sanity for a single module — non-negative
+     * counters, non-empty critical line population, finite in-range stored
+     * percentages. A zero-denominator entry carrying a fabricated stored
+     * percentage would otherwise bypass the recompute above.
+     */
+    private fun rawEvidenceIntegrity(
+        label: String,
+        module: String,
+        m: ModuleCoverage,
+    ): List<VerificationDiagnostic> {
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val negative =
+            m.linesCovered < 0 || m.linesMissed < 0 || m.linesTotal < 0 ||
+                m.branchesCovered < 0 || m.branchesMissed < 0 || m.branchesTotal < 0
+        if (negative) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
+                    "$label module $module has negative raw counters " +
+                        "(lines $m.linesCovered/$m.linesMissed/$m.linesTotal, " +
+                        "branches $m.branchesCovered/$m.branchesMissed/$m.branchesTotal)",
+                    modulePath = module,
+                )
+        }
+        if (m.linesTotal == 0) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
+                    "$label module $module is critical but has zero executable lines",
+                    modulePath = module,
+                )
+        }
+        if (!m.lineCoverage.isFinite() || m.lineCoverage < 0.0 || m.lineCoverage > PERCENT) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
+                    "$label module $module stored lineCoverage ${m.lineCoverage} outside [0,$PERCENT]",
+                    modulePath = module,
+                )
+        }
+        if (!m.branchCoverage.isFinite() || m.branchCoverage < 0.0 || m.branchCoverage > PERCENT) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
+                    "$label module $module stored branchCoverage ${m.branchCoverage} outside [0,$PERCENT]",
+                    modulePath = module,
+                )
         }
         return diagnostics
     }

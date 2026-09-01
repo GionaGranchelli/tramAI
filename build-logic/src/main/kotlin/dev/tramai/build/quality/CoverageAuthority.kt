@@ -43,17 +43,19 @@ object CoverageAuthorityLoader {
             requireCommitExists(rootDir, explicit)
             return explicit
         }
-        val result =
-            runGit(
-                rootDir,
-                listOf("merge-base", "HEAD", "origin/master"),
-            )
-        val sha = result.trim()
-        if (result.contains("fatal:") || !sha.matches(Regex("[0-9a-f]{40}"))) {
+        val result = runGit(rootDir, listOf("merge-base", "HEAD", "origin/master"))
+        if (result.exitCode != 0) {
             throw GradleException(
                 "Cannot resolve coverage base SHA: pass -PtramaiCoverageBaseSha=<sha> " +
                     "(CI: pull_request.base.sha / push before) or ensure origin/master is present. " +
-                    "Git output: ${result.trim()}",
+                    "Git exit ${result.exitCode}: ${result.output.trim()}",
+            )
+        }
+        val sha = result.output.trim()
+        if (!sha.matches(Regex("[0-9a-f]{40}"))) {
+            throw GradleException(
+                "Cannot resolve coverage base SHA: git merge-base returned " +
+                    "'$sha' — pass -PtramaiCoverageBaseSha=<sha> or ensure origin/master is present.",
             )
         }
         return sha
@@ -75,25 +77,25 @@ object CoverageAuthorityLoader {
         try {
             val qualityDir = File(tempDir, "config/quality").apply { mkdirs() }
             for (rel in listOf("test-quality.yml", "module-catalog.yml")) {
-                val content =
-                    runGit(rootDir, listOf("show", "$baseSha:config/quality/$rel"))
-                if (content.contains("fatal:")) {
+                val result = runGit(rootDir, listOf("show", "$baseSha:config/quality/$rel"))
+                if (result.exitCode != 0) {
                     throw GradleException(
-                        "Coverage base authority missing config/quality/$rel at $baseSha: ${content.trim()}",
+                        "Coverage base authority missing config/quality/$rel at $baseSha: " +
+                            "git exit ${result.exitCode}: ${result.output.trim()}",
                     )
                 }
-                File(qualityDir, rel).writeText(content, Charsets.UTF_8)
+                File(qualityDir, rel).writeText(result.output, Charsets.UTF_8)
             }
-            val baselineContent =
+            val baselineResult =
                 runGit(rootDir, listOf("show", "$baseSha:config/quality/coverage-baseline.json"))
-            if (baselineContent.contains("fatal:")) {
+            if (baselineResult.exitCode != 0) {
                 throw GradleException(
                     "Coverage base authority missing config/quality/coverage-baseline.json at $baseSha: " +
-                        baselineContent.trim(),
+                        "git exit ${baselineResult.exitCode}: ${baselineResult.output.trim()}",
                 )
             }
             val baselineFile = File(qualityDir, "coverage-baseline.json")
-            baselineFile.writeText(baselineContent, Charsets.UTF_8)
+            baselineFile.writeText(baselineResult.output, Charsets.UTF_8)
             return CoverageAuthority(
                 baseSha = baseSha,
                 configuration = TestQualityConfiguration.load(tempDir),
@@ -109,22 +111,29 @@ object CoverageAuthorityLoader {
         sha: String,
     ) {
         val result = runGit(rootDir, listOf("cat-file", "-e", "$sha^{commit}"))
-        if (result.contains("fatal:")) {
-            throw GradleException("Coverage base SHA '$sha' is not a valid commit: ${result.trim()}")
+        if (result.exitCode != 0) {
+            throw GradleException(
+                "Coverage base SHA '$sha' is not a valid commit: git exit ${result.exitCode}: ${result.output.trim()}",
+            )
         }
     }
+
+    private data class GitResult(
+        val output: String,
+        val exitCode: Int,
+    )
 
     private fun runGit(
         rootDir: File,
         args: List<String>,
-    ): String =
+    ): GitResult =
         ProcessBuilder(listOf("git") + args)
             .directory(rootDir)
             .redirectErrorStream(true)
             .start()
             .let { process ->
                 val output = process.inputStream.bufferedReader().readText()
-                process.waitFor()
-                output
+                val exitCode = process.waitFor()
+                GitResult(output, exitCode)
             }
 }
