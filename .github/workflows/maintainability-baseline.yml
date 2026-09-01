@@ -89,8 +89,12 @@ jobs:
   # Phase 2: build-logic tests run as a parallel matrix instead of one serial
   # invocation after the maintainability checks. Same JDK 21 (AGENTS.md rule 6:
   # build-logic compatibility), same coverage — the four lanes partition the
-  # full 767-test suite by domain, each with its own exact count assertion so
+  # full 771-test suite by domain, each with its own exact count assertion so
   # drift between lanes cannot hide (mirrors ci.yml contract-tests matrix).
+  # Counts recomputed from XML on the post-#359 tree: 168 + 144 + 211 + 248 =
+  # 771 (the authoritative full-suite XML total). #359's additions are
+  # enrolled: TypedTaskConfigurationCacheTest (6) in scanners-coverage,
+  # ReleaseVerificationPluginTest (24) in release-sovereign.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -114,7 +118,7 @@ jobs:
               --tests 'dev.tramai.build.publishing.*'
               --tests 'dev.tramai.build.docs.*'
               --tests 'dev.tramai.build.conventions.*'
-            expected: 143
+            expected: 144
           - name: policy-maintainability
             test-filter: >-
               --tests 'dev.tramai.build.quality.ChangePolicy*Test'
@@ -152,7 +156,7 @@ jobs:
               --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
               --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
               --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
-            expected: 245
+            expected: 248
 
     steps:
       - name: Checkout
