@@ -1,0 +1,217 @@
+{
+  "status": "measured",
+  "note": "",
+  "byModule": {
+    ":tramai-core": {
+      "module": ":tramai-core",
+      "lineCoverage": 95.55879140880961,
+      "branchCoverage": 77.61904761904762,
+      "linesCovered": 2625,
+      "linesMissed": 122,
+      "linesTotal": 2747,
+      "branchesCovered": 489,
+      "branchesMissed": 141,
+      "branchesTotal": 630
+    },
+    ":tramai-engine": {
+      "module": ":tramai-engine",
+      "lineCoverage": 93.4994068801898,
+      "branchCoverage": 76.47790914747978,
+      "linesCovered": 3941,
+      "linesMissed": 274,
+      "linesTotal": 4215,
+      "branchesCovered": 1229,
+      "branchesMissed": 378,
+      "branchesTotal": 1607
+    },
+    ":tramai-orchestration": {
+      "module": ":tramai-orchestration",
+      "lineCoverage": 91.66777585518435,
+      "branchCoverage": 72.35314808301091,
+      "linesCovered": 6887,
+      "linesMissed": 626,
+      "linesTotal": 7513,
+      "branchesCovered": 2057,
+      "branchesMissed": 786,
+      "branchesTotal": 2843
+    },
+    ":tramai-persistence-file": {
+      "module": ":tramai-persistence-file",
+      "lineCoverage": 88.38174273858921,
+      "branchCoverage": 74.55012853470437,
+      "linesCovered": 1704,
+      "linesMissed": 224,
+      "linesTotal": 1928,
+      "branchesCovered": 580,
+      "branchesMissed": 198,
+      "branchesTotal": 778
+    },
+    ":tramai-persistence-jdbc": {
+      "module": ":tramai-persistence-jdbc",
+      "lineCoverage": 93.83517196625567,
+      "branchCoverage": 79.04191616766467,
+      "linesCovered": 1446,
+      "linesMissed": 95,
+      "linesTotal": 1541,
+      "branchesCovered": 528,
+      "branchesMissed": 140,
+      "branchesTotal": 668
+    },
+    ":tramai-security": {
+      "module": ":tramai-security",
+      "lineCoverage": 94.50596252129472,
+      "branchCoverage": 84.78260869565217,
+      "linesCovered": 2219,
+      "linesMissed": 129,
+      "linesTotal": 2348,
+      "branchesCovered": 1053,
+      "branchesMissed": 189,
+      "branchesTotal": 1242
+    },
+    ":tramai-sovereign": {
+      "module": ":tramai-sovereign",
+      "lineCoverage": 88.14814814814815,
+      "branchCoverage": 73.27394209354121,
+      "linesCovered": 952,
+      "linesMissed": 128,
+      "linesTotal": 1080,
+      "branchesCovered": 329,
+      "branchesMissed": 120,
+      "branchesTotal": 449
+    },
+    ":tramai-standalone": {
+      "module": ":tramai-standalone",
+      "lineCoverage": 91.69435215946844,
+      "branchCoverage": 89.1304347826087,
+      "linesCovered": 276,
+      "linesMissed": 25,
+      "linesTotal": 301,
+      "branchesCovered": 41,
+      "branchesMissed": 5,
+      "branchesTotal": 46
+    },
+    ":tramai-structured": {
+      "module": ":tramai-structured",
+      "lineCoverage": 92.56360078277886,
+      "branchCoverage": 73.08707124010554,
+      "linesCovered": 473,
+      "linesMissed": 38,
+      "linesTotal": 511,
+      "branchesCovered": 277,
+      "branchesMissed": 102,
+      "branchesTotal": 379
+    }
+  },
+  "criticalModules": {
+    ":tramai-core": {
+      "module": ":tramai-core",
+      "lineCoverage": 95.55879140880961,
+      "branchCoverage": 77.61904761904762,
+      "linesCovered": 2625,
+      "linesMissed": 122,
+      "linesTotal": 2747,
+      "branchesCovered": 489,
+      "branchesMissed": 141,
+      "branchesTotal": 630
+    },
+    ":tramai-engine": {
+      "module": ":tramai-engine",
+      "lineCoverage": 93.4994068801898,
+      "branchCoverage": 76.47790914747978,
+      "linesCovered": 3941,
+      "linesMissed": 274,
+      "linesTotal": 4215,
+      "branchesCovered": 1229,
+      "branchesMissed": 378,
+      "branchesTotal": 1607
+    },
+    ":tramai-orchestration": {
+      "module": ":tramai-orchestration",
+      "lineCoverage": 91.66777585518435,
+      "branchCoverage": 72.35314808301091,
+      "linesCovered": 6887,
+      "linesMissed": 626,
+      "linesTotal": 7513,
+      "branchesCovered": 2057,
+      "branchesMissed": 786,
+      "branchesTotal": 2843
+    },
+    ":tramai-persistence-file": {
+      "module": ":tramai-persistence-file",
+      "lineCoverage": 88.38174273858921,
+      "branchCoverage": 74.55012853470437,
+      "linesCovered": 1704,
+      "linesMissed": 224,
+      "linesTotal": 1928,
+      "branchesCovered": 580,
+      "branchesMissed": 198,
+      "branchesTotal": 778
+    },
+    ":tramai-persistence-jdbc": {
+      "module": ":tramai-persistence-jdbc",
+      "lineCoverage": 93.83517196625567,
+      "branchCoverage": 79.04191616766467,
+      "linesCovered": 1446,
+      "linesMissed": 95,
+      "linesTotal": 1541,
+      "branchesCovered": 528,
+      "branchesMissed": 140,
+      "branchesTotal": 668
+    },
+    ":tramai-security": {
+      "module": ":tramai-security",
+      "lineCoverage": 94.50596252129472,
+      "branchCoverage": 84.78260869565217,
+      "linesCovered": 2219,
+      "linesMissed": 129,
+      "linesTotal": 2348,
+      "branchesCovered": 1053,
+      "branchesMissed": 189,
+      "branchesTotal": 1242
+    },
+    ":tramai-sovereign": {
+      "module": ":tramai-sovereign",
+      "lineCoverage": 88.14814814814815,
+      "branchCoverage": 73.27394209354121,
+      "linesCovered": 952,
+      "linesMissed": 128,
+      "linesTotal": 1080,
+      "branchesCovered": 329,
+      "branchesMissed": 120,
+      "branchesTotal": 449
+    },
+    ":tramai-standalone": {
+      "module": ":tramai-standalone",
+      "lineCoverage": 91.69435215946844,
+      "branchCoverage": 89.1304347826087,
+      "linesCovered": 276,
+      "linesMissed": 25,
+      "linesTotal": 301,
+      "branchesCovered": 41,
+      "branchesMissed": 5,
+      "branchesTotal": 46
+    },
+    ":tramai-structured": {
+      "module": ":tramai-structured",
+      "lineCoverage": 92.56360078277886,
+      "branchCoverage": 73.08707124010554,
+      "linesCovered": 473,
+      "linesMissed": 38,
+      "linesTotal": 511,
+      "branchesCovered": 277,
+      "branchesMissed": 102,
+      "branchesTotal": 379
+    }
+  },
+  "exclusions": [
+    {
+      "pattern": "**/model/**",
+      "reason": "Generated model classes"
+    }
+  ],
+  "overallLineCoverage": 92.51262170934007,
+  "overallBranchCoverage": 76.1744966442953,
+  "jacocoVersion": "0.8.13",
+  "measuredCommit": "15f4ffb600e2eb11f6580bce5594b79a9ee24295",
+  "schemaVersion": "1"
+}

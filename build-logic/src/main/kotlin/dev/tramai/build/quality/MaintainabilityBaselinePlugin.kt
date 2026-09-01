@@ -51,39 +51,59 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "reports/maintainability",
             )
 
-        // Register JaCoCo on critical modules using provider-safe API (no tasks.matching / executionData(TaskCollection))
-        val criticalTestTaskPaths = criticalModules.sorted().map { "$it:test" }
+        // Register JaCoCo on ALL java projects so every test task emits execution
+        // data. Option-B semantics: repository-execution coverage projected onto
+        // critical modules — a TCK/integration test physically located in another
+        // module must credit the critical production code it exercises.
         val criticalCoverageReportTaskPaths = criticalModules.sorted().map { "$it:jacocoTestReport" }
 
         project.allprojects
-            .filter { it.path in criticalModules }
-            .forEach { criticalProject ->
-                criticalProject.pluginManager.withPlugin("java") {
-                    criticalProject.pluginManager.apply("jacoco")
+            .forEach { measuringProject ->
+                measuringProject.pluginManager.withPlugin("java") {
+                    measuringProject.pluginManager.apply("jacoco")
 
-                    val testTask = criticalProject.tasks.named("test", Test::class.java)
-                    val excludedPatterns = testQualityConfiguration.coverage.exclusions.map { it.pattern }
-
-                    criticalProject.tasks.named("jacocoTestReport", JacocoReport::class.java) {
-                        dependsOn(testTask)
-                        reports {
-                            xml.required.set(true)
-                            html.required.set(true)
-                        }
-                        // Filter class directories to exclude patterns using Gradle fileTree
-                        val mainSourceSet =
-                            criticalProject.extensions
-                                .getByType(
-                                    org.gradle.api.plugins.JavaPluginExtension::class.java,
-                                ).sourceSets
-                                .getByName("main")
-                        classDirectories.from(
-                            mainSourceSet.output.classesDirs.files.map { root ->
-                                criticalProject.fileTree(root) {
-                                    exclude(excludedPatterns)
+                    if (measuringProject.path in criticalModules) {
+                        val excludedPatterns =
+                            testQualityConfiguration.coverage.exclusions.map { it.pattern }
+                        measuringProject.tasks.named("jacocoTestReport", JacocoReport::class.java) {
+                            // Cross-module execution: merge every java project's exec data
+                            // (resolved lazily at execution time — only existing files).
+                            executionData.setFrom(
+                                project.provider {
+                                    project.allprojects
+                                        .map {
+                                            it.layout.buildDirectory
+                                                .file("jacoco/test.exec")
+                                                .get()
+                                                .asFile
+                                        }.filter { it.isFile }
+                                },
+                            )
+                            project.allprojects
+                                .forEach { otherProject ->
+                                    otherProject.pluginManager.withPlugin("java") {
+                                        dependsOn(otherProject.tasks.named("test", Test::class.java))
+                                    }
                                 }
-                            },
-                        )
+                            reports {
+                                xml.required.set(true)
+                                html.required.set(true)
+                            }
+                            // Filter class directories to exclude patterns using Gradle fileTree
+                            val mainSourceSet =
+                                measuringProject.extensions
+                                    .getByType(
+                                        org.gradle.api.plugins.JavaPluginExtension::class.java,
+                                    ).sourceSets
+                                    .getByName("main")
+                            classDirectories.from(
+                                mainSourceSet.output.classesDirs.files.map { root ->
+                                    measuringProject.fileTree(root) {
+                                        exclude(excludedPatterns)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
