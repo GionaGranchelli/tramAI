@@ -475,6 +475,13 @@ abstract class VerifyArchitectureTask : DefaultTask() {
             DiagnosticCode.MODULE_CARD_VERSIONLESS_DEPENDENCY,
             DiagnosticCode.MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
             DiagnosticCode.MODULE_CARD_COVERAGE_MISMATCH,
+            // Coverage policy ratchet (Epic 10.3b) — enforced by the
+            // verifyCriticalCoverage task directly, not the maintainability baseline.
+            DiagnosticCode.COVERAGE_CRITICAL_MODULE_REMOVED,
+            DiagnosticCode.COVERAGE_TOLERANCE_WEAKENED,
+            DiagnosticCode.COVERAGE_BASELINE_WEAKENED,
+            DiagnosticCode.COVERAGE_NEW_MODULE_UNMEASURED,
+            DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
             -> null
         }
 

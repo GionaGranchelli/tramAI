@@ -866,20 +866,36 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyCriticalCoverage") {
             group = "maintainability"
-            description = "Compares current critical-module coverage with the committed baseline"
+            description =
+                "Base-authoritative coverage ratchet: judges current JaCoCo measurement and the " +
+                "candidate policy against the PR base / master authority. Accepts " +
+                "-PtramaiCoverageBaseSha for PR base SHA comparison (mirrors cancellation safety)."
             dependsOn("generateCoverageBaseline")
             doLast {
-                val committed = readCommittedBaseline(project)
+                val baseSha =
+                    CoverageAuthorityLoader.resolveBaseSha(
+                        project.rootDir,
+                        project.findProperty("tramaiCoverageBaseSha")?.toString(),
+                    )
+                val authority = CoverageAuthorityLoader.load(project.rootDir, baseSha)
+                val candidateBaseline = readCandidateCoverageBaseline(project)
                 val current =
                     ReportNormalizer.readJson(
                         File(reportDir, "coverage-summary.json"),
                         CoverageData::class.java,
                     )
+                val diagnostics =
+                    CoveragePolicyDeltaVerifier()
+                        .verify(
+                            authority = authority,
+                            candidateConfiguration = testQualityConfiguration,
+                            candidateBaseline = candidateBaseline,
+                            current = current,
+                        )
                 verifyTestQualityDiagnostics(
                     project,
-                    "Critical coverage",
-                    CoverageBaselineVerifier(testQualityConfiguration)
-                        .verify(committed.testQuality.coverage, current),
+                    "Critical coverage (base $baseSha)",
+                    diagnostics,
                 )
             }
         }
@@ -1347,15 +1363,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 dependsOn("verifyChangePolicy")
                 dependsOn("verifyModuleManifest")
                 dependsOn("verifyModuleMatrixDrift")
+                dependsOn("verifyCriticalCoverage")
+                // Module documentation contract gate is registered by a
+                // separate plugin (TramaiDocsGuardsPlugin). It is a REQUIRED
+                // authority: if it disappears, verifyPr must fail closed, never
+                // silently pass without it (10.3b review P1).
                 dependsOn("verifyModuleDocContract")
 
-                // Include build-logic tests (included build — must use includedBuild API)
-                val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
-                if (buildLogicTestTask != null) {
-                    dependsOn(buildLogicTestTask)
-                } else {
-                    logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
-                }
+                // Include build-logic tests (included build — must use includedBuild API).
+                // Fail-closed: if the build-logic authority is missing, verifyPr must
+                // FAIL, never warn-and-pass (10.3b review P1).
+                val buildLogicTestTask =
+                    project.gradle.includedBuilds
+                        .firstOrNull { it.name == "build-logic" }
+                        ?.task(":test")
+                        ?: throw GradleException(
+                            "verifyPr: included build 'build-logic' not found — " +
+                                "build-logic tests are a required verification authority",
+                        )
+                dependsOn(buildLogicTestTask)
 
                 doLast {
                     logger.lifecycle("verifyPr completed — see individual task results above.")
@@ -1410,6 +1436,24 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             ReportNormalizer.readJson(file, BaselineDocument::class.java)
         } catch (e: Exception) {
             throw GradleException("Failed to read committed baseline: ${e.message}", e)
+        }
+    }
+
+    private fun readCandidateCoverageBaseline(project: Project): CoverageData {
+        // The candidate's own committed coverage baseline (10.3a artifact).
+        // This is the PROPOSAL being judged — never the authority for its own
+        // regression (10.3b-E compares it module-by-module against the base).
+        val file = File(project.rootDir, "config/quality/coverage-baseline.json")
+        if (!file.isFile) {
+            throw GradleException(
+                "Candidate coverage baseline not found: ${file.absolutePath} — " +
+                    "generateCoverageBaseline must be run and the result committed.",
+            )
+        }
+        return try {
+            ReportNormalizer.readJson(file, CoverageData::class.java)
+        } catch (e: Exception) {
+            throw GradleException("Failed to read candidate coverage baseline: ${e.message}", e)
         }
     }
 

@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * Functional tests for the canonical probe verification path.
@@ -17,37 +17,43 @@ import kotlin.test.assertNotNull
  * with realistic inputs, without requiring a full Gradle build.
  */
 class CanonicalProbeFunctionalTest {
-
-    private val baseConfig = TestQualityConfiguration(
-        schemaVersion = "1",
-        criticalModules = listOf(":core"),
-        coverage = TestQualityConfiguration.CoverageConfiguration(
-            1.0,
-            listOf(CoverageExclusion("**/model/**", "Generated model classes"))
-        ),
-        mutation = TestQualityConfiguration.MutationConfiguration(
-            1.0,
-            mapOf(
-                "routing" to TestQualityConfiguration.MutationTargetFamily(
-                    modules = listOf(":core"),
-                    targetClasses = listOf("dev.tramai.core.*"),
-                    targetTests = listOf("dev.tramai.core.*")
-                )
-            )
+    private val baseConfig =
+        TestQualityConfiguration(
+            schemaVersion = "1",
+            criticalModules = listOf(":core"),
+            coverage =
+                TestQualityConfiguration.CoverageConfiguration(
+                    1.0,
+                    listOf(CoverageExclusion("**/model/**", "Generated model classes")),
+                ),
+            mutation =
+                TestQualityConfiguration.MutationConfiguration(
+                    1.0,
+                    mapOf(
+                        "routing" to
+                            TestQualityConfiguration.MutationTargetFamily(
+                                modules = listOf(":core"),
+                                targetClasses = listOf("dev.tramai.core.*"),
+                                targetTests = listOf("dev.tramai.core.*"),
+                            ),
+                    ),
+                ),
         )
-    )
 
-    private val coverageVerifier = CoverageBaselineVerifier(baseConfig)
+    private val coverageVerifier = CoveragePolicyDeltaVerifier()
     private val mutationVerifier = MutationBaselineVerifier(baseConfig)
 
     // ── Coverage Tests ──
 
     @Test
-    fun `coverage collector with fake JaCoCo XML produces expected aggregation`(@TempDir tempDir: File) {
+    fun `coverage collector with fake JaCoCo XML produces expected aggregation`(
+        @TempDir tempDir: File,
+    ) {
         val xmlDir = File(tempDir, "reports")
         xmlDir.mkdirs()
         val fakeXml = File(xmlDir, "core.xml")
-        fakeXml.writeText("""
+        fakeXml.writeText(
+            """
             <?xml version="1.0" encoding="UTF-8"?>
             <report name="core">
                 <sessioninfo id="test" start="1" dump="2"/>
@@ -64,7 +70,8 @@ class CanonicalProbeFunctionalTest {
                 <counter type="LINE" missed="2" covered="8"/>
                 <counter type="BRANCH" missed="1" covered="3"/>
             </report>
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val collector = CoverageCollector(tempDir, baseConfig)
         val result = collector.collect(xmlDir)
@@ -80,64 +87,101 @@ class CanonicalProbeFunctionalTest {
 
     @Test
     fun `coverage verifier detects undocumented exclusions`() {
-        val committed = CoverageData(
-            status = "measured",
-            exclusions = listOf(CoverageExclusion("**/model/**", "Generated model classes")),
-            criticalModules = emptyMap()
-        )
-        val current = committed.copy(
-            exclusions = listOf(
-                CoverageExclusion("**/model/**", "Generated model classes"),
-                CoverageExclusion("**/generated/**", "New generated classes")
+        val authority =
+            CoverageAuthority(
+                baseSha = "probe",
+                configuration = baseConfig,
+                baseline = dataWithScore(80.0, 70.0),
             )
-        )
-        val diagnostics = coverageVerifier.verify(committed, current)
+        val candidate =
+            baseConfig.copy(
+                coverage =
+                    TestQualityConfiguration.CoverageConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        exclusions =
+                            listOf(
+                                CoverageExclusion("**/model/**", "Generated model classes"),
+                                CoverageExclusion("**/generated/**", "New generated classes"),
+                            ),
+                    ),
+            )
+        val diagnostics =
+            coverageVerifier.verify(
+                authority = authority,
+                candidateConfiguration = candidate,
+                candidateBaseline = dataWithScore(80.0, 70.0),
+                current = dataWithScore(80.0, 70.0),
+            )
         assertTrue(diagnostics.any { it.code == DiagnosticCode.COVERAGE_EXCLUSION_UNDOCUMENTED })
     }
 
     @Test
     fun `coverage verifier detects line regression beyond tolerance`() {
-        val committed = dataWithScore(80.0, 70.0)
+        val authority =
+            CoverageAuthority(
+                baseSha = "probe",
+                configuration = baseConfig,
+                baseline = dataWithScore(80.0, 70.0),
+            )
         val current = dataWithScore(78.8, 70.0)
-        val diagnostics = coverageVerifier.verify(committed, current)
+        val diagnostics =
+            coverageVerifier.verify(
+                authority = authority,
+                candidateConfiguration = baseConfig,
+                candidateBaseline = dataWithScore(80.0, 70.0),
+                current = current,
+            )
         assertTrue(diagnostics.any { it.code == DiagnosticCode.COVERAGE_REGRESSION })
     }
 
     // ── Mutation Tests ──
 
     @Test
-    fun `mutation verifier rejects empty family with production sources`(@TempDir tempDir: File) {
+    fun `mutation verifier rejects empty family with production sources`(
+        @TempDir tempDir: File,
+    ) {
         // Create a minimal source tree so moduleHasProductionSources() returns true
         val srcDir = File(tempDir, "core/src/main/kotlin")
         srcDir.mkdirs()
         File(srcDir, "Service.kt").writeText("package dev.tramai.core\nclass Service")
 
-        val familyConfig = TestQualityConfiguration(
-            schemaVersion = "1",
-            criticalModules = listOf(":core"),
-            coverage = TestQualityConfiguration.CoverageConfiguration(
-                1.0, listOf(CoverageExclusion("**/model/**", "Generated"))
-            ),
-            mutation = TestQualityConfiguration.MutationConfiguration(
-                1.0,
-                mapOf("routing" to TestQualityConfiguration.MutationTargetFamily(listOf(":core")))
+        val familyConfig =
+            TestQualityConfiguration(
+                schemaVersion = "1",
+                criticalModules = listOf(":core"),
+                coverage =
+                    TestQualityConfiguration.CoverageConfiguration(
+                        1.0,
+                        listOf(CoverageExclusion("**/model/**", "Generated")),
+                    ),
+                mutation =
+                    TestQualityConfiguration.MutationConfiguration(
+                        1.0,
+                        mapOf("routing" to TestQualityConfiguration.MutationTargetFamily(listOf(":core"))),
+                    ),
             )
-        )
         // Use a verifier with the tempDir as repo root so it can find the source tree
         // Note: we need to test the path where measurement was 0 mutants despite having sources
         // The baseline check uses committed.byFamily to determine if a family exists
-        val committed = MutationData(
-            status = "measured",
-            totalMutants = 0,
-            byFamily = mapOf(
-                "routing" to MutationFamilyMetrics(
-                    family = "routing", modules = listOf(":core"),
-                    totalMutants = 0, killedMutants = 0, survivedMutants = 0,
-                    noCoverageMutants = 0, mutationScore = 0.0
-                )
-            ),
-            survivingMutants = emptyList()
-        )
+        val committed =
+            MutationData(
+                status = "measured",
+                totalMutants = 0,
+                byFamily =
+                    mapOf(
+                        "routing" to
+                            MutationFamilyMetrics(
+                                family = "routing",
+                                modules = listOf(":core"),
+                                totalMutants = 0,
+                                killedMutants = 0,
+                                survivedMutants = 0,
+                                noCoverageMutants = 0,
+                                mutationScore = 0.0,
+                            ),
+                    ),
+                survivingMutants = emptyList(),
+            )
         val current = committed.copy()
         val diagnostics = MutationBaselineVerifier(familyConfig, tempDir).verify(committed, current)
         // With real sources but zero mutants, the verifier emits MUTATION_TARGET_EMPTY
@@ -149,7 +193,7 @@ class CanonicalProbeFunctionalTest {
         } else {
             // Verifier may also report MUTATION_REPORT_MISSING if byFamily lookup differs
             assertTrue(
-                diagnostics.any { it.code == DiagnosticCode.MUTATION_REPORT_MISSING || it.code == DiagnosticCode.MUTATION_TARGET_EMPTY }
+                diagnostics.any { it.code == DiagnosticCode.MUTATION_REPORT_MISSING || it.code == DiagnosticCode.MUTATION_TARGET_EMPTY },
             )
         }
     }
@@ -172,34 +216,57 @@ class CanonicalProbeFunctionalTest {
 
     // ── Helpers ──
 
-    private fun dataWithScore(line: Double, branch: Double) = CoverageData(
-        status = "measured",
-        exclusions = listOf(CoverageExclusion("**/model/**", "Generated model classes")),
-        criticalModules = mapOf(
-            ":core" to ModuleCoverage(
-                module = ":core", lineCoverage = line, branchCoverage = branch,
-                linesCovered = 8, linesMissed = 2, linesTotal = 10,
-                branchesCovered = 7, branchesMissed = 3, branchesTotal = 10
+    private fun dataWithScore(
+        line: Double,
+        branch: Double,
+    ): CoverageData {
+        // Totals of 1000 keep any percentage exactly representable so the
+        // structural-integrity recompute (raw counters -> %) agrees with the
+        // stored doubles. Both byModule and criticalModules are populated.
+        val module =
+            ModuleCoverage(
+                module = ":core",
+                lineCoverage = line,
+                branchCoverage = branch,
+                linesCovered = (line * 10).toInt(),
+                linesMissed = 1000 - (line * 10).toInt(),
+                linesTotal = 1000,
+                branchesCovered = (branch * 10).toInt(),
+                branchesMissed = 1000 - (branch * 10).toInt(),
+                branchesTotal = 1000,
             )
+        return CoverageData(
+            status = "measured",
+            exclusions = listOf(CoverageExclusion("**/model/**", "Generated model classes")),
+            byModule = mapOf(":core" to module),
+            criticalModules = mapOf(":core" to module),
+            overallLineCoverage = line,
+            overallBranchCoverage = branch,
         )
-    )
+    }
 
-    private fun mutationData(score: Double) = MutationData(
-        status = "measured",
-        totalMutants = 10,
-        killedMutants = (score / 100.0 * 10).toInt(),
-        survivedMutants = 10 - (score / 100.0 * 10).toInt(),
-        mutationScore = score,
-        byFamily = mapOf(
-            "routing" to MutationFamilyMetrics(
-                family = "routing", modules = listOf(":core"),
-                totalMutants = 10, killedMutants = (score / 100.0 * 10).toInt(),
-                survivedMutants = 10 - (score / 100.0 * 10).toInt(),
-                noCoverageMutants = 0, mutationScore = score
-            )
-        ),
-        survivingMutants = emptyList()
-    )
+    private fun mutationData(score: Double) =
+        MutationData(
+            status = "measured",
+            totalMutants = 10,
+            killedMutants = (score / 100.0 * 10).toInt(),
+            survivedMutants = 10 - (score / 100.0 * 10).toInt(),
+            mutationScore = score,
+            byFamily =
+                mapOf(
+                    "routing" to
+                        MutationFamilyMetrics(
+                            family = "routing",
+                            modules = listOf(":core"),
+                            totalMutants = 10,
+                            killedMutants = (score / 100.0 * 10).toInt(),
+                            survivedMutants = 10 - (score / 100.0 * 10).toInt(),
+                            noCoverageMutants = 0,
+                            mutationScore = score,
+                        ),
+                ),
+            survivingMutants = emptyList(),
+        )
 
     // ── Multi-project Gradle Fixture Tests ──
 
@@ -209,14 +276,17 @@ class CanonicalProbeFunctionalTest {
      * Copies a test resource directory recursively to a temp location.
      */
     private fun copyFixtureToDir(targetDir: File) {
-        val resourceDir = File(
-            javaClass.classLoader.getResource(fixtureResourceDir)!!.toURI()
-        )
+        val resourceDir =
+            File(
+                javaClass.classLoader.getResource(fixtureResourceDir)!!.toURI(),
+            )
         resourceDir.copyRecursively(targetDir, overwrite = true)
     }
 
     @Test
-    fun `canonical probe fixture exists and has expected structure`(@TempDir tempDir: File) {
+    fun `canonical probe fixture exists and has expected structure`(
+        @TempDir tempDir: File,
+    ) {
         copyFixtureToDir(tempDir)
 
         // Verify the top-level build files
@@ -241,16 +311,24 @@ class CanonicalProbeFunctionalTest {
     }
 
     @Test
-    fun `canonical probe fixture can be compiled`(@TempDir tempDir: File) {
+    fun `canonical probe fixture can be compiled`(
+        @TempDir tempDir: File,
+    ) {
         copyFixtureToDir(tempDir)
 
         // Run gradle compile tasks for lib-core using the system gradle
-        val process = ProcessBuilder(
-            listOf("gradle", ":lib-core:compileJava", ":lib-core:compileTestJava", "--no-daemon", "--console=plain")
-        )
-            .directory(tempDir)
-            .redirectErrorStream(true)
-            .start()
+        val process =
+            ProcessBuilder(
+                listOf(
+                    "gradle",
+                    ":lib-core:compileJava",
+                    ":lib-core:compileTestJava",
+                    "--no-daemon",
+                    "--console=plain",
+                ),
+            ).directory(tempDir)
+                .redirectErrorStream(true)
+                .start()
 
         val output = process.inputStream.bufferedReader().use { it.readText() }
         val exitCode = process.waitFor()
@@ -259,7 +337,9 @@ class CanonicalProbeFunctionalTest {
     }
 
     @Test
-    fun `canonical probe fixture modules are discoverable`(@TempDir tempDir: File) {
+    fun `canonical probe fixture modules are discoverable`(
+        @TempDir tempDir: File,
+    ) {
         copyFixtureToDir(tempDir)
 
         val context = MeasurementContext.fromDirectory(tempDir)
@@ -280,17 +360,18 @@ class CanonicalProbeFunctionalTest {
      */
     private fun installGradleWrapper(fixtureDir: File) {
         val repoRoot = System.getProperty("tramai.repositoryRoot")
-        val projectRoot = if (repoRoot != null) {
-            File(repoRoot)
-        } else {
-            // Fallback: walk up to find gradlew
-            var candidate = fixtureDir.parentFile ?: return
-            while (candidate.parentFile != null) {
-                if (File(candidate, "gradlew").isFile) break
-                candidate = candidate.parentFile!!
+        val projectRoot =
+            if (repoRoot != null) {
+                File(repoRoot)
+            } else {
+                // Fallback: walk up to find gradlew
+                var candidate = fixtureDir.parentFile ?: return
+                while (candidate.parentFile != null) {
+                    if (File(candidate, "gradlew").isFile) break
+                    candidate = candidate.parentFile!!
+                }
+                candidate
             }
-            candidate
-        }
 
         val srcGradlew = File(projectRoot, "gradlew")
         if (srcGradlew.isFile) {
@@ -301,7 +382,7 @@ class CanonicalProbeFunctionalTest {
                 File(fixtureDir, "gradle/wrapper").mkdirs()
                 jar.copyTo(
                     File(fixtureDir, "gradle/wrapper/gradle-wrapper.jar"),
-                    overwrite = true
+                    overwrite = true,
                 )
             }
         }
@@ -322,11 +403,15 @@ class CanonicalProbeFunctionalTest {
     /**
      * Runs a subprocess in [workDir] and checks for success.
      */
-    private fun runProcess(workDir: File, vararg command: String): String {
-        val proc = ProcessBuilder(*command)
-            .directory(workDir)
-            .redirectErrorStream(true)
-            .start()
+    private fun runProcess(
+        workDir: File,
+        vararg command: String,
+    ): String {
+        val proc =
+            ProcessBuilder(*command)
+                .directory(workDir)
+                .redirectErrorStream(true)
+                .start()
         val output = proc.inputStream.bufferedReader().use { it.readText() }
         val exit = proc.waitFor()
         check(exit == 0) { "`${command.joinToString(" ")}` failed (exit=$exit): $output" }
@@ -345,17 +430,21 @@ class CanonicalProbeFunctionalTest {
         // .gitignore: written programmatically because Gradle's processTestResources
         // excludes hidden files (dot-files) by default, so a .gitignore in the
         // resource directory never makes it to the test classpath.
-        File(fixtureDir, ".gitignore").writeText("""
+        File(fixtureDir, ".gitignore").writeText(
+            """
             build/
             .gradle/
-        """.trimIndent())
+            """.trimIndent(),
+        )
         gitInitAndCommit(fixtureDir)
     }
 
     @Test
     @Tag("integration")
     @Tag("slow")
-    fun `canonical probe instantiates and validates inputs correctly`(@TempDir tempDir: File) {
+    fun `canonical probe instantiates and validates inputs correctly`(
+        @TempDir tempDir: File,
+    ) {
         // The probe's output dir must be outside the measured source checkout
         val fixtureDir = File(tempDir, "measured-checkout")
         fixtureDir.mkdirs()
@@ -364,31 +453,38 @@ class CanonicalProbeFunctionalTest {
 
         prepareFixtureForProbe(fixtureDir)
 
-        val configuration = TestQualityConfiguration(
-            schemaVersion = "1",
-            criticalModules = listOf(":lib-core", ":lib-extra"),
-            coverage = TestQualityConfiguration.CoverageConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                exclusions = listOf(
-                    CoverageExclusion("**/model/**", "No model classes in fixture")
-                )
-            ),
-            mutation = TestQualityConfiguration.MutationConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                targetFamilies = mapOf(
-                    "core" to TestQualityConfiguration.MutationTargetFamily(
-                        modules = listOf(":lib-core"),
-                        targetClasses = listOf("com.example.*"),
-                        targetTests = listOf("com.example.*")
-                    )
-                )
+        val configuration =
+            TestQualityConfiguration(
+                schemaVersion = "1",
+                criticalModules = listOf(":lib-core", ":lib-extra"),
+                coverage =
+                    TestQualityConfiguration.CoverageConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        exclusions =
+                            listOf(
+                                CoverageExclusion("**/model/**", "No model classes in fixture"),
+                            ),
+                    ),
+                mutation =
+                    TestQualityConfiguration.MutationConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        targetFamilies =
+                            mapOf(
+                                "core" to
+                                    TestQualityConfiguration.MutationTargetFamily(
+                                        modules = listOf(":lib-core"),
+                                        targetClasses = listOf("com.example.*"),
+                                        targetTests = listOf("com.example.*"),
+                                    ),
+                            ),
+                    ),
             )
-        )
 
-        val probe = CanonicalGradleProbe(
-            sourceRoot = fixtureDir,
-            outputDir = outputDir
-        )
+        val probe =
+            CanonicalGradleProbe(
+                sourceRoot = fixtureDir,
+                outputDir = outputDir,
+            )
 
         // Verify the worktree is clean before probing
         assertTrue(probe.verifyWorktreeClean(), "Worktree must be clean before probing")
@@ -399,7 +495,7 @@ class CanonicalProbeFunctionalTest {
         assertEquals("measured", result.coverage.status, "Coverage should be measured")
         assertTrue(
             result.coverage.overallLineCoverage > 0.0,
-            "Coverage line coverage should be > 0, was ${result.coverage.overallLineCoverage}"
+            "Coverage line coverage should be > 0, was ${result.coverage.overallLineCoverage}",
         )
         assertEquals(2, result.coverage.criticalModules.size)
         assertNotNull(result.coverage.criticalModules[":lib-core"])
@@ -409,7 +505,7 @@ class CanonicalProbeFunctionalTest {
         assertEquals("measured", result.mutation.status, "Mutation should be measured")
         assertTrue(
             result.mutation.totalMutants > 0,
-            "Should have generated at least one mutant, got ${result.mutation.totalMutants}"
+            "Should have generated at least one mutant, got ${result.mutation.totalMutants}",
         )
         assertEquals(1, result.mutation.byFamily.size)
         val coreFamily = result.mutation.byFamily["core"]
@@ -420,21 +516,21 @@ class CanonicalProbeFunctionalTest {
         assertEquals("measured", result.testPerformance.status, "Test performance should be measured")
         assertTrue(
             result.testPerformance.totalTestCount > 0,
-            "Should have run at least one test, got ${result.testPerformance.totalTestCount}"
+            "Should have run at least one test, got ${result.testPerformance.totalTestCount}",
         )
 
         // ── Assert output files are outside the measured checkout ──
         assertTrue(
             File(outputDir, "coverage-summary.json").isFile,
-            "coverage-summary.json should exist in output dir"
+            "coverage-summary.json should exist in output dir",
         )
         assertTrue(
             File(outputDir, "mutation-summary.json").isFile,
-            "mutation-summary.json should exist in output dir"
+            "mutation-summary.json should exist in output dir",
         )
         assertTrue(
             File(outputDir, "test-performance-median.json").isFile,
-            "test-performance-median.json should exist in output dir"
+            "test-performance-median.json should exist in output dir",
         )
 
         // ── Assert git status is clean after the probe ──
@@ -445,14 +541,16 @@ class CanonicalProbeFunctionalTest {
         val sourceCanonical = fixtureDir.canonicalFile.toPath()
         assertFalse(
             outputCanonical.startsWith(sourceCanonical),
-            "Output directory must be outside measured checkout"
+            "Output directory must be outside measured checkout",
         )
     }
 
     @Test
     @Tag("integration")
     @Tag("slow")
-    fun `canonical probe detects missing mutation reports`(@TempDir tempDir: File) {
+    fun `canonical probe detects missing mutation reports`(
+        @TempDir tempDir: File,
+    ) {
         val fixtureDir = File(tempDir, "measured-checkout")
         fixtureDir.mkdirs()
         val outputDir = File(tempDir, "probe-output")
@@ -463,38 +561,46 @@ class CanonicalProbeFunctionalTest {
         // Configure a mutation family targeting a non-existent class pattern.
         // pitest uses failWhenNoMutations.set(true) so it will fail when no
         // classes match the target pattern.
-        val configuration = TestQualityConfiguration(
-            schemaVersion = "1",
-            criticalModules = listOf(":lib-core"),
-            coverage = TestQualityConfiguration.CoverageConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                exclusions = listOf(
-                    CoverageExclusion("**/model/**", "No model classes in fixture")
-                )
-            ),
-            mutation = TestQualityConfiguration.MutationConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                targetFamilies = mapOf(
-                    "nonexistent" to TestQualityConfiguration.MutationTargetFamily(
-                        modules = listOf(":lib-core"),
-                        targetClasses = listOf("com.nonexistent.*"),
-                        targetTests = listOf("com.nonexistent.*")
-                    )
-                )
+        val configuration =
+            TestQualityConfiguration(
+                schemaVersion = "1",
+                criticalModules = listOf(":lib-core"),
+                coverage =
+                    TestQualityConfiguration.CoverageConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        exclusions =
+                            listOf(
+                                CoverageExclusion("**/model/**", "No model classes in fixture"),
+                            ),
+                    ),
+                mutation =
+                    TestQualityConfiguration.MutationConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        targetFamilies =
+                            mapOf(
+                                "nonexistent" to
+                                    TestQualityConfiguration.MutationTargetFamily(
+                                        modules = listOf(":lib-core"),
+                                        targetClasses = listOf("com.nonexistent.*"),
+                                        targetTests = listOf("com.nonexistent.*"),
+                                    ),
+                            ),
+                    ),
             )
-        )
 
-        val probe = CanonicalGradleProbe(
-            sourceRoot = fixtureDir,
-            outputDir = outputDir
-        )
+        val probe =
+            CanonicalGradleProbe(
+                sourceRoot = fixtureDir,
+                outputDir = outputDir,
+            )
 
-        val exception = try {
-            probe.probeTestQualityBaseline(configuration)
-            null
-        } catch (e: GradleException) {
-            e
-        }
+        val exception =
+            try {
+                probe.probeTestQualityBaseline(configuration)
+                null
+            } catch (e: GradleException) {
+                e
+            }
         assertNotNull(exception, "Expected GradleException to be thrown for non-existent mutation targets")
         val msg = exception.message ?: ""
         // The exception message should indicate a mutation probe failure
@@ -502,14 +608,16 @@ class CanonicalProbeFunctionalTest {
             msg.contains("failed", ignoreCase = true) ||
                 msg.contains("mutation", ignoreCase = true) ||
                 msg.contains("exit code", ignoreCase = true),
-            "Exception message should mention mutation failure, was: $msg"
+            "Exception message should mention mutation failure, was: $msg",
         )
     }
 
     @Test
     @Tag("integration")
     @Tag("slow")
-    fun `canonical probe detects missing coverage reports`(@TempDir tempDir: File) {
+    fun `canonical probe detects missing coverage reports`(
+        @TempDir tempDir: File,
+    ) {
         val fixtureDir = File(tempDir, "measured-checkout")
         fixtureDir.mkdirs()
         val outputDir = File(tempDir, "probe-output")
@@ -521,38 +629,46 @@ class CanonicalProbeFunctionalTest {
         // JaCoCo report. This causes the report to have no coverage data,
         // and the CoverageCollector will detect zero executable lines despite
         // having production sources.
-        val configuration = TestQualityConfiguration(
-            schemaVersion = "1",
-            criticalModules = listOf(":lib-core"),
-            coverage = TestQualityConfiguration.CoverageConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                exclusions = listOf(
-                    CoverageExclusion("**/*", "Exclude all classes to test zero coverage")
-                )
-            ),
-            mutation = TestQualityConfiguration.MutationConfiguration(
-                regressionTolerancePercentagePoints = 1.0,
-                targetFamilies = mapOf(
-                    "core" to TestQualityConfiguration.MutationTargetFamily(
-                        modules = listOf(":lib-core"),
-                        targetClasses = listOf("com.example.*"),
-                        targetTests = listOf("com.example.*")
-                    )
-                )
+        val configuration =
+            TestQualityConfiguration(
+                schemaVersion = "1",
+                criticalModules = listOf(":lib-core"),
+                coverage =
+                    TestQualityConfiguration.CoverageConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        exclusions =
+                            listOf(
+                                CoverageExclusion("**/*", "Exclude all classes to test zero coverage"),
+                            ),
+                    ),
+                mutation =
+                    TestQualityConfiguration.MutationConfiguration(
+                        regressionTolerancePercentagePoints = 1.0,
+                        targetFamilies =
+                            mapOf(
+                                "core" to
+                                    TestQualityConfiguration.MutationTargetFamily(
+                                        modules = listOf(":lib-core"),
+                                        targetClasses = listOf("com.example.*"),
+                                        targetTests = listOf("com.example.*"),
+                                    ),
+                            ),
+                    ),
             )
-        )
 
-        val probe = CanonicalGradleProbe(
-            sourceRoot = fixtureDir,
-            outputDir = outputDir
-        )
+        val probe =
+            CanonicalGradleProbe(
+                sourceRoot = fixtureDir,
+                outputDir = outputDir,
+            )
 
-        val exception = try {
-            probe.probeTestQualityBaseline(configuration)
-            null
-        } catch (e: GradleException) {
-            e
-        }
+        val exception =
+            try {
+                probe.probeTestQualityBaseline(configuration)
+                null
+            } catch (e: GradleException) {
+                e
+            }
         assertNotNull(exception, "Expected GradleException to be thrown for missing coverage")
         val msg = exception.message ?: ""
         // The exception should be thrown by CoverageCollector when it finds
@@ -561,7 +677,7 @@ class CanonicalProbeFunctionalTest {
             msg.contains("zero executable lines", ignoreCase = true) ||
                 msg.contains("coverage", ignoreCase = true) ||
                 msg.contains("produced no", ignoreCase = true),
-            "Exception message should mention coverage/production-source failure, was: $msg"
+            "Exception message should mention coverage/production-source failure, was: $msg",
         )
     }
 }
