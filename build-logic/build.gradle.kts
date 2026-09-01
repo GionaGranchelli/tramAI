@@ -23,6 +23,19 @@ dependencies {
 
     testImplementation(gradleTestKit())
     testImplementation(kotlin("test"))
+    // CrossModuleCoverageTest vendors JUnit + JaCoCo jars from the local Gradle
+    // cache into its hermetic fixture. JUnit jars arrive via kotlin("test");
+    // the JaCoCo stack only if build-logic's own test classpath resolves it —
+    // otherwise the jar lookup depends on some other job having resolved
+    // JaCoCo in the same runner cache first (a serial-workflow ordering
+    // dependency the parallel lane split breaks).
+    testImplementation("org.jacoco:org.jacoco.agent:0.8.13:runtime")
+    testImplementation("org.jacoco:org.jacoco.ant:0.8.13")
+    testImplementation("org.jacoco:org.jacoco.core:0.8.13")
+    testImplementation("org.jacoco:org.jacoco.report:0.8.13")
+    testImplementation("org.ow2.asm:asm:9.8")
+    testImplementation("org.ow2.asm:asm-commons:9.8")
+    testImplementation("org.ow2.asm:asm-tree:9.8")
 }
 
 tasks.test {
