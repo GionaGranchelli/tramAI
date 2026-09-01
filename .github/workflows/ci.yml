@@ -10,11 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
+  quality:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,114 +34,71 @@ jobs:
           echo "TramaiEngine.kt sha256=$(sha256sum tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt | cut -d' ' -f1)"
           echo "TramaiEngineTest.kt sha256=$(sha256sum tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt | cut -d' ' -f1)"
 
-      - name: Verify Kotlin formatting against PR base
-        if: github.event_name == 'pull_request'
+      - name: Run all quality gates
         run: |
-          ./gradlew spotlessCheck \
-            --no-daemon \
-            -PtramaiFormattingBaseRef="${{ github.event.pull_request.base.sha }}"
-
-      - name: Verify Kotlin formatting against push base
-        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
-        run: |
-          ./gradlew spotlessCheck \
-            --no-daemon \
-            -PtramaiFormattingBaseRef="${{ github.event.before }}"
-
-      - name: Run formatting gate contract tests
-        run: |
-          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.FormattingGate*Test' --no-daemon
-          python3 - <<'EOF'
-          import glob, re
-          total = 0
-          for f in glob.glob('build-logic/build/test-results/test/TEST-*.FormattingGate*Test.xml'):
-              m = re.search(r'tests="(\d+)"', open(f).read())
-              total += int(m.group(1)) if m else 0
-          assert total == 8, f'expected exactly 8 formatting-gate tests, discovered {total}'
-          EOF
-
-      - name: Verify static analysis against PR base
-        if: github.event_name == 'pull_request'
-        run: |
-          LABELS='${{ toJson(github.event.pull_request.labels) }}'
-          if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifyStaticAnalysis --no-daemon \
-              -PtramaiStaticAnalysisBaseRef="${{ github.event.pull_request.base.sha }}" \
-              -PchangeClass=baseline-migration
-          else
-            ./gradlew verifyStaticAnalysis --no-daemon \
-              -PtramaiStaticAnalysisBaseRef="${{ github.event.pull_request.base.sha }}"
+          GRADLE_ARGS=(spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyCompilerWarnings verifyDependencyHygiene --no-daemon)
+          BASE_REF=""
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            BASE_REF="${{ github.event.before }}"
+          fi
+          if [[ -n "$BASE_REF" ]]; then
+            GRADLE_ARGS+=(
+              "-PtramaiStaticAnalysisBaseRef=$BASE_REF"
+              "-PtramaiCompilerWarningsBaseRef=$BASE_REF"
+              "-PtramaiFormattingBaseRef=$BASE_REF"
+            )
           fi
 
-      - name: Verify static analysis against push base
-        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
-        run: |
-          ./gradlew verifyStaticAnalysis --no-daemon \
-            -PtramaiStaticAnalysisBaseRef="${{ github.event.before }}"
-
-      - name: Verify static safety guards (lifecycle/security forbidden usage)
-        run: ./gradlew verifyStaticSafetyGuards --no-daemon
-
-      - name: Run static-safety-guards contract tests
-        timeout-minutes: 20
-        run: |
-          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest' --no-daemon
-          python3 - <<'EOF'
-          import glob, re
-          total = 0
-          for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticSafety*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.CancellationWiringTest.xml'):
-              m = re.search(r'tests="(\d+)"', open(f).read())
-              total += int(m.group(1)) if m else 0
-          assert total == 71, f'expected exactly 71 static-safety-guards tests, discovered {total}'
-          EOF
-
-      - name: Verify compiler warnings against PR base
-        if: github.event_name == 'pull_request'
-        run: |
+          CHANGE_CLASS=""
           LABELS='${{ toJson(github.event.pull_request.labels) }}'
           if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifyCompilerWarnings --no-daemon \
-              -PtramaiCompilerWarningsBaseRef="${{ github.event.pull_request.base.sha }}" \
-              -PchangeClass=baseline-migration
-          else
-            ./gradlew verifyCompilerWarnings --no-daemon \
-              -PtramaiCompilerWarningsBaseRef="${{ github.event.pull_request.base.sha }}"
+            CHANGE_CLASS="-PchangeClass=baseline-migration"
+          fi
+          if [[ -n "$CHANGE_CLASS" ]]; then
+            GRADLE_ARGS+=("$CHANGE_CLASS")
           fi
 
-      - name: Verify compiler warnings against push base
-        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
-        run: |
-          ./gradlew verifyCompilerWarnings --no-daemon \
-            -PtramaiCompilerWarningsBaseRef="${{ github.event.before }}"
+          ./gradlew "${GRADLE_ARGS[@]}"
 
-      - name: Verify dependency hygiene
-        run: ./gradlew verifyDependencyHygiene --no-daemon
-
-      - name: Run compiler-warnings + dependency-hygiene contract tests
-        timeout-minutes: 10
+      - name: Run build-logic contract tests
+        timeout-minutes: 30
         run: |
-          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test' --no-daemon
+          ./gradlew :build-logic:test \
+            --tests 'dev.tramai.build.quality.FormattingGate*Test' \
+            --tests 'dev.tramai.build.quality.StaticSafety*Test' \
+            --tests 'dev.tramai.build.quality.CancellationWiringTest' \
+            --tests 'dev.tramai.build.quality.CompilerWarnings*Test' \
+            --tests 'dev.tramai.build.quality.DependencyHygiene*Test' \
+            --tests 'dev.tramai.build.quality.StaticAnalysis*Test' \
+            --no-daemon
           python3 - <<'EOF'
           import glob, re
           total = 0
-          for f in glob.glob('build-logic/build/test-results/test/TEST-*.CompilerWarnings*Test.xml') + glob.glob('build-logic/build/test-results/test/TEST-*.DependencyHygiene*Test.xml'):
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.xml'):
               m = re.search(r'tests="(\d+)"', open(f).read())
               total += int(m.group(1)) if m else 0
-          assert total == 64, f'expected exactly 64 new-gate contract tests, discovered {total}'
+          assert total == 168, f'expected exactly 168 build-logic contract tests, discovered {total}'
           EOF
 
-      - name: Run static-analysis contract tests
-        timeout-minutes: 20
-        run: |
-          ./gradlew :build-logic:test --tests 'dev.tramai.build.quality.StaticAnalysis*Test' --no-daemon
-          python3 - <<'EOF'
-          import glob, re
-          total = 0
-          for f in glob.glob('build-logic/build/test-results/test/TEST-*.StaticAnalysis*Test.xml'):
-              m = re.search(r'tests="(\d+)"', open(f).read())
-              total += int(m.group(1)) if m else 0
-          assert total == 25, f'expected exactly 25 static-analysis tests, discovered {total}'
-          EOF
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Run tests
         timeout-minutes: 15
@@ -214,6 +167,22 @@ jobs:
             --no-daemon \
             -PtramaiCoverageBaseSha="${{ github.event.before }}"
 
+  consumer-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Publish to Maven Local for example smoke test
         run: ./gradlew publishToMavenLocal
 
@@ -224,14 +193,25 @@ jobs:
           ./gradlew -p examples/kotlin-springboot-example test \
             -PtramaiVersion="${TRAMAI_VERSION}"
 
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v4
+  artifact-prep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
         with:
-          name: test-reports
-          path: |
-            **/build/test-results/test/
-            **/build/reports/tests/test/
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Generate CycloneDX SBOM
         run: ./gradlew cyclonedxBom
@@ -244,31 +224,6 @@ jobs:
 
       - name: Verify sovereign release manifest
         run: ./gradlew verifySovereignReleaseManifest
-
-      - name: Run sovereign document intelligence example
-        run: ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json"
-
-      - name: Run Spring sovereign starter example tests
-        run: ./gradlew :examples:spring-sovereign-starter:test
-
-      - name: Run Spring sovereign starter E2E tests
-        run: ./gradlew :examples:spring-sovereign-starter:e2eTest
-
-      - name: Verify Sovereign Runtime closure
-        timeout-minutes: 30
-        # No --rerun-tasks: the normal test phase already ran the full suite.
-        # Rerunning here doubles the exposure to probabilistic concurrency flakes
-        # (observed: JdbcStepAttemptRecordStoreContractTest #19 failed only in
-        # the closure re-run, with the same head passing the initial Run tests).
-        # The aggregate pulls verifyStaticAnalysis, which on a bootstrap PR needs
-        # the explicit baseline-migration class (label-gated, like the step above).
-        run: |
-          LABELS='${{ toJson(github.event.pull_request.labels) }}'
-          if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
-          else
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=
-          fi
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
@@ -297,9 +252,109 @@ jobs:
         with:
           subject-path: build/sovereign-release/release-artifacts-v1.json
 
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.filter.outputs.release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect release-relevant changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # Keep in sync with the path list in
+          # sovereign-runtime-release-candidate.yml.
+          filters: |
+            release:
+              - "build.gradle.kts"
+              - "gradle.properties"
+              - "tramai-bom/**"
+              - "tramai-core/**"
+              - "tramai-security/**"
+              - "tramai-sovereign/**"
+              - "tramai-standalone/**"
+              - "tramai-engine/**"
+              - "tramai-structured/**"
+              - "tramai-persistence-file/**"
+              - "tramai-spring-sovereign/**"
+              - "tramai-spring-core/**"
+              - "tramai-spring-boot-starter/**"
+              - "tramai-spring-boot-starter-sovereign-persistence-file/**"
+              - "tramai-spring-boot-starter-sovereign-ops/**"
+              - "tramai-spring-boot-starter-sovereign-ops-actuator/**"
+              - "tramai-spring-boot-starter-sovereign-ops-micrometer/**"
+              - "tramai-spring-boot-starter-sovereign-ops-observability/**"
+              - "examples/sovereign-runtime-consumer-smoke/**"
+              - "docs/releases/**"
+              - "docs/reference/releasing.md"
+              - ".github/workflows/sovereign-runtime-release-candidate.yml"
+
+  sovereign-rc:
+    needs: [tests, changes]
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Full RC verification remains available through the existing
+    # sovereign-runtime-release-candidate.yml workflow for workflow_dispatch
+    # and release-relevant pull requests.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run sovereign document intelligence example
+        run: ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json"
+
+      - name: Run Spring sovereign starter example tests
+        run: ./gradlew :examples:spring-sovereign-starter:test
+
+      - name: Run Spring sovereign starter E2E tests
+        run: ./gradlew :examples:spring-sovereign-starter:e2eTest
+
+      - name: Verify Sovereign Runtime closure
+        timeout-minutes: 30
+        # No --rerun-tasks: the normal test phase already ran the full suite.
+        # Rerunning here doubles the exposure to probabilistic concurrency flakes
+        # (observed: JdbcStepAttemptRecordStoreContractTest #19 failed only in
+        # the closure re-run, with the same head passing the initial Run tests).
+        # The aggregate pulls verifyStaticAnalysis, which on a bootstrap PR needs
+        # the explicit baseline-migration class (label-gated, like the step above).
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
+          else
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=
+          fi
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/test-results/test/
+            **/build/reports/tests/test/
+
   zero-egress:
     runs-on: ubuntu-latest
-    needs: build
+    needs: artifact-prep
     permissions:
       contents: read
       id-token: write
@@ -318,14 +373,23 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate CycloneDX SBOM
-        run: ./gradlew cyclonedxBom
+      - name: Download SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: cyclonedx-sbom
+          path: build/supply-chain/sbom/
 
-      - name: Compute SBOM digest + copy
-        run: ./gradlew prepareCycloneDxBom
+      - name: Download SBOM digest
+        uses: actions/download-artifact@v4
+        with:
+          name: cyclonedx-sbom-digest
+          path: build/supply-chain/sbom/
 
-      - name: Prepare sovereign release artifacts
-        run: ./gradlew prepareSovereignReleaseArtifacts
+      - name: Download sovereign release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sovereign-release-artifacts
+          path: build/sovereign-release/
 
       - name: Verify sovereign release manifest
         run: ./gradlew verifySovereignReleaseManifest

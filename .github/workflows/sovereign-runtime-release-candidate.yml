@@ -8,6 +8,7 @@ on:
         required: false
         type: string
   pull_request:
+    # Keep this path list in sync with ci.yml's sovereign-rc job.
     paths:
       - "build.gradle.kts"
       - "gradle.properties"
