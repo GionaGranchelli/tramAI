@@ -1,6 +1,3 @@
-import dev.tramai.build.publishing.TramaiPublishingRepositories
-import dev.tramai.build.quality.ModuleManifest
-
 plugins {
     base
     id("tramai.maintainability-baseline")
@@ -168,8 +165,6 @@ val tramaiLicenseUrl = providers.gradleProperty("tramaiLicenseUrl").orElse("http
 val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("GionaGranchelli")
 val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse("Giona")
 val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
-val publishableProjectNames = ModuleManifest.publishableModulePaths(rootDir).map { it.removePrefix(":") }
-extra["tramai.publishableModulePaths"] = publishableProjectNames.map { ":$it" }
 
 // Sovereign bundle modules for the dedicated publication dry-run repository.
 // Used by the verifySovereignRuntimeSignedBundle task to publish only to a local

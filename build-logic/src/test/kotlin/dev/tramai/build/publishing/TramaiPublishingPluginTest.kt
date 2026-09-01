@@ -19,10 +19,13 @@ import kotlin.test.assertTrue
  * applies during the plugins block).
  */
 class TramaiPublishingPluginTest {
-
     // ── fixture helpers ──────────────────────────────────────────────────────
 
-    private fun writeFile(base: File, relativePath: String, content: String) {
+    private fun writeFile(
+        base: File,
+        relativePath: String,
+        content: String,
+    ) {
         val target = File(base, relativePath)
         target.parentFile.mkdirs()
         target.writeText(content)
@@ -49,6 +52,33 @@ class TramaiPublishingPluginTest {
             group=dev.tramai
             """.trimIndent(),
         )
+        // The module catalog is the single publishability authority (9.2d-b1):
+        // publishability-sensitive fixtures must carry a minimal valid catalog
+        // instead of relying on production fail-open behavior. `:sample` is
+        // declared internal so the fixture keeps the no-sovereign-repo / no-
+        // description semantics of the original no-catalog fixtures. Tests
+        // that need a published `:sample` (D6/D7) write their catalog first.
+        val catalogFile = File(dir, "config/quality/module-catalog.yml")
+        if (!catalogFile.isFile) {
+            writeFile(
+                dir,
+                "config/quality/module-catalog.yml",
+                """
+                schemaVersion: "3"
+                dependencyPolicies:
+                  core: { allowedLayers: [core-contracts, testing-support] }
+                entryDefaults:
+                  core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
+                  internal: &internal { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: core, releaseInclusion: internal_only, rationale: "Fixture internal module." }
+                modules:
+                  - path: ":sample"
+                    <<: *internal
+                    layer: core-contracts
+                    publishability: internal
+                    apiStability: internal
+                """.trimIndent(),
+            )
+        }
         writeFile(
             dir,
             "build.gradle.kts",
@@ -71,15 +101,24 @@ class TramaiPublishingPluginTest {
         return dir
     }
 
-    private fun runner(dir: File, vararg args: String): GradleRunner =
-        GradleRunner.create()
+    private fun runner(
+        dir: File,
+        vararg args: String,
+    ): GradleRunner =
+        GradleRunner
+            .create()
             .withProjectDir(dir)
             .withPluginClasspath()
             .withArguments(*args)
 
-    private fun runProbe(dir: File, task: String = "probe", vararg args: String): Map<String, String> {
+    private fun runProbe(
+        dir: File,
+        task: String = "probe",
+        vararg args: String,
+    ): Map<String, String> {
         val result = runner(dir, task, "--quiet", *args).build()
-        return result.output.lineSequence()
+        return result.output
+            .lineSequence()
             .filter { it.startsWith("PROBE:") }
             .associate { line ->
                 val (key, value) = line.removePrefix("PROBE:").split("=", limit = 2)
@@ -87,30 +126,34 @@ class TramaiPublishingPluginTest {
             }
     }
 
-    private fun probeRepositoriesBody(): String = """
+    private fun probeRepositoriesBody(): String =
+        """
         val repos = publishing.repositories.map { repo ->
             val artifactRepo = repo as MavenArtifactRepository
             artifactRepo.name + "|" + artifactRepo.url
         }.sorted().joinToString(",")
         println("PROBE:repos=" + repos)
-    """.trimIndent()
+        """.trimIndent()
 
     // ── P1 — java-library publication ────────────────────────────────────────
 
     @Test
-    fun `P1 java-library publication has java component artifactId and javadoc jar`(@TempDir tempDir: File) {
+    fun `P1 java-library publication has java component artifactId and javadoc jar`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p1")
         dir.mkdirs()
         singleProjectFixture(
             dir,
             plugins = "java-library",
-            probeBody = """
+            probeBody =
+                """
                 val pub = publishing.publications.getByName("maven") as MavenPublication
                 println("PROBE:pubName=" + pub.name)
                 println("PROBE:artifactId=" + pub.artifactId)
                 println("PROBE:components=" + components.names.sorted().joinToString(","))
                 println("PROBE:hasJavadocJar=" + tasks.names.contains("javadocJar"))
-            """.trimIndent(),
+                """.trimIndent(),
         )
         val probe = runProbe(dir)
         assertEquals("maven", probe["pubName"])
@@ -122,18 +165,21 @@ class TramaiPublishingPluginTest {
     // ── P2 — java-platform publication ───────────────────────────────────────
 
     @Test
-    fun `P2 java-platform publication uses javaPlatform component and pom packaging`(@TempDir tempDir: File) {
+    fun `P2 java-platform publication uses javaPlatform component and pom packaging`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p2")
         dir.mkdirs()
         singleProjectFixture(
             dir,
             plugins = "java-platform",
-            probeBody = """
+            probeBody =
+                """
                 val pub = publishing.publications.getByName("maven") as MavenPublication
                 println("PROBE:pubName=" + pub.name)
                 println("PROBE:artifactId=" + pub.artifactId)
                 println("PROBE:components=" + components.names.sorted().joinToString(","))
-            """.trimIndent(),
+                """.trimIndent(),
         )
         val probe = runProbe(dir)
         assertEquals("maven", probe["pubName"])
@@ -150,13 +196,23 @@ class TramaiPublishingPluginTest {
     // ── P3 — release repository selection ────────────────────────────────────
 
     @Test
-    fun `P3 release version selects release URL with snapshot fallback`(@TempDir tempDir: File) {
+    fun `P3 release version selects release URL with snapshot fallback`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p3")
         dir.mkdirs()
         singleProjectFixture(dir, version = "0.6.0", probeBody = probeRepositoriesBody())
 
         // Both URLs present → release URL wins.
-        val both = runProbe(dir, args = arrayOf("-PtramaiPublishReleaseUrl=https://release.example.com/repo", "-PtramaiPublishSnapshotUrl=https://snapshot.example.com/repo"))
+        val both =
+            runProbe(
+                dir,
+                args =
+                    arrayOf(
+                        "-PtramaiPublishReleaseUrl=https://release.example.com/repo",
+                        "-PtramaiPublishSnapshotUrl=https://snapshot.example.com/repo",
+                    ),
+            )
         assertEquals("tramaiRemote|https://release.example.com/repo", both["repos"])
 
         // Only snapshot URL → fallback to snapshot URL for a release version.
@@ -171,13 +227,23 @@ class TramaiPublishingPluginTest {
     // ── P4 — snapshot repository selection ───────────────────────────────────
 
     @Test
-    fun `P4 snapshot version selects snapshot URL with release fallback`(@TempDir tempDir: File) {
+    fun `P4 snapshot version selects snapshot URL with release fallback`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p4")
         dir.mkdirs()
         singleProjectFixture(dir, version = "0.6.1-SNAPSHOT", probeBody = probeRepositoriesBody())
 
         // Both URLs present → snapshot URL wins.
-        val both = runProbe(dir, args = arrayOf("-PtramaiPublishReleaseUrl=https://release.example.com/repo", "-PtramaiPublishSnapshotUrl=https://snapshot.example.com/repo"))
+        val both =
+            runProbe(
+                dir,
+                args =
+                    arrayOf(
+                        "-PtramaiPublishReleaseUrl=https://release.example.com/repo",
+                        "-PtramaiPublishSnapshotUrl=https://snapshot.example.com/repo",
+                    ),
+            )
         assertEquals("tramaiRemote|https://snapshot.example.com/repo", both["repos"])
 
         // Only release URL → fallback to release URL for a snapshot version.
@@ -192,14 +258,17 @@ class TramaiPublishingPluginTest {
     // ── P5 — no repository configured when both URLs absent ──────────────────
 
     @Test
-    fun `P5 no remote repository is configured when both URLs are absent`(@TempDir tempDir: File) {
+    fun `P5 no remote repository is configured when both URLs are absent`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p5")
         dir.mkdirs()
         singleProjectFixture(
             dir,
-            probeBody = """
+            probeBody =
+                """
                 println("PROBE:repos=" + publishing.repositories.map { it.name }.sorted().joinToString(","))
-            """.trimIndent(),
+                """.trimIndent(),
         )
         val probe = runProbe(dir)
         assertEquals("", probe["repos"] ?: "", "no repositories must be configured on a developer machine")
@@ -208,27 +277,32 @@ class TramaiPublishingPluginTest {
     // ── P6 — file repository never receives credentials ──────────────────────
 
     @Test
-    fun `P6 file repository is configured without credentials even when properties are provided`(@TempDir tempDir: File) {
+    fun `P6 file repository is configured without credentials even when properties are provided`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p6")
         dir.mkdirs()
         singleProjectFixture(
             dir,
             version = "0.6.0",
-            probeBody = """
+            probeBody =
+                """
                 val repo = publishing.repositories.getByName("tramaiRemote") as MavenArtifactRepository
                 println("PROBE:repoUrl=" + repo.url)
                 println("PROBE:credUser=" + (repo.credentials.username ?: "NULL"))
                 println("PROBE:credPass=" + (repo.credentials.password ?: "NULL"))
-            """.trimIndent(),
+                """.trimIndent(),
         )
-        val probe = runProbe(
-            dir,
-            args = arrayOf(
-                "-PtramaiPublishReleaseUrl=file:///tmp/repo",
-                "-PtramaiPublishUsername=secret-user",
-                "-PtramaiPublishPassword=secret-pass",
-            ),
-        )
+        val probe =
+            runProbe(
+                dir,
+                args =
+                    arrayOf(
+                        "-PtramaiPublishReleaseUrl=file:///tmp/repo",
+                        "-PtramaiPublishUsername=secret-user",
+                        "-PtramaiPublishPassword=secret-pass",
+                    ),
+            )
         assertEquals("file:/tmp/repo", probe["repoUrl"], "file repository URL must remain file-based")
         assertEquals("NULL", probe["credUser"], "file repository must never receive credentials")
         assertEquals("NULL", probe["credPass"], "file repository must never receive credentials")
@@ -237,15 +311,18 @@ class TramaiPublishingPluginTest {
     // ── P7 — signing is optional ─────────────────────────────────────────────
 
     @Test
-    fun `P7 configuration succeeds without signing keys and adds signing tasks with keys`(@TempDir tempDir: File) {
+    fun `P7 configuration succeeds without signing keys and adds signing tasks with keys`(
+        @TempDir tempDir: File,
+    ) {
         // Case 1: no keys → configuration succeeds, no signing tasks.
         val noKeys = File(tempDir, "p7-nokeys")
         noKeys.mkdirs()
         singleProjectFixture(
             noKeys,
-            probeBody = """
+            probeBody =
+                """
                 println("PROBE:signTasks=" + tasks.names.filter { it.contains("sign", ignoreCase = true) }.sorted().joinToString(","))
-            """.trimIndent(),
+                """.trimIndent(),
         )
         val noKeysProbe = runProbe(noKeys)
         assertEquals("", noKeysProbe["signTasks"].orEmpty(), "no signing tasks must exist without signing material")
@@ -255,9 +332,10 @@ class TramaiPublishingPluginTest {
         withKeys.mkdirs()
         singleProjectFixture(
             withKeys,
-            probeBody = """
+            probeBody =
+                """
                 println("PROBE:signTasks=" + tasks.names.filter { it.contains("sign", ignoreCase = true) }.sorted().joinToString(","))
-            """.trimIndent(),
+                """.trimIndent(),
         )
         val withKeysProbe = runProbe(withKeys, args = arrayOf("-PsigningKey=test-key", "-PsigningPassword=test-password"))
         assertTrue(withKeysProbe["signTasks"]!!.contains("signMavenPublication"), "signing tasks must exist when keys are provided")
@@ -266,7 +344,9 @@ class TramaiPublishingPluginTest {
     // ── P8 — sovereign local repository safety ───────────────────────────────
 
     @Test
-    fun `P8 sovereignBundleLocal exists as file repository on selected projects only`(@TempDir tempDir: File) {
+    fun `P8 sovereignBundleLocal exists as file repository on selected projects only`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p8")
         dir.mkdirs()
         writeFile(
@@ -281,8 +361,32 @@ class TramaiPublishingPluginTest {
         writeFile(
             dir,
             "build.gradle.kts",
+            "",
+        )
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
             """
-            extra["tramai.publishableModulePaths"] = listOf(":tramai-core", ":tramai-spring")
+            schemaVersion: "3"
+            dependencyPolicies:
+              core: { allowedLayers: [core-contracts, testing-support] }
+              framework: { allowedLayers: [core-contracts, framework-integrations, testing-support] }
+            entryDefaults:
+              core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
+              framework: &framework { maturity: preview, visibility: public, owner: framework, dependencyPolicy: framework, releaseInclusion: included, rationale: "Fixture module." }
+            modules:
+              - path: ":tramai-core"
+                <<: *core
+                layer: core-contracts
+                publishability: published
+                apiStability: stable
+                description: "Fixture core module."
+              - path: ":tramai-spring"
+                <<: *framework
+                layer: framework-integrations
+                publishability: published
+                apiStability: preview
+                description: "Fixture spring module."
             """.trimIndent(),
         )
         writeFile(
@@ -340,10 +444,57 @@ class TramaiPublishingPluginTest {
         assertFalse(springProbe["repos"]!!.contains("sovereignBundleLocal"), "non-selected project must not get the sovereign repo")
     }
 
+    @Test
+    fun `P8b sovereign repo selection fails closed on corrupt catalog`(
+        @TempDir tempDir: File,
+    ) {
+        // 9.2d-b1 P1: the module catalog is the single publishability
+        // authority. A corrupt catalog must abort sovereign repo selection,
+        // never silently select an empty module set.
+        val dir = File(tempDir, "p8b")
+        dir.mkdirs()
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
+            rootProject.name = "fixture"
+            include("tramai-core")
+            """.trimIndent(),
+        )
+        writeFile(dir, "build.gradle.kts", "")
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            "schemaVersion: \"3\"\nmodules:\n  - malformed\n",
+        )
+        writeFile(
+            dir,
+            "tramai-core/build.gradle.kts",
+            """
+            plugins {
+                `java-library`
+                id("tramai.publishing")
+            }
+            group = "dev.tramai"
+            version = "0.6.0"
+            tasks.register("probe") {
+                doLast { println("PROBE:repos=" + publishing.repositories.map { it.name }.joinToString(",")) }
+            }
+            """.trimIndent(),
+        )
+        val result = runner(dir, ":tramai-core:probe").buildAndFail()
+        assertTrue(
+            result.output.contains("MODULE_CATALOG") || result.output.contains("catalog"),
+            "corrupt catalog must fail closed during repo selection, got: ${result.output.take(1200)}",
+        )
+    }
+
     // ── P9 — publication metadata parity ─────────────────────────────────────
 
     @Test
-    fun `P9 generated POM carries unchanged publication metadata`(@TempDir tempDir: File) {
+    fun `P9 generated POM carries unchanged publication metadata`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p9")
         dir.mkdirs()
         singleProjectFixture(
@@ -375,7 +526,9 @@ class TramaiPublishingPluginTest {
     // ── D6 — publishing consumes the catalog description (9.2c-c) ───────────
 
     @Test
-    fun `D6 generated POM description comes from the module catalog`(@TempDir tempDir: File) {
+    fun `D6 generated POM description comes from the module catalog`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "d6")
         dir.mkdirs()
         writeFile(
@@ -435,7 +588,9 @@ class TramaiPublishingPluginTest {
     // ── P10 — configuration cache at the convention boundary ─────────────────
 
     @Test
-    fun `P10 configuration cache is reused on second run`(@TempDir tempDir: File) {
+    fun `P10 configuration cache is reused on second run`(
+        @TempDir tempDir: File,
+    ) {
         val dir = File(tempDir, "p10")
         dir.mkdirs()
         singleProjectFixture(dir, plugins = "java-library")
@@ -452,19 +607,21 @@ class TramaiPublishingPluginTest {
 
     @Test
     fun `S1 root build script contains no publishing implementation`() {
-        val repositoryRoot = System.getProperty("tramai.repositoryRoot")
-            ?: error("tramai.repositoryRoot system property must be set")
+        val repositoryRoot =
+            System.getProperty("tramai.repositoryRoot")
+                ?: error("tramai.repositoryRoot system property must be set")
         val rootBuildScript = File(repositoryRoot, "build.gradle.kts")
         assertTrue(rootBuildScript.isFile, "root build.gradle.kts must exist at $repositoryRoot")
         val text = rootBuildScript.readText()
 
-        val forbidden = listOf(
-            "configureTramaiPublishing",
-            "configureSovereignBundleLocalRepo",
-            "import org.gradle.api.publish.PublishingExtension",
-            "import org.gradle.api.publish.maven.MavenPublication",
-            "import org.gradle.plugins.signing.SigningExtension",
-        )
+        val forbidden =
+            listOf(
+                "configureTramaiPublishing",
+                "configureSovereignBundleLocalRepo",
+                "import org.gradle.api.publish.PublishingExtension",
+                "import org.gradle.api.publish.maven.MavenPublication",
+                "import org.gradle.plugins.signing.SigningExtension",
+            )
         forbidden.forEach { identifier ->
             assertFalse(text.contains(identifier), "root build.gradle.kts must not contain $identifier")
         }

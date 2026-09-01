@@ -619,6 +619,7 @@
     <ID>InvalidPackageDeclaration:BinaryCompatFixture.kt$package dev.tramai.orchestration</ID>
     <ID>LargeClass:ApprovalContinuationStoreTck.kt$ApprovalContinuationStoreTck</ID>
     <ID>LargeClass:ApprovalResumeEngineTest.kt$ApprovalResumeEngineTest</ID>
+    <ID>LargeClass:ReleaseVerificationPluginTest.kt$ReleaseVerificationPluginTest</ID>
     <ID>LargeClass:ApprovalStoreTck.kt$ApprovalStoreTck</ID>
     <ID>LargeClass:AuditEngineTest.kt$AuditEngineTest</ID>
     <ID>LargeClass:BaselineGenerator.kt$BaselineGenerator</ID>
@@ -744,7 +745,7 @@
     <ID>LongMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
     <ID>LongMethod:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:ModuleGraphAnalyzer.kt$ModuleGraphAnalyzer$fun analyze(): GraphResult</ID>
-    <ID>LongMethod:ModuleTopologyVerificationTest.kt$ModuleTopologyVerificationTest$private fun topologyFixture( publishableExtra: String? = """listOf(":tramai-core", ":tramai-engine", ":tramai-bom")""", bomModules: List&lt;String&gt; = listOf("tramai-core", "tramai-engine"), engineEntry: String? = defaultEngineEntry, catalogFileOverride: String? = null, applyReleasePlugin: Boolean = true, ): File</ID>
+    <ID>LongMethod:ModuleTopologyVerificationTest.kt$ModuleTopologyVerificationTest$private fun topologyFixture( bomModules: List&lt;String&gt; = listOf("tramai-core", "tramai-engine"), engineEntry: String? = defaultEngineEntry, catalogFileOverride: String? = null, applyReleasePlugin: Boolean = true, ): File</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier$fun verify(committed: MutationData, current: MutationData): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LongMethod:MutationBaselineVerifier.kt$MutationBaselineVerifier.Companion$fun aggregate( reports: List&lt;ParsedMutationReport&gt;, analyzerVersion: String = "", measuredCommit: String = "" ): MutationData</ID>
     <ID>LongMethod:MutationClassificationLoader.kt$MutationClassificationLoader$fun load(repositoryRoot: File): MutationClassifications</ID>
@@ -818,7 +819,7 @@
     <ID>LongMethod:TramaiAutoConfigurationTest.kt$TramaiAutoConfigurationTest$@Test fun `creates an openai provider from the built in vault secret resolver`()</ID>
     <ID>LongMethod:TramaiDocsGuardsPlugin.kt$TramaiDocsGuardsPlugin$override fun apply(project: Project)</ID>
     <ID>LongMethod:TramaiPublishingPlugin.kt$TramaiPublishingPlugin$private fun configurePublication( project: Project, componentName: String, )</ID>
-    <ID>LongMethod:TramaiPublishingPluginTest.kt$TramaiPublishingPluginTest$@Test fun `P8 sovereignBundleLocal exists as file repository on selected projects only`(@TempDir tempDir: File)</ID>
+    
     <ID>LongMethod:TramaiWorkerTest.kt$TramaiWorkerTest$@Test fun `operator retryStep enables genuine retry with a new attempt`()</ID>
     <ID>LongMethod:TypedTaskConfigurationCacheTest.kt$TypedTaskConfigurationCacheTest$private fun maintainabilityFixture(): File</ID>
     <ID>LongMethod:VerifySovereignSignedBundleTask.kt$VerifySovereignSignedBundleTask$@TaskAction fun verify()</ID>
@@ -3503,29 +3504,29 @@
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$bundleManifestFile.from(project.layout.buildDirectory.file("sovereign-runtime-release/bundle-manifest.json"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Collects JARs from sovereign release modules, computes SHA-256 digests, and generates release-artifacts-v1.json."</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."</ID>
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Runs the standalone sovereign runtime consumer smoke test against the dedicated verification repo."</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Validates local publishability of sovereign runtime modules — POM metadata, sources/javadoc JARs, and dependency graph. Does not publish remotely."</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$gatewayAutoConfig.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"))</ID>
+    
+    
+    
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$goldenPathTest.set(project.layout.projectDirectory.file("tramai-core/src/test/kotlin/dev/tramai/core/workflow/ApprovalGatewayGoldenPathErgonomicsTest.kt"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$humanApprovalErgonomics.set(project.layout.projectDirectory.file("docs/architecture/human-approval-workflow-ergonomics.md"))</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$javaFacadeFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt"))</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$javaInteropTest.set(project.layout.projectDirectory.file("tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java"))</ID>
+    
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$jdbcRunbook.set(project.layout.projectDirectory.file("docs/runbooks/sovereign-jdbc-production-deployment.md"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$manifestFile.set(project.layout.projectDirectory.file("docs/architecture/sovereign-api-stability-manifest.yml"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$mapperFile.set(project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappers.kt"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$micrometerReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-micrometer/README.md"))</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$observabilityReadme.set(project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md"))</ID>
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.tasks</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$promql.set(project.layout.projectDirectory.file("docs/operations/prometheus/sovereign-ops-worker-promql.md"))</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$regulatedFactoryFile.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt"))</ID>
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$resumeAlerts.set(project.layout.projectDirectory.file("docs/observability/prometheus-approved-resume-worker-alerts.yml"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$resumeDashboard.set(project.layout.projectDirectory.file("docs/observability/grafana-approved-resume-worker-dashboard.json"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$resumeRunbook.set(project.layout.projectDirectory.file("docs/runbooks/approved-resume-worker-observability.md"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$runbook.set(project.layout.projectDirectory.file("docs/operations/sovereign-ops-worker-observability-runbook.md"))</ID>
-    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$springSmokeTest.set(project.layout.projectDirectory.file("examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt"))</ID>
+    
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$val</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$verificationRepositoryDirectory.from(project.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo"))</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) "gradlew.bat" else "./gradlew"</ID>
@@ -4785,5 +4786,16 @@
     <ID>ReturnCount:ApiCompatibilityVerifier.kt$ApiCompatibilityVerifier$private fun actualTransition( evidence: ApiDumpEvidence, module: String, ): Pair&lt;String, String&gt;?</ID>
     <ID>ThrowsCount:VerifyArchitectureTask.kt$VerifyArchitectureTask$private fun readBaselineDiagnostics(reportFile: File): List&lt;VerificationDiagnostic&gt;</ID>
     <ID>LargeClass:MaintainabilityBaselineVerificationTest.kt$MaintainabilityBaselineVerificationTest</ID>
+    <ID>LongMethod:TramaiPublishingPluginTest.kt$TramaiPublishingPluginTest$@Test fun `P8 sovereignBundleLocal exists as file repository on selected projects only`( @TempDir tempDir: File, )</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"Validates local publishability of sovereign runtime modules — POM metadata, sources/javadoc JARs, and dependency graph. Does not publish remotely."</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt"</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt"</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java"</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt")</ID>
+    <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md")</ID>
   </CurrentIssues>
 </SmellBaseline>
