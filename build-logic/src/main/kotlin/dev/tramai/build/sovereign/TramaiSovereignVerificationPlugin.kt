@@ -282,7 +282,12 @@ class TramaiSovereignVerificationPlugin : Plugin<Project> {
 
             manifestFile.set(project.layout.buildDirectory.file("sovereign-release/release-artifacts-v1.json"))
             artifactsDirectory.set(project.layout.buildDirectory.dir("sovereign-release/artifacts"))
-            dependsOn("prepareSovereignReleaseArtifacts")
+            // Pure verifier by design: validates an EXISTING manifest/artifact
+            // bundle (e.g. one downloaded from another CI job). Aggregates that
+            // need the artifacts produced must depend on
+            // prepareSovereignReleaseArtifacts explicitly (they all do:
+            // generateSovereignReleaseEvidenceIndex and
+            // verifySovereignDocumentIntelligenceEvidenceRun).
         }
     }
 

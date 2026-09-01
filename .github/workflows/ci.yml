@@ -62,24 +62,49 @@ jobs:
 
           ./gradlew "${GRADLE_ARGS[@]}"
 
-      - name: Run build-logic contract tests
+  contract-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: formatting
+            test-filter: "--tests 'dev.tramai.build.quality.FormattingGate*Test'"
+            expected: 8
+          - name: static-safety
+            test-filter: "--tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest'"
+            expected: 71
+          - name: compiler-deps
+            test-filter: "--tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test'"
+            expected: 64
+          - name: static-analysis
+            test-filter: "--tests 'dev.tramai.build.quality.StaticAnalysis*Test'"
+            expected: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run ${{ matrix.name }} build-logic contract tests
         timeout-minutes: 30
         run: |
-          ./gradlew :build-logic:test \
-            --tests 'dev.tramai.build.quality.FormattingGate*Test' \
-            --tests 'dev.tramai.build.quality.StaticSafety*Test' \
-            --tests 'dev.tramai.build.quality.CancellationWiringTest' \
-            --tests 'dev.tramai.build.quality.CompilerWarnings*Test' \
-            --tests 'dev.tramai.build.quality.DependencyHygiene*Test' \
-            --tests 'dev.tramai.build.quality.StaticAnalysis*Test' \
-            --no-daemon
+          ./gradlew :build-logic:test ${{ matrix.test-filter }} --no-daemon
           python3 - <<'EOF'
           import glob, re
           total = 0
           for f in glob.glob('build-logic/build/test-results/test/TEST-*.xml'):
               m = re.search(r'tests="(\d+)"', open(f).read())
               total += int(m.group(1)) if m else 0
-          assert total == 168, f'expected exactly 168 build-logic contract tests, discovered {total}'
+          assert total == ${{ matrix.expected }}, f'expected exactly ${{ matrix.expected }} ${{ matrix.name }} contract tests, discovered {total}'
           EOF
 
   tests:
@@ -251,106 +276,6 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: build/sovereign-release/release-artifacts-v1.json
-
-  changes:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      release: ${{ steps.filter.outputs.release }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect release-relevant changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          # Keep in sync with the path list in
-          # sovereign-runtime-release-candidate.yml.
-          filters: |
-            release:
-              - "build.gradle.kts"
-              - "gradle.properties"
-              - "tramai-bom/**"
-              - "tramai-core/**"
-              - "tramai-security/**"
-              - "tramai-sovereign/**"
-              - "tramai-standalone/**"
-              - "tramai-engine/**"
-              - "tramai-structured/**"
-              - "tramai-persistence-file/**"
-              - "tramai-spring-sovereign/**"
-              - "tramai-spring-core/**"
-              - "tramai-spring-boot-starter/**"
-              - "tramai-spring-boot-starter-sovereign-persistence-file/**"
-              - "tramai-spring-boot-starter-sovereign-ops/**"
-              - "tramai-spring-boot-starter-sovereign-ops-actuator/**"
-              - "tramai-spring-boot-starter-sovereign-ops-micrometer/**"
-              - "tramai-spring-boot-starter-sovereign-ops-observability/**"
-              - "examples/sovereign-runtime-consumer-smoke/**"
-              - "docs/releases/**"
-              - "docs/reference/releasing.md"
-              - ".github/workflows/sovereign-runtime-release-candidate.yml"
-
-  sovereign-rc:
-    needs: [tests, changes]
-    if: needs.changes.outputs.release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    # Full RC verification remains available through the existing
-    # sovereign-runtime-release-candidate.yml workflow for workflow_dispatch
-    # and release-relevant pull requests.
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Run sovereign document intelligence example
-        run: ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json"
-
-      - name: Run Spring sovereign starter example tests
-        run: ./gradlew :examples:spring-sovereign-starter:test
-
-      - name: Run Spring sovereign starter E2E tests
-        run: ./gradlew :examples:spring-sovereign-starter:e2eTest
-
-      - name: Verify Sovereign Runtime closure
-        timeout-minutes: 30
-        # No --rerun-tasks: the normal test phase already ran the full suite.
-        # Rerunning here doubles the exposure to probabilistic concurrency flakes
-        # (observed: JdbcStepAttemptRecordStoreContractTest #19 failed only in
-        # the closure re-run, with the same head passing the initial Run tests).
-        # The aggregate pulls verifyStaticAnalysis, which on a bootstrap PR needs
-        # the explicit baseline-migration class (label-gated, like the step above).
-        run: |
-          LABELS='${{ toJson(github.event.pull_request.labels) }}'
-          if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
-          else
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=
-          fi
-
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports
-          path: |
-            **/build/test-results/test/
-            **/build/reports/tests/test/
 
   zero-egress:
     runs-on: ubuntu-latest

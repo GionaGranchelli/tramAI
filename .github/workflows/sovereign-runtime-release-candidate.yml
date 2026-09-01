@@ -8,10 +8,13 @@ on:
         required: false
         type: string
   pull_request:
-    # Keep this path list in sync with ci.yml's sovereign-rc job.
+    # The RC workflow is the SINGLE sovereign-verification authority. ci.yml
+    # intentionally runs no sovereign closure; keep this path list in sync
+    # with the release-relevant module set.
     paths:
       - "build.gradle.kts"
       - "gradle.properties"
+      - "build-logic/**"
       - "tramai-bom/**"
       - "tramai-core/**"
       - "tramai-security/**"
@@ -29,9 +32,12 @@ on:
       - "tramai-spring-boot-starter-sovereign-ops-micrometer/**"
       - "tramai-spring-boot-starter-sovereign-ops-observability/**"
       - "examples/sovereign-runtime-consumer-smoke/**"
+      - "examples/sovereign-document-intelligence/**"
+      - "examples/spring-sovereign-starter/**"
       - "docs/releases/**"
       - "docs/reference/releasing.md"
       - ".github/workflows/sovereign-runtime-release-candidate.yml"
+      - ".github/workflows/ci.yml"
 
 jobs:
   validate:
@@ -79,7 +85,19 @@ jobs:
 
       - name: Verify sovereign runtime release candidate
         timeout-minutes: 30
-        run: ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
+        # Canonical sovereign verification: the closure aggregate includes the
+        # full RC candidate chain plus :examples:spring-sovereign-starter:e2eTest
+        # and the API boundary. --rerun-tasks is kept because this job runs on a
+        # fresh runner and is the single authority for sovereign verification.
+        # The closure pulls verifyStaticAnalysis via check; a bootstrap PR needs
+        # the explicit baseline-migration class (label-gated, like ci.yml).
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
+          else
+            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
+          fi
 
       - name: Upload test reports on failure
         if: failure()
