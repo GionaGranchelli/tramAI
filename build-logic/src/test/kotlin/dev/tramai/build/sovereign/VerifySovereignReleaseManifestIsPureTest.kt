@@ -18,7 +18,6 @@ import kotlin.test.assertTrue
  * declare `prepareSovereignReleaseArtifacts` explicitly (the RC chain does).
  */
 class VerifySovereignReleaseManifestIsPureTest {
-
     @TempDir
     lateinit var tempDir: File
 
@@ -28,12 +27,14 @@ class VerifySovereignReleaseManifestIsPureTest {
         File(dir, "settings.gradle.kts").writeText("rootProject.name = \"sovereign-fixture\"\n")
         File(dir, "build.gradle.kts").writeText("plugins { id(\"tramai.sovereign-verification\") }\n")
 
-        val result = GradleRunner.create()
-            .withProjectDir(dir)
-            .withGradleVersion("9.0.0")
-            .withArguments("verifySovereignReleaseManifest", "--dry-run", "--no-build-cache")
-            .withPluginClasspath()
-            .build()
+        val result =
+            GradleRunner
+                .create()
+                .withProjectDir(dir)
+                .withGradleVersion("9.0.0")
+                .withArguments("verifySovereignReleaseManifest", "--dry-run", "--no-build-cache")
+                .withPluginClasspath()
+                .build()
 
         // The verifier itself must be planned...
         assertTrue(
