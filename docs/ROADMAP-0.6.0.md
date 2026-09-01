@@ -1532,6 +1532,8 @@ These are guardrails, not absolute design laws. Existing hotspots receive explic
 
 ## Epic 10.2: Binary and source compatibility
 
+**Status: ✅ COMPLETE — machinery landed via PR #307 (`d5486a35`, Track B3) + typed gate #346 (`564b4d05`); closure audit certified on current master (see `docs/EPIC-10.2-api-compatibility.md`).**
+
 ### Tasks
 
 1. Add Kotlin binary-compatibility validation or equivalent API dumps.

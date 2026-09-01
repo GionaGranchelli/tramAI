@@ -321,12 +321,32 @@ gate does not over-fire. B6/B7 pin the taxonomy. B9/B10 protect the fixtures.
 
 ## 7. Acceptance criteria (Epic 10.2)
 
-- [ ] Two contracts enforced: source↔committed dump (B0), base↔current drives policy (B1–B4)
-- [ ] Stable API frozen: any base→current change, breaking or additive, fails (B1)
-- [ ] Preview/experimental changes require exact hash-bound migration evidence (B2/B3/B8)
-- [ ] Internal refactors with unchanged dumps do not fail (B4)
-- [ ] Stability inversion impossible: stronger API cannot expose weaker TramAI types (B5)
-- [ ] `experimental` classification accepted end-to-end (B6); invalid maturity/API combos rejected (B7)
-- [ ] Java + Kotlin consumer proofs compile real sources on minimal classpaths (B9/B10)
-- [ ] Evidence lands in `api-architecture` of `verify060Architecture`; 10 check IDs unchanged; no raw `dependsOn(apiCheck)`
-- [ ] No runtime production changes; `verifyPr` green
+- [x] Two contracts enforced: source↔committed dump (B0), base↔current drives policy (B1–B4)
+- [x] Stable API frozen: any base→current change, breaking or additive, fails (B1)
+- [x] Preview/experimental changes require exact hash-bound migration evidence (B2/B3/B8)
+- [x] Internal refactors with unchanged dumps do not fail (B4)
+- [x] Stability inversion impossible: stronger API cannot expose weaker TramAI types (B5)
+- [x] `experimental` classification accepted end-to-end (B6); invalid maturity/API combos rejected (B7)
+- [x] Java + Kotlin consumer proofs compile real sources on minimal classpaths (B9/B10)
+- [x] Evidence lands in `api-architecture` of `verify060Architecture`; 10 check IDs unchanged; no raw `dependsOn(apiCheck)`
+- [x] No runtime production changes; `verifyPr` green
+
+---
+
+## Closure audit (Epic 10.2 ✅ COMPLETE)
+
+Machinery landed via **PR #307** (`d5486a35`, Track B3) and the typed **#346** (`564b4d05`) gate; certified on current master after 10.1d (`868071aa`). No verifier redesign — the acceptance criteria are re-proven against the live repository.
+
+| # | Acceptance criterion | Evidence (current master) | Verdict |
+|---|---|---|---|
+| 1 | Stable API changes cannot merge silently | `ApiCompatibilityVerifier` Contract 2: `stable` → any base→current dump change FAILs | ✅ |
+| 2 | Stable/preview/experimental/internal classifications enforced | Stability taxonomy in verifier; committed-dump classification checked against catalog (2 pre-existing classification WARNINGs tracked as follow-up) | ✅ |
+| 3 | Migration authorization exact and hash-bound | `ApiMigrationEntry.authorizes`: module + `targetVersion` + `fromSha256` + `toSha256` must all match; ACTIVE/LANDED lifecycle in `config/quality/api-migrations.yml` | ✅ |
+| 4 | Stale migration entries fail | `verifyRegistryHygiene` — orphan/stale/wrong-hash entries FAIL (gate green ⇒ none present) | ✅ |
+| 5 | Internal/experimental cannot become stable surface | Stability-inversion scan: new inversions FAIL; only 5 pre-existing WARNINGs (baselined, `:tramai-platform` preview→`:tramai-server` internal) | ✅ |
+| 6 | Java consumer compilation is real | `examples/java-consumer-smoke`: real `javac` via `verifyJavaConsumerCompatibility` — `{"classes":2,"exitCode":0,"ok":true,"sources":1}` | ✅ |
+| 7 | Kotlin source-consumer compilation is real | `examples/kotlin-consumer-smoke`: real K2JVMCompiler via `verifyKotlinConsumerCompatibility` — `{"classes":2,"exitCode":0,"ok":true,"sources":1}` | ✅ |
+| 8 | API dumps authoritative and reproducible | Contract 1: generated (apiBuild) vs committed `api/<module>.api` must match, fail-closed on empty intersection | ✅ |
+| 9 | No duplicate compatibility authority | Single `ApiCompatibilityVerifier` wired into `verify060Architecture`; no other BCV/API verifier in build-logic | ✅ |
+
+**Execution:** `verify060Architecture --rerun-tasks` → `0.6.0 architecture verification PASSED` (BUILD SUCCESSFUL); both consumer tasks → BUILD SUCCESSFUL. Non-blocking WARNINGs: 5 pre-existing stability inversions, 1 `API_HASH_CHANGED` (BCV public surface, #352), 2 `API_MODULE_UNCLASSIFIED` (`:tramai-persistence-jdbc` internal-vs-catalog-preview; `:tramai-spring-boot-starter-sovereign` unclassified), 1 protocol-entry increase 68→97 — all surfaced but not blocking; classification follow-ups tracked as independent issues (10.1 pattern, cf. #347).
