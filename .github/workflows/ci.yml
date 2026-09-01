@@ -220,6 +220,15 @@ jobs:
           ./gradlew -p examples/kotlin-springboot-example test \
             -PtramaiVersion="${TRAMAI_VERSION}"
 
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consumer-smoke-test-reports
+          path: |
+            **/build/test-results/test/
+            **/build/reports/tests/test/
+
   artifact-prep:
     runs-on: ubuntu-latest
     permissions:

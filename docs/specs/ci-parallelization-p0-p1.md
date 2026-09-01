@@ -3,8 +3,8 @@
 **Branch:** `ci/pipeline-parallelization`
 **Author:** Giona (via multi-agent PR workflow)
 **Date:** 2026-09-01
-**Scope:** `.github/workflows/ci.yml` + `.github/workflows/sovereign-runtime-release-candidate.yml` only.
-**Zero production code changes.** No `src/main/kotlin/**` changes. No `build-logic/` changes.
+**Scope:** `.github/workflows/ci.yml` + `.github/workflows/sovereign-runtime-release-candidate.yml` (primary), plus the one build-logic change required to make zero-egress dedup real (see below).
+**Zero production code changes.** No `src/main/kotlin/**` changes. The only `build-logic/` change is making `verifySovereignReleaseManifest` a pure verifier (drop its producer dependency) with a contract test locking it.
 
 ## Context
 
