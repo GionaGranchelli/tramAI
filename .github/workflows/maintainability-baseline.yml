@@ -109,7 +109,7 @@ jobs:
               --tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest'
               --tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test'
               --tests 'dev.tramai.build.quality.StaticAnalysis*Test'
-            expected: 176
+            expected: 179
           - name: release-sovereign
             test-filter: >-
               --tests 'dev.tramai.build.release.*'

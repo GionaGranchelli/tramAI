@@ -131,6 +131,33 @@ internal fun resolveVerifyModules(
 }
 
 /**
+ * P3-C: the module set whose compile tasks must run before verify can execute.
+ *
+ * Wiring-time companion to [resolveVerifyModules]. The verify task used to
+ * depend on every module's compile tasks unconditionally — a workflow/docs-only
+ * PR paid the full ~190-task compile graph merely to learn at execution time
+ * that the gate had nothing to verify. Configuration-time classification
+ * prunes the graph: NONE wires zero compile tasks (the action early-returns),
+ * MODULES wires the affected closure only, FULL wires everything.
+ *
+ * This is an optimization, never the authority: the task action re-derives the
+ * impact from the same diff at execution time and falls back to FULL on any
+ * unknown/empty selection (see [resolveVerifyModules]), so a stale wiring can
+ * only cost extra compilation or a fail-closed kotlinc error — never a silent
+ * pass.
+ */
+internal fun compileTaskModulePaths(
+    impact: CompilerWarningsImpact,
+    baselineChanged: Boolean,
+    allModulePaths: Set<String>,
+): Set<String> =
+    when {
+        impact is CompilerWarningsImpact.None && !baselineChanged -> emptySet()
+        impact is CompilerWarningsImpact.Modules -> resolveVerifyModules(impact, false, allModulePaths)
+        else -> allModulePaths
+    }
+
+/**
  * Global build/compiler configuration: a change here can alter every module's
  * compile classpath, args, jvm target, or the compiler itself.
  */

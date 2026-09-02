@@ -100,39 +100,91 @@ class CompilerWarningsPlugin : Plugin<Project> {
     ) {
         val collected = collectCompileUnits(project)
         units.set(collected)
-        val compileTasks = mutableListOf<Task>()
-        val classpathSources = mutableListOf<Any>()
-        collectProjects(project).forEach { p ->
-            val wiring = collectProjectWiring(p)
-            compileTasks.addAll(wiring.compileTasks)
-            classpathSources.addAll(wiring.classpathSources)
-        }
-        val unionClasspath = project.files(classpathSources)
+        val allProjects = collectProjects(project)
+        // P3-C: decide the compile closure at CONFIGURATION time so the verify
+        // task does not drag the whole repository's compile graph behind a
+        // workflow/docs-only delta. NONE -> zero compile tasks; MODULES -> the
+        // affected closure only; FULL -> everything (same as before). The task
+        // action still re-derives the impact at execution time as the
+        // authority, so a stale classification can only cost compilation, not
+        // correctness.
+        val allModulePaths = collected.map { it.modulePath }.toSet()
+        val dependents = computeDependentsByModule(project)
+        val dependentsMap = dependents.associate { it.modulePath to it.dependents.toSet() }
+        // P3-C: the delta is read from a Gradle PROPERTY, never from git at
+        // configuration time — spawning git during configuration is a
+        // configuration-cache problem (enforced by FormattingGate/StaticAnalysis/
+        // StaticSafety ConfigCacheTest). CI computes the name-only diff in a
+        // shell step (git is available there) and passes it as
+        // -PtramaiCompilerWarningsDelta=<paths>. An ABSENT property is
+        // indistinguishable from "CI forgot to pass it" and wires FULL
+        // (fail-closed — identical to the pre-P3-C graph).
+        val delta = project.providers.gradleProperty("tramaiCompilerWarningsDelta").orNull
+        val baselineChanged =
+            delta?.lineSequence()?.any { it.contains("config/warnings/baseline.json") } == true
+        val impact =
+            if (delta == null) {
+                project.logger.lifecycle(
+                    "compiler-warnings: no delta property at configuration time — " +
+                        "wiring all compile tasks (fail-closed)",
+                )
+                CompilerWarningsImpact.Full
+            } else {
+                resolveCompilerWarningsImpact(delta, dependentsMap)
+            }
+        val wiredPaths = compileTaskModulePaths(impact, baselineChanged, allModulePaths)
+
+        val wiredProjects = allProjects.filter { it.path in wiredPaths }
+        val verifyWiring = collectWiring(wiredProjects)
+        // NOTE (P3-C): classpath scoping is REQUIRED, not cosmetic. A file
+        // collection built from a source-set compileClasspath carries built-by
+        // task dependencies — including ALL modules' classpaths in the verify
+        // task's @Classpath input would force every module to compile even when
+        // zero compile tasks are wired via dependsOn.
+        val verifyClasspath = project.files(verifyWiring.classpathSources)
+        val bootstrapWiring = collectWiring(allProjects)
+        val bootstrapClasspath = project.files(bootstrapWiring.classpathSources)
+
         val sourceTreeList = mutableListOf<Any>()
-        collectProjects(project).forEach { p ->
+        allProjects.forEach { p ->
             listOf("main", "test", "testFixtures").forEach { ss ->
                 val dir = File(p.projectDir, "src/$ss/kotlin")
                 if (dir.isDirectory) sourceTreeList.add(p.fileTree(dir))
             }
         }
-        // P3-A: reverse dependency edges from the real Gradle model (production
-        // + test scopes, mirroring ModuleGraphAnalyzer) so the impact closure
-        // covers every module compiling against a changed module.
-        val dependents = computeDependentsByModule(project)
         project.tasks.named("verifyCompilerWarnings") {
-            dependsOn(compileTasks)
-            (this as VerifyCompilerWarningsTask).compileClasspath.from(unionClasspath)
+            dependsOn(verifyWiring.compileTasks)
+            (this as VerifyCompilerWarningsTask).compileClasspath.from(verifyClasspath)
             (this as VerifyCompilerWarningsTask).sourceTrees.from(sourceTreeList)
             (this as VerifyCompilerWarningsTask).moduleDependents.set(dependents)
         }
         project.tasks.named("bootstrapCompilerWarningsBaseline") {
-            dependsOn(compileTasks)
-            (this as BootstrapCompilerWarningsBaselineTask).compileClasspath.from(unionClasspath)
+            // Bootstrap regenerates the FULL baseline — it must always compile
+            // everything, regardless of the delta.
+            dependsOn(bootstrapWiring.compileTasks)
+            (this as BootstrapCompilerWarningsBaselineTask).compileClasspath.from(bootstrapClasspath)
             (this as BootstrapCompilerWarningsBaselineTask).sourceTrees.from(sourceTreeList)
         }
         project.logger.lifecycle(
-            "compiler-warnings: collected ${collected.size} compile units, ${compileTasks.size} compile tasks",
+            "compiler-warnings: collected ${collected.size} compile units, " +
+                "${verifyWiring.compileTasks.size}/${bootstrapWiring.compileTasks.size} compile tasks wired for verify",
         )
+    }
+
+    private data class WiredProjects(
+        val compileTasks: List<Task>,
+        val classpathSources: List<Any>,
+    )
+
+    private fun collectWiring(projects: List<Project>): WiredProjects {
+        val compileTasks = mutableListOf<Task>()
+        val classpathSources = mutableListOf<Any>()
+        projects.forEach { p ->
+            val wiring = collectProjectWiring(p)
+            compileTasks.addAll(wiring.compileTasks)
+            classpathSources.addAll(wiring.classpathSources)
+        }
+        return WiredProjects(compileTasks, classpathSources)
     }
 
     /**

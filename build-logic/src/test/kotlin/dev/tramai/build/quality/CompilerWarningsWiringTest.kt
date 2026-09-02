@@ -241,4 +241,54 @@ class CompilerWarningsWiringTest : StaticAnalysisContractTestBase() {
         assertEquals(known, resolveVerifyModules(CompilerWarningsImpact.Full, false, known))
         assertEquals(known, resolveVerifyModules(CompilerWarningsImpact.None, true, known))
     }
+
+    // ── P3-C: compile-task graph follows the impact ─────────────────────
+    @Test
+    fun `none impact wires zero compile tasks`() {
+        val known = setOf(":tramai-core", ":tramai-engine")
+        assertEquals(
+            emptySet(),
+            compileTaskModulePaths(CompilerWarningsImpact.None, false, known),
+        )
+        // Baseline edit forces the full compile graph even when impact is None.
+        assertEquals(
+            known,
+            compileTaskModulePaths(CompilerWarningsImpact.None, true, known),
+        )
+    }
+
+    @Test
+    fun `modules impact wires the affected closure only`() {
+        val known = setOf(":tramai-core", ":tramai-engine", ":tramai-server")
+        assertEquals(
+            setOf(":tramai-core", ":tramai-engine"),
+            compileTaskModulePaths(
+                CompilerWarningsImpact.Modules(setOf(":tramai-core", ":tramai-engine")),
+                false,
+                known,
+            ),
+        )
+        // Unknown/empty selections fall back to the full graph (never vacuous).
+        assertEquals(
+            known,
+            compileTaskModulePaths(CompilerWarningsImpact.Modules(setOf(":phantom")), false, known),
+        )
+        assertEquals(
+            known,
+            compileTaskModulePaths(CompilerWarningsImpact.Modules(emptySet()), false, known),
+        )
+    }
+
+    @Test
+    fun `full impact wires the whole repository`() {
+        val known = setOf(":tramai-core", ":tramai-engine")
+        assertEquals(
+            known,
+            compileTaskModulePaths(CompilerWarningsImpact.Full, false, known),
+        )
+        assertEquals(
+            known,
+            compileTaskModulePaths(CompilerWarningsImpact.Full, true, known),
+        )
+    }
 }
