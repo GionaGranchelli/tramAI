@@ -2,7 +2,7 @@
   "schemaVersion" : "1",
   "identitySchemaVersion" : "2",
   "status" : "measured",
-  "measuredCommit" : "4c158808ef149c6409f0429d2516b5c47362fe6c",
+  "measuredCommit" : "ae4d362d51bdc053e8acc535abeffc9bd6917c99",
   "analyzer" : {
     "pluginVersion" : "1.19.0",
     "engineVersion" : "1.22.1",
@@ -16,9 +16,9 @@
       "modules" : [ ":tramai-engine", ":tramai-security" ],
       "totalMutants" : 768,
       "killedMutants" : 445,
-      "survivedMutants" : 111,
+      "survivedMutants" : 110,
       "noCoverageMutants" : 155,
-      "timedOutMutants" : 57,
+      "timedOutMutants" : 58,
       "errorMutants" : 0,
       "mutationScore" : 57.942708333333336
     },
@@ -38,9 +38,9 @@
       "modules" : [ ":tramai-engine", ":tramai-security", ":tramai-sovereign" ],
       "totalMutants" : 209,
       "killedMutants" : 153,
-      "survivedMutants" : 27,
+      "survivedMutants" : 29,
       "noCoverageMutants" : 25,
-      "timedOutMutants" : 4,
+      "timedOutMutants" : 2,
       "errorMutants" : 0,
       "mutationScore" : 73.20574162679426
     },
@@ -59,12 +59,12 @@
       "family" : "routing",
       "modules" : [ ":tramai-core", ":tramai-engine" ],
       "totalMutants" : 15,
-      "killedMutants" : 7,
-      "survivedMutants" : 1,
-      "noCoverageMutants" : 5,
-      "timedOutMutants" : 2,
+      "killedMutants" : 10,
+      "survivedMutants" : 2,
+      "noCoverageMutants" : 2,
+      "timedOutMutants" : 1,
       "errorMutants" : 0,
-      "mutationScore" : 46.666666666666664
+      "mutationScore" : 66.66666666666667
     },
     "structuredOutput" : {
       "family" : "structuredOutput",
@@ -82,9 +82,9 @@
       "modules" : [ ":tramai-engine" ],
       "totalMutants" : 57,
       "killedMutants" : 40,
-      "survivedMutants" : 8,
+      "survivedMutants" : 10,
       "noCoverageMutants" : 7,
-      "timedOutMutants" : 2,
+      "timedOutMutants" : 0,
       "errorMutants" : 0,
       "mutationScore" : 70.17543859649123
     }
@@ -6177,7 +6177,7 @@
     "index" : 26,
     "sourceFile" : "ResumeOperationRegistry.kt",
     "line" : 59,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "8788c4a9b82b630caa62fbd8305aab47b1bc885ab254d149cd21c214429cc2d8",
@@ -25782,7 +25782,7 @@
     "index" : 5,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 59,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "b8081b376a53c669b5af85847c12c2d61a49b642e6d801135a475bac23a1738e",
@@ -26592,7 +26592,7 @@
     "index" : 44,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 50,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "f720d5303c6534d3f6b9cdef50638a1541d5cb33dca0f8e4273a980e123362c7",
@@ -28872,8 +28872,8 @@
     "index" : 13,
     "sourceFile" : "ModelProvider.kt",
     "line" : 28,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "08ab97c152d2234a85ac5444435f754f4c7b45ac011f161a58202ef0394ec494",
     "family" : "routing",
@@ -28902,7 +28902,7 @@
     "index" : 44,
     "sourceFile" : "ModelRegistryEnforcer.kt",
     "line" : 18,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "0f7dd84b915d598bcf7e1a43eb14dc5b6b6ee2a636231f3f49aac4093969ded9",
@@ -29007,8 +29007,8 @@
     "index" : 8,
     "sourceFile" : "ModelProvider.kt",
     "line" : 28,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "b5cb0f1e3727ea53344ed95e9689233a1bdc79a14686851b230fe70b6709b342",
     "family" : "routing",
@@ -29052,8 +29052,8 @@
     "index" : 8,
     "sourceFile" : "ModelProvider.kt",
     "line" : 34,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "e463cd957c3c1ceee0d519c1e3c4d5bf63cdcaf06c26b148ec6d5e2bdedd292a",
     "family" : "routing",
@@ -34977,7 +34977,7 @@
     "index" : 153,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 18,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "34adce029df4388b90413a1003cdcc0c63d89e1df5734b976cf298000591556e",
@@ -35142,7 +35142,7 @@
     "index" : 23,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 10,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "6211a44653e7d08bb7e9460900453c5595abb0ad98a90a6f87c5b76247b0e18c",
