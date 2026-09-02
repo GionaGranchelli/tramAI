@@ -111,19 +111,25 @@ class CompilerWarningsPlugin : Plugin<Project> {
         val allModulePaths = collected.map { it.modulePath }.toSet()
         val dependents = computeDependentsByModule(project)
         val dependentsMap = dependents.associate { it.modulePath to it.dependents.toSet() }
-        val diff = configTimeGitDiff(project)
-        if (diff == null) {
-            project.logger.lifecycle(
-                "compiler-warnings: cannot read diff at configuration time — wiring all compile tasks (fail-closed)",
-            )
-        }
+        // P3-C: the delta is read from a Gradle PROPERTY, never from git at
+        // configuration time — spawning git during configuration is a
+        // configuration-cache problem (enforced by FormattingGate/StaticAnalysis/
+        // StaticSafety ConfigCacheTest). CI computes the name-only diff in a
+        // shell step (git is available there) and passes it as
+        // -PtramaiCompilerWarningsDelta=<paths>. An ABSENT property is
+        // indistinguishable from "CI forgot to pass it" and wires FULL
+        // (fail-closed — identical to the pre-P3-C graph).
+        val delta = project.providers.gradleProperty("tramaiCompilerWarningsDelta").orNull
         val baselineChanged =
-            diff?.lineSequence()?.any { it.contains("config/warnings/baseline.json") } == true
+            delta?.lineSequence()?.any { it.contains("config/warnings/baseline.json") } == true
         val impact =
-            if (diff == null) {
+            if (delta == null) {
+                project.logger.lifecycle(
+                    "compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)",
+                )
                 CompilerWarningsImpact.Full
             } else {
-                resolveCompilerWarningsImpact(diff, dependentsMap)
+                resolveCompilerWarningsImpact(delta, dependentsMap)
             }
         val wiredPaths = compileTaskModulePaths(impact, baselineChanged, allModulePaths)
 
@@ -178,42 +184,6 @@ class CompilerWarningsPlugin : Plugin<Project> {
             classpathSources.addAll(wiring.classpathSources)
         }
         return WiredProjects(compileTasks, classpathSources)
-    }
-
-    /** Returns the git name-only diff vs baseRef, or null when unavailable. */
-    private fun configTimeGitDiff(project: Project): String? {
-        val baseRef =
-            project.providers
-                .gradleProperty("tramaiCompilerWarningsBaseRef")
-                .orElse("origin/master")
-                .get()
-        val root = project.rootDir
-        return try {
-            val rev = runGit(root, "rev-parse", "--verify", "--quiet", "$baseRef^{commit}")
-            if (rev.exitCode != 0) return null
-            val diff = runGit(root, "diff", "--name-only", "$baseRef...HEAD")
-            if (diff.exitCode != 0) null else diff.output
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private data class GitResult(
-        val exitCode: Int,
-        val output: String,
-    )
-
-    private fun runGit(
-        root: File,
-        vararg args: String,
-    ): GitResult {
-        val proc =
-            ProcessBuilder(listOf("git") + args)
-                .directory(root)
-                .redirectErrorStream(true)
-                .start()
-        val out = proc.inputStream.bufferedReader().readText()
-        return GitResult(proc.waitFor(), out)
     }
 
     /**

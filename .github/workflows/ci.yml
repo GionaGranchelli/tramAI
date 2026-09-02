@@ -53,6 +53,13 @@ jobs:
               "-PtramaiCompilerWarningsBaseRef=$BASE_REF"
               "-PtramaiFormattingBaseRef=$BASE_REF"
             )
+            # P3-C: the compiler-warnings gate needs the name-only diff at
+            # CONFIGURATION time to prune its compile-task graph. It must arrive
+            # as a property (the build never spawns git during configuration —
+            # that would break the configuration cache). Newline-separated,
+            # same shape as `git diff --name-only`.
+            DELTA="$(git diff --name-only "$BASE_REF...HEAD")"
+            GRADLE_ARGS+=("-PtramaiCompilerWarningsDelta=$DELTA")
           fi
 
           CHANGE_CLASS=""
