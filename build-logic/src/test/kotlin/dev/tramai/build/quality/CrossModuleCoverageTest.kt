@@ -394,22 +394,36 @@ class CrossModuleCoverageTest {
         val cacheRoot = File(System.getProperty("user.home"), ".gradle/caches/modules-2/files-2.1")
         for (module in VENDOR_MODULES) {
             val groupDir = File(cacheRoot, "${module.group}/${module.artifact}/${module.version}")
-            val jar =
+            // The cache may hold several genuinely different jars for one
+            // coordinate (e.g. org.jacoco.agent: the plain jar embeds
+            // jacocoagent.jar, the -runtime classifier jar carries only the
+            // rt classes). Walk-order selection is filesystem-nondeterministic,
+            // so pick per coordinate by exact file name; when only one jar
+            // exists, serve it under both names (the historical assumption).
+            val plainJar = groupDir.resolve("${module.artifact}-${module.version}.jar")
+            val classifierJar =
+                if (module.classifier != null) {
+                    groupDir.resolve("${module.artifact}-${module.version}-${module.classifier}.jar")
+                } else {
+                    null
+                }
+            val allJars =
                 groupDir
                     .walkTopDown()
-                    .firstOrNull { it.isFile && it.extension == "jar" && !it.name.contains("sources") }
-                    ?: error("JUnit jar not in local cache: ${module.group}:${module.artifact}:${module.version}")
+                    .filter { it.isFile && it.extension == "jar" && !it.name.contains("sources") }
+                    .toList()
             val repoDir = dir.resolve("repo/${module.group.replace('.', '/')}/${module.artifact}/${module.version}")
             repoDir.mkdirs()
-            // Gradle's jacoco plugin requests org.jacoco.agent:<v> AND
-            // org.jacoco.agent:<v>:runtime (the jacocoAgent configuration).
-            // The cache stores one jar; write it under both names.
-            jar.copyTo(repoDir.resolve("${module.artifact}-${module.version}.jar"), overwrite = true)
+            val plainSource =
+                allJars.firstOrNull { it.name == plainJar.name }
+                    ?: allJars.firstOrNull()
+                    ?: error("JUnit jar not in local cache: ${module.group}:${module.artifact}:${module.version}")
+            plainSource.copyTo(repoDir.resolve(plainJar.name), overwrite = true)
             if (module.classifier != null) {
-                jar.copyTo(
-                    repoDir.resolve("${module.artifact}-${module.version}-${module.classifier}.jar"),
-                    overwrite = true,
-                )
+                val classifierSource =
+                    allJars.firstOrNull { it.name == classifierJar!!.name }
+                        ?: plainSource
+                classifierSource.copyTo(repoDir.resolve(classifierJar!!.name), overwrite = true)
             }
             val deps =
                 module.deps.joinToString("\n") { d ->
