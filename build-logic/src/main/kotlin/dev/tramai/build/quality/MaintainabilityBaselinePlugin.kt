@@ -1408,78 +1408,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
     private fun mutationInitScript(
         configuration: TestQualityConfiguration,
         reportRoot: File,
-    ): String {
-        val familyModules =
-            configuration.mutation.targetFamilies.entries
-                .sortedBy { it.key }
-                .joinToString(",\n") { (family, target) ->
-                    val modules =
-                        target.modules.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    val classes =
-                        target.targetClasses.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    val tests =
-                        target.targetTests.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
-                }
-        return """
-            initscript {
-                repositories {
-                    gradlePluginPortal()
-                    mavenCentral()
-                }
-                dependencies {
-                    classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0'
-                }
-            }
-
-            def targetFamilities = [
-            $familyModules
-            ]
-            def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
-            if (selectedFamily == null || !targetFamilities.containsKey(selectedFamily)) {
-                throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
-            }
-            def familyConfig = targetFamilities[selectedFamily]
-            def selectedModules = familyConfig.modules as Set
-            def familyTargetClasses = familyConfig.targetClasses as Set
-            def familyTargetTests = familyConfig.targetTests as Set
-            def mutationTasks = []
-            def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
-
-            gradle.beforeProject { measuredProject ->
-                if (!(measuredProject.path in selectedModules)) return
-                def pluginClass = initscript.classLoader.loadClass(
-                    'info.solidsoft.gradle.pitest.PitestPlugin'
-                )
-                measuredProject.pluginManager.apply(pluginClass)
-                measuredProject.extensions.configure('pitest') {
-                    targetClasses.set(familyTargetClasses)
-                    targetTests.set(familyTargetTests)
-                    outputFormats.set(['XML', 'HTML'] as Set)
-                    timestampedReports.set(false)
-                    failWhenNoMutations.set(true)
-                    threads.set(2)
-                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
-                    reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
-                }
-                mutationTasks << measuredProject.tasks.named('pitest')
-            }
-
-            gradle.projectsEvaluated {
-                rootProject.tasks.register('canonicalMutationProbe') {
-                    dependsOn mutationTasks.collect { it.get() }
-                }
-            }
-            """.trimIndent() + "\n"
-    }
-
-    private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
+    ): String = MutationProbeInitScript.render(configuration, reportRoot)
 
     /**
      * Registers a consumer-compatibility PRODUCER task (Epic 10.2, C3/C4).
