@@ -100,39 +100,111 @@ class CompilerWarningsPlugin : Plugin<Project> {
     ) {
         val collected = collectCompileUnits(project)
         units.set(collected)
-        val compileTasks = mutableListOf<Task>()
-        val classpathSources = mutableListOf<Any>()
-        collectProjects(project).forEach { p ->
-            val wiring = collectProjectWiring(p)
-            compileTasks.addAll(wiring.compileTasks)
-            classpathSources.addAll(wiring.classpathSources)
+        val allProjects = collectProjects(project)
+        // P3-C: decide the compile closure at CONFIGURATION time so the verify
+        // task does not drag the whole repository's compile graph behind a
+        // workflow/docs-only delta. NONE -> zero compile tasks; MODULES -> the
+        // affected closure only; FULL -> everything (same as before). The task
+        // action still re-derives the impact at execution time as the
+        // authority, so a stale classification can only cost compilation, not
+        // correctness.
+        val allModulePaths = collected.map { it.modulePath }.toSet()
+        val dependents = computeDependentsByModule(project)
+        val dependentsMap = dependents.associate { it.modulePath to it.dependents.toSet() }
+        val diff = configTimeGitDiff(project)
+        if (diff == null) {
+            project.logger.lifecycle(
+                "compiler-warnings: cannot read diff at configuration time — wiring all compile tasks (fail-closed)",
+            )
         }
-        val unionClasspath = project.files(classpathSources)
+        val baselineChanged =
+            diff?.lineSequence()?.any { it.contains("config/warnings/baseline.json") } == true
+        val impact =
+            if (diff == null) {
+                CompilerWarningsImpact.Full
+            } else {
+                resolveCompilerWarningsImpact(diff, dependentsMap)
+            }
+        val wiredPaths = compileTaskModulePaths(impact, baselineChanged, allModulePaths)
+
+        val wiredProjects = allProjects.filter { it.path in wiredPaths }
+        val verifyCompileTasks = mutableListOf<Task>()
+        val verifyClasspathSources = mutableListOf<Any>()
+        wiredProjects.forEach { p ->
+            val wiring = collectProjectWiring(p)
+            verifyCompileTasks.addAll(wiring.compileTasks)
+            verifyClasspathSources.addAll(wiring.classpathSources)
+        }
+        // NOTE (P3-C): classpath scoping is REQUIRED, not cosmetic. A file
+        // collection built from a source-set compileClasspath carries built-by
+        // task dependencies — including ALL modules' classpaths in the verify
+        // task's @Classpath input would force every module to compile even when
+        // zero compile tasks are wired via dependsOn.
+        val verifyClasspath = project.files(verifyClasspathSources)
+
+        val bootstrapCompileTasks = mutableListOf<Task>()
+        val bootstrapClasspathSources = mutableListOf<Any>()
+        allProjects.forEach { p ->
+            val wiring = collectProjectWiring(p)
+            bootstrapCompileTasks.addAll(wiring.compileTasks)
+            bootstrapClasspathSources.addAll(wiring.classpathSources)
+        }
+        val bootstrapClasspath = project.files(bootstrapClasspathSources)
+
         val sourceTreeList = mutableListOf<Any>()
-        collectProjects(project).forEach { p ->
+        allProjects.forEach { p ->
             listOf("main", "test", "testFixtures").forEach { ss ->
                 val dir = File(p.projectDir, "src/$ss/kotlin")
                 if (dir.isDirectory) sourceTreeList.add(p.fileTree(dir))
             }
         }
-        // P3-A: reverse dependency edges from the real Gradle model (production
-        // + test scopes, mirroring ModuleGraphAnalyzer) so the impact closure
-        // covers every module compiling against a changed module.
-        val dependents = computeDependentsByModule(project)
         project.tasks.named("verifyCompilerWarnings") {
-            dependsOn(compileTasks)
-            (this as VerifyCompilerWarningsTask).compileClasspath.from(unionClasspath)
+            dependsOn(verifyCompileTasks)
+            (this as VerifyCompilerWarningsTask).compileClasspath.from(verifyClasspath)
             (this as VerifyCompilerWarningsTask).sourceTrees.from(sourceTreeList)
             (this as VerifyCompilerWarningsTask).moduleDependents.set(dependents)
         }
         project.tasks.named("bootstrapCompilerWarningsBaseline") {
-            dependsOn(compileTasks)
-            (this as BootstrapCompilerWarningsBaselineTask).compileClasspath.from(unionClasspath)
+            // Bootstrap regenerates the FULL baseline — it must always compile
+            // everything, regardless of the delta.
+            dependsOn(bootstrapCompileTasks)
+            (this as BootstrapCompilerWarningsBaselineTask).compileClasspath.from(bootstrapClasspath)
             (this as BootstrapCompilerWarningsBaselineTask).sourceTrees.from(sourceTreeList)
         }
         project.logger.lifecycle(
-            "compiler-warnings: collected ${collected.size} compile units, ${compileTasks.size} compile tasks",
+            "compiler-warnings: collected ${collected.size} compile units, " +
+                "${verifyCompileTasks.size}/${bootstrapCompileTasks.size} compile tasks wired for verify",
         )
+    }
+
+    /** Returns the git name-only diff vs baseRef, or null when unavailable. */
+    private fun configTimeGitDiff(project: Project): String? {
+        val baseRef =
+            project.providers
+                .gradleProperty("tramaiCompilerWarningsBaseRef")
+                .orElse("origin/master")
+                .get()
+        val root = project.rootDir
+        return try {
+            val rev = runGit(root, "rev-parse", "--verify", "--quiet", "$baseRef^{commit}")
+            if (rev.exitCode != 0) return null
+            val diff = runGit(root, "diff", "--name-only", "$baseRef...HEAD")
+            if (diff.exitCode != 0) null else diff.output
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private data class GitResult(val exitCode: Int, val output: String)
+
+    private fun runGit(root: File, vararg args: String): GitResult {
+        val proc =
+            ProcessBuilder(listOf("git") + args)
+                .directory(root)
+                .redirectErrorStream(true)
+                .start()
+        val out = proc.inputStream.bufferedReader().readText()
+        return GitResult(proc.waitFor(), out)
     }
 
     /**
