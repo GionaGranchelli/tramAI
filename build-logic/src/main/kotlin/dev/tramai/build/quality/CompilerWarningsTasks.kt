@@ -308,12 +308,15 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
                 }
 
                 impact is CompilerWarningsImpact.Full -> {
-                    logger.lifecycle("compiler-warnings: global build/version configuration changed in delta — full verification")
+                    logger.lifecycle(
+                        "compiler-warnings: global build/version configuration changed in delta — full verification",
+                    )
                     allModulePaths
                 }
 
                 impact is CompilerWarningsImpact.Modules -> {
-                    logger.lifecycle("compiler-warnings: impacted modules ${impact.modulePaths.sorted().joinToString()}")
+                    val impacted = impact.modulePaths.sorted().joinToString()
+                    logger.lifecycle("compiler-warnings: impacted modules $impacted")
                     impact.modulePaths
                 }
 
@@ -445,6 +448,9 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         )
     }
 
+    // spotless re-joins single-expression functions; the resulting line exceeds
+    // 120 cols, so detekt is told to look the other way.
+    @Suppress("MaxLineLength")
     private fun baselineChanged(diff: String): Boolean = diff.lineSequence().any { it.contains("config/warnings/baseline.json") }
 
     /** P3-A: module path -> modules whose compile classpath includes it. */

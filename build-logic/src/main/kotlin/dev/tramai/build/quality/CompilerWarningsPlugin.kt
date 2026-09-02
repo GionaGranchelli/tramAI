@@ -144,25 +144,33 @@ class CompilerWarningsPlugin : Plugin<Project> {
         val productionConfigs = setOf("api", "implementation", "compileOnly", "runtimeOnly")
         val testConfigs = setOf("testApi", "testImplementation", "testCompileOnly", "testRuntimeOnly")
         val dependents = mutableMapOf<String, MutableSet<String>>()
-        collectProjects(project).forEach { consumer ->
+        for (consumer in collectProjects(project)) {
             val consumerPath = consumer.path
-            (productionConfigs + testConfigs).forEach { configName ->
-                val config = consumer.configurations.findByName(configName) ?: return@forEach
-                try {
-                    config.dependencies
-                        .withType(org.gradle.api.artifacts.ProjectDependency::class.java)
-                        .forEach { dep ->
-                            val depPath = (dep as org.gradle.api.artifacts.ProjectDependency).path
-                            dependents.getOrPut(depPath) { mutableSetOf() }.add(consumerPath)
-                        }
-                } catch (_: Exception) {
-                    // Configuration not resolvable at configuration time — skip edge.
-                }
+            for (configName in productionConfigs + testConfigs) {
+                val config = consumer.configurations.findByName(configName) ?: continue
+                addProjectDependents(config, consumerPath, dependents)
             }
         }
         return dependents
             .map { (modulePath, deps) -> ModuleDependentsSpec(modulePath, deps.sorted()) }
             .sortedBy { it.modulePath }
+    }
+
+    private fun addProjectDependents(
+        config: org.gradle.api.artifacts.Configuration,
+        consumerPath: String,
+        dependents: MutableMap<String, MutableSet<String>>,
+    ) {
+        try {
+            config.dependencies
+                .withType(org.gradle.api.artifacts.ProjectDependency::class.java)
+                .forEach { dep ->
+                    val depPath = (dep as org.gradle.api.artifacts.ProjectDependency).path
+                    dependents.getOrPut(depPath) { mutableSetOf() }.add(consumerPath)
+                }
+        } catch (_: Exception) {
+            // Configuration not resolvable at configuration time — skip edge.
+        }
     }
 
     private data class ProjectWiring(
