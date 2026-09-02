@@ -2,7 +2,7 @@
   "schemaVersion" : "1",
   "identitySchemaVersion" : "2",
   "status" : "measured",
-  "measuredCommit" : "6e0bebcb8856876d197d258dd47b89d83402bbce",
+  "measuredCommit" : "4c158808ef149c6409f0429d2516b5c47362fe6c",
   "analyzer" : {
     "pluginVersion" : "1.19.0",
     "engineVersion" : "1.22.1",
@@ -16,9 +16,9 @@
       "modules" : [ ":tramai-engine", ":tramai-security" ],
       "totalMutants" : 768,
       "killedMutants" : 445,
-      "survivedMutants" : 110,
+      "survivedMutants" : 111,
       "noCoverageMutants" : 155,
-      "timedOutMutants" : 58,
+      "timedOutMutants" : 57,
       "errorMutants" : 0,
       "mutationScore" : 57.942708333333336
     },
@@ -38,9 +38,9 @@
       "modules" : [ ":tramai-engine", ":tramai-security", ":tramai-sovereign" ],
       "totalMutants" : 209,
       "killedMutants" : 153,
-      "survivedMutants" : 28,
+      "survivedMutants" : 27,
       "noCoverageMutants" : 25,
-      "timedOutMutants" : 3,
+      "timedOutMutants" : 4,
       "errorMutants" : 0,
       "mutationScore" : 73.20574162679426
     },
@@ -49,9 +49,9 @@
       "modules" : [ ":tramai-core", ":tramai-engine" ],
       "totalMutants" : 143,
       "killedMutants" : 112,
-      "survivedMutants" : 16,
+      "survivedMutants" : 14,
       "noCoverageMutants" : 12,
-      "timedOutMutants" : 3,
+      "timedOutMutants" : 5,
       "errorMutants" : 0,
       "mutationScore" : 78.32167832167832
     },
@@ -82,9 +82,9 @@
       "modules" : [ ":tramai-engine" ],
       "totalMutants" : 57,
       "killedMutants" : 40,
-      "survivedMutants" : 9,
+      "survivedMutants" : 8,
       "noCoverageMutants" : 7,
-      "timedOutMutants" : 1,
+      "timedOutMutants" : 2,
       "errorMutants" : 0,
       "mutationScore" : 70.17543859649123
     }
@@ -6177,7 +6177,7 @@
     "index" : 26,
     "sourceFile" : "ResumeOperationRegistry.kt",
     "line" : 59,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "8788c4a9b82b630caa62fbd8305aab47b1bc885ab254d149cd21c214429cc2d8",
@@ -25782,7 +25782,7 @@
     "index" : 5,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 59,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "b8081b376a53c669b5af85847c12c2d61a49b642e6d801135a475bac23a1738e",
@@ -26412,7 +26412,7 @@
     "index" : 11,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 59,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "eb9f807b79a3eb295d2a13e29b0ec6d61bcd1ab220d329710cdf9cd694bf8c79",
@@ -26592,7 +26592,7 @@
     "index" : 44,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 50,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "f720d5303c6534d3f6b9cdef50638a1541d5cb33dca0f8e4273a980e123362c7",
@@ -27867,7 +27867,7 @@
     "index" : 24,
     "sourceFile" : "RetryPolicySettings.kt",
     "line" : 11,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "8174851741878425b32b2cfddf977a59251482f52d88952319b20eb6712aeb6d",
@@ -27942,7 +27942,7 @@
     "index" : 27,
     "sourceFile" : "CircuitBreakerSettings.kt",
     "line" : 12,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "8d733cb9e0905e0bd88f619e834832c7c16e7473e9868bfc34c90ffc828c7a9d",
@@ -35142,7 +35142,7 @@
     "index" : 23,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 10,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "6211a44653e7d08bb7e9460900453c5595abb0ad98a90a6f87c5b76247b0e18c",
