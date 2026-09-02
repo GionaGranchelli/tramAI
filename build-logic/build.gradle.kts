@@ -8,6 +8,15 @@ repositories {
     gradlePluginPortal()
 }
 
+// Explicit, resolvable set of fixture jars for CrossModuleCoverageTest — the
+// test copies from these resolved files instead of scanning the local Gradle
+// cache (which is populated by whatever other job ran first on a shared
+// runner and is not a contract the test may rely on).
+val crossModuleFixtureJars by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 kotlin {
     jvmToolchain(21)
 }
@@ -23,12 +32,13 @@ dependencies {
 
     testImplementation(gradleTestKit())
     testImplementation(kotlin("test"))
-    // CrossModuleCoverageTest vendors JUnit + JaCoCo jars from the local Gradle
-    // cache into its hermetic fixture. JUnit jars arrive via kotlin("test");
-    // the JaCoCo stack only if build-logic's own test classpath resolves it —
-    // otherwise the jar lookup depends on some other job having resolved
-    // JaCoCo in the same runner cache first (a serial-workflow ordering
-    // dependency the parallel lane split breaks).
+    // CrossModuleCoverageTest vendors JUnit + JaCoCo jars into its hermetic
+    // fixture. The fixture needs JUnit 5.12.2 + platform 1.12.2 (NOT the
+    // 5.10.1 that kotlin-test pulls) plus the JaCoCo 0.8.13/asm 9.8 stack.
+    // crossModuleFixtureJars resolves those exact coordinates so the test can
+    // copy from an explicit, guaranteed-present file set instead of scanning
+    // the local Gradle cache (which is populated by whatever other job ran
+    // first on a shared runner — fragile under cache eviction).
     testImplementation("org.jacoco:org.jacoco.agent:0.8.13:runtime")
     testImplementation("org.jacoco:org.jacoco.ant:0.8.13")
     testImplementation("org.jacoco:org.jacoco.core:0.8.13")
@@ -36,11 +46,69 @@ dependencies {
     testImplementation("org.ow2.asm:asm:9.8")
     testImplementation("org.ow2.asm:asm-commons:9.8")
     testImplementation("org.ow2.asm:asm-tree:9.8")
+
+    add(
+        "crossModuleFixtureJars",
+        "org.junit.jupiter:junit-jupiter-api:5.12.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.junit.jupiter:junit-jupiter-engine:5.12.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.junit.platform:junit-platform-commons:1.12.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.junit.platform:junit-platform-engine:1.12.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.junit.platform:junit-platform-launcher:1.12.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.apiguardian:apiguardian-api:1.1.2",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.opentest4j:opentest4j:1.3.0",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.jacoco:org.jacoco.agent:0.8.13:runtime",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.jacoco:org.jacoco.ant:0.8.13",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.jacoco:org.jacoco.core:0.8.13",
+    )
+    add(
+        "crossModuleFixtureJars",
+        "org.jacoco:org.jacoco.report:0.8.13",
+    )
+    add("crossModuleFixtureJars", "org.ow2.asm:asm:9.8")
+    add("crossModuleFixtureJars", "org.ow2.asm:asm-commons:9.8")
+    add("crossModuleFixtureJars", "org.ow2.asm:asm-tree:9.8")
 }
 
 tasks.test {
     useJUnitPlatform {
         excludeTags("integration")
+    }
+    // CrossModuleCoverageTest copies fixture jars from this explicit set
+    // (resolved lazily at execution — never at configuration time, so the
+    // configuration cache stays clean). doFirst runs before the test JVM
+    // forks, so the property is visible to the forked test.
+    doFirst {
+        systemProperty(
+            "tramai.crossModuleFixtureJars",
+            crossModuleFixtureJars.resolve().joinToString(File.pathSeparator) { it.absolutePath },
+        )
     }
 }
 

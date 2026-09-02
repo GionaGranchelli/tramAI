@@ -386,71 +386,81 @@ class CrossModuleCoverageTest {
     }
 
     private fun writeVendoredJunitRepo(dir: File) {
-        // Vendor JUnit 5.11.4 jars from the local Gradle cache into a hermetic
-        // repo so the fixture never touches the network. POMs carry the real
-        // transitive edges (engine → api, platform-engine, opentest4j,
-        // apiguardian; platform-engine → commons; launcher → engine) so the
-        // resolution is complete.
-        val cacheRoot = File(System.getProperty("user.home"), ".gradle/caches/modules-2/files-2.1")
-        for (module in VENDOR_MODULES) {
-            val groupDir = File(cacheRoot, "${module.group}/${module.artifact}/${module.version}")
-            // The cache may hold several genuinely different jars for one
-            // coordinate (e.g. org.jacoco.agent: the plain jar embeds
-            // jacocoagent.jar, the -runtime classifier jar carries only the
-            // rt classes). Walk-order selection is filesystem-nondeterministic,
-            // so pick per coordinate by exact file name; when only one jar
-            // exists, serve it under both names (the historical assumption).
-            val plainJar = groupDir.resolve("${module.artifact}-${module.version}.jar")
-            val classifierJar =
-                if (module.classifier != null) {
-                    groupDir.resolve("${module.artifact}-${module.version}-${module.classifier}.jar")
-                } else {
-                    null
-                }
-            val allJars =
-                groupDir
-                    .walkTopDown()
-                    .filter { it.isFile && it.extension == "jar" && !it.name.contains("sources") }
-                    .toList()
-            val repoDir = dir.resolve("repo/${module.group.replace('.', '/')}/${module.artifact}/${module.version}")
-            repoDir.mkdirs()
-            val plainSource =
-                allJars.firstOrNull { it.name == plainJar.name }
-                    ?: allJars.firstOrNull()
-                    ?: error("JUnit jar not in local cache: ${module.group}:${module.artifact}:${module.version}")
-            plainSource.copyTo(repoDir.resolve(plainJar.name), overwrite = true)
+        // Vendor JUnit 5.12.2 jars into a hermetic repo so the fixture never
+        // touches the network. POMs carry the real transitive edges (engine →
+        // api, platform-engine, opentest4j, apiguardian; platform-engine →
+        // commons; launcher → engine) so the resolution is complete.
+        // The jar files come from the crossModuleFixtureJars configuration
+        // (build-logic/build.gradle.kts), resolved explicitly for this test —
+        // never by scanning the local Gradle cache, which is populated by
+        // whatever other job ran first on a shared runner and is not a
+        // contract this test may rely on.
+        val fixtureJars =
+            (System.getProperty("tramai.crossModuleFixtureJars") ?: "")
+                .split(File.pathSeparator)
+                .map(::File)
+                .filter { it.isFile }
+        VENDOR_MODULES.forEach { vendorModule(dir, it, fixtureJars) }
+    }
+
+    private fun vendorModule(
+        dir: File,
+        module: VendorModule,
+        fixtureJars: List<File>,
+    ) {
+        val plainJarName = "${module.artifact}-${module.version}.jar"
+        val classifierJarName =
             if (module.classifier != null) {
-                val classifierSource =
-                    allJars.firstOrNull { it.name == classifierJar!!.name }
-                        ?: plainSource
-                classifierSource.copyTo(repoDir.resolve(classifierJar!!.name), overwrite = true)
+                "${module.artifact}-${module.version}-${module.classifier}.jar"
+            } else {
+                null
             }
-            val deps =
-                module.deps.joinToString("\n") { d ->
-                    """
-                    <dependency>
-                      <groupId>${d.group}</groupId>
-                      <artifactId>${d.artifact}</artifactId>
-                      <version>${d.version}</version>
-                    </dependency>
-                    """.trimIndent()
-                }
-            writeFile(
-                repoDir,
-                "${module.artifact}-${module.version}.pom",
-                """
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                  <modelVersion>4.0.0</modelVersion>
-                  <groupId>${module.group}</groupId>
-                  <artifactId>${module.artifact}</artifactId>
-                  <version>${module.version}</version>
-                  <dependencies>
-                  $deps
-                  </dependencies>
-                </project>
-                """.trimIndent(),
-            )
+        val allJars =
+            fixtureJars.filter {
+                it.name.startsWith("${module.artifact}-${module.version}")
+            }
+        val repoDir = dir.resolve("repo/${module.group.replace('.', '/')}/${module.artifact}/${module.version}")
+        repoDir.mkdirs()
+        val plainSource =
+            allJars.firstOrNull { it.name == plainJarName }
+                ?: allJars.firstOrNull()
+                ?: error(
+                    "Fixture jar not resolved for ${module.group}:${module.artifact}:${module.version} " +
+                        "(tramai.crossModuleFixtureJars missing it; add the coordinate to " +
+                        "build-logic/build.gradle.kts)",
+                )
+        plainSource.copyTo(repoDir.resolve(plainJarName), overwrite = true)
+        if (module.classifier != null) {
+            val classifierSource =
+                allJars.firstOrNull { it.name == classifierJarName }
+                    ?: plainSource
+            classifierSource.copyTo(repoDir.resolve(classifierJarName!!), overwrite = true)
         }
+        val deps =
+            module.deps.joinToString("\n") { d ->
+                """
+                <dependency>
+                  <groupId>${d.group}</groupId>
+                  <artifactId>${d.artifact}</artifactId>
+                  <version>${d.version}</version>
+                </dependency>
+                """.trimIndent()
+            }
+        writeFile(
+            repoDir,
+            "${module.artifact}-${module.version}.pom",
+            """
+            <project xmlns="http://maven.apache.org/POM/4.0.0">
+              <modelVersion>4.0.0</modelVersion>
+              <groupId>${module.group}</groupId>
+              <artifactId>${module.artifact}</artifactId>
+              <version>${module.version}</version>
+              <dependencies>
+              $deps
+              </dependencies>
+            </project>
+            """.trimIndent(),
+        )
     }
 
     private data class VendorModule(
