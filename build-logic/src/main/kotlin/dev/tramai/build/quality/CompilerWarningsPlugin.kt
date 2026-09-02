@@ -125,7 +125,8 @@ class CompilerWarningsPlugin : Plugin<Project> {
         val impact =
             if (delta == null) {
                 project.logger.lifecycle(
-                    "compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)",
+                    "compiler-warnings: no delta property at configuration time — " +
+                        "wiring all compile tasks (fail-closed)",
                 )
                 CompilerWarningsImpact.Full
             } else {
