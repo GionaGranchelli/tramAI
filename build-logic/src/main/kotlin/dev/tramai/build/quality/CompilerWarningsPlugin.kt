@@ -128,28 +128,15 @@ class CompilerWarningsPlugin : Plugin<Project> {
         val wiredPaths = compileTaskModulePaths(impact, baselineChanged, allModulePaths)
 
         val wiredProjects = allProjects.filter { it.path in wiredPaths }
-        val verifyCompileTasks = mutableListOf<Task>()
-        val verifyClasspathSources = mutableListOf<Any>()
-        wiredProjects.forEach { p ->
-            val wiring = collectProjectWiring(p)
-            verifyCompileTasks.addAll(wiring.compileTasks)
-            verifyClasspathSources.addAll(wiring.classpathSources)
-        }
+        val verifyWiring = collectWiring(wiredProjects)
         // NOTE (P3-C): classpath scoping is REQUIRED, not cosmetic. A file
         // collection built from a source-set compileClasspath carries built-by
         // task dependencies — including ALL modules' classpaths in the verify
         // task's @Classpath input would force every module to compile even when
         // zero compile tasks are wired via dependsOn.
-        val verifyClasspath = project.files(verifyClasspathSources)
-
-        val bootstrapCompileTasks = mutableListOf<Task>()
-        val bootstrapClasspathSources = mutableListOf<Any>()
-        allProjects.forEach { p ->
-            val wiring = collectProjectWiring(p)
-            bootstrapCompileTasks.addAll(wiring.compileTasks)
-            bootstrapClasspathSources.addAll(wiring.classpathSources)
-        }
-        val bootstrapClasspath = project.files(bootstrapClasspathSources)
+        val verifyClasspath = project.files(verifyWiring.classpathSources)
+        val bootstrapWiring = collectWiring(allProjects)
+        val bootstrapClasspath = project.files(bootstrapWiring.classpathSources)
 
         val sourceTreeList = mutableListOf<Any>()
         allProjects.forEach { p ->
@@ -159,7 +146,7 @@ class CompilerWarningsPlugin : Plugin<Project> {
             }
         }
         project.tasks.named("verifyCompilerWarnings") {
-            dependsOn(verifyCompileTasks)
+            dependsOn(verifyWiring.compileTasks)
             (this as VerifyCompilerWarningsTask).compileClasspath.from(verifyClasspath)
             (this as VerifyCompilerWarningsTask).sourceTrees.from(sourceTreeList)
             (this as VerifyCompilerWarningsTask).moduleDependents.set(dependents)
@@ -167,14 +154,30 @@ class CompilerWarningsPlugin : Plugin<Project> {
         project.tasks.named("bootstrapCompilerWarningsBaseline") {
             // Bootstrap regenerates the FULL baseline — it must always compile
             // everything, regardless of the delta.
-            dependsOn(bootstrapCompileTasks)
+            dependsOn(bootstrapWiring.compileTasks)
             (this as BootstrapCompilerWarningsBaselineTask).compileClasspath.from(bootstrapClasspath)
             (this as BootstrapCompilerWarningsBaselineTask).sourceTrees.from(sourceTreeList)
         }
         project.logger.lifecycle(
             "compiler-warnings: collected ${collected.size} compile units, " +
-                "${verifyCompileTasks.size}/${bootstrapCompileTasks.size} compile tasks wired for verify",
+                "${verifyWiring.compileTasks.size}/${bootstrapWiring.compileTasks.size} compile tasks wired for verify",
         )
+    }
+
+    private data class WiredProjects(
+        val compileTasks: List<Task>,
+        val classpathSources: List<Any>,
+    )
+
+    private fun collectWiring(projects: List<Project>): WiredProjects {
+        val compileTasks = mutableListOf<Task>()
+        val classpathSources = mutableListOf<Any>()
+        projects.forEach { p ->
+            val wiring = collectProjectWiring(p)
+            compileTasks.addAll(wiring.compileTasks)
+            classpathSources.addAll(wiring.classpathSources)
+        }
+        return WiredProjects(compileTasks, classpathSources)
     }
 
     /** Returns the git name-only diff vs baseRef, or null when unavailable. */
@@ -195,9 +198,15 @@ class CompilerWarningsPlugin : Plugin<Project> {
         }
     }
 
-    private data class GitResult(val exitCode: Int, val output: String)
+    private data class GitResult(
+        val exitCode: Int,
+        val output: String,
+    )
 
-    private fun runGit(root: File, vararg args: String): GitResult {
+    private fun runGit(
+        root: File,
+        vararg args: String,
+    ): GitResult {
         val proc =
             ProcessBuilder(listOf("git") + args)
                 .directory(root)
