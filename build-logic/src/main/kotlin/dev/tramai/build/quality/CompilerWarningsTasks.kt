@@ -35,6 +35,16 @@ data class CompileUnitSpec(
     @get:Input val jvmTarget: String,
 )
 
+/**
+ * Reverse dependency edge for P3-A impact closure: modulePath -> the modules
+ * whose compile classpath includes it (production + test scopes). Captured at
+ * configuration time from the real Gradle model; serializable for config cache.
+ */
+data class ModuleDependentsSpec(
+    @get:Input val modulePath: String,
+    @get:Input val dependents: List<String>,
+)
+
 /** Runs the standalone compiler and parses warnings (shared by verify + bootstrap). */
 internal object KotlincRunner {
     private const val TIMEOUT_MINUTES = 10L
@@ -248,6 +258,10 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
     @get:Nested
     abstract val compileUnits: ListProperty<CompileUnitSpec>
 
+    /** P3-A: reverse dependency edges (module -> modules compiling against it). */
+    @get:Nested
+    abstract val moduleDependents: ListProperty<ModuleDependentsSpec>
+
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -269,9 +283,11 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         val baseline = loadBaseline()
 
         val diff = gitDiff(root, baseRef.get())
-        val deltaModules = deltaModules(diff)
-        val globalInvalidation = globalConfigInvalidated(diff)
-        if (deltaModules.isEmpty() && !baselineChanged(diff) && !globalInvalidation) {
+        // P3-A impact selection: classify the diff and close over dependents
+        // instead of the round-4 binary global-vs-delta rule.
+        val impact = resolveCompilerWarningsImpact(diff, dependentsByModule())
+        val baselineChanged = baselineChanged(diff)
+        if (impact is CompilerWarningsImpact.None && !baselineChanged) {
             File(reportDir, "summary.txt").writeText(
                 "No modules, baseline, or global build configuration changed in the delta — nothing to verify.\n",
             )
@@ -283,25 +299,17 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         // same applies to global compiler/build configuration (versions.toml,
         // settings, gradle.properties, build-logic conventions): a Java-only or
         // build-script-only change can introduce Kotlin warnings indirectly.
-        val verifyModules =
-            if (baselineChanged(diff) || globalInvalidation) {
-                logger.lifecycle(
-                    if (baselineChanged(diff)) {
-                        "compiler-warnings: baseline changed in delta — full verification"
-                    } else {
-                        "compiler-warnings: global build/version configuration changed in delta — full verification"
-                    },
-                )
-                compileUnits.get().map { it.modulePath }.toSet()
-            } else {
-                deltaModules
-            }
-        logger.lifecycle("compiler-warnings: verifying modules ${verifyModules.sorted().joinToString()}")
+        val allModulePaths = compileUnits.get().map { it.modulePath }.toSet()
+        // P0 non-vacuity: resolveVerifyModules falls back to FULL when a Modules
+        // impact names paths with no compile unit or selects nothing — a graph
+        // bug must never verify zero units and pass vacuously.
+        val verifyModules = resolveVerifyModules(impact, baselineChanged, allModulePaths)
+        logger.lifecycle("compiler-warnings: verifying ${verifyModules.size} module paths")
 
         val current = collectCurrent(root, reportDir, verifyModules)
 
         val violations = CompilerWarningsBaselineVerifier.compare(current, baseline)
-        writeReports(reportDir, current, baseline, deltaModules, violations)
+        writeReports(reportDir, current, baseline, compilerDeltaModules(diff), violations)
         if (violations.isNotEmpty()) {
             val more =
                 if (violations.size > MAX_VIOLATIONS_REPORTED) {
@@ -420,12 +428,15 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         )
     }
 
-    // spotless re-joins single-expression functions; the resulting line exceeds
-    // 120 cols, so detekt is told to look the other way.
-    @Suppress("MaxLineLength")
-    private fun baselineChanged(diff: String): Boolean = diff.lineSequence().any { it.contains("config/warnings/baseline.json") }
+    // Substring check is sufficient: git --name-only output has one path per
+    // line and the baseline path is a single token (never spans a line break).
+    private fun baselineChanged(diff: String): Boolean = diff.contains("config/warnings/baseline.json")
 
-    private fun deltaModules(diff: String): Set<String> = compilerDeltaModules(diff)
+    /** P3-A: module path -> modules whose compile classpath includes it. */
+    private fun dependentsByModule(): Map<String, Set<String>> =
+        moduleDependents
+            .get()
+            .associate { it.modulePath to it.dependents.toSet() }
 
     private fun gitDiff(
         root: File,
@@ -551,6 +562,8 @@ abstract class BootstrapCompilerWarningsBaselineTask : DefaultTask() {
  * (10.1c round-4): a Java-only change can still introduce Kotlin warnings
  * (e.g. a deprecated Java API used from Kotlin), so .java is in scope too.
  * Top-level so the selection logic is unit-testable without a task instance.
+ * Retained for reporting/tests; impact selection now uses
+ * [resolveCompilerWarningsImpact] (P3-A) which closes over dependents.
  */
 internal fun compilerDeltaModules(diff: String): Set<String> =
     diff
@@ -561,32 +574,5 @@ internal fun compilerDeltaModules(diff: String): Set<String> =
         }.mapNotNull { line -> moduleOf(line) }
         .toSet()
 
-private fun moduleOf(line: String): String? {
-    val parts = line.split("/")
-    return when {
-        parts.size >= MIN_DELTA_SEGMENTS && parts[0] == "examples" -> ":examples:${parts[1]}"
-        parts.size >= 2 -> ":" + parts[0]
-        else -> null
-    }
-}
-
-private const val MIN_DELTA_SEGMENTS = 3
 private const val MIN_COMPILE_PARALLELISM = 2
 private const val MAX_COMPILE_PARALLELISM = 4
-
-/**
- * True when the delta touches global compiler/build configuration: a future
- * version-catalog or convention change can introduce Kotlin warnings indirectly
- * (upgraded library annotations, changed compiler options), so the whole
- * repository must be re-verified (10.1c round-4).
- */
-internal fun globalConfigInvalidated(diff: String): Boolean =
-    diff.lineSequence().any { line ->
-        line == "gradle/libs.versions.toml" ||
-            line == "gradle.properties" ||
-            line == "settings.gradle.kts" ||
-            line == "settings.gradle" ||
-            line == "build.gradle.kts" ||
-            line == "build.gradle" ||
-            line.startsWith("build-logic/")
-    }
