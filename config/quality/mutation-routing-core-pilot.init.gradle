@@ -1,0 +1,93 @@
+// 10.3c1 routing-core mutation pilot — repository-owned reproducer.
+//
+// PURPOSE
+// Reproduce the bounded PIT campaign whose evidence is recorded in
+// docs/EPIC-10.3-coverage-mutation.md §7 ("10.3c1 routing-core mutation
+// pilot"). Measurement only: no enforcement, no baseline, no CI wiring.
+//
+// CANONICAL INVOCATION (from the repository root):
+//   ./gradlew --init-script config/quality/mutation-routing-core-pilot.init.gradle \
+//     pilotMutationProbe --rerun-tasks
+//
+// REPORT OUTPUT
+//   tramai-core/build/mutation-pilot/routing-core/tramai-core/mutations.xml   (authoritative XML)
+//   tramai-core/build/mutation-pilot/routing-core/tramai-core/index.html      (human view)
+//
+// EXPECTED RESULT AT 10.3c1 head (see doc §7):
+//   4 mutations generated, 4 KILLED, 0 survivors, population stable across
+//   identical runs. Identity = MutationIdentity.stableKey() over
+//   module+className+method+mutator+description+block (SHA-256, line excluded).
+//
+// PILOT BOUNDARY (binding)
+//   Targets EXACTLY dev.tramai.core.provider.ProviderRegistry and
+//   dev.tramai.core.provider.ModelProvider on :tramai-core. The authoritative
+//   routing family (config/quality/test-quality.yml) also contains
+//   ModelRegistryEnforcer; it is NOT enrolled until the 10.3c2 follow-up.
+//
+// WHY THIS SHAPE (root-cause findings from the pilot, doc §7 C8):
+//   1. gradle-pitest-plugin 1.19.0 registers its extension inside
+//      plugins.withType(JavaPlugin).configureEach(...). Applying/configure the
+//      plugin from a bare `gradle.beforeProject` hook runs BEFORE the project's
+//      java plugin and fails with "Extension with name 'pitest' does not
+//      exist". The pilot therefore applies+configures inside
+//      `plugins.withId('java')`, matching CanonicalGradleProbe's generated
+//      init script (CanonicalGradleProbe.kt).
+//   2. When targetTests is unset the solidsoft plugin mirrors targetClasses
+//      into the test filter and finds 0 tests. targetTests is pinned to the
+//      provider test package.
+//   3. pitest needs its junit5 companion on the pitest configuration
+//      (dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:1.2.1'))
+//      and testPlugin 'junit5'.
+initscript {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0'
+        classpath 'org.pitest:pitest-junit5-plugin:1.2.1'
+    }
+}
+
+def pilotModules = [':tramai-core'] as Set
+def pilotClasses = [
+    'dev.tramai.core.provider.ProviderRegistry',
+    'dev.tramai.core.provider.ModelProvider',
+] as Set
+def pilotTests = [
+    'dev.tramai.core.provider.*',
+] as Set
+def mutationTasks = []
+
+gradle.beforeProject { measuredProject ->
+    if (!(measuredProject.path in pilotModules)) return
+    measuredProject.plugins.withId('java') {
+        def pluginClass = initscript.classLoader.loadClass(
+            'info.solidsoft.gradle.pitest.PitestPlugin'
+        )
+        measuredProject.pluginManager.apply(pluginClass)
+        measuredProject.dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:1.2.1')
+        measuredProject.extensions.configure('pitest') { pitestExt ->
+            pitestExt.testPlugin.set('junit5')
+            pitestExt.targetClasses.set(pilotClasses)
+            pitestExt.targetTests.set(pilotTests)
+            pitestExt.outputFormats.set(['XML', 'HTML'] as Set)
+            pitestExt.timestampedReports.set(false)
+            pitestExt.failWhenNoMutations.set(true)
+            pitestExt.threads.set(2)
+            def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+            // Root project is unavailable at init-script top level; resolve lazily.
+            pitestExt.reportDir.set(measuredProject.provider {
+                measuredProject.layout.projectDirectory
+                    .dir('build/mutation-pilot/routing-core/' + moduleSlug)
+            })
+        }
+        mutationTasks << measuredProject.tasks.named('pitest')
+    }
+}
+
+gradle.projectsEvaluated {
+    rootProject.tasks.register('pilotMutationProbe') {
+        dependsOn mutationTasks.collect { it.get() }
+    }
+}
