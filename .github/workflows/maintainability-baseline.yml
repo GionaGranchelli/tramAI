@@ -57,9 +57,6 @@ jobs:
       - name: Verify Maintainability Baseline
         run: ./gradlew verifyMaintainabilityBaseline --no-daemon
 
-      - name: Test build-logic
-        run: ./gradlew :build-logic:test --no-daemon
-
       - name: Upload Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -88,3 +85,113 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Reports uploaded as artifact: \`maintainability-reports\`" >> $GITHUB_STEP_SUMMARY
+
+  # Phase 2: build-logic tests run as a parallel matrix instead of one serial
+  # invocation after the maintainability checks. Same JDK 21 (AGENTS.md rule 6:
+  # build-logic compatibility), same coverage — the four lanes partition the
+  # full 771-test suite by domain, each with its own exact count assertion so
+  # drift between lanes cannot hide (mirrors ci.yml contract-tests matrix).
+  # Counts recomputed from XML on the post-#359 tree: 168 + 144 + 211 + 248 =
+  # 771 (the authoritative full-suite XML total). #359's additions are
+  # enrolled: TypedTaskConfigurationCacheTest (6) in scanners-coverage,
+  # ReleaseVerificationPluginTest (24) in release-sovereign.
+  build-logic-tests:
+    name: build-logic (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: quality-contracts
+            test-filter: >-
+              --tests 'dev.tramai.build.quality.FormattingGate*Test'
+              --tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest'
+              --tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test'
+              --tests 'dev.tramai.build.quality.StaticAnalysis*Test'
+            expected: 168
+          - name: release-sovereign
+            test-filter: >-
+              --tests 'dev.tramai.build.release.*'
+              --tests 'dev.tramai.build.sovereign.*'
+              --tests 'dev.tramai.build.supplychain.*'
+              --tests 'dev.tramai.build.publishing.*'
+              --tests 'dev.tramai.build.docs.*'
+              --tests 'dev.tramai.build.conventions.*'
+            expected: 144
+          - name: policy-maintainability
+            test-filter: >-
+              --tests 'dev.tramai.build.quality.ChangePolicy*Test'
+              --tests 'dev.tramai.build.quality.DeviationBudgetEvaluatorTest'
+              --tests 'dev.tramai.build.quality.FindingIdentityTest'
+              --tests 'dev.tramai.build.quality.MaintainabilityBaselineVerificationTest'
+              --tests 'dev.tramai.build.quality.Mutation*Test'
+              --tests 'dev.tramai.build.quality.Nondeterminism*Test'
+              --tests 'dev.tramai.build.quality.RuntimeNondeterminismGateTest'
+              --tests 'dev.tramai.build.quality.ModuleCatalogMutationTest'
+              --tests 'dev.tramai.build.quality.ModuleTopologyVerificationTest'
+              --tests 'dev.tramai.build.quality.ModuleDocContractVerifierTest'
+              --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
+              --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
+              --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
+            expected: 211
+          - name: scanners-coverage
+            test-filter: >-
+              --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
+              --tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest'
+              --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest'
+              --tests 'dev.tramai.build.quality.JUnitTestSignatureVerifierTest'
+              --tests 'dev.tramai.build.quality.CancellationDeltaComparatorTest'
+              --tests 'dev.tramai.build.quality.CoveragePolicyDeltaVerifierTest'
+              --tests 'dev.tramai.build.quality.CoverageMeasurementDiscriminatorTest'
+              --tests 'dev.tramai.build.quality.CoverageReportParserTest'
+              --tests 'dev.tramai.build.quality.CoverageAuthorityTest'
+              --tests 'dev.tramai.build.quality.CoverageWiringTest'
+              --tests 'dev.tramai.build.quality.CrossModuleCoverageTest'
+              --tests 'dev.tramai.build.quality.ArchitectureReportAggregatorTest'
+              --tests 'dev.tramai.build.quality.CanonicalProbeFunctionalTest'
+              --tests 'dev.tramai.build.quality.ResidualQualityVerifierTasksTest'
+              --tests 'dev.tramai.build.quality.TypedTaskConfigurationCacheTest'
+              --tests 'dev.tramai.build.quality.TestQualityConfigurationTest'
+              --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
+              --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
+              --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
+            expected: 248
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Run ${{ matrix.name }} build-logic tests
+        run: |
+          ./gradlew :build-logic:test ${{ matrix.test-filter }} --no-daemon
+          python3 - <<'EOF'
+          import glob, re
+          total = 0
+          for f in glob.glob('build-logic/build/test-results/test/TEST-*.xml'):
+              m = re.search(r'tests="(\d+)"', open(f).read())
+              total += int(m.group(1)) if m else 0
+          assert total == ${{ matrix.expected }}, f'expected exactly ${{ matrix.expected }} ${{ matrix.name }} build-logic tests, discovered {total}'
+          EOF
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logic-${{ matrix.name }}-test-reports
+          path: |
+            build-logic/build/test-results/test/
+            build-logic/build/reports/tests/test/
