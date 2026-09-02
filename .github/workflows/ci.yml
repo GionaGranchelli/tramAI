@@ -67,7 +67,7 @@ jobs:
           ./gradlew "${GRADLE_ARGS[@]}"
 
       - name: Upload quality reports (${{ matrix.name }})
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: quality-${{ matrix.name }}-reports
