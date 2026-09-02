@@ -37,6 +37,11 @@ mutation:
       targetClasses: ["dev.tramai.core.provider.ProviderRegistry",
                       "dev.tramai.core.provider.ModelProvider",
                       "dev.tramai.engine.ModelRegistryEnforcer"]
+      targetTests:
+        - "dev.tramai.core.provider.ProviderRegistryTest"
+        - "dev.tramai.core.provider.ProviderRegistryCompatibilityTest"
+        - "dev.tramai.core.provider.ModelProviderDefaultContractTest"
+        - "dev.tramai.engine.ModelRegistryEnforcerTest"
     retry:
       modules: [":tramai-core", ":tramai-engine"]
       targetClasses: ["dev.tramai.engine.RetryPolicySettings*",

@@ -1,2 +1,46 @@
 schemaVersion: "1"
-classifications: []
+classifications:
+  # ── 10.3c2 routing family: ModelRegistryEnforcer.authorize residuals ──
+  # Adjudicated from bytecode inspection (javap -c -p -l) and the B2/B4/B5
+  # suspension experiments. All three are compiler-generated suspend-scaffold
+  # mutations with no source-level behavioral distinction. B5 parity: the
+  # source-semantic mutants of the same lines are independently KILLED.
+
+  - id: "f8b20e93c77b787e7e368745db9d25cb91e167ef5b13b19812a17a1b1e90b5bb"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the entry-path ResultKt.throwOnFailure call associated with a
+      fresh continuation (bytecode offset 90, block 7, reported line 18). On
+      initial invocation the state-machine result field is the
+      COROUTINE_SUSPENDED sentinel, so throwOnFailure is necessarily a no-op;
+      the resumed-result check is a separate bytecode location (offset 167,
+      block 14) that IS covered and whose removal mutant is KILLED. javap
+      inspection proves the mutated block is compiler-generated suspend
+      scaffolding rather than a source-level behavioral condition. No test can
+      observe a behavioral difference.
+
+  - id: "6942855aee2b408d0d406a68fb6e17c26fc699ff0de70e7704be06e3099dba59"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the rethrowIfCancellation() call in the catch (Exception) branch
+      (line 29). CancellationException is already consumed and rethrown by the
+      preceding typed catch (catch (e: CancellationException) { throw e },
+      bytecode offsets 198-202). Any throwable reaching the following broad
+      catch is therefore not a CancellationException, and
+      rethrowIfCancellation() (which only checks `this is CancellationException`)
+      is necessarily a no-op there. Removing the call cannot change observable
+      behavior. Source structure itself proves equivalence.
+
+  - id: "b156c41d03c6c576a9aade36b7848b0fd9694a43163935651c47f4d3dd90469c"
+    classification: "tool-limitation"
+    reason: >-
+      PIT negates the compiler-generated COROUTINE_SUSPENDED state-machine
+      dispatch comparison (bytecode offset 140 if_acmpne, block 12, reported
+      line 22) rather than a source-level behavioral condition. Negation
+      prevents normal continuation resumption, deterministically deadlocking
+      the awaiting test and reaching PIT's timeout (reproduced isolated at
+      17s with only ModelRegistryEnforcerTest selected; not a broad-selection
+      artifact). The distinct source-semantic elvis `?: throw
+      ModelNotRegisteredException` conditional on the same source line is
+      independently mutated and KILLED (block 16), proving this classification
+      does not hide an untested source branch.
