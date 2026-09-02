@@ -300,31 +300,11 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         // settings, gradle.properties, build-logic conventions): a Java-only or
         // build-script-only change can introduce Kotlin warnings indirectly.
         val allModulePaths = compileUnits.get().map { it.modulePath }.toSet()
-        val verifyModules =
-            when {
-                baselineChanged -> {
-                    logger.lifecycle("compiler-warnings: baseline changed in delta — full verification")
-                    allModulePaths
-                }
-
-                impact is CompilerWarningsImpact.Full -> {
-                    logger.lifecycle(
-                        "compiler-warnings: global build/version configuration changed in delta — full verification",
-                    )
-                    allModulePaths
-                }
-
-                impact is CompilerWarningsImpact.Modules -> {
-                    val impacted = impact.modulePaths.sorted().joinToString()
-                    logger.lifecycle("compiler-warnings: impacted modules $impacted")
-                    impact.modulePaths
-                }
-
-                else -> {
-                    allModulePaths
-                } // None with baselineChanged handled above
-            }
-        logger.lifecycle("compiler-warnings: verifying modules ${verifyModules.sorted().joinToString()}")
+        // P0 non-vacuity: resolveVerifyModules falls back to FULL when a Modules
+        // impact names paths with no compile unit or selects nothing — a graph
+        // bug must never verify zero units and pass vacuously.
+        val verifyModules = resolveVerifyModules(impact, baselineChanged, allModulePaths)
+        logger.lifecycle("compiler-warnings: verifying ${verifyModules.size} module paths")
 
         val current = collectCurrent(root, reportDir, verifyModules)
 

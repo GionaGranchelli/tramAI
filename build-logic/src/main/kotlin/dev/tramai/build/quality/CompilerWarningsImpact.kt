@@ -108,6 +108,29 @@ internal fun affectedModules(
 }
 
 /**
+ * P0 non-vacuity guard: maps an impact (+ baseline edit) to the module set the
+ * gate must verify.
+ *
+ * A Modules impact whose paths do not correspond to collected compile units —
+ * or which selects nothing at all — falls back to FULL. A classification or
+ * graph bug must never yield a zero-unit verification that passes vacuously.
+ */
+internal fun resolveVerifyModules(
+    impact: CompilerWarningsImpact,
+    baselineChanged: Boolean,
+    allModulePaths: Set<String>,
+): Set<String> {
+    if (baselineChanged || impact is CompilerWarningsImpact.Full) return allModulePaths
+    val requested = (impact as? CompilerWarningsImpact.Modules)?.modulePaths.orEmpty()
+    val unknown = requested - allModulePaths
+    return if (requested.isEmpty() || unknown.isNotEmpty()) {
+        allModulePaths
+    } else {
+        requested
+    }
+}
+
+/**
  * Global build/compiler configuration: a change here can alter every module's
  * compile classpath, args, jvm target, or the compiler itself.
  */
@@ -136,8 +159,11 @@ internal fun isGlobalCompileConfig(line: String): Boolean =
  *  - quality/ModuleManifest.kt + ModuleCatalog.kt — imported by conventions
  *    (TramaiJavaPlatformPlugin) and publishing for BOM/publication module
  *    sets; a change can alter the constraint surface modules resolve against,
- *  - quality/CompilerWarnings* — the gate itself (parser/compiler pin),
- *  - build-logic's own build files (plugin declarations / classpath).
+ *  - quality/CompilerWarnings* PRODUCTION sources only — the gate itself
+ *    (parser/compiler pin); src/test files and fixture build scripts do NOT
+ *    configure module compilation,
+ *  - build-logic's own build files (plugin declarations / classpath), matched
+ *    by exact path so test fixtures named *.gradle.kts stay inert.
  *
  * Every other build-logic source (scanners, verifiers, maintainability,
  * static analysis, dependency hygiene, release, docs, supplychain,
@@ -150,14 +176,16 @@ internal fun isGlobalCompileConfig(line: String): Boolean =
  */
 internal fun isCompilerAffectingBuildLogic(line: String): Boolean {
     if (!line.startsWith("build-logic/")) return false
-    return line.endsWith("build.gradle.kts") ||
-        line.endsWith("settings.gradle.kts") ||
-        line.endsWith("gradle.properties") ||
-        line.contains("/conventions/") ||
-        line.contains("/publishing/") ||
-        line.contains("/quality/ModuleManifest.kt") ||
-        line.contains("/quality/ModuleCatalog.kt") ||
-        line.contains("/quality/CompilerWarnings")
+    return line == "build-logic/build.gradle.kts" ||
+        line == "build-logic/build.gradle" ||
+        line == "build-logic/settings.gradle.kts" ||
+        line == "build-logic/settings.gradle" ||
+        line == "build-logic/gradle.properties" ||
+        line.startsWith("build-logic/src/main/kotlin/dev/tramai/build/conventions/") ||
+        line.startsWith("build-logic/src/main/kotlin/dev/tramai/build/publishing/") ||
+        line == "build-logic/src/main/kotlin/dev/tramai/build/quality/ModuleManifest.kt" ||
+        line == "build-logic/src/main/kotlin/dev/tramai/build/quality/ModuleCatalog.kt" ||
+        line.startsWith("build-logic/src/main/kotlin/dev/tramai/build/quality/CompilerWarnings")
 }
 
 /** A .kt/.java/module build-script change inside a module directory. */

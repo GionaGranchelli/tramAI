@@ -141,8 +141,12 @@ class CompilerWarningsPlugin : Plugin<Project> {
      * output (config-cache + up-to-date safe).
      */
     private fun computeDependentsByModule(project: Project): List<ModuleDependentsSpec> {
-        val productionConfigs = setOf("api", "implementation", "compileOnly", "runtimeOnly")
-        val testConfigs = setOf("testApi", "testImplementation", "testCompileOnly", "testRuntimeOnly")
+        // Compile-relevant scopes only. runtimeOnly/testRuntimeOnly are not on
+        // the consumer's compile classpath, so they cannot surface a warning in
+        // a dependent's compile and only enlarge the closure (P3-A is about
+        // avoiding unnecessary compilation without losing coverage).
+        val productionConfigs = setOf("api", "implementation", "compileOnly")
+        val testConfigs = setOf("testApi", "testImplementation", "testCompileOnly")
         val dependents = mutableMapOf<String, MutableSet<String>>()
         for (consumer in collectProjects(project)) {
             val consumerPath = consumer.path
@@ -161,16 +165,16 @@ class CompilerWarningsPlugin : Plugin<Project> {
         consumerPath: String,
         dependents: MutableMap<String, MutableSet<String>>,
     ) {
-        try {
-            config.dependencies
-                .withType(org.gradle.api.artifacts.ProjectDependency::class.java)
-                .forEach { dep ->
-                    val depPath = (dep as org.gradle.api.artifacts.ProjectDependency).path
-                    dependents.getOrPut(depPath) { mutableSetOf() }.add(consumerPath)
-                }
-        } catch (_: Exception) {
-            // Configuration not resolvable at configuration time — skip edge.
-        }
+        // FAIL-CLOSED (P3-A): reading declared project dependencies never
+        // resolves the configuration; if it still throws, propagating the
+        // failure beats silently dropping a reverse edge — a dropped edge could
+        // leave a dependent unverified when a changed module recompiles.
+        config.dependencies
+            .withType(org.gradle.api.artifacts.ProjectDependency::class.java)
+            .forEach { dep ->
+                val depPath = (dep as org.gradle.api.artifacts.ProjectDependency).path
+                dependents.getOrPut(depPath) { mutableSetOf() }.add(consumerPath)
+            }
     }
 
     private data class ProjectWiring(

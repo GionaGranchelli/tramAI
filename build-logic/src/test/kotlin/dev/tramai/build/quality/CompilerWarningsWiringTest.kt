@@ -174,4 +174,71 @@ class CompilerWarningsWiringTest : StaticAnalysisContractTestBase() {
             ),
         )
     }
+
+    // ── P3-A review round: production-only build-logic matching ─────────
+    @Test
+    fun `compiler-warnings test sources do not trigger full verification`() {
+        // The gate's own test file and fixture build scripts configure no module
+        // compilation — classifying them as FULL is exactly the unnecessary
+        // rebuild P3-A exists to eliminate.
+        assertEquals(
+            CompilerWarningsImpact.None,
+            resolveCompilerWarningsImpact(
+                "build-logic/src/test/kotlin/dev/tramai/build/quality/CompilerWarningsWiringTest.kt\n",
+                emptyMap(),
+            ),
+        )
+        assertEquals(
+            CompilerWarningsImpact.None,
+            resolveCompilerWarningsImpact(
+                "build-logic/src/test/resources/canonical-probe-fixture/build.gradle.kts\n",
+                emptyMap(),
+            ),
+        )
+    }
+
+    @Test
+    fun `compiler-warnings production sources still trigger full verification`() {
+        assertEquals(
+            CompilerWarningsImpact.Full,
+            resolveCompilerWarningsImpact(
+                "build-logic/src/main/kotlin/dev/tramai/build/quality/CompilerWarningsTasks.kt\n",
+                emptyMap(),
+            ),
+        )
+        assertEquals(
+            CompilerWarningsImpact.Full,
+            resolveCompilerWarningsImpact(
+                "build-logic/src/main/kotlin/dev/tramai/build/quality/CompilerWarningsPlugin.kt\n",
+                emptyMap(),
+            ),
+        )
+        assertEquals(
+            CompilerWarningsImpact.Full,
+            resolveCompilerWarningsImpact("build-logic/build.gradle.kts\n", emptyMap()),
+        )
+    }
+
+    // ── P3-A review round: non-vacuity guard ────────────────────────────
+    @Test
+    fun `modules impact verifies its compile units or falls back to full`() {
+        val known = setOf(":tramai-core", ":tramai-engine")
+        assertEquals(
+            setOf(":tramai-core"),
+            resolveVerifyModules(CompilerWarningsImpact.Modules(setOf(":tramai-core")), false, known),
+        )
+        // A path with no matching compile unit must never be silently dropped.
+        assertEquals(
+            known,
+            resolveVerifyModules(CompilerWarningsImpact.Modules(setOf(":phantom")), false, known),
+        )
+        // Zero selected units would pass vacuously — fall back to full.
+        assertEquals(
+            known,
+            resolveVerifyModules(CompilerWarningsImpact.Modules(emptySet()), false, known),
+        )
+        // Full impact and baseline edits are always exhaustive.
+        assertEquals(known, resolveVerifyModules(CompilerWarningsImpact.Full, false, known))
+        assertEquals(known, resolveVerifyModules(CompilerWarningsImpact.None, true, known))
+    }
 }
