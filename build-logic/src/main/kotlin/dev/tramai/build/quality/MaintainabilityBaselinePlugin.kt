@@ -423,7 +423,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             if (!report.isFile) {
                                 throw GradleException(
                                     "No PITest XML for configured target $family/$module; expected $report. " +
-                                        "Authoritative population requires mutations.xml (HTML is not an authority input).",
+                                        "Authoritative population requires mutations.xml " +
+                                        "(HTML is not an authority input).",
                                 )
                             }
                             MutationReportParser().parse(module, family, report)
@@ -1450,6 +1451,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
      * measuredCommit means measured tree. Never default a missing commit.
      */
     private fun requireCleanProvenance(project: Project): String {
+        val sha = requireHeadSha(project)
+        val dirty =
+            project.providers
+                .exec { commandLine("git", "status", "--porcelain") }
+                .standardOutput.asText
+                .get()
+                .isNotBlank()
+        if (dirty) {
+            throw GradleException(
+                "Cannot generate authoritative mutation baseline: working tree is dirty at $sha. " +
+                    "Commit the measurement implementation first so measuredCommit identifies the measured tree.",
+            )
+        }
+        return sha
+    }
+
+    private fun requireHeadSha(project: Project): String {
         val sha =
             try {
                 project.providers
@@ -1462,18 +1480,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         if (!Regex("[0-9a-f]{40}").matches(sha)) {
             throw GradleException("Cannot generate authoritative mutation baseline: unexpected HEAD SHA '$sha'")
-        }
-        val dirty =
-            project.providers
-                .exec { commandLine("git", "status", "--porcelain") }
-                .standardOutput.asText
-                .get()
-                .isNotBlank()
-        if (dirty) {
-            throw GradleException(
-                "Cannot generate authoritative mutation baseline: working tree is dirty at $sha. " +
-                    "Commit the measurement implementation first so measuredCommit identifies the measured tree.",
-            )
         }
         return sha
     }

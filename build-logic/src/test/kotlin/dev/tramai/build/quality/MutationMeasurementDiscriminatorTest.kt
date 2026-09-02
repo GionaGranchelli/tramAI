@@ -240,7 +240,11 @@ class MutationMeasurementDiscriminatorTest {
 
     @Test
     fun `P0 blank methodDescription rejects the report`() {
-        val blanked = mutation().replace("<methodDescription>()V</methodDescription>", "<methodDescription></methodDescription>")
+        val blanked =
+            mutation().replace(
+                "<methodDescription>()V</methodDescription>",
+                "<methodDescription></methodDescription>",
+            )
         assertFailsWith<GradleException> {
             MutationReportParser().parse(":engine", "policy", xml(blanked))
         }

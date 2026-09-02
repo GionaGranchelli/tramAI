@@ -95,12 +95,7 @@ class MutationReportParser {
         // would alias malformed input with a genuine mutant).
         val block = requiredInt(element, "block", "index block", family, module)
         val mutationIndex = requiredInt(element, "index", "PIT index", family, module)
-        if (methodDescription.isBlank()) {
-            throw GradleException("Malformed PITest XML for $family/$module: mutation lacks methodDescription")
-        }
-        if (status.isBlank() || className.isBlank() || method.isBlank() || mutator.isBlank()) {
-            throw GradleException("Malformed PITest XML for $family/$module: mutation lacks required identity fields")
-        }
+        requireIdentityFields(element, status, family, module)
         rejectPath(sourceFile)
         val identity =
             MutationIdentity(
@@ -201,6 +196,32 @@ class MutationReportParser {
             ?: throw GradleException(
                 "Malformed PITest XML for $family/$module: mutation $fieldLabel '$raw' is missing or not an integer",
             )
+    }
+
+    /** P0: all v2 identity fields must be present — never silently default. */
+    private fun requireIdentityFields(
+        element: Element,
+        status: String,
+        family: String,
+        module: String,
+    ) {
+        val identityFields =
+            listOf(
+                "mutatedClass" to "class",
+                "mutatedMethod" to "method",
+                "methodDescription" to "methodDescription",
+                "mutator" to "mutator",
+            )
+        if (status.isBlank()) {
+            throw GradleException("Malformed PITest XML for $family/$module: mutation lacks required status")
+        }
+        for ((tag, label) in identityFields) {
+            if (childText(element, tag).isBlank()) {
+                throw GradleException(
+                    "Malformed PITest XML for $family/$module: mutation lacks required identity field '$label'",
+                )
+            }
+        }
     }
 
     private fun rejectPath(value: String) {
