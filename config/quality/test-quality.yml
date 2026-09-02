@@ -47,8 +47,15 @@ mutation:
       targetClasses: ["dev.tramai.engine.RetryPolicySettings*",
                       "dev.tramai.engine.CircuitBreakerSettings*",
                       "dev.tramai.engine.ProviderCircuitBreaker*",
-                      "dev.tramai.engine.ProviderRetryDelayPolicy*",
+                      "dev.tramai.engine.provider.ProviderRetryDelayPolicy*",
                       "dev.tramai.core.provider.ProviderFailuresKt*"]
+      targetTests: ["dev.tramai.core.provider.ProviderFailuresTest",
+                    "dev.tramai.engine.RetrySettingsContractTest",
+                    "dev.tramai.engine.provider.ProviderRetryPolicyTest",
+                    "dev.tramai.engine.provider.ProviderRetryFallbackLifecyclePropertyTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerLifecycleDiscriminatorTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerSecondaryRegressionTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerContractTest"]
     tools:
       modules: [":tramai-engine"]
       targetClasses:
