@@ -428,10 +428,9 @@ abstract class VerifyCompilerWarningsTask : DefaultTask() {
         )
     }
 
-    // spotless re-joins single-expression functions; the resulting line exceeds
-    // 120 cols, so detekt is told to look the other way.
-    @Suppress("MaxLineLength")
-    private fun baselineChanged(diff: String): Boolean = diff.lineSequence().any { it.contains("config/warnings/baseline.json") }
+    // Substring check is sufficient: git --name-only output has one path per
+    // line and the baseline path is a single token (never spans a line break).
+    private fun baselineChanged(diff: String): Boolean = diff.contains("config/warnings/baseline.json")
 
     /** P3-A: module path -> modules whose compile classpath includes it. */
     private fun dependentsByModule(): Map<String, Set<String>> =
