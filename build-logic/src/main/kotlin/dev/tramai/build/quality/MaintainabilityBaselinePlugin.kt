@@ -414,17 +414,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     testQualityConfiguration.mutation.targetFamilies.flatMap { (family, target) ->
                         target.modules.map { module ->
                             val moduleSlug = module.removePrefix(":").replace(":", "_")
-                            val candidates =
-                                listOf(
-                                    File(mutationRoot, "$family/$moduleSlug/mutations.xml"),
-                                    File(mutationRoot, "$family/$moduleSlug/index.html"),
+                            // P0 (10.3c1 review): authoritative population
+                            // requires PITest XML — HTML is lossy and cannot
+                            // carry the descriptor/block/index identity v2
+                            // fields. An XML failure must fail generation,
+                            // never silently downgrade to HTML interpretation.
+                            val report = File(mutationRoot, "$family/$moduleSlug/mutations.xml")
+                            if (!report.isFile) {
+                                throw GradleException(
+                                    "No PITest XML for configured target $family/$module; expected $report. " +
+                                        "Authoritative population requires mutations.xml (HTML is not an authority input).",
                                 )
-                            val report =
-                                candidates.firstOrNull { it.isFile }
-                                    ?: throw GradleException(
-                                        "No mutation report for configured target $family/$module; expected one of " +
-                                            candidates.joinToString(),
-                                    )
+                            }
                             MutationReportParser().parse(module, family, report)
                         }
                     }
@@ -432,16 +433,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     MutationPopulationAggregator.aggregate(
                         reports = reports,
                         configuredFamilies = testQualityConfiguration.mutation.targetFamilies,
-                        measuredCommit =
-                            try {
-                                project.providers
-                                    .exec { commandLine("git", "rev-parse", "HEAD") }
-                                    .standardOutput.asText
-                                    .get()
-                                    .trim()
-                            } catch (_: Exception) {
-                                ""
-                            },
+                        measuredCommit = requireCleanProvenance(project),
                         semantics =
                             MutationAnalyzerSemantics(
                                 pluginVersion = "1.19.0",
@@ -1449,6 +1441,41 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             )
         }
         project.logger.lifecycle(output.trimEnd())
+    }
+
+    /**
+     * P0 (10.3c1 review): authoritative baseline provenance must identify the
+     * measured tree. Require a parseable HEAD SHA and a clean working tree —
+     * the measurement implementation must be committed before PIT runs, so
+     * measuredCommit means measured tree. Never default a missing commit.
+     */
+    private fun requireCleanProvenance(project: Project): String {
+        val sha =
+            try {
+                project.providers
+                    .exec { commandLine("git", "rev-parse", "HEAD") }
+                    .standardOutput.asText
+                    .get()
+                    .trim()
+            } catch (e: Exception) {
+                throw GradleException("Cannot generate authoritative mutation baseline: git rev-parse HEAD failed", e)
+            }
+        if (!Regex("[0-9a-f]{40}").matches(sha)) {
+            throw GradleException("Cannot generate authoritative mutation baseline: unexpected HEAD SHA '$sha'")
+        }
+        val dirty =
+            project.providers
+                .exec { commandLine("git", "status", "--porcelain") }
+                .standardOutput.asText
+                .get()
+                .isNotBlank()
+        if (dirty) {
+            throw GradleException(
+                "Cannot generate authoritative mutation baseline: working tree is dirty at $sha. " +
+                    "Commit the measurement implementation first so measuredCommit identifies the measured tree.",
+            )
+        }
+        return sha
     }
 
     private fun printMutationCostTable(

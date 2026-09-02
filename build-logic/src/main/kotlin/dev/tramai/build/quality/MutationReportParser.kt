@@ -89,8 +89,15 @@ class MutationReportParser {
         val mutator = childText(element, "mutator")
         val description = childText(element, "description")
         val line = childText(element, "lineNumber").toIntOrNull() ?: 0
-        val block = childText(element, "block").toIntOrNull() ?: 0
-        val mutationIndex = childText(element, "index").toIntOrNull() ?: 0
+        // P0 (10.3c1 review): methodDescription/block/index are part of the
+        // v2 identity. Missing or malformed values must fail the report, not
+        // silently default ("" or 0 are legitimate PIT values — defaulting
+        // would alias malformed input with a genuine mutant).
+        val block = requiredInt(element, "block", "index block", family, module)
+        val mutationIndex = requiredInt(element, "index", "PIT index", family, module)
+        if (methodDescription.isBlank()) {
+            throw GradleException("Malformed PITest XML for $family/$module: mutation lacks methodDescription")
+        }
         if (status.isBlank() || className.isBlank() || method.isBlank() || mutator.isBlank()) {
             throw GradleException("Malformed PITest XML for $family/$module: mutation lacks required identity fields")
         }
@@ -180,6 +187,21 @@ class MutationReportParser {
             ?.textContent
             ?.trim()
             .orEmpty()
+
+    /** Identity fields must be present and parse as ints — never silently default (P0). */
+    private fun requiredInt(
+        element: Element,
+        tagName: String,
+        fieldLabel: String,
+        family: String,
+        module: String,
+    ): Int {
+        val raw = childText(element, tagName)
+        return raw.toIntOrNull()
+            ?: throw GradleException(
+                "Malformed PITest XML for $family/$module: mutation $fieldLabel '$raw' is missing or not an integer",
+            )
+    }
 
     private fun rejectPath(value: String) {
         if (value.isNotBlank() && (

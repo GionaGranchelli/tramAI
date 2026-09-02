@@ -228,6 +228,56 @@ class MutationMeasurementDiscriminatorTest {
         }
     }
 
+    // --- P0 review: v2 identity fields fail closed ---
+
+    @Test
+    fun `P0 missing methodDescription rejects the report`() {
+        val stripped = mutation().replace("<methodDescription>()V</methodDescription>", "")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(stripped))
+        }
+    }
+
+    @Test
+    fun `P0 blank methodDescription rejects the report`() {
+        val blanked = mutation().replace("<methodDescription>()V</methodDescription>", "<methodDescription></methodDescription>")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(blanked))
+        }
+    }
+
+    @Test
+    fun `P0 missing block rejects the report`() {
+        val stripped = mutation().replace("<blocks><block>1</block></blocks>", "")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(stripped))
+        }
+    }
+
+    @Test
+    fun `P0 malformed block rejects the report`() {
+        val broken = mutation().replace("<blocks><block>1</block></blocks>", "<blocks><block>abc</block></blocks>")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(broken))
+        }
+    }
+
+    @Test
+    fun `P0 missing index rejects the report`() {
+        val stripped = mutation().replace("<indexes><index>7</index></indexes>", "")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(stripped))
+        }
+    }
+
+    @Test
+    fun `P0 malformed index rejects the report`() {
+        val broken = mutation().replace("<indexes><index>7</index></indexes>", "<indexes><index>xyz</index></indexes>")
+        assertFailsWith<GradleException> {
+            MutationReportParser().parse(":engine", "policy", xml(broken))
+        }
+    }
+
     // --- M12-M15: status persistence ---
 
     private val singleFamily =
