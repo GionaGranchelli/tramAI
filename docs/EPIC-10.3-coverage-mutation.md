@@ -131,9 +131,24 @@ The §4 planning estimate (10–40 min/family serialized) does **not** hold at r
 
 ### C8 — findings and decision
 
-1. **The dormant production mutation path is broken at first execution** — `mutationInitScript` configures the pitest extension from a `beforeProject` hook, but gradle-pitest-plugin 1.19.0 registers its extension inside `plugins.withType(JavaPlugin).configureEach(...)`, which fires only after the project's `java` plugin is applied. Result: "Extension with name 'pitest' does not exist" at configuration time. Fix in the follow-up: configure inside a `withType(JavaPlugin)` hook (or `afterEvaluate`).
+1. **The dormant production mutation path is broken at first execution** — `mutationInitScript` configures the pitest extension from a `beforeProject` hook, but gradle-pitest-plugin 1.19.0 registers its extension inside `plugins.withType(JavaPlugin).configureEach(...)`, which fires only after the project's `java` plugin is applied. Result: "Extension with name 'pitest' does not exist" at configuration time. Fix in the follow-up: configure inside a `withType(JavaPlugin)` hook (or `afterEvaluate`). `CanonicalGradleProbe`'s generated init script already applies this pattern (it hooks `plugins.withId('java')`).
 2. **`targetTests` must be set explicitly.** When unset, the solidsoft plugin mirrors `targetClasses` into the test filter, so PIT scans for test classes *named like the production classes* → 0 tests found, every mutant NO_COVERAGE. Fix: pin `targetTests` to the module's test package (or the full suite). Without this, even a correctly-applied plugin produces a meaningless all-NO_COVERAGE report.
-3. **The pilot's Groovy closure-delegate quirk:** configuring the extension via `extensions.configure('pitest') { ... }` nested inside `withType(JavaPlugin) { }` leaks the JavaPlugin delegate; configure via `extensions.getByName('pitest')` + property assignment instead.
+3. **The pilot's Groovy closure-delegate quirk:** configuring the extension via `extensions.configure('pitest') { ... }` nested inside `withType(JavaPlugin) { }` leaks the JavaPlugin delegate; configure via `extensions.getByName('pitest')` + property assignment instead (the committed reproducer below uses the closure form with an explicit `pitestExt ->` parameter, which binds the delegate correctly — matching `CanonicalGradleProbe`).
 4. **Identity scheme is empirically durable** for the routing-core pilot: module+className+method+mutator+description+block → SHA-256 is stable across identical runs and under harmless source movement. PIT's `description` and `block` fields were stable in every probe.
+
+### C9 — reproduction (committed reproducer)
+
+The pilot mechanism is repository-owned so the experiment is reproducible from a clean checkout — the recorded evidence is not an uncommitted-script claim.
+
+**Reproduce the measurement:**
+```
+./gradlew --init-script config/quality/mutation-routing-core-pilot.init.gradle \
+  pilotMutationProbe --rerun-tasks
+```
+Report XML lands at `tramai-core/build/mutation-pilot/routing-core/tramai-core/mutations.xml` (gitignored under `**/build/`). The init script pins: `:tramai-core`; `ProviderRegistry` + `ModelProvider`; explicit `targetTests` (`dev.tramai.core.provider.*`); PIT 1.19.0 / pitest-junit5-plugin 1.2.1; XML output; `failWhenNoMutations` (non-vacuity); non-timestamped deterministic report dir.
+
+**Turn XML into the identity/status set** (reusing the canonical parser, not a second algorithm): `MutationReportParser.parse("tramai-core", "routing-pilot", mutations.xml)` produces records whose `identity` is `MutationIdentity.stableKey()` (SHA-256 over module+className+method+mutator+description+block, line excluded). A small driver is `MutationReportParserTest`; the verifier path in `MutationBaselineVerifier` consumes exactly this shape. For a shell-only check the XML is directly greppable: `status='KILLED'`/`status='NO_COVERAGE'` per `<mutation>` and `<mutatedClass>`/`<mutator>`/`<description>`/`<block>` are the identity inputs.
+
+**Expected at this head:** 4 mutations, 4 KILLED, 0 survivors. The 3× identity/status stability experiment = run the command 3× from the same HEAD with `rm -rf build/mutation-pilot` between runs and diff the normalized identity/status sets; the recorded result is 4/4 identical identities and 4/4 identical statuses. The line-movement probe = add harmless comment lines above `providerId()`/`supportsCapability()` and confirm identities unchanged.
 
 **Decision:** the pilot answers its question affirmatively — bounded PIT execution is deterministic, identities are durable, statuses are repeatable, and the routing-core population is currently fully killed (4/4) with no sanctioned survivors. Proceed to **10.3c2**: complete routing with `ModelRegistryEnforcer`, then expand family-by-family with the same evidence unit (configured targets → nonzero population → survivor adjudication → missing tests added → exact-ID classifications for genuine residuals). Before any enforcement wiring in 10.3c3, fix the two production-path root causes from C8.1/C8.2 and add the C6 discriminators.

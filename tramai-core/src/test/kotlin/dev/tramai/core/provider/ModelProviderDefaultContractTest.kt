@@ -31,9 +31,8 @@ class ModelProviderDefaultContractTest {
     @Test
     fun `default supportsCapability is false for every capability`() {
         val provider = DefaultProvider()
-        assertThat(provider.supportsCapability(ProviderCapability.VISION)).isFalse()
-        assertThat(provider.supportsCapability(ProviderCapability.TOOL_CALLING)).isFalse()
-        assertThat(provider.supportsCapability(ProviderCapability.STRUCTURED_OUTPUT)).isFalse()
-        assertThat(provider.supportsCapability(ProviderCapability.STREAMING)).isFalse()
+        ProviderCapability.entries.forEach { capability ->
+            assertThat(provider.supportsCapability(capability)).isFalse()
+        }
     }
 }
