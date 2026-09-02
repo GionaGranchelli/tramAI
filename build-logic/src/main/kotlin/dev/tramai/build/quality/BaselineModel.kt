@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
+import org.gradle.api.GradleException
 
 /**
  * Data classes matching the 0.6.0 baseline JSON schema (schema version 1).
@@ -306,6 +307,88 @@ data class SurvivingMutant(
     val issue: String? = null,
     val targetPhase: String? = null,
 )
+
+/**
+ * 10.3c1: exact mutation population baseline (config/quality/mutation-baseline.json).
+ *
+ * Persists EVERY mutant — killed included — with its stable identity, so a
+ * future ratchet can compare exact identities instead of a score.
+ */
+data class MutationPopulationBaseline(
+    val schemaVersion: String = "1",
+    val identitySchemaVersion: String = "2",
+    val status: String = "measured",
+    val measuredCommit: String = "",
+    val analyzer: MutationAnalyzerSemantics = MutationAnalyzerSemantics(),
+    val byFamily: Map<String, MutationFamilyPopulation> = emptyMap(),
+    val mutants: List<MutationOutcome> = emptyList(),
+)
+
+/** C1: exact mutation semantics — any change invalidates approval authority. */
+data class MutationAnalyzerSemantics(
+    val pluginVersion: String = "",
+    val engineVersion: String = "",
+    val mutators: List<String> = emptyList(),
+    val timeoutConst: Int = 0,
+    val timeoutFactor: Double = 1.25,
+)
+
+data class MutationFamilyPopulation(
+    val family: String,
+    val modules: List<String> = emptyList(),
+    val totalMutants: Int = 0,
+    val killedMutants: Int = 0,
+    val survivedMutants: Int = 0,
+    val noCoverageMutants: Int = 0,
+    val timedOutMutants: Int = 0,
+    val errorMutants: Int = 0,
+    val mutationScore: Double = 0.0,
+)
+
+/**
+ * C3: one persisted mutant outcome, killed or not.
+ *
+ * `outcome` is the canonical ratchet state: KILLED | NON_KILLED. Raw PIT
+ * `status` (SURVIVED/NO_COVERAGE/TIMED_OUT/...) is preserved as diagnostic
+ * evidence but is NOT authority — TIMED_OUT↔SURVIVED scheduler races must not
+ * churn the 10.3c2 ratchet (C7).
+ */
+data class MutationOutcome(
+    val identity: String,
+    val family: String,
+    val module: String,
+    val className: String,
+    val method: String,
+    val methodDescription: String,
+    val mutator: String,
+    val description: String,
+    val block: Int = 0,
+    val index: Int = 0,
+    val sourceFile: String = "",
+    val line: Int = 0,
+    val status: String = "SURVIVED",
+    val outcome: String = "NON_KILLED",
+) {
+    companion object {
+        /**
+         * Exhaustive canonical mapping. NON_VIABLE, MEMORY_ERROR, RUN_ERROR,
+         * REMOVED, NOT_STARTED or any unknown status are tool failures and
+         * must fail the measurement — never silently become an approved
+         * NON_KILLED mutant.
+         */
+        fun canonical(status: String): String =
+            when (status) {
+                "KILLED" -> "KILLED"
+
+                "SURVIVED", "NO_COVERAGE", "TIMED_OUT" -> "NON_KILLED"
+
+                else -> throw GradleException(
+                    "Mutation status '$status' cannot be canonicalized; " +
+                        "tool-failure statuses must fail the measurement, not become NON_KILLED",
+                )
+            }
+    }
+}
 
 data class RuntimeSafetyBaseline(
     val cancellationCatches: List<CancellationCatchFinding> = emptyList(),
