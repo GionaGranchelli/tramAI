@@ -497,16 +497,16 @@ class BaselineGenerator(
             target.modules.map { module ->
                 val moduleSlug = module.removePrefix(":").replace(":", "_")
                 val candidates = if (reportRoot != null) {
+                    // P2 (10.3c1 review): mutation summary input is XML-only
+                    // too — HTML cannot carry identity v2 fields.
                     listOf(
-                        File(reportRoot, "$family/$moduleSlug/mutations.xml"),
-                        File(reportRoot, "$family/$moduleSlug/index.html")
+                        File(reportRoot, "$family/$moduleSlug/mutations.xml")
                     )
                 } else {
                     val moduleDir = File(ctx.rootDir, module.removePrefix(":").replace(":", "/"))
                     listOf(
                         File(moduleDir, "build/reports/pitest/$family/mutations.xml"),
-                        File(moduleDir, "build/reports/pitest/mutations.xml"),
-                        File(moduleDir, "build/reports/pitest/index.html")
+                        File(moduleDir, "build/reports/pitest/mutations.xml")
                     )
                 }
                 val report = candidates.firstOrNull { it.isFile }

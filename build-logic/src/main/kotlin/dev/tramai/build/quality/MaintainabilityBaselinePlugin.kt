@@ -381,6 +381,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             group = "maintainability"
             description = "Runs targeted PITest mutation analysis and generates the critical mutation baseline"
             doLast {
+                // P1 (10.3c1 review): provenance must bracket the whole
+                // measurement — capture the clean HEAD BEFORE PIT runs and
+                // re-verify the SAME clean HEAD AFTER. The baseline records
+                // the commit that was actually measured, not merely the
+                // commit the result happened to be accepted on.
+                val measuredCommit = requireCleanProvenance(project)
                 val mutationRoot = File(reportDir, "mutation")
                 mutationRoot.mkdirs()
                 val initScript = File(reportDir, "critical-mutation-probe.init.gradle")
@@ -402,6 +408,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         ),
                     )
                     familyTimings[family] = (System.nanoTime() - started) / NANOS_PER_MILLI
+                }
+                // P1: the tree must be unchanged and still clean after PIT ran.
+                val completedCommit = requireCleanProvenance(project)
+                if (completedCommit != measuredCommit) {
+                    throw GradleException(
+                        "Mutation measurement repository identity changed during execution: started at " +
+                            "$measuredCommit, completed at $completedCommit. Baseline not written.",
+                    )
                 }
                 val mutation =
                     generator.generateMutationBaseline(
@@ -434,7 +448,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     MutationPopulationAggregator.aggregate(
                         reports = reports,
                         configuredFamilies = testQualityConfiguration.mutation.targetFamilies,
-                        measuredCommit = requireCleanProvenance(project),
+                        measuredCommit = measuredCommit,
                         semantics =
                             MutationAnalyzerSemantics(
                                 pluginVersion = "1.19.0",
