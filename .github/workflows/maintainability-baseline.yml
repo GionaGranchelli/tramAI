@@ -183,10 +183,23 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      # P3-D: matrix lanes run plain :build-logic:test with fully-declared
+      # inputs (no -P base-ref props), so writing the build cache is safe.
+      # setup-gradle's DEFAULT is branch-based read-only (jobs off the default
+      # branch never write), which is why MB lanes were always cold while CI's
+      # master-push runs warmed CI's cache. MB never runs on master (PR-only
+      # trigger), so without an explicit override NOTHING ever writes MB's
+      # cache namespace. cache-read-only: false lets each PR branch write the
+      # entry its own rebase/rerun iterations restore — repeat runs over
+      # identical build-logic content go FROM-CACHE instead of re-paying
+      # 6-10m compile+test per lane. verify-baseline stays cache-read-only
+      # (default): its gates consume -PchangePolicyBase (configuration-time,
+      # untracked as task inputs), so caching could serve a stale result
+      # computed against a different base SHA.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: true
+          cache-read-only: false
 
       - name: Run ${{ matrix.name }} build-logic tests
         run: |
