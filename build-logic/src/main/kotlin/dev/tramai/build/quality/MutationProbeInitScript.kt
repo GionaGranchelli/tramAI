@@ -36,21 +36,8 @@ object MutationProbeInitScript {
         val familyModules =
             configuration.mutation.targetFamilies.entries
                 .sortedBy { it.key }
-                .joinToString(",\n") { (family, target) ->
-                    val modules =
-                        target.modules.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    val classes =
-                        target.targetClasses.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    val tests =
-                        target.targetTests.sorted().joinToString(", ") {
-                            "'${groovyString(it)}'"
-                        }
-                    "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
-                }
+                .joinToString(",\n", transform = ::familyDeclaration)
+        val body = probeBody(reportRoot)
         return """
             initscript {
                 repositories {
@@ -66,54 +53,77 @@ object MutationProbeInitScript {
             def targetFamilies = [
             $familyModules
             ]
-            // This init script is evaluated once per build in the build tree:
-            // the root build carries -PtramaiMutationFamily, while included
-            // builds (build-logic) re-evaluate it with no project properties.
-            // Skip non-root evaluations so the family lookup below cannot fail
-            // on an included build that never receives the property.
-            if (gradle.parent != null) { return }
-            def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
-            if (selectedFamily == null || !targetFamilies.containsKey(selectedFamily)) {
-                throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
-            }
-            def familyConfig = targetFamilies[selectedFamily]
-            def selectedModules = familyConfig.modules as Set
-            def familyTargetClasses = familyConfig.targetClasses as Set
-            def familyTargetTests = familyConfig.targetTests as Set
-            def mutationTasks = []
-            def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
-
-            gradle.beforeProject { measuredProject ->
-                if (!(measuredProject.path in selectedModules)) return
-                measuredProject.plugins.withId('java') {
-                    def pluginClass = initscript.classLoader.loadClass(
-                        'info.solidsoft.gradle.pitest.PitestPlugin'
-                    )
-                    measuredProject.pluginManager.apply(pluginClass)
-                    // Add pitest-junit5-plugin to the pitest configuration so PIT can run JUnit 5 tests
-                    measuredProject.dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:${JUNIT5_PLUGIN_VERSION}')
-                    measuredProject.extensions.configure('pitest') { pitestExt ->
-                        pitestExt.testPlugin.set('junit5')
-                        pitestExt.targetClasses.set(familyTargetClasses)
-                        pitestExt.targetTests.set(familyTargetTests)
-                        pitestExt.outputFormats.set(['XML', 'HTML'] as Set)
-                        pitestExt.timestampedReports.set(false)
-                        pitestExt.failWhenNoMutations.set(true)
-                        pitestExt.threads.set(2)
-                        def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
-                        pitestExt.reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
-                    }
-                    mutationTasks << measuredProject.tasks.named('pitest')
-                }
-            }
-
-            gradle.projectsEvaluated {
-                rootProject.tasks.register('canonicalMutationProbe') {
-                    dependsOn mutationTasks.collect { it.get() }
-                }
-            }
+            $body
             """.trimIndent() + "\n"
     }
+
+    private fun familyDeclaration(entry: Map.Entry<String, TestQualityConfiguration.MutationTargetFamily>): String {
+        val (family, target) = entry
+        val modules =
+            target.modules.sorted().joinToString(", ") {
+                "'${groovyString(it)}'"
+            }
+        val classes =
+            target.targetClasses.sorted().joinToString(", ") {
+                "'${groovyString(it)}'"
+            }
+        val tests =
+            target.targetTests.sorted().joinToString(", ") {
+                "'${groovyString(it)}'"
+            }
+        return "    '${groovyString(family)}': [modules: [$modules], " +
+            "targetClasses: [$classes], targetTests: [$tests]]"
+    }
+
+    private fun probeBody(reportRoot: File): String =
+        """
+        // This init script is evaluated once per build in the build tree:
+        // the root build carries -PtramaiMutationFamily, while included
+        // builds (build-logic) re-evaluate it with no project properties.
+        // Skip non-root evaluations so the family lookup below cannot fail
+        // on an included build that never receives the property.
+        if (gradle.parent != null) { return }
+        def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
+        if (selectedFamily == null || !targetFamilies.containsKey(selectedFamily)) {
+            throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
+        }
+        def familyConfig = targetFamilies[selectedFamily]
+        def selectedModules = familyConfig.modules as Set
+        def familyTargetClasses = familyConfig.targetClasses as Set
+        def familyTargetTests = familyConfig.targetTests as Set
+        def mutationTasks = []
+        def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
+
+        gradle.beforeProject { measuredProject ->
+            if (!(measuredProject.path in selectedModules)) return
+            measuredProject.plugins.withId('java') {
+                def pluginClass = initscript.classLoader.loadClass(
+                    'info.solidsoft.gradle.pitest.PitestPlugin'
+                )
+                measuredProject.pluginManager.apply(pluginClass)
+                // Add pitest-junit5-plugin to the pitest configuration so PIT can run JUnit 5 tests
+                measuredProject.dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:${JUNIT5_PLUGIN_VERSION}')
+                measuredProject.extensions.configure('pitest') { pitestExt ->
+                    pitestExt.testPlugin.set('junit5')
+                    pitestExt.targetClasses.set(familyTargetClasses)
+                    pitestExt.targetTests.set(familyTargetTests)
+                    pitestExt.outputFormats.set(['XML', 'HTML'] as Set)
+                    pitestExt.timestampedReports.set(false)
+                    pitestExt.failWhenNoMutations.set(true)
+                    pitestExt.threads.set(2)
+                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                    pitestExt.reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                }
+                mutationTasks << measuredProject.tasks.named('pitest')
+            }
+        }
+
+        gradle.projectsEvaluated {
+            rootProject.tasks.register('canonicalMutationProbe') {
+                dependsOn mutationTasks.collect { it.get() }
+            }
+        }
+        """.trimIndent()
 
     private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
 }

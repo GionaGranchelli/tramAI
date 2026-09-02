@@ -115,11 +115,13 @@ class MutationProbeInitScriptTest {
         val script = MutationProbeInitScript.render(configuration, reportRoot)
         assertContains(
             script,
-            "classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:${MutationProbeInitScript.PIT_PLUGIN_VERSION}'",
+            "classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:" +
+                "${MutationProbeInitScript.PIT_PLUGIN_VERSION}'",
         )
         assertContains(
             script,
-            "classpath 'org.pitest:pitest-junit5-plugin:${MutationProbeInitScript.JUNIT5_PLUGIN_VERSION}'",
+            "classpath 'org.pitest:pitest-junit5-plugin:" +
+                "${MutationProbeInitScript.JUNIT5_PLUGIN_VERSION}'",
         )
     }
 }
