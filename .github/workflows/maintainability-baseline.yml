@@ -87,14 +87,16 @@ jobs:
           echo "Reports uploaded as artifact: \`maintainability-reports\`" >> $GITHUB_STEP_SUMMARY
 
   # Phase 2: build-logic tests run as a parallel matrix instead of one serial
-  # invocation after the maintainability checks. Same JDK 21 (AGENTS.md rule 6:
-  # build-logic compatibility), same coverage — the four lanes partition the
-  # full 771-test suite by domain, each with its own exact count assertion so
-  # drift between lanes cannot hide (mirrors ci.yml contract-tests matrix).
-  # Counts recomputed from XML on the post-#359 tree: 168 + 144 + 211 + 248 =
-  # 771 (the authoritative full-suite XML total). #359's additions are
-  # enrolled: TypedTaskConfigurationCacheTest (6) in scanners-coverage,
-  # ReleaseVerificationPluginTest (24) in release-sovereign.
+  # invocation after the maintainability checks. JDK 21 (AGENTS.md rule 6:
+  # build-logic compatibility). The lanes partition the build-logic suite by
+  # domain, each with its own exact count assertion so drift between lanes
+  # cannot hide (mirrors ci.yml contract-tests matrix).
+  # The quality-contract suite (FormattingGate/StaticSafety/CancellationWiring/
+  # CompilerWarnings/DependencyHygiene/StaticAnalysis, 179 tests) runs here in
+  # four parallel JDK 21 lanes mirroring ci.yml's contract-tests partitions —
+  # ci.yml runs the same filters on JDK 25, so both compatibility authorities
+  # (rule 6: JDK 21 for build-logic, JDK 25 for production code) stay covered.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 211 + 248 = 782.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -103,13 +105,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: quality-contracts
+          - name: quality-formatting
             test-filter: >-
               --tests 'dev.tramai.build.quality.FormattingGate*Test'
-              --tests 'dev.tramai.build.quality.StaticSafety*Test' --tests 'dev.tramai.build.quality.CancellationWiringTest'
-              --tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test'
+            expected: 8
+          - name: quality-static-safety
+            test-filter: >-
+              --tests 'dev.tramai.build.quality.StaticSafety*Test'
+              --tests 'dev.tramai.build.quality.CancellationWiringTest'
+            expected: 71
+          - name: quality-compiler-deps
+            test-filter: >-
+              --tests 'dev.tramai.build.quality.CompilerWarnings*Test'
+              --tests 'dev.tramai.build.quality.DependencyHygiene*Test'
+            expected: 75
+          - name: quality-static-analysis
+            test-filter: >-
               --tests 'dev.tramai.build.quality.StaticAnalysis*Test'
-            expected: 179
+            expected: 25
           - name: release-sovereign
             test-filter: >-
               --tests 'dev.tramai.build.release.*'
