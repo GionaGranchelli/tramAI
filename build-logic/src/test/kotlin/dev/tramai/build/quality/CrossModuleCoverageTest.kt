@@ -395,11 +395,13 @@ class CrossModuleCoverageTest {
         // never by scanning the local Gradle cache, which is populated by
         // whatever other job ran first on a shared runner and is not a
         // contract this test may rely on.
-        val fixtureJars =
-            (System.getProperty("tramai.crossModuleFixtureJars") ?: "")
-                .split(File.pathSeparator)
-                .map(::File)
-                .filter { it.isFile }
+        val fixtureJarProperty =
+            System.getProperty("tramai.crossModuleFixtureJars")
+                ?: error(
+                    "tramai.crossModuleFixtureJars is not set — run this test through " +
+                        "Gradle :build-logic:test (it declares inputs.files(crossModuleFixtureJars))",
+                )
+        val fixtureJars = fixtureJarProperty.split(File.pathSeparator).map(::File).filter { it.isFile }
         VENDOR_MODULES.forEach { vendorModule(dir, it, fixtureJars) }
     }
 

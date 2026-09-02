@@ -15,6 +15,11 @@ repositories {
 val crossModuleFixtureJars by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
+    // The list below is the complete, authoritative coordinate set — the
+    // test's hand-written fixture POMs cover every edge. Transitive
+    // resolution or conflict resolution would smuggle in jars the fixture
+    // doesn't declare, so disable it: the declared list IS the contract.
+    isTransitive = false
 }
 
 kotlin {
@@ -77,6 +82,10 @@ dependencies {
     )
     add(
         "crossModuleFixtureJars",
+        "org.jacoco:org.jacoco.agent:0.8.13",
+    )
+    add(
+        "crossModuleFixtureJars",
         "org.jacoco:org.jacoco.agent:0.8.13:runtime",
     )
     add(
@@ -100,14 +109,20 @@ tasks.test {
     useJUnitPlatform {
         excludeTags("integration")
     }
-    // CrossModuleCoverageTest copies fixture jars from this explicit set
-    // (resolved lazily at execution — never at configuration time, so the
-    // configuration cache stays clean). doFirst runs before the test JVM
-    // forks, so the property is visible to the forked test.
+    // CrossModuleCoverageTest copies fixture jars from this explicit set.
+    // Declare them as task inputs (not just doFirst-resolved side state) so
+    // up-to-date checks and build-cache keys track the jar CONTENTS, not the
+    // cache location. Resolution stays lazy — doFirst runs before the test
+    // JVM forks, and configuration time never touches the network, so the
+    // configuration cache stays clean.
+    val fixtureJarFiles: FileCollection = crossModuleFixtureJars
+    inputs.files(fixtureJarFiles)
+        .withPropertyName("crossModuleFixtureJars")
+        .withPathSensitivity(PathSensitivity.NONE)
     doFirst {
         systemProperty(
             "tramai.crossModuleFixtureJars",
-            crossModuleFixtureJars.resolve().joinToString(File.pathSeparator) { it.absolutePath },
+            fixtureJarFiles.files.joinToString(File.pathSeparator) { it.absolutePath },
         )
     }
 }
