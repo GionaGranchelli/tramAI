@@ -115,10 +115,15 @@ class CompilerWarningsPlugin : Plugin<Project> {
                 if (dir.isDirectory) sourceTreeList.add(p.fileTree(dir))
             }
         }
+        // P3-A: reverse dependency edges from the real Gradle model (production
+        // + test scopes, mirroring ModuleGraphAnalyzer) so the impact closure
+        // covers every module compiling against a changed module.
+        val dependents = computeDependentsByModule(project)
         project.tasks.named("verifyCompilerWarnings") {
             dependsOn(compileTasks)
             (this as VerifyCompilerWarningsTask).compileClasspath.from(unionClasspath)
             (this as VerifyCompilerWarningsTask).sourceTrees.from(sourceTreeList)
+            (this as VerifyCompilerWarningsTask).moduleDependents.set(dependents)
         }
         project.tasks.named("bootstrapCompilerWarningsBaseline") {
             dependsOn(compileTasks)
@@ -128,6 +133,36 @@ class CompilerWarningsPlugin : Plugin<Project> {
         project.logger.lifecycle(
             "compiler-warnings: collected ${collected.size} compile units, ${compileTasks.size} compile tasks",
         )
+    }
+
+    /**
+     * Reverse edges: for every module that declares a project dependency, record
+     * the dependency as key and the consumer as dependent. Deterministic sorted
+     * output (config-cache + up-to-date safe).
+     */
+    private fun computeDependentsByModule(project: Project): List<ModuleDependentsSpec> {
+        val productionConfigs = setOf("api", "implementation", "compileOnly", "runtimeOnly")
+        val testConfigs = setOf("testApi", "testImplementation", "testCompileOnly", "testRuntimeOnly")
+        val dependents = mutableMapOf<String, MutableSet<String>>()
+        collectProjects(project).forEach { consumer ->
+            val consumerPath = consumer.path
+            (productionConfigs + testConfigs).forEach { configName ->
+                val config = consumer.configurations.findByName(configName) ?: return@forEach
+                try {
+                    config.dependencies
+                        .withType(org.gradle.api.artifacts.ProjectDependency::class.java)
+                        .forEach { dep ->
+                            val depPath = (dep as org.gradle.api.artifacts.ProjectDependency).path
+                            dependents.getOrPut(depPath) { mutableSetOf() }.add(consumerPath)
+                        }
+                } catch (_: Exception) {
+                    // Configuration not resolvable at configuration time — skip edge.
+                }
+            }
+        }
+        return dependents
+            .map { (modulePath, deps) -> ModuleDependentsSpec(modulePath, deps.sorted()) }
+            .sortedBy { it.modulePath }
     }
 
     private data class ProjectWiring(
