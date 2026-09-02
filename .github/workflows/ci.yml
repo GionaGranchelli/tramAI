@@ -76,7 +76,7 @@ jobs:
             expected: 71
           - name: compiler-deps
             test-filter: "--tests 'dev.tramai.build.quality.CompilerWarnings*Test' --tests 'dev.tramai.build.quality.DependencyHygiene*Test'"
-            expected: 64
+            expected: 69
           - name: static-analysis
             test-filter: "--tests 'dev.tramai.build.quality.StaticAnalysis*Test'"
             expected: 25
