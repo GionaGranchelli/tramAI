@@ -44,3 +44,45 @@ classifications:
       ModelNotRegisteredException` conditional on the same source line is
       independently mutated and KILLED (block 16), proving this classification
       does not hide an untested source branch.
+
+  # ── 10.3c2 tools family: CanonicalMessageEncoder.encode residuals ──
+  # Adjudicated by javap bytecode inspection of the compiled encode method
+  # plus an isolated PIT campaign (57 mutants, 54 KILLED, 0 SURVIVED, 3
+  # NO_COVERAGE, 14s). All three NO_COVERAGE residuals are the same
+  # compiler-generated construct in the three forEachIndexed loops.
+
+  - id: "8177037ab2db38f3b11740446bd3077a2d885ffe00c492489a538562f1b7217c"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the outer
+      messages.forEachIndexed loop (synthetic bytecode line 76, block 8).
+      javap shows the guard fires only when the loop counter wraps past
+      Int.MAX_VALUE after iinc (ifge branch at bytecode offset 68-71), i.e.
+      only for lists of >= 2^31 elements, which no feasible input can
+      construct. Removing the guard cannot change observable behavior for
+      any reachable input. Source-semantic mutants on the same loop are all
+      KILLED.
+
+  - id: "de8c6d420b4c7ee7c83730243fe01de769d99748e9cf12dd8402ab31c4cef80d"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the
+      contentParts.orEmpty().forEachIndexed loop (synthetic bytecode line 78,
+      block 36). javap shows the guard fires only when the loop counter wraps
+      past Int.MAX_VALUE (ifge branch at bytecode offset 228-233), i.e. only
+      for lists of >= 2^31 elements, which no feasible input can construct.
+      Removing the guard cannot change observable behavior for any reachable
+      input. Source-semantic mutants on the same loop (text/image/image_url
+      part encoding, part_index sequencing) are all KILLED.
+
+  - id: "eb28fda6e438d11ec6937913aba3921fe7fbff7d4884c1b484cb2f38cc7e9e8f"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the
+      message.toolCalls.forEachIndexed loop (synthetic bytecode line 81,
+      block 80). javap shows the guard fires only when the loop counter wraps
+      past Int.MAX_VALUE (ifge branch at bytecode offset 518-523), i.e. only
+      for lists of >= 2^31 elements, which no feasible input can construct.
+      Removing the guard cannot change observable behavior for any reachable
+      input. Source-semantic mutants on the same loop (tool_call_index
+      sequencing, tool_call_id/name/args fields) are all KILLED.

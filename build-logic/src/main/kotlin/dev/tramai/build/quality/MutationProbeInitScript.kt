@@ -26,7 +26,6 @@ import java.io.File
  * paths are owned here.
  */
 object MutationProbeInitScript {
-
     const val PIT_PLUGIN_VERSION = "1.19.0"
     const val JUNIT5_PLUGIN_VERSION = "1.2.1"
 
@@ -113,7 +112,7 @@ object MutationProbeInitScript {
                     dependsOn mutationTasks.collect { it.get() }
                 }
             }
-        """.trimIndent() + "\n"
+            """.trimIndent() + "\n"
     }
 
     private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")

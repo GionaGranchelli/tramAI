@@ -55,6 +55,10 @@ mutation:
         - "dev.tramai.engine.ToolRegistry"
         - "dev.tramai.engine.ToolResultFilteringSettings"
         - "dev.tramai.engine.CanonicalMessageEncoder"
+      targetTests:
+        - "dev.tramai.engine.ToolRegistryTest"
+        - "dev.tramai.engine.ToolResultFilteringSettingsTest"
+        - "dev.tramai.engine.CanonicalMessageEncoderTest"
     evidence:
       modules: [":tramai-sovereign", ":tramai-engine", ":tramai-security"]
       targetClasses:

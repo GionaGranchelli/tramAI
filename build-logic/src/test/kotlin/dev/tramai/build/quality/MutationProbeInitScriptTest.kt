@@ -25,7 +25,6 @@ import kotlin.test.assertTrue
  *  M06 root/canonical parity — both consumers render through the same object.
  */
 class MutationProbeInitScriptTest {
-
     private val configuration =
         TestQualityConfiguration(
             schemaVersion = "1",
