@@ -92,17 +92,27 @@ jobs:
         timeout-minutes: 30
         # Canonical sovereign verification: the closure aggregate includes the
         # full RC candidate chain plus :examples:spring-sovereign-starter:e2eTest
-        # and the API boundary. --rerun-tasks is kept because this job runs on a
-        # fresh runner and is the single authority for sovereign verification.
-        # The closure pulls verifyStaticAnalysis via check; a bootstrap PR needs
-        # the explicit baseline-migration class (label-gated, like ci.yml).
+        # and the API boundary. The closure pulls verifyStaticAnalysis via check;
+        # a bootstrap PR needs the explicit baseline-migration class
+        # (label-gated, like ci.yml).
+        #
+        # --rerun-tasks applies ONLY to workflow_dispatch (explicit release
+        # certification). PR-triggered runs drop it: the CI quality/tests lanes
+        # already proved the same commit green, and forcing re-execution on a
+        # fresh runner duplicates the full repository test/check graph
+        # (~19-30 min measured on the P3-E benchmark profile, PR #372) on every
+        # release-relevant PR. Gradle remains responsible for deciding what is
+        # up-to-date/cacheable.
         run: |
+          GRADLE_ARGS=(verifySovereignRuntimeClosure --no-configuration-cache -PtramaiPublishReleaseUrl=)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            GRADLE_ARGS+=(--rerun-tasks)
+          fi
           LABELS='${{ toJson(github.event.pull_request.labels) }}'
           if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
-          else
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
+            GRADLE_ARGS+=(-PchangeClass=baseline-migration)
           fi
+          ./gradlew "${GRADLE_ARGS[@]}"
 
       - name: Upload test reports on failure
         if: failure()
