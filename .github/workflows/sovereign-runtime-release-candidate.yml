@@ -101,6 +101,10 @@ jobs:
           GRADLE_ARGS=(-PtramaiPublishReleaseUrl=)
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             GRADLE_ARGS+=(verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks)
+            # Epic 12.1a: deep lane activates the gated timing benchmarks
+            # (-Dtramai.benchmark=true, forwarded by module test tasks). They
+            # stay skipped on every pull_request run.
+            GRADLE_ARGS+=(-Dtramai.benchmark=true)
           else
             GRADLE_ARGS+=(verifySovereignRuntimePullRequest --no-daemon --no-configuration-cache)
           fi
