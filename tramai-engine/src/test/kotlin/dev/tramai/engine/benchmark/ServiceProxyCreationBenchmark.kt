@@ -79,7 +79,9 @@ class ServiceProxyCreationBenchmark {
     ) {
         val outDir = File(System.getProperty("tramai.benchmark.out") ?: "build/reports/benchmark")
         outDir.mkdirs()
-        val file = File(outDir, "${Instant.now()}-service-proxy-creation.json")
+        // Filesystem-safe timestamp: GitHub artifact upload rejects ':' in names.
+        val timestamp = Instant.now().toString().replace(":", "-")
+        val file = File(outDir, "$timestamp-service-proxy-creation.json")
         val iterationOverride = System.getProperty("tramai.benchmark.iterations")
         file.writeText(
             """
