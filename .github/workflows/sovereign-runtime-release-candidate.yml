@@ -157,6 +157,17 @@ jobs:
             build/sovereign-runtime-release/evidence-index.md
           if-no-files-found: error
 
+      - name: Upload benchmark reports (deep lane)
+        # Epic 12.1a: timing benchmarks run only on workflow_dispatch
+        # (-Dtramai.benchmark=true); persist their JSON so deep/release
+        # measurements survive the runner. PR runs produce nothing.
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-benchmark-reports
+          path: '**/build/reports/benchmark/*.json'
+          if-no-files-found: error
+
       - name: Write Summary
         run: |
           echo "## Sovereign Runtime Release Candidate" >> $GITHUB_STEP_SUMMARY

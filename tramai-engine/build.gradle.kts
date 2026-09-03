@@ -1,4 +1,6 @@
 
+import java.lang.management.ManagementFactory
+
 plugins {
     `java-library`
     id("tramai.test-fixtures")
@@ -38,6 +40,14 @@ tasks.withType<Test>().configureEach {
             "tramai.benchmark.out",
             layout.buildDirectory.dir("reports/benchmark").get().asFile.absolutePath,
         )
+        systemProperty(
+            "tramai.benchmark.gradleJvmArgs",
+            ManagementFactory.getRuntimeMXBean().inputArguments
+                .joinToString(" "),
+        )
+        providers.systemProperty("tramai.benchmark.iterations").orNull?.let {
+            systemProperty("tramai.benchmark.iterations", it)
+        }
     }
 }
 
