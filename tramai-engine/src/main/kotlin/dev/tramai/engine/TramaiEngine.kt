@@ -703,6 +703,10 @@ data class OperationDefinition(
      * Operation-static cache eligibility (no chat memory, no tools, no streaming,
      * no custom [dev.tramai.core.observation.OperationInterceptor]).
      *
+     * P3-E benchmark marker: comment-only production touch exercising the
+     * ordinary-PR verification path (compiler-warnings MODULES scope, full
+     * test + maintainability lanes) without behavioural change.
+     *
      * The interceptor-aware portion of the check lives on the cache coordinator
      * because the interceptor is engine-scoped, not operation-scoped. Use the
      * coordinator when evaluating an actual cache read/write.
