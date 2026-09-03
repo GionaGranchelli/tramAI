@@ -27,7 +27,7 @@ Status legend: ✅ existing evidence · ◐ partial evidence · ❌ no evidence.
 
 ## 2. Roadmap benchmark requirements → evidence map
 
-Owning types verified against master `d9e40c2e`. "Behavioural tests" = correctness coverage that already exists and defines the fixture surface a benchmark must reuse.
+Owning types verified against master `60394445` (post-10.5). "Behavioural tests" = correctness coverage that already exists and defines the fixture surface a benchmark must reuse.
 
 | # | Roadmap operation | Owning types (verified) | Existing behavioural tests | Timing evidence | Verdict |
 |---|---|---|---|---|---|
@@ -63,20 +63,34 @@ Owning types verified against master `d9e40c2e`. "Behavioural tests" = correctne
 
 ---
 
-## 4. Proposed 12.1a measurement methodology (draft, zero code)
+## 4. 12.1a measurement methodology (decided, zero code)
 
-- **Harness:** JUnit-5 timing tests in the owning module's existing test source set, gated by a system property (`-Dtramai.benchmark=true`) so default `test` stays timing-free and CI-fast; OR a dedicated `tramai-benchmarks` module if cross-module fixtures force it. Decision deferred to 12.1a PR after the inventory above.
-- **Method per op:** warm-up ≥ N iterations, then M timed iterations; report p50/p95/mean; throughput ops (worker polling) counted in ops/sec with queue-depth fixture (empty vs loaded).
-- **Environment metadata recorded with every run:** JDK version, OS, runner label/machine, git SHA, date; commit with the result.
-- **Output format:** committed JSON baseline under `config/quality/performance/` (mirrors `0.6.0-baseline.json` precedent); noise/tolerance = inter-run spread of the reference fixture, not arbitrary ±%.
-- **CI placement:** latency/throughput runs in **release/deep lane** (or workflow_dispatch), NOT every PR; resource/leak probes (12.1c) DO run per-PR since they are cheap correctness tests.
-- **Explicit non-goals:** no production-code changes; no performance *targets* (12.1b outcome is a credible 0.6.0 reference point); no mutation/PIT/config-quality files (Signal's lane).
+**Harness decision:** JUnit-5 timing tests in the **owning module's existing test source set**, annotated `@EnabledIfSystemProperty(named = "tramai.benchmark", matches = "true")`.
+
+- Default `test` runs: benchmarks are **skipped** — zero cost, zero flake in ordinary PR CI (JUnit reports them as skipped).
+- Deep lane: Gradle injects `-Dtramai.benchmark=true`; benchmarks execute and emit results. No new Gradle module, no JMH runner, no new dependency — the ladder: existing JUnit test JVM + existing fixture surface per owning module.
+- Bench ops that cross module boundaries live in the module that owns the *entry point* (e.g. proxy creation in `tramai-engine`, structured compile/validation in `tramai-structured`) and reuse that module's existing behavioural fixtures.
+
+**Per-op method (what the harness implements):**
+- *Latency ops:* warm-up ≥ 3 iterations (JIT/caches), then ≥ 10 timed iterations, each iteration measured individually with `System.nanoTime()`; report mean, p50, p95 and iteration count.
+- *Throughput ops* (worker polling empty vs loaded): fixed-duration sampling (≥ 1 s) counted in ops/sec at two fixture queue depths (0 and ≥ 100 pending).
+- *Fixture determinism:* each op reuses its behavioural test fixture (see map §2); any fixture that allocates external state (HTTP/process) is excluded from latency benches and covered only by resource probes (12.1c).
+
+**Environment metadata (recorded with every result emission):** JDK version (`java.version`), JVM vendor, OS name/arch, Gradle JVM args, machine hostname/runner label, git SHA, UTC timestamp, property `tramai.benchmark.iterations` override if set.
+
+**Output format:** one JSON document per deep-lane run, one object per op: `{operation, module, gitSha, env{...}, samples:[...] or opsPerSec, stats{mean,p50,p95}, unit}`. Emitted to the test's module build dir (`build/reports/benchmark/<run-timestamp>.json`).
+
+**Committed baseline:** introduced only in 12.1b (`config/quality/performance/0.6.0-performance-baseline.json`, mirroring the `0.6.0-baseline.json` precedent). Noise/tolerance methodology: inter-run spread of a reference fixture across ≥ 3 deep-lane runs — never arbitrary ±%.
+
+**CI/deep-lane placement:** timing runs execute in the **release/deep lane** (`workflow_dispatch` release certification, where `verifySovereignRuntimeClosure` already runs) — never in ordinary PR CI, which must stay timing-free. Resource/lifecycle probes (12.1c) are cheap per-PR correctness tests and run on every PR.
+
+**Explicit non-goals:** no production-code changes; no performance *targets* or thresholds (12.1b outcome is a credible 0.6.0 reference point; 12.1d defines regression policy only after real measurements exist); no mutation/PIT/config-quality files (Signal's lane).
 
 ## 5. Cost model (planning estimates — will be replaced by 12.1a measurements)
 
 | Slice | Contents | Estimated cost | Verdict |
 |---|---|---|---|
-| 12.1a | methodology doc + harness decision + this map, zero prod change | docs-only + tiny harness spike | **PR-viable now** |
+| 12.1a | this audit (evidence map + decided methodology) → small harness PR (harness + 1–2 representative benchmarks, no thresholds, no 11-op enrollment) | docs + ~2 test files | **PR-viable now** |
 | 12.1b | 11 runtime baselines, committed JSON | minutes per op in a release lane | **release/deep lane** |
 | 12.1c | 7 resource/lifecycle probes as per-PR tests | seconds–low minutes on existing suites | **PR-viable** |
 | 12.1d | regression policy (material-regression def, release-only vs blocking) | docs after real measurements | **after 12.1b** |
@@ -86,12 +100,12 @@ Owning types verified against master `d9e40c2e`. "Behavioural tests" = correctne
 - **Missing measurement:** all 11 timing baselines (net-new).
 - **Measured but unenforced:** none (nothing measured yet).
 - **Correctness-covered, timing-blind:** all 11 operations.
-- **Resource proofs partial:** shutdown-hook ✅ (worker), HTTP closure ◐, subprocess ◐, close-ownership ◐, FD ❌, registry boundedness ◐, repeated create/close ❌.
+- **Resource proofs partial:** shutdown-hook ◐ (worker coordinator ✅, runtime-level hook cleanup not proven repo-wide), HTTP closure ◐, subprocess ◐, close-ownership ◐, FD ❌, registry boundedness ◐, repeated create/close ❌.
 - **Boundary:** this epic does not touch `config/quality/mutation-*`, PIT implementation, mutation classifications/baselines/targetTests, or any 10.3 authority (Signal's lane). It also makes **no production behaviour change**; any defect exposed by 12.1c is fixed in its own RED→GREEN PR, not inside the audit.
 
 ## 7. Proposed slice sequence
 
-1. **12.1a** measurement architecture (this audit → harness decision → committed methodology). Do not optimize production.
+1. **12.1a** measurement architecture: this audit (evidence map + decided methodology §4) **→ small harness PR** (timing harness + 1–2 representative benchmarks proving reproducibility, env metadata, output format, warm-up/iteration policy, deep-lane behaviour — no thresholds, no 11-op enrollment yet). Do not optimize production.
 2. **12.1b** runtime performance baseline → `0.6.0` reference table.
 3. **12.1c** resource/lifecycle proof (7 probes; RED→GREEN per defect).
 4. **12.1d** regression policy — only after real measurements exist.
