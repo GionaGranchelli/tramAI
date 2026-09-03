@@ -1,3 +1,5 @@
+import java.lang.management.ManagementFactory
+
 plugins {
     base
     id("tramai.maintainability-baseline")
@@ -182,6 +184,32 @@ subprojects {
     // tramai.publishing convention plugin. The plugin reacts to java-library
     // and java-platform itself (no plugin ordering dependency).
     apply(plugin = "tramai.publishing")
+
+    // Epic 12.1a/b benchmark harness: forward the deep-lane activation flag
+    // (-Dtramai.benchmark=true) and run metadata to every module's test worker
+    // JVMs. Absent the flag nothing is forwarded and benchmark classes stay
+    // skipped, so ordinary PR CI remains timing-free.
+    tasks.withType<Test>().configureEach {
+        providers.systemProperty("tramai.benchmark").orNull?.let { flag ->
+            systemProperty("tramai.benchmark", flag)
+            systemProperty(
+                "tramai.benchmark.gitSha",
+                providers.exec { commandLine("git", "rev-parse", "HEAD") }
+                    .standardOutput.asText.get().trim(),
+            )
+            systemProperty(
+                "tramai.benchmark.out",
+                layout.buildDirectory.dir("reports/benchmark").get().asFile.absolutePath,
+            )
+            systemProperty(
+                "tramai.benchmark.gradleJvmArgs",
+                ManagementFactory.getRuntimeMXBean().inputArguments.joinToString(" "),
+            )
+            providers.systemProperty("tramai.benchmark.iterations").orNull?.let {
+                systemProperty("tramai.benchmark.iterations", it)
+            }
+        }
+    }
 }
 // ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeReleaseCandidate
