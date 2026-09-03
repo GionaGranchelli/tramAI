@@ -15,6 +15,8 @@ import java.net.URI
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
+// P3-E benchmark marker: comment-only production touch (ordinary-PR measurement path).
+
 /*
  * Low-level HTTP/stream transport machinery shared by provider adapters.
  *
