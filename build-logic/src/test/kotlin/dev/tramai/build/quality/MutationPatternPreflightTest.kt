@@ -82,7 +82,7 @@ class MutationPatternPreflightTest {
             "dev.tramai.engine.RetryPolicySettings",
             "dev.tramai.engine.CircuitBreakerSettings",
             "dev.tramai.engine.ProviderCircuitBreaker",
-            "dev.tramai.engine.ProviderRetryDelayPolicy",
+            "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
             "dev.tramai.engine.LegacyPermissivePolicyEngine",
             "dev.tramai.engine.PolicyEnforcementHelper",
             "dev.tramai.engine.ToolResultFilteringSettings",
