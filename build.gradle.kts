@@ -229,6 +229,56 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
 
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignRuntimePullRequest
+// ──────────────────────────────────────────────
+// PR-scoped sovereign verification (Epic 10.5 P3-E, decision B): proves the
+// sovereign-specific release chain on a pull request WITHOUT re-running the
+// repository test/check graph — mandatory CI already proves tests, quality
+// gates, compiler warnings, coverage, cancellation, and publishToMavenLocal
+// on the exact commit. Including `check` / the all-subproject test fan-out
+// here duplicated the full CI stack on the RC lane (~19-30 min measured,
+// #372/#374). The full independent certification remains
+// verifySovereignRuntimeClosure --rerun-tasks for workflow_dispatch/release.
+
+tasks.register("verifySovereignRuntimePullRequest") {
+    group = "verification"
+    description =
+        "Runs the sovereign-specific release-chain proof for a pull request (bundle dry-run, " +
+            "verification-repo closure, consumer smoke, doc-intel evidence run, spring e2e, API " +
+            "boundary, closure docs). Does NOT re-run repository tests/quality gates — CI proves " +
+            "those on the same commit."
+
+    notCompatibleWithConfigurationCache(
+        "Sovereign runtime PR verification aggregates execution-time verification tasks.",
+    )
+
+    dependsOn(
+        "verifySovereignRuntimeSignedBundle",
+        "verifySovereignRuntimeVerificationRepoClosure",
+        "verifySovereignRuntimeConsumerSmoke",
+        "verifySovereignDocumentIntelligenceEvidenceRun",
+        ":examples:spring-sovereign-starter:e2eTest",
+        "verifySovereignRuntimeApiBoundary",
+        "verifySovereignRuntimeClosureDocs",
+        "verifySovereignOpsObservabilityDocs",
+    )
+
+    doLast {
+        logger.lifecycle("Sovereign runtime PR verification complete.")
+        logger.lifecycle("Validated:")
+        logger.lifecycle("  - signed bundle dry-run (local file repo only)")
+        logger.lifecycle("  - verification repo closure")
+        logger.lifecycle("  - standalone consumer smoke")
+        logger.lifecycle("  - sovereign document-intelligence evidence run")
+        logger.lifecycle("  - :examples:spring-sovereign-starter:e2eTest")
+        logger.lifecycle("  - verifySovereignRuntimeApiBoundary (API stability boundary)")
+        logger.lifecycle("  - verifySovereignRuntimeClosureDocs (documentation consistency)")
+        logger.lifecycle("No remote repository was published to.")
+    }
+}
+
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeClosure
 // ──────────────────────────────────────────────
 
