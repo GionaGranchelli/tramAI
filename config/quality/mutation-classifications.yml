@@ -1,2 +1,323 @@
 schemaVersion: "1"
-classifications: []
+classifications:
+  # ── 10.3c2 routing family: ModelRegistryEnforcer.authorize residuals ──
+  # Adjudicated from bytecode inspection (javap -c -p -l) and the B2/B4/B5
+  # suspension experiments. All three are compiler-generated suspend-scaffold
+  # mutations with no source-level behavioral distinction. B5 parity: the
+  # source-semantic mutants of the same lines are independently KILLED.
+
+  - id: "0ed9ef51d9b9294c1033f6c491ea1a0e95641056d32a7e9d867ed8477fc8a708"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the entry-path ResultKt.throwOnFailure call associated with a
+      fresh continuation (bytecode offset 90, block 7, reported line 18). On
+      initial invocation the state-machine result field is the
+      COROUTINE_SUSPENDED sentinel, so throwOnFailure is necessarily a no-op;
+      the resumed-result check is a separate bytecode location (offset 167,
+      block 14) that IS covered and whose removal mutant is KILLED. javap
+      inspection proves the mutated block is compiler-generated suspend
+      scaffolding rather than a source-level behavioral condition. No test can
+      observe a behavioral difference.
+
+  - id: "b5cb0f1e3727ea53344ed95e9689233a1bdc79a14686851b230fe70b6709b342"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the rethrowIfCancellation() call in the catch (Exception) branch
+      (line 29). CancellationException is already consumed and rethrown by the
+      preceding typed catch (catch (e: CancellationException) { throw e },
+      bytecode offsets 198-202). Any throwable reaching the following broad
+      catch is therefore not a CancellationException, and
+      rethrowIfCancellation() (which only checks `this is CancellationException`)
+      is necessarily a no-op there. Removing the call cannot change observable
+      behavior. Source structure itself proves equivalence.
+
+  - id: "1923c2a12c991940f93bbc4a17c54ce268f8299ccc49c57efb6bee7d1ff65914"
+    classification: "tool-limitation"
+    reason: >-
+      PIT negates the compiler-generated COROUTINE_SUSPENDED state-machine
+      dispatch comparison (bytecode offset 140 if_acmpne, block 12, reported
+      line 22) rather than a source-level behavioral condition. Negation
+      prevents normal continuation resumption, deterministically deadlocking
+      the awaiting test and reaching PIT's timeout (reproduced isolated at
+      17s with only ModelRegistryEnforcerTest selected; not a broad-selection
+      artifact). The distinct source-semantic elvis `?: throw
+      ModelNotRegisteredException` conditional on the same source line is
+      independently mutated and KILLED (block 16), proving this classification
+      does not hide an untested source branch.
+
+  # ── 10.3c2 tools family: CanonicalMessageEncoder.encode residuals ──
+  # Adjudicated by javap bytecode inspection of the compiled encode method
+  # plus an isolated PIT campaign (57 mutants, 54 KILLED, 0 SURVIVED, 3
+  # NO_COVERAGE, 14s). All three NO_COVERAGE residuals are the same
+  # compiler-generated construct in the three forEachIndexed loops.
+
+  - id: "ccffeec2a83059cd7b1d78d59297fed63ac8bd87df4cc054a9ed12c49d3e00dc"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the outer
+      messages.forEachIndexed loop (synthetic bytecode line 76, block 8).
+      javap shows the guard fires only when the loop counter wraps past
+      Int.MAX_VALUE after iinc (ifge branch at bytecode offset 68-71), i.e.
+      only for lists of >= 2^31 elements, which no feasible input can
+      construct. Removing the guard cannot change observable behavior for
+      any reachable input. Source-semantic mutants on the same loop are all
+      KILLED.
+
+  - id: "9ff7736020c5488598f9ead42ede915ecf6c6314a025cae9be85a6d05a966795"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the
+      contentParts.orEmpty().forEachIndexed loop (synthetic bytecode line 78,
+      block 36). javap shows the guard fires only when the loop counter wraps
+      past Int.MAX_VALUE (ifge branch at bytecode offset 228-233), i.e. only
+      for lists of >= 2^31 elements, which no feasible input can construct.
+      Removing the guard cannot change observable behavior for any reachable
+      input. Source-semantic mutants on the same loop (text/image/image_url
+      part encoding, part_index sequencing) are all KILLED.
+
+  - id: "c7b886381ec500696e9d2d8d6d016099b860883b710222b01f6ae2b9a5b3b516"
+    classification: "equivalent-mutant"
+    reason: >-
+      Mutates the CollectionsKt.throwIndexOverflow guard in the
+      message.toolCalls.forEachIndexed loop (synthetic bytecode line 81,
+      block 80). javap shows the guard fires only when the loop counter wraps
+      past Int.MAX_VALUE (ifge branch at bytecode offset 518-523), i.e. only
+      for lists of >= 2^31 elements, which no feasible input can construct.
+      Removing the guard cannot change observable behavior for any reachable
+      input. Source-semantic mutants on the same loop (tool_call_index
+      sequencing, tool_call_id/name/args fields) are all KILLED.
+
+  # ── 10.3c2 retry family: ProviderFailuresKt suspend scaffolding ──
+  # Isolated authority: 155 mutants, 137 KILLED / 7 SURVIVED / 6 NO_COVERAGE /
+  # 5 TIMED_OUT. Adjudicated from javap bytecode inspection of the compiled
+  # suspend state machines plus the slow-stream/UTF-8 straddle discriminators.
+  # The two observed factories (providerHttpFailureObserved,
+  # providerTransportFailureObserved) never genuinely suspend: their only
+  # suspend callee `deliver` contains no suspension point (observer.record and
+  # ensureActive are non-suspending), so the compiled resume branches are dead
+  # scaffolding and the entry throwOnFailure is a sentinel no-op.
+
+  - id: "6a76fdf061a1942abd6f118fcc8817240a4e8d5a4fa1285d4e83a35277f0576c"
+    classification: "equivalent-mutant"
+    reason: >-
+      Entry-path ResultKt.throwOnFailure removal in
+      providerHttpFailureObserved (bytecode offset 94, block 7, line 92).
+      On fresh invocation the continuation result field holds the
+      COROUTINE_SUSPENDED sentinel, so the entry throwOnFailure is a no-op;
+      the semantically live resumed-result check is the resume-path location
+      (offset 381, resume label 1) which is covered-by-construction only when
+      the function genuinely suspends - it never does (deliver has no
+      suspension point). Source-level failure construction and deliver are
+      independently KILLED. javap proves compiler-generated suspend
+      scaffolding with no observable behavioral difference.
+
+  - id: "439bc80ec7e1d368be7b555bfbc6b9fd0bc7d72771f449af5b60d6892885d7d7"
+    classification: "equivalent-mutant"
+    reason: >-
+      Resume-path NullReturn in providerHttpFailureObserved (block 30, line
+      92). The mutated instruction lies on the suspend state machine's label-1
+      resume branch, reachable only when the function suspends and resumes.
+      Its only suspend callee, deliver, contains no suspension point
+      (observer.record and ensureActive are non-suspending), so the function
+      always completes synchronously and the resume branch is structurally
+      dead: NO_COVERAGE is unreachable scaffolding, not a missing test. No
+      legal execution can reach the mutated bytecode.
+
+  - id: "1d73326d10b41f3c87e0a658a8e65202f32ffc397f25e408bdda612e745bed55"
+    classification: "equivalent-mutant"
+    reason: >-
+      Resume-path ResultKt.throwOnFailure removal in
+      providerHttpFailureObserved (block 31, line 92). Same structural dead
+      resume branch as the block-30 NullReturn: the function never genuinely
+      suspends (deliver has no suspension point), so label-1 never executes
+      and NO_COVERAGE reflects unreachable compiler scaffolding. The live
+      source-semantic failure path is independently KILLED.
+
+  - id: "5a1b5ba8f50ee23a87cde06d0caf3497e00faa4ca31ae2dce8c6154807eff73e"
+    classification: "equivalent-mutant"
+    reason: >-
+      Entry-path ResultKt.throwOnFailure removal in
+      providerTransportFailureObserved (bytecode offset, block 7, line 164).
+      Same entry-sentinel argument as the providerHttpFailureObserved block-7
+      mutant: on fresh invocation the continuation result is the
+      COROUTINE_SUSPENDED sentinel, making the entry throwOnFailure a no-op;
+      the function never genuinely suspends (deliver has no suspension point),
+      so no resumed-result check is ever behaviorally live. javap proves
+      compiler-generated suspend scaffolding; source-semantic siblings are
+      KILLED.
+
+  - id: "8d733cb9e0905e0bd88f619e834832c7c16e7473e9868bfc34c90ffc828c7a9d"
+    classification: "equivalent-mutant"
+    reason: >-
+      Resume-path NullReturn in providerTransportFailureObserved (block 29,
+      line 164). Structurally dead label-1 resume branch: deliver contains no
+      suspension point, so the function never suspends and the mutated
+      bytecode is unreachable by any legal execution. NO_COVERAGE is compiler
+      scaffolding, not a coverage gap.
+
+  - id: "2afde9eccd7dad5ec43cd52cc7f7d4ebe8498b37e0dfca2224e22cc996f292a9"
+    classification: "equivalent-mutant"
+    reason: >-
+      Resume-path ResultKt.throwOnFailure removal in
+      providerTransportFailureObserved (block 30, line 164). Same dead
+      label-1 resume branch as the block-29 NullReturn: no genuine suspension
+      exists in the call chain, so the mutated instruction is unreachable.
+      Live failure-path semantics independently KILLED.
+
+  - id: "5433810b61f83b0b41bdfea8bb053111d667126ad82b8d98a98f01caa1025123"
+    classification: "tool-limitation"
+    reason: >-
+      PIT negates the compiler-generated COROUTINE_SUSPENDED dispatch
+      comparison in providerHttpFailureObserved (bytecode if_acmpne, block
+      29, line 106) - the check that compares deliver's synchronous result
+      against the COROUTINE_SUSPENDED sentinel. Negation makes the state
+      machine treat the completed result as suspended and wait on a
+      continuation that never resumes, deterministically deadlocking the
+      awaiting test and reaching PIT's timeout. The source-semantic mutations
+      on the same lines (event construction, deliver call, bounded preview)
+      are independently KILLED, proving this does not hide an untested source
+      branch.
+
+  - id: "e511f53a40311f5b9ea7a943f52f20efc021c5733c7e7893227e9a85ded3e2fd"
+    classification: "tool-limitation"
+    reason: >-
+      Same COROUTINE_SUSPENDED dispatch negation in
+      providerTransportFailureObserved (block 28, line 174): the negated
+      if_acmpne comparison makes the state machine wait on a never-resuming
+      continuation, deterministically deadlocking the test into PIT's
+      timeout. Source-semantic mutations on the same lines (sanitize,
+      deliver, cancellation rethrow) are independently KILLED.
+
+  # ── 10.3c2 retry family: readErrorBodyPreview / boundedBodyPreview ──
+  # The trim loop and slow-stream fallback are driven by the exact-limit,
+  # multibyte-straddle, and always-zero-bulk-read InputStream tests. All
+  # source-semantic siblings (dropLast body, cap boundary, single-byte
+  # fallback, truncation flag) are KILLED; the residuals below are loop-exit
+  # mechanics whose only divergent behavior is non-termination.
+
+  - id: "275330cac660c81bcdedaece10c08283d623170da395cdb698db979d33ae6359"
+    classification: "tool-limitation"
+    reason: >-
+      Negates the `count == 0` single-byte fallback guard in
+      readErrorBodyPreview (bytecode ifne, block 12, line 260). The negation
+      routes zero-length bulk reads into `read += 0`, making the read loop
+      non-terminating for exactly the InputStream behavior the slow-stream
+      contract test drives (bulk reads that report 0 while single-byte reads
+      make progress). The only observable divergence is an infinite loop,
+      which PIT can only score as TIMED_OUT - no assertion can fire on a
+      non-terminating run. The fallback's functional semantics (single-byte
+      drain preserving content) are independently KILLED by the slow-stream
+      test's sibling mutants.
+
+  - id: "0b852f2d354038b2382bc95bcfc00ae141e649352fee77bf6e801d7202afd8e6"
+    classification: "equivalent-mutant"
+    reason: >-
+      Removes Intrinsics.checkNotNullExpressionValue on the
+      text.toByteArray(Charsets.UTF_8) result feeding the trim-loop guard in
+      readErrorBodyPreview (bytecode offset 172, block 21, line 270). The
+      guarded value is produced by java.lang.String.getBytes, which cannot
+      return null through any JVM or interop path; the compiler inserts the
+      check only to satisfy the Kotlin null-safety contract. Removing it
+      cannot change observable behavior for any reachable input, including
+      Java/reflection callers.
+
+  - id: "fcd8be9fcb8113827bde6eff319d77c9b741937cb841665f27596298a9326870"
+    classification: "tool-limitation"
+    reason: >-
+      Boundary mutation on the UTF-8 trim-loop guard `text.toByteArray().size
+      > limitBytes` in readErrorBodyPreview (bytecode if_icmple at offset
+      177, block 22, line 270). Applied to the exact-fit contract input
+      (decoded text byte-size == limitBytes, supplied by the
+      distinguishes-exact-limit test), the mutated guard keeps the loop
+      running while size is within the limit, and dropLast(1) on the
+      shrinking text never restores the original exit condition, so the loop
+      does not terminate. PIT scores the resulting hang as TIMED_OUT in all
+      three canonical probes; no finite assertion can distinguish a
+      non-terminating run. The trim semantics for over-limit text are
+      independently KILLED by the euro/straddle tests.
+
+  - id: "a59e42c8346bbde78eaced1dc7773c57548fd972c3b2bb2a31cc2a4209c7af83"
+    classification: "tool-limitation"
+    reason: >-
+      Negates the UTF-8 trim-loop guard in readErrorBodyPreview (bytecode
+      if_icmple at offset 177, block 22, line 270), converting the exit
+      condition into its complement so the loop never terminates on the
+      exact-fit contract input (decoded size == limitBytes) that the
+      distinguishes-exact-limit test must supply. Only observable divergence
+      is non-termination -> PIT TIMED_OUT in all three canonical probes.
+      Source-semantic trim behavior (dropLast until within cap) is KILLED by
+      the multibyte-straddle and euro tests, so no source branch is hidden.
+
+  - id: "4859d548acfd71eb83bb9b975a48cf4aa1a9193a93b07b675e5a6ba894ecd6f5"
+    classification: "equivalent-mutant"
+    reason: >-
+      Removes Intrinsics.checkNotNullExpressionValue in boundedBodyPreview
+      (block 1, line 283) guarding the java.lang.String UTF-8 decode result.
+      A freshly constructed String cannot be null through any JVM or interop
+      path; the check exists only for the Kotlin null-safety contract.
+      Removing it cannot change observable behavior for any reachable input.
+      Source-semantic mutants on the same lines (truncate flag propagation,
+      byte-cap handling) are all KILLED.
+
+  # ── 10.3c2 retry family: deliver ──
+  # deliver() runs observer.record inside try/catch. CancellationException is
+  # handled by the typed catch whose body calls ensureActive(); the broad
+  # Exception catch can therefore never observe a CancellationException.
+
+  - id: "d2faed86b3eb70dcb0e8d7aff12d198d0a144448ebbd3fd6dd4e5535c82d5e3e"
+    classification: "equivalent-mutant"
+    reason: >-
+      Removes error.rethrowIfCancellation() in the broad catch (Exception)
+      branch of deliver (block 5, line 294). CancellationException is already
+      consumed by the preceding typed catch (catch (e: CancellationException),
+      whose body calls ensureActive), so any throwable reaching the broad
+      catch is not a CancellationException and rethrowIfCancellation() - which
+      only checks `this is CancellationException` - is necessarily a no-op
+      there. Source structure itself proves equivalence (same argument as the
+      routing-family rethrowIfCancellation classification).
+
+  - id: "262a8088058dea372f674e190f378990a0366e01202438c77635f65b023179ba"
+    classification: "equivalent-mutant"
+    reason: >-
+      NullReturn on the suspend completion of the Unit-returning deliver
+      (block 6, line 296). Both call sites (providerHttpFailureObserved line
+      106, providerTransportFailureObserved line 174) invoke deliver as a
+      statement and never consume its completion value; the Unit result has no
+      observable consumer. Replacing the completion with null cannot change
+      any observable behavior.
+
+  # ── 10.3c2 retry family: ProviderCircuitBreaker Open-epoch branches ──
+  # The mutated conditionals sit in the `is CircuitState.Open` when-branches
+  # of onSuccess/onFailure, which are defensive no-ops. beforeCall is the
+  # only permit-minting site: it issues permits from absent/Closed state and
+  # from an exact-expiry Open (after atomically entering HalfOpen). It never
+  # mints while the epoch is Open, so no legal execution can complete a
+  # callback against an Open state with a matching-generation permit. The
+  # branches are structurally unreachable; NO_COVERAGE is the proof.
+
+  - id: "08f42a0f64df0f21cd8c40d7496614e5879ea7e2329f8fb7a59993d558f94384"
+    classification: "equivalent-mutant"
+    reason: >-
+      Negated conditional in the `is CircuitState.Open -> Unit` defensive
+      branch of onSuccess (line 139). ProviderCircuitBreaker never issues a
+      permit from an Open epoch: beforeCall mints only from absent/Closed
+      state or from an exact-expiry Open after transitioning to HalfOpen, and
+      the completion callbacks are only ever invoked with permits produced by
+      beforeCall. No legal execution can therefore invoke onSuccess while the
+      state is Open with a matching-generation permit, making the branch
+      (and its negation) structurally unreachable. NO_COVERAGE confirms no
+      test can reach it; source-semantic transitions (HalfOpen close, Closed
+      reset, generation staleness) are all KILLED.
+
+  - id: "2adc3f2f32fcb1fdb9e8145aff200ec7777a2024e9ba17fdba3889a5f26f8ad2"
+    classification: "equivalent-mutant"
+    reason: >-
+      Negated conditional in the `is CircuitState.Open -> false` defensive
+      branch of onFailure (line 191). Same permit-generation argument as the
+      onSuccess Open branch: permits are minted only by beforeCall, never
+      while the epoch is Open, so a completion callback with a
+      matching-generation permit against an Open state cannot occur in any
+      legal execution. The branch is a defensive no-op whose negation is
+      unreachable; NO_COVERAGE confirms it. Source-semantic failure
+      transitions (Closed failure counting, HalfOpen probe reopen,
+      generation advancement) are all KILLED.

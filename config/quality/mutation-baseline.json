@@ -2,7 +2,7 @@
   "schemaVersion" : "1",
   "identitySchemaVersion" : "2",
   "status" : "measured",
-  "measuredCommit" : "7e6d30147348e2264e95496bea4c7518e9c6c025",
+  "measuredCommit" : "f9799f7e4f17e69a123b9d9477458e04814cd3ba0",
   "analyzer" : {
     "pluginVersion" : "1.19.0",
     "engineVersion" : "1.22.1",
@@ -37,34 +37,34 @@
       "family" : "policy",
       "modules" : [ ":tramai-engine", ":tramai-security", ":tramai-sovereign" ],
       "totalMutants" : 209,
-      "killedMutants" : 153,
-      "survivedMutants" : 29,
+      "killedMutants" : 152,
+      "survivedMutants" : 28,
       "noCoverageMutants" : 25,
-      "timedOutMutants" : 2,
+      "timedOutMutants" : 4,
       "errorMutants" : 0,
-      "mutationScore" : 73.20574162679426
+      "mutationScore" : 72.72727272727273
     },
     "retry" : {
       "family" : "retry",
       "modules" : [ ":tramai-core", ":tramai-engine" ],
-      "totalMutants" : 143,
-      "killedMutants" : 112,
-      "survivedMutants" : 15,
-      "noCoverageMutants" : 12,
-      "timedOutMutants" : 4,
+      "totalMutants" : 155,
+      "killedMutants" : 138,
+      "survivedMutants" : 6,
+      "noCoverageMutants" : 6,
+      "timedOutMutants" : 5,
       "errorMutants" : 0,
-      "mutationScore" : 78.32167832167832
+      "mutationScore" : 89.03225806451613
     },
     "routing" : {
       "family" : "routing",
       "modules" : [ ":tramai-core", ":tramai-engine" ],
       "totalMutants" : 15,
-      "killedMutants" : 10,
-      "survivedMutants" : 1,
-      "noCoverageMutants" : 2,
-      "timedOutMutants" : 2,
+      "killedMutants" : 12,
+      "survivedMutants" : 2,
+      "noCoverageMutants" : 0,
+      "timedOutMutants" : 1,
       "errorMutants" : 0,
-      "mutationScore" : 66.66666666666667
+      "mutationScore" : 80.0
     },
     "structuredOutput" : {
       "family" : "structuredOutput",
@@ -81,12 +81,12 @@
       "family" : "tools",
       "modules" : [ ":tramai-engine" ],
       "totalMutants" : 57,
-      "killedMutants" : 40,
-      "survivedMutants" : 7,
-      "noCoverageMutants" : 7,
-      "timedOutMutants" : 3,
+      "killedMutants" : 54,
+      "survivedMutants" : 0,
+      "noCoverageMutants" : 3,
+      "timedOutMutants" : 0,
       "errorMutants" : 0,
-      "mutationScore" : 70.17543859649123
+      "mutationScore" : 94.73684210526316
     }
   },
   "mutants" : [ {
@@ -24597,8 +24597,8 @@
     "index" : 64,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 41,
-    "status" : "KILLED",
-    "outcome" : "KILLED"
+    "status" : "TIMED_OUT",
+    "outcome" : "NON_KILLED"
   }, {
     "identity" : "55adb54ff7b67fc77645cec494e38f6fe9d02bd956a119b61369ac210f489915",
     "family" : "policy",
@@ -25782,7 +25782,7 @@
     "index" : 5,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 59,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "b8081b376a53c669b5af85847c12c2d61a49b642e6d801135a475bac23a1738e",
@@ -26745,6 +26745,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "04d4f49db01aef80dc93aca54e357ec6b2a15dd33065fbb1a1990448c2014fdf",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 3,
+    "index" : 13,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 36,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "065077837fb13563974e275d3a68397d15a78459ac0366f5f64971903bb9c79c",
     "family" : "retry",
     "module" : ":tramai-engine",
@@ -26895,6 +26910,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "0f3810e914b639825d4c6b963759a6611c82cd88e59796dc27d5af49de9f1528",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 16,
+    "index" : 68,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 40,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "11a0c8d8176398b25da53d8985d43893e0d97f5a7f4ac1eaca47c14df5011f55",
     "family" : "retry",
     "module" : ":tramai-engine",
@@ -26922,6 +26952,21 @@
     "index" : 19,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 203,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
+    "identity" : "12c8647d160d84c299f5975602df6ec00d873b05f5d4c3c37ec0ff4be7d2b494",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 5,
+    "index" : 20,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 37,
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
@@ -27072,8 +27117,8 @@
     "index" : 85,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 260,
-    "status" : "KILLED",
-    "outcome" : "KILLED"
+    "status" : "TIMED_OUT",
+    "outcome" : "NON_KILLED"
   }, {
     "identity" : "275638f5b1825b610f0eac36dda8b9e515c43616b68255f9caa3c8a430835d37",
     "family" : "retry",
@@ -27297,8 +27342,8 @@
     "index" : 83,
     "sourceFile" : "ProviderCircuitBreaker.kt",
     "line" : 170,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "39c30eae89a5765e333f3f72c51ca1549d5595eff3c08e2fc380691e33912fb2",
     "family" : "retry",
@@ -27327,8 +27372,8 @@
     "index" : 11,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 146,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "3c02329abf71e74979f69b16ec87ace40f654bfbcc9a52e71573198aa6bbdc40",
     "family" : "retry",
@@ -27525,6 +27570,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "50aca817a929a87fe5c5f343d983a08a941e2f6fe06c600c51deab150fa00f93",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.returns.PrimitiveReturnsMutator",
+    "description" : "replaced long return with 0 for dev/tramai/engine/provider/ProviderRetryDelayPolicy::delayMillis",
+    "block" : 24,
+    "index" : 106,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 43,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "5433810b61f83b0b41bdfea8bb053111d667126ad82b8d98a98f01caa1025123",
     "family" : "retry",
     "module" : ":tramai-core",
@@ -27660,6 +27720,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "65f994c3c4925aee5d6e7127a8caa277c07f83ed2781194d7f50f28360de3227",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator",
+    "description" : "changed conditional boundary",
+    "block" : 16,
+    "index" : 68,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 40,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "67fcfb72fe2dde40920dd59eda2996c9ef5e66ea79fba41735d6f6e37854564f",
     "family" : "retry",
     "module" : ":tramai-engine",
@@ -27717,8 +27792,8 @@
     "index" : 112,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 113,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "6d303fa402b0cc14e0acce15aff6aa27561baa946ca3918328571206c9b13eee",
     "family" : "retry",
@@ -27855,6 +27930,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "7fb88b46d1533ab630e3557326166679f880344b66e00d88bc580f7d75e417ae",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 15,
+    "index" : 64,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 40,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "8047a7d1d10938fd1dc3780290071aad62e76281a7a5c4f3868e780c54aa0c62",
     "family" : "retry",
     "module" : ":tramai-engine",
@@ -27867,8 +27957,8 @@
     "index" : 24,
     "sourceFile" : "RetryPolicySettings.kt",
     "line" : 11,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "8174851741878425b32b2cfddf977a59251482f52d88952319b20eb6712aeb6d",
     "family" : "retry",
@@ -27882,6 +27972,21 @@
     "index" : 52,
     "sourceFile" : "ProviderCircuitBreaker.kt",
     "line" : 116,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
+    "identity" : "81da6b5e8e83c5c02c33c38b254d9fc8239dad173a04c4c12a99646ae033f932",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 1,
+    "index" : 9,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 36,
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
@@ -27942,8 +28047,8 @@
     "index" : 27,
     "sourceFile" : "CircuitBreakerSettings.kt",
     "line" : 12,
-    "status" : "TIMED_OUT",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "8d733cb9e0905e0bd88f619e834832c7c16e7473e9868bfc34c90ffc828c7a9d",
     "family" : "retry",
@@ -27972,8 +28077,8 @@
     "index" : 8,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 253,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "91fe21234ae7b66c363944365607aed2d8c07fcc8be26ba840edbeaa756147dc",
     "family" : "retry",
@@ -28032,8 +28137,8 @@
     "index" : 59,
     "sourceFile" : "CircuitBreakerSettings.kt",
     "line" : 13,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "9bd87c948c7e387a8964d67f73a822e31c4d6936e49fa109c7276452e99b89a8",
     "family" : "retry",
@@ -28152,8 +28257,8 @@
     "index" : 28,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 89,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "a964a057ef595b9dc1c968cd39c29b413c8c3dceaf1ec12bc55972e45b901ef2",
     "family" : "retry",
@@ -28197,8 +28302,8 @@
     "index" : 81,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 259,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "ae178737273a2e19be111edad1298035f83738a4f1910aebd7bee138f7820749",
     "family" : "retry",
@@ -28317,8 +28422,8 @@
     "index" : 94,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 262,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "bfc890f1e8d4beec4e692546d49b85b49032b1b79c753d459854bc16ceb25d7f",
     "family" : "retry",
@@ -28377,8 +28482,8 @@
     "index" : 16,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 136,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "c3880d819d862176eadddf6bcce5dd768855c594bc0c6d13d7367ea355584c3c",
     "family" : "retry",
@@ -28422,6 +28527,21 @@
     "index" : 5,
     "sourceFile" : "RetryPolicySettings.kt",
     "line" : 8,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
+    "identity" : "c998636ca44ae4e0766b42357d9374fafd87517bc1e997606487f252296fe7c5",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.MathMutator",
+    "description" : "Replaced long addition with subtraction",
+    "block" : 24,
+    "index" : 105,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 43,
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
@@ -28485,6 +28605,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "d690b394791a0f995b398bc577f9e9b143715c1bb4a46a5d28ccb10a2d51c494",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.MathMutator",
+    "description" : "Replaced double multiplication with division",
+    "block" : 24,
+    "index" : 101,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 43,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "d835b4c96561a786898a7a8cce3429bb1d7548c9c0ad42c6f9a7768316a26317",
     "family" : "retry",
     "module" : ":tramai-engine",
@@ -28542,8 +28677,8 @@
     "index" : 28,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 292,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "df82b9c69212282a475e107f5bb15b1fa9cffec87a534d6791212a74189a7e02",
     "family" : "retry",
@@ -28572,8 +28707,8 @@
     "index" : 94,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 262,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "e137ccd50a87272ee26ba4eae1fad4deef7f152ec5032b454bc5c3a108a63c04",
     "family" : "retry",
@@ -28632,8 +28767,8 @@
     "index" : 46,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 137,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "e70fab2bae85a3c0ec40a787b2fba4e893aa09d58487522a7c93fb7a123b3a40",
     "family" : "retry",
@@ -28647,8 +28782,8 @@
     "index" : 99,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 263,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "e7ee1bb3dc91511ba3150a3dd89dddf55ed1623edb09494ebfe828aec29a4474",
     "family" : "retry",
@@ -28677,6 +28812,21 @@
     "index" : 5,
     "sourceFile" : "CircuitBreakerSettings.kt",
     "line" : 8,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
+    "identity" : "ea8c00390b119076209fd869440f40fcdfa6bd055e52c57a1b58c98bfc416b72",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.MathMutator",
+    "description" : "Replaced double multiplication with division",
+    "block" : 24,
+    "index" : 103,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 43,
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
@@ -28710,6 +28860,21 @@
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
+    "identity" : "ede51ad5823350fe983700a41d58883c8a4f0b0bf1dc561e7472c26d471b1786",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+    "description" : "negated conditional",
+    "block" : 19,
+    "index" : 76,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 40,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
     "identity" : "f0b9e579b52b96d24d4b3412acc987af7d045290fcbe1775aaffd517eb2f4c24",
     "family" : "retry",
     "module" : ":tramai-core",
@@ -28722,8 +28887,8 @@
     "index" : 20,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 147,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "f1c90b7f757cd9ef1052b7874a83e468f67971a12d87928049a15d64fcc5d199",
     "family" : "retry",
@@ -28812,8 +28977,8 @@
     "index" : 149,
     "sourceFile" : "ProviderFailures.kt",
     "line" : 270,
-    "status" : "KILLED",
-    "outcome" : "KILLED"
+    "status" : "TIMED_OUT",
+    "outcome" : "NON_KILLED"
   }, {
     "identity" : "fd41581995f938b5e3b92333d62e644e6614048c1ef2eee6e863e3ac0e521e61",
     "family" : "retry",
@@ -28842,6 +29007,21 @@
     "index" : 64,
     "sourceFile" : "RetryPolicySettings.kt",
     "line" : 12,
+    "status" : "KILLED",
+    "outcome" : "KILLED"
+  }, {
+    "identity" : "fede107423c6a2014ad1e0af8e399b4a5b106ba1f6a926c3c3c227a63990a338",
+    "family" : "retry",
+    "module" : ":tramai-engine",
+    "className" : "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+    "method" : "delayMillis",
+    "methodDescription" : "(Ljava/lang/Throwable;J)J",
+    "mutator" : "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator",
+    "description" : "changed conditional boundary",
+    "block" : 15,
+    "index" : 64,
+    "sourceFile" : "ProviderRetryPolicy.kt",
+    "line" : 40,
     "status" : "KILLED",
     "outcome" : "KILLED"
   }, {
@@ -28902,7 +29082,7 @@
     "index" : 44,
     "sourceFile" : "ModelRegistryEnforcer.kt",
     "line" : 18,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "0f7dd84b915d598bcf7e1a43eb14dc5b6b6ee2a636231f3f49aac4093969ded9",
@@ -28917,8 +29097,8 @@
     "index" : 95,
     "sourceFile" : "ModelRegistryEnforcer.kt",
     "line" : 18,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "11fc6a24694b636c7662828deb101f372a3a76bd8fa7edbbefeae38e8e32d0a3",
     "family" : "routing",
@@ -29067,8 +29247,8 @@
     "index" : 81,
     "sourceFile" : "ModelRegistryEnforcer.kt",
     "line" : 18,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "e9e085c3ccbc0a59334c562783564f42d09e75c89419f057fdbe2d13bc11e0ff",
     "family" : "routing",
@@ -34827,8 +35007,8 @@
     "index" : 226,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 31,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "187e140bb0034116bd755c4497af50ba6135123f4aa3b30cacccb6e00421bdff",
     "family" : "tools",
@@ -34857,8 +35037,8 @@
     "index" : 247,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 35,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "1d295d34597153fcbdbac51680f03cfba68a7fc2262edaa36910a786c39d866b",
     "family" : "tools",
@@ -34977,8 +35157,8 @@
     "index" : 153,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 18,
-    "status" : "TIMED_OUT",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "34adce029df4388b90413a1003cdcc0c63d89e1df5734b976cf298000591556e",
     "family" : "tools",
@@ -35007,8 +35187,8 @@
     "index" : 5,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 7,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "3ec88dafb8b6f08e1484de77c3f63e81eea6b3b82160935f2e5ee17ad99763e4",
     "family" : "tools",
@@ -35037,8 +35217,8 @@
     "index" : 195,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 26,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "45eeea418385912624102353e226657658ef0a7a1a59f2f2402237d7743434af",
     "family" : "tools",
@@ -35082,8 +35262,8 @@
     "index" : 255,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 36,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "4fa4b308d0718e93f93bbd6af4193884aa7daa825f62bae881e09aac8dbf39bb",
     "family" : "tools",
@@ -35142,8 +35322,8 @@
     "index" : 23,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 10,
-    "status" : "TIMED_OUT",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "6211a44653e7d08bb7e9460900453c5595abb0ad98a90a6f87c5b76247b0e18c",
     "family" : "tools",
@@ -35217,8 +35397,8 @@
     "index" : 63,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 17,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "7f2464252378d6ec623d0979dee403693ac35f9f30e6771412b002febef6cdfe",
     "family" : "tools",
@@ -35277,8 +35457,8 @@
     "index" : 216,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 30,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "9e8b92c3a4455cb602617c58b6171a6c7facdcb2d5d1a020955e73bc609300ba",
     "family" : "tools",
@@ -35322,8 +35502,8 @@
     "index" : 371,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 47,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "a4c9341c651f520aad068cee2cfd3a86b532a0b1075c983932f967aa910ff95c",
     "family" : "tools",
@@ -35337,8 +35517,8 @@
     "index" : 70,
     "sourceFile" : "ToolRegistry.kt",
     "line" : 24,
-    "status" : "TIMED_OUT",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "a85bb29965ffc4b361243f9f6f12e280c27a14cbdd5f135e4cdb1716c84eaa1b",
     "family" : "tools",
@@ -35412,8 +35592,8 @@
     "index" : 63,
     "sourceFile" : "CanonicalMessageEncoder.kt",
     "line" : 17,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "ca60f8699e1d0e7f2a1bd95a80cb31426dfa157b8b21de8084fad6dd91036a30",
     "family" : "tools",
@@ -35427,8 +35607,8 @@
     "index" : 5,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 4,
-    "status" : "NO_COVERAGE",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "ccffeec2a83059cd7b1d78d59297fed63ac8bd87df4cc054a9ed12c49d3e00dc",
     "family" : "tools",
@@ -35562,8 +35742,8 @@
     "index" : 67,
     "sourceFile" : "ToolRegistry.kt",
     "line" : 34,
-    "status" : "SURVIVED",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "eba6db858b1e26cbb4ea7f45002a0f6e46ee049e0f048dad8a0105b90777a3d4",
     "family" : "tools",
