@@ -88,10 +88,11 @@ classifications:
       sequencing, tool_call_id/name/args fields) are all KILLED.
 
   # ── 10.3c2 retry family: ProviderFailuresKt suspend scaffolding ──
-  # Isolated authority: 155 mutants, 137 KILLED / 7 SURVIVED / 6 NO_COVERAGE /
-  # 5 TIMED_OUT. Adjudicated from javap bytecode inspection of the compiled
-  # suspend state machines plus the slow-stream/UTF-8 straddle discriminators.
-  # The two observed factories (providerHttpFailureObserved,
+  # Final canonical authority (measured at 5856530e, two full runs identical +
+  # three isolated probes raw-stable): 155 mutants, 138 KILLED / 6 SURVIVED /
+  # 6 NO_COVERAGE / 5 TIMED_OUT. Adjudicated from javap bytecode inspection of
+  # the compiled suspend state machines plus the slow-stream/UTF-8 straddle
+  # discriminators. The two observed factories (providerHttpFailureObserved,
   # providerTransportFailureObserved) never genuinely suspend: their only
   # suspend callee `deliver` contains no suspension point (observer.record and
   # ensureActive are non-suspending), so the compiled resume branches are dead

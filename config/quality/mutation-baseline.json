@@ -2,7 +2,7 @@
   "schemaVersion" : "1",
   "identitySchemaVersion" : "2",
   "status" : "measured",
-  "measuredCommit" : "f9799f7e4f17e69a123b9d9477458e04814cd3ba0",
+  "measuredCommit" : "5856530e0fa4a9538b0828b89d730812f4cc5cac",
   "analyzer" : {
     "pluginVersion" : "1.19.0",
     "engineVersion" : "1.22.1",
@@ -37,12 +37,12 @@
       "family" : "policy",
       "modules" : [ ":tramai-engine", ":tramai-security", ":tramai-sovereign" ],
       "totalMutants" : 209,
-      "killedMutants" : 152,
-      "survivedMutants" : 28,
+      "killedMutants" : 153,
+      "survivedMutants" : 29,
       "noCoverageMutants" : 25,
-      "timedOutMutants" : 4,
+      "timedOutMutants" : 2,
       "errorMutants" : 0,
-      "mutationScore" : 72.72727272727273
+      "mutationScore" : 73.20574162679426
     },
     "retry" : {
       "family" : "retry",
@@ -24597,8 +24597,8 @@
     "index" : 64,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 41,
-    "status" : "TIMED_OUT",
-    "outcome" : "NON_KILLED"
+    "status" : "KILLED",
+    "outcome" : "KILLED"
   }, {
     "identity" : "55adb54ff7b67fc77645cec494e38f6fe9d02bd956a119b61369ac210f489915",
     "family" : "policy",
@@ -25782,7 +25782,7 @@
     "index" : 5,
     "sourceFile" : "PolicyEnforcementHelper.kt",
     "line" : 59,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "b8081b376a53c669b5af85847c12c2d61a49b642e6d801135a475bac23a1738e",
