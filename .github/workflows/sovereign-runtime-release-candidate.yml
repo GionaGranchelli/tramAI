@@ -90,19 +90,21 @@ jobs:
 
       - name: Verify sovereign runtime release candidate
         timeout-minutes: 30
-        # Canonical sovereign verification: the closure aggregate includes the
-        # full RC candidate chain plus :examples:spring-sovereign-starter:e2eTest
-        # and the API boundary. --rerun-tasks is kept because this job runs on a
-        # fresh runner and is the single authority for sovereign verification.
-        # The closure pulls verifyStaticAnalysis via check; a bootstrap PR needs
-        # the explicit baseline-migration class (label-gated, like ci.yml).
+        # PR trigger: verifySovereignRuntimePullRequest — the sovereign-specific
+        # release-chain proof WITHOUT the repository test/check graph. Mandatory
+        # CI already proves tests/quality/compiler-warnings/coverage on the
+        # exact commit; re-running them here duplicated the full CI stack
+        # (~19-30 min measured on the P3-E profile, #372/#374, decision B).
+        # workflow_dispatch (explicit release certification) keeps the full
+        # independent verifySovereignRuntimeClosure with --rerun-tasks.
         run: |
-          LABELS='${{ toJson(github.event.pull_request.labels) }}'
-          if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
+          GRADLE_ARGS=(-PtramaiPublishReleaseUrl=)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            GRADLE_ARGS+=(verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks)
           else
-            ./gradlew verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
+            GRADLE_ARGS+=(verifySovereignRuntimePullRequest --no-daemon --no-configuration-cache)
           fi
+          ./gradlew "${GRADLE_ARGS[@]}"
 
       - name: Upload test reports on failure
         if: failure()
