@@ -3,64 +3,78 @@ package dev.tramai.build.quality
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlin.test.assertEquals
 
 class MutationBaselineVerifierTest {
-    private val configuration = TestQualityConfiguration(
-        "1",
-        listOf(":engine"),
-        TestQualityConfiguration.CoverageConfiguration(1.0, emptyList()),
-        TestQualityConfiguration.MutationConfiguration(
-            1.0,
-            mapOf("routing" to TestQualityConfiguration.MutationTargetFamily(listOf(":engine")))
+    private val configuration =
+        TestQualityConfiguration(
+            "1",
+            listOf(":engine"),
+            TestQualityConfiguration.CoverageConfiguration(1.0, emptyList()),
+            TestQualityConfiguration.MutationConfiguration(
+                1.0,
+                mapOf("routing" to TestQualityConfiguration.MutationTargetFamily(listOf(":engine"))),
+            ),
         )
-    )
     private val verifier = MutationBaselineVerifier(configuration)
 
     @Test
     fun `score within tolerance passes`() {
-        assertFalse(verifier.verify(data(80.0), data(79.0)).any {
-            it.severity == DiagnosticSeverity.FAILURE
-        })
+        assertFalse(
+            verifier.verify(data(80.0), data(79.0)).any {
+                it.severity == DiagnosticSeverity.FAILURE
+            },
+        )
     }
 
     @Test
     fun `score regression fails`() {
-        assertTrue(verifier.verify(data(80.0), data(78.9)).any {
-            it.code == DiagnosticCode.MUTATION_REGRESSION
-        })
+        assertTrue(
+            verifier.verify(data(80.0), data(78.9)).any {
+                it.code == DiagnosticCode.MUTATION_REGRESSION
+            },
+        )
     }
 
     @Test
     fun `unclassified survivor fails`() {
         val survivor = survivor().copy(classification = "unclassified", behaviourFamily = "routing")
-        assertTrue(verifier.verify(data(80.0), data(80.0).copy(survivingMutants = listOf(survivor))).any {
-            it.code == DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED
-        })
+        assertTrue(
+            verifier.verify(data(80.0), data(80.0).copy(survivingMutants = listOf(survivor))).any {
+                it.code == DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED
+            },
+        )
     }
 
     @Test
     fun `missing test survivor requires issue or target phase`() {
-        assertTrue(verifier.verify(
-            data(80.0),
-            data(80.0).copy(survivingMutants = listOf(survivor().copy(status = "NO_COVERAGE", classification = "unclassified")))
-        ).any { it.code == DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED })
+        assertTrue(
+            verifier
+                .verify(
+                    data(80.0),
+                    data(80.0).copy(survivingMutants = listOf(survivor().copy(status = "NO_COVERAGE", classification = "unclassified"))),
+                ).any { it.code == DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED },
+        )
     }
 
     @Test
-    fun `classified survivor with valid classification passes`(@TempDir tempDir: File) {
+    fun `classified survivor with valid classification passes`(
+        @TempDir tempDir: File,
+    ) {
         // Write a mutation-classifications.yml with a valid entry
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "known-id"
                 classification: "equivalent-mutant"
                 reason: "Test equivalent mutant"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val verifierWithRoot = MutationBaselineVerifier(configuration, tempDir)
         val survivor = survivor().copy(identity = "known-id", behaviourFamily = "routing")
@@ -69,16 +83,20 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `classified survivor missing-test without issue or target phase fails`(@TempDir tempDir: File) {
+    fun `classified survivor missing-test without issue or target phase fails`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "bad-id"
                 classification: "missing-test"
                 reason: "Test missing test"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val verifierWithRoot = MutationBaselineVerifier(configuration, tempDir)
         val survivor = survivor().copy(identity = "bad-id", behaviourFamily = "routing")
@@ -87,17 +105,21 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `classified survivor missing-test with issue passes`(@TempDir tempDir: File) {
+    fun `classified survivor missing-test with issue passes`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "issue-id"
                 classification: "missing-test"
                 reason: "Test missing test with issue"
                 issue: "https://github.com/example/repo/issues/1"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val verifierWithRoot = MutationBaselineVerifier(configuration, tempDir)
         val survivor = survivor().copy(identity = "issue-id", behaviourFamily = "routing")
@@ -106,17 +128,21 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `classified survivor missing-test with target phase passes`(@TempDir tempDir: File) {
+    fun `classified survivor missing-test with target phase passes`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "phase-id"
                 classification: "missing-test"
                 reason: "Test missing test with target phase"
                 targetPhase: "v0.7.0"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val verifierWithRoot = MutationBaselineVerifier(configuration, tempDir)
         val survivor = survivor().copy(identity = "phase-id", behaviourFamily = "routing")
@@ -125,21 +151,26 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `survivor with behaviour family but no classification entry fails`(@TempDir tempDir: File) {
+    fun `survivor with behaviour family but no classification entry fails`(
+        @TempDir tempDir: File,
+    ) {
         // Empty classifications file
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications: []
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val verifierWithRoot = MutationBaselineVerifier(configuration, tempDir)
-        val survivor = survivor().copy(
-            identity = "unknown-id",
-            behaviourFamily = "routing",
-            classification = "behaviour-family"
-        )
+        val survivor =
+            survivor().copy(
+                identity = "unknown-id",
+                behaviourFamily = "routing",
+                classification = "behaviour-family",
+            )
         val diagnostics = verifierWithRoot.verify(data(80.0), data(80.0).copy(survivingMutants = listOf(survivor)))
         assertTrue(diagnostics.any { it.code == DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED })
     }
@@ -153,16 +184,20 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `mutation classification loader validates allowed values`(@TempDir tempDir: File) {
+    fun `mutation classification loader validates allowed values`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "test-id"
                 classification: "invalid-value"
                 reason: "Test invalid"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         try {
             MutationClassificationLoader.load(tempDir)
@@ -173,16 +208,20 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `mutation classification loader accepts missing-test without issue or targetPhase`(@TempDir tempDir: File) {
+    fun `mutation classification loader accepts missing-test without issue or targetPhase`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "test-id"
                 classification: "missing-test"
                 reason: "Test missing test"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         // Loader now accepts this; validation happens in MutationBaselineVerifier
         val result = MutationClassificationLoader.load(tempDir)
@@ -191,16 +230,20 @@ class MutationBaselineVerifierTest {
     }
 
     @Test
-    fun `mutation classification loader rejects unknown classification`(@TempDir tempDir: File) {
+    fun `mutation classification loader rejects unknown classification`(
+        @TempDir tempDir: File,
+    ) {
         val classificationsFile = File(tempDir, "config/quality/mutation-classifications.yml")
         classificationsFile.parentFile.mkdirs()
-        classificationsFile.writeText("""
+        classificationsFile.writeText(
+            """
             schemaVersion: "1"
             classifications:
               - id: "bad"
                 classification: "unknown-type"
                 reason: "Test"
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         try {
             MutationClassificationLoader.load(tempDir)
@@ -213,30 +256,47 @@ class MutationBaselineVerifierTest {
     @Test
     fun `cross-family deduplication preserves per-family metrics while overall counts each mutant once`() {
         // Two families with overlapping mutants (same identity "overlap-id" appears in both)
-        val mutant1 = MutationRecord(
-            module = ":engine", family = "routing", status = "KILLED",
-            sourceFile = "Router.kt", className = "Router", method = "route",
-            line = 1, mutator = "BooleanMutator", description = "",
-            identity = "overlap-id"
+        fun record(
+            family: String,
+            status: String,
+            method: String = "route",
+            mutator: String = "BooleanMutator",
+            line: Int = 1,
+            sourceFile: String = "Router.kt",
+            identity: String,
+        ) = MutationRecord(
+            module = ":engine",
+            family = family,
+            status = status,
+            sourceFile = sourceFile,
+            className = if (method == "approve") "Approver" else "Router",
+            method = method,
+            methodDescription = "()V",
+            line = line,
+            mutator = mutator,
+            description = "",
+            identity = identity,
         )
-        val mutant2 = MutationRecord(
-            module = ":engine", family = "routing", status = "SURVIVED",
-            sourceFile = "Router.kt", className = "Router", method = "route",
-            line = 2, mutator = "NegateConditionalsMutator", description = "",
-            identity = "unique-routing-id"
-        )
-        val mutant3 = MutationRecord(
-            module = ":engine", family = "approval", status = "KILLED",
-            sourceFile = "Router.kt", className = "Router", method = "route",
-            line = 1, mutator = "BooleanMutator", description = "",
-            identity = "overlap-id"  // Same identity as mutant1 — cross-family overlap
-        )
-        val mutant4 = MutationRecord(
-            module = ":engine", family = "approval", status = "KILLED",
-            sourceFile = "Approver.kt", className = "Approver", method = "approve",
-            line = 5, mutator = "BooleanMutator", description = "",
-            identity = "unique-approval-id"
-        )
+        val mutant1 = record(family = "routing", status = "KILLED", identity = "overlap-id")
+        val mutant2 =
+            record(
+                family = "routing",
+                status = "SURVIVED",
+                mutator = "NegateConditionalsMutator",
+                line = 2,
+                identity = "unique-routing-id",
+            )
+        // Same identity as mutant1 — cross-family overlap
+        val mutant3 = record(family = "approval", status = "KILLED", identity = "overlap-id")
+        val mutant4 =
+            record(
+                family = "approval",
+                status = "KILLED",
+                method = "approve",
+                line = 5,
+                sourceFile = "Approver.kt",
+                identity = "unique-approval-id",
+            )
 
         val routingReport = ParsedMutationReport(module = ":engine", family = "routing", mutants = listOf(mutant1, mutant2))
         val approvalReport = ParsedMutationReport(module = ":engine", family = "approval", mutants = listOf(mutant3, mutant4))
@@ -275,24 +335,36 @@ class MutationBaselineVerifierTest {
         val identity = "shared-mutant-id"
         val sharedSource = "Shared.kt"
 
-        fun record(status: String, family: String) = MutationRecord(
-            module = ":core", family = family, status = status,
-            sourceFile = sharedSource, className = "Shared", method = "calc",
-            line = 10, mutator = "VoidMethodCallMutator", description = "",
-            identity = identity
+        fun record(
+            status: String,
+            family: String,
+        ) = MutationRecord(
+            module = ":core",
+            family = family,
+            status = status,
+            sourceFile = sharedSource,
+            className = "Shared",
+            method = "calc",
+            methodDescription = "()V",
+            line = 10,
+            mutator = "VoidMethodCallMutator",
+            description = "",
+            identity = identity,
         )
 
         // Test KILLED vs SURVIVED → SURVIVED wins
         val killed = record("KILLED", "policy")
         val survived = record("SURVIVED", "approval")
-        val reportsOrderA = listOf(
-            ParsedMutationReport(":core", "policy", listOf(killed)),
-            ParsedMutationReport(":core", "approval", listOf(survived))
-        )
-        val reportsOrderB = listOf(
-            ParsedMutationReport(":core", "approval", listOf(survived)),
-            ParsedMutationReport(":core", "policy", listOf(killed))
-        )
+        val reportsOrderA =
+            listOf(
+                ParsedMutationReport(":core", "policy", listOf(killed)),
+                ParsedMutationReport(":core", "approval", listOf(survived)),
+            )
+        val reportsOrderB =
+            listOf(
+                ParsedMutationReport(":core", "approval", listOf(survived)),
+                ParsedMutationReport(":core", "policy", listOf(killed)),
+            )
 
         val resultA = MutationBaselineVerifier.aggregate(reportsOrderA)
         val resultB = MutationBaselineVerifier.aggregate(reportsOrderB)
@@ -306,10 +378,11 @@ class MutationBaselineVerifierTest {
 
         // Test NO_COVERAGE vs SURVIVED → NO_COVERAGE wins
         val noCoverage = record("NO_COVERAGE", "evidence")
-        val reportsNoCov = listOf(
-            ParsedMutationReport(":core", "approval", listOf(survived)),
-            ParsedMutationReport(":core", "evidence", listOf(noCoverage))
-        )
+        val reportsNoCov =
+            listOf(
+                ParsedMutationReport(":core", "approval", listOf(survived)),
+                ParsedMutationReport(":core", "evidence", listOf(noCoverage)),
+            )
         val resultNoCov = MutationBaselineVerifier.aggregate(reportsNoCov)
         kotlin.test.assertEquals(1, resultNoCov.totalMutants, "should still deduplicate to 1 mutant")
         kotlin.test.assertEquals(0, resultNoCov.killedMutants, "NO_COVERAGE wins over SURVIVED")
@@ -317,47 +390,59 @@ class MutationBaselineVerifierTest {
 
         // Test TIMED_OUT vs KILLED → TIMED_OUT wins
         val timedOut = record("TIMED_OUT", "routing")
-        val reportsTimedOut = listOf(
-            ParsedMutationReport(":core", "routing", listOf(timedOut)),
-            ParsedMutationReport(":core", "policy", listOf(killed))
-        )
+        val reportsTimedOut =
+            listOf(
+                ParsedMutationReport(":core", "routing", listOf(timedOut)),
+                ParsedMutationReport(":core", "policy", listOf(killed)),
+            )
         val resultTimedOut = MutationBaselineVerifier.aggregate(reportsTimedOut)
         kotlin.test.assertEquals(1, resultTimedOut.totalMutants, "should still deduplicate to 1 mutant")
         kotlin.test.assertEquals(0, resultTimedOut.killedMutants, "TIMED_OUT wins over KILLED")
 
         // Test all four statuses together → NO_COVERAGE wins
-        val allStatuses = listOf(
-            ParsedMutationReport(":core", "policy", listOf(record("KILLED", "policy"))),
-            ParsedMutationReport(":core", "approval", listOf(record("SURVIVED", "approval"))),
-            ParsedMutationReport(":core", "routing", listOf(record("TIMED_OUT", "routing"))),
-            ParsedMutationReport(":core", "evidence", listOf(record("NO_COVERAGE", "evidence")))
-        )
+        val allStatuses =
+            listOf(
+                ParsedMutationReport(":core", "policy", listOf(record("KILLED", "policy"))),
+                ParsedMutationReport(":core", "approval", listOf(record("SURVIVED", "approval"))),
+                ParsedMutationReport(":core", "routing", listOf(record("TIMED_OUT", "routing"))),
+                ParsedMutationReport(":core", "evidence", listOf(record("NO_COVERAGE", "evidence"))),
+            )
         val resultAll = MutationBaselineVerifier.aggregate(allStatuses)
         kotlin.test.assertEquals(1, resultAll.totalMutants, "all statuses should deduplicate to 1 mutant")
         kotlin.test.assertEquals(0, resultAll.killedMutants, "NO_COVERAGE wins over all")
         kotlin.test.assertEquals(0, resultAll.survivedMutants, "NO_COVERAGE mutant is not in survivors")
     }
 
-    private fun data(score: Double) = MutationData(
-        status = "measured",
-        totalMutants = 10,
-        killedMutants = 8,
-        survivedMutants = 2,
-        mutationScore = score,
-        byFamily = mapOf(
-            "routing" to MutationFamilyMetrics(
-                "routing", listOf(":engine"), 10, 8, 2, 0, score
-            )
+    private fun data(score: Double) =
+        MutationData(
+            status = "measured",
+            totalMutants = 10,
+            killedMutants = 8,
+            survivedMutants = 2,
+            mutationScore = score,
+            byFamily =
+                mapOf(
+                    "routing" to
+                        MutationFamilyMetrics(
+                            "routing",
+                            listOf(":engine"),
+                            10,
+                            8,
+                            2,
+                            0,
+                            score,
+                        ),
+                ),
         )
-    )
 
-    private fun survivor() = SurvivingMutant(
-        module = ":engine",
-        file = "Router.kt",
-        line = 1,
-        mutator = "BooleanMutator",
-        classification = "behaviour-family",
-        identity = "id",
-        behaviourFamily = "routing"
-    )
+    private fun survivor() =
+        SurvivingMutant(
+            module = ":engine",
+            file = "Router.kt",
+            line = 1,
+            mutator = "BooleanMutator",
+            classification = "behaviour-family",
+            identity = "id",
+            behaviourFamily = "routing",
+        )
 }

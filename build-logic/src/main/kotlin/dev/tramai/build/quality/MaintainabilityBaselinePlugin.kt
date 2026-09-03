@@ -26,6 +26,22 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
     /** Root project this plugin was applied to (set in apply()). */
     private lateinit var rootProject: Project
 
+    /** 10.3c1-C1: pinned PIT DEFAULTS mutator set (engine 1.22.1), expanded. */
+    private val mutatorSet: List<String> =
+        listOf(
+            "CONDITIONALS_BOUNDARY",
+            "INCREMENTS",
+            "INVERT_NEGS",
+            "MATH",
+            "NEGATE_CONDITIONALS",
+            "TRUE_RETURNS",
+            "FALSE_RETURNS",
+            "PRIMITIVE_RETURNS",
+            "EMPTY_RETURNS",
+            "NULL_RETURNS",
+            "VOID_METHOD_CALLS",
+        )
+
     /** Fail-soft consumer compile-proof producers (Epic 10.2); markers feed the
      * architecture gate as typed api-architecture evidence (a3c3). */
     private val consumerMarkerProviders = mutableListOf<TaskProvider<ConsumerSmokeCompileTask>>()
@@ -365,6 +381,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             group = "maintainability"
             description = "Runs targeted PITest mutation analysis and generates the critical mutation baseline"
             doLast {
+                // P1 (10.3c1 review): provenance must bracket the whole
+                // measurement — capture the clean HEAD BEFORE PIT runs and
+                // re-verify the SAME clean HEAD AFTER. The baseline records
+                // the commit that was actually measured, not merely the
+                // commit the result happened to be accepted on.
+                val measuredCommit = requireCleanProvenance(project)
                 val mutationRoot = File(reportDir, "mutation")
                 mutationRoot.mkdirs()
                 val initScript = File(reportDir, "critical-mutation-probe.init.gradle")
@@ -372,7 +394,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     mutationInitScript(testQualityConfiguration, mutationRoot),
                     Charsets.UTF_8,
                 )
+                // 10.3c1-C8: per-family wall time for the cost report.
+                val familyTimings = linkedMapOf<String, Long>()
                 testQualityConfiguration.mutation.targetFamilies.keys.sorted().forEach { family ->
+                    val started = System.nanoTime()
                     runNestedGradle(
                         project,
                         listOf(
@@ -382,6 +407,15 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             "canonicalMutationProbe",
                         ),
                     )
+                    familyTimings[family] = (System.nanoTime() - started) / NANOS_PER_MILLI
+                }
+                // P1: the tree must be unchanged and still clean after PIT ran.
+                val completedCommit = requireCleanProvenance(project)
+                if (completedCommit != measuredCommit) {
+                    throw GradleException(
+                        "Mutation measurement repository identity changed during execution: started at " +
+                            "$measuredCommit, completed at $completedCommit. Baseline not written.",
+                    )
                 }
                 val mutation =
                     generator.generateMutationBaseline(
@@ -389,6 +423,50 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         mutationRoot,
                     )
                 ReportNormalizer.writeJson(mutation, File(reportDir, "mutation-summary.json"))
+                // 10.3c1-C3/C5/C9: exact population baseline + survivor inventory.
+                val reports =
+                    testQualityConfiguration.mutation.targetFamilies.flatMap { (family, target) ->
+                        target.modules.map { module ->
+                            val moduleSlug = module.removePrefix(":").replace(":", "_")
+                            // P0 (10.3c1 review): authoritative population
+                            // requires PITest XML — HTML is lossy and cannot
+                            // carry the descriptor/block/index identity v2
+                            // fields. An XML failure must fail generation,
+                            // never silently downgrade to HTML interpretation.
+                            val report = File(mutationRoot, "$family/$moduleSlug/mutations.xml")
+                            if (!report.isFile) {
+                                throw GradleException(
+                                    "No PITest XML for configured target $family/$module; expected $report. " +
+                                        "Authoritative population requires mutations.xml " +
+                                        "(HTML is not an authority input).",
+                                )
+                            }
+                            MutationReportParser().parse(module, family, report)
+                        }
+                    }
+                val population =
+                    MutationPopulationAggregator.aggregate(
+                        reports = reports,
+                        configuredFamilies = testQualityConfiguration.mutation.targetFamilies,
+                        measuredCommit = measuredCommit,
+                        semantics =
+                            MutationAnalyzerSemantics(
+                                pluginVersion = "1.19.0",
+                                engineVersion = "1.22.1",
+                                mutators = mutatorSet,
+                                timeoutConst = 4_000,
+                                timeoutFactor = 1.25,
+                            ),
+                    )
+                ReportNormalizer.writeJson(
+                    population,
+                    File(project.rootDir, "config/quality/mutation-baseline.json"),
+                )
+                MutationSurvivorInventory.write(
+                    population,
+                    File(reportDir, "mutation-survivors.json"),
+                )
+                printMutationCostTable(project, population, familyTimings)
                 println(
                     "Critical mutation baseline: ${mutation.totalMutants} mutants, " +
                         "${"%.2f".format(mutation.mutationScore)}% killed",
@@ -1380,6 +1458,109 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.logger.lifecycle(output.trimEnd())
     }
 
+    /**
+     * P0 (10.3c1 review): authoritative baseline provenance must identify the
+     * measured tree. Require a parseable HEAD SHA and a clean working tree —
+     * the measurement implementation must be committed before PIT runs, so
+     * measuredCommit means measured tree. Never default a missing commit.
+     */
+    private fun requireCleanProvenance(project: Project): String {
+        val sha = requireHeadSha(project)
+        val dirty =
+            project.providers
+                .exec { commandLine("git", "status", "--porcelain") }
+                .standardOutput.asText
+                .get()
+                .isNotBlank()
+        if (dirty) {
+            throw GradleException(
+                "Cannot generate authoritative mutation baseline: working tree is dirty at $sha. " +
+                    "Commit the measurement implementation first so measuredCommit identifies the measured tree.",
+            )
+        }
+        return sha
+    }
+
+    private fun requireHeadSha(project: Project): String {
+        val sha =
+            try {
+                project.providers
+                    .exec { commandLine("git", "rev-parse", "HEAD") }
+                    .standardOutput.asText
+                    .get()
+                    .trim()
+            } catch (e: Exception) {
+                throw GradleException("Cannot generate authoritative mutation baseline: git rev-parse HEAD failed", e)
+            }
+        if (!Regex("[0-9a-f]{40}").matches(sha)) {
+            throw GradleException("Cannot generate authoritative mutation baseline: unexpected HEAD SHA '$sha'")
+        }
+        return sha
+    }
+
+    private fun printMutationCostTable(
+        project: Project,
+        population: MutationPopulationBaseline,
+        familyTimings: Map<String, Long>,
+    ) {
+        val header =
+            "%-20s %8s %8s %9s %11s %12s %7s".format(
+                "Family",
+                "Mutants",
+                "Killed",
+                "Survived",
+                "NoCoverage",
+                "Timeout/Err",
+                "Time(s)",
+            )
+        project.logger.lifecycle(header)
+        project.logger.lifecycle("-".repeat(header.length))
+        var totalMutants = 0
+        var totalKilled = 0
+        var totalSurvived = 0
+        var totalNoCoverage = 0
+        var totalErrors = 0
+        var totalTimeMs = 0L
+        for (family in population.byFamily.keys.sorted()) {
+            val metrics = population.byFamily.getValue(family)
+            val timeMs = familyTimings[family] ?: 0L
+            totalMutants += metrics.totalMutants
+            totalKilled += metrics.killedMutants
+            totalSurvived += metrics.survivedMutants
+            totalNoCoverage += metrics.noCoverageMutants
+            totalErrors += metrics.timedOutMutants + metrics.errorMutants
+            totalTimeMs += timeMs
+            project.logger.lifecycle(
+                "%-20s %8d %8d %9d %11d %12d %7.1f".format(
+                    family,
+                    metrics.totalMutants,
+                    metrics.killedMutants,
+                    metrics.survivedMutants,
+                    metrics.noCoverageMutants,
+                    metrics.timedOutMutants + metrics.errorMutants,
+                    timeMs / MILLIS_PER_SECOND,
+                ),
+            )
+        }
+        project.logger.lifecycle("-".repeat(header.length))
+        project.logger.lifecycle(
+            "%-20s %8d %8d %9d %11d %12d %7.1f".format(
+                "TOTAL",
+                totalMutants,
+                totalKilled,
+                totalSurvived,
+                totalNoCoverage,
+                totalErrors,
+                totalTimeMs / MILLIS_PER_SECOND,
+            ),
+        )
+        project.logger.lifecycle(
+            "Mutation score (informational): ${
+                "%.2f".format(if (totalMutants == 0) 0.0 else PERCENT_FACTOR * totalKilled / totalMutants)
+            }% killed",
+        )
+    }
+
     private fun copyTestReports(
         repositoryRoot: File,
         criticalModules: Set<String>,
@@ -1427,6 +1608,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         }
                     "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
                 }
+        // 10.3c1-C1: pinned mutation semantics. gradle-pitest-plugin 1.19.0's
+        // DEFAULT_PITEST_VERSION is 1.22.1 — record it explicitly and pin the
+        // mutator set (PIT's DEFAULTS group expanded) so a future engine or
+        // mutator change invalidates the population instead of silently
+        // altering it. pitest-junit5-plugin 1.2.1 is required: without it PIT
+        // refuses to run ("JUnit 5 is on the classpath but the pitest junit 5
+        // plugin is not installed").
         return """
             initscript {
                 repositories {
@@ -1441,6 +1629,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             def targetFamilities = [
             $familyModules
             ]
+            // The init script is evaluated for the root build AND for every
+            // included build (build-logic). startParameter.projectProperties on an
+            // included build's Gradle instance does not carry the outer -P
+            // properties, so the family check would spuriously throw there.
+            // Only the root build (gradle.parent == null) runs the probe.
+            if (gradle.parent != null) return
             def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
             if (selectedFamily == null || !targetFamilities.containsKey(selectedFamily)) {
                 throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
@@ -1458,20 +1652,52 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     'info.solidsoft.gradle.pitest.PitestPlugin'
                 )
                 measuredProject.pluginManager.apply(pluginClass)
-                measuredProject.extensions.configure('pitest') {
-                    targetClasses.set(familyTargetClasses)
-                    targetTests.set(familyTargetTests)
-                    outputFormats.set(['XML', 'HTML'] as Set)
-                    timestampedReports.set(false)
-                    failWhenNoMutations.set(true)
-                    threads.set(2)
-                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
-                    reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
-                }
-                mutationTasks << measuredProject.tasks.named('pitest')
+                // JUnit 5 projects need the pitest-junit5-plugin on the pitest
+                // runtime classpath or PIT fails with "pitest junit 5 plugin is
+                // not installed". The plugin itself (gradle-pitest-plugin) does
+                // not add it automatically.
+                measuredProject.dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:1.2.1')
             }
 
             gradle.projectsEvaluated {
+                selectedModules.each { modulePath ->
+                    def measuredProject = gradle.rootProject.findProject(modulePath)
+                    if (measuredProject == null) return
+                    def ext = measuredProject.extensions.findByName('pitest')
+                    // PitestPlugin defers extension creation until the Java
+                    // plugin is present (plugins.withType(JavaPlugin)), so by
+                    // projectsEvaluated the extension exists. Use direct
+                    // property access: the closure form (extensions.configure)
+                    // resolves its delegate to the build, not the extension.
+                    ext.targetClasses.set(familyTargetClasses)
+                    ext.targetTests.set(familyTargetTests)
+                    ext.outputFormats.set(['XML', 'HTML'] as Set)
+                    ext.timestampedReports.set(false)
+                    ext.failWhenNoMutations.set(true)
+                    ext.threads.set(2)
+                    // 10.3c1-C1: pin the engine version and mutator set. The
+                    // DEFAULTS group expands to the 11 individual mutators
+                    // (verified against org.pitest.pitest 1.22.1's Mutator
+                    // class) — pinning the expanded list, not the group name,
+                    // so a future engine's group redefinition cannot silently
+                    // change the population.
+                    ext.pitestVersion.set('1.22.1')
+                    // 10.3c1-C1: pin timeout as mutation semantics. PIT's
+                    // documented defaults (timeoutConstInMillis=4000,
+                    // timeoutFactor=1.25) are pinned explicitly so a future
+                    // plugin upgrade cannot silently change timeout semantics.
+                    // The 20s experiment cost 23m48s on approval alone for no
+                    // authority gain: SURVIVED<->TIMED_OUT is the same
+                    // NON_KILLED state, so raw status races don't matter.
+                    ext.timeoutConstInMillis.set(4000)
+                    ext.timeoutFactor.set(1.25)
+                    ext.mutators.set([
+                        ${mutatorSet.joinToString(",\n                        ") { "'$it'" }}
+                    ] as Set)
+                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                    ext.reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                    mutationTasks << measuredProject.tasks.named('pitest')
+                }
                 rootProject.tasks.register('canonicalMutationProbe') {
                     dependsOn mutationTasks.collect { it.get() }
                 }
@@ -1549,5 +1775,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 consumerMarkerProviders.add(task)
             }
         }
+    }
+
+    companion object {
+        /** 10.3c1-C8: unit conversions for per-family timing evidence. */
+        private const val NANOS_PER_MILLI = 1_000_000L
+        private const val MILLIS_PER_SECOND = 1000.0
+        private const val PERCENT_FACTOR = 100.0
     }
 }
