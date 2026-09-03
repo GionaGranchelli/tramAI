@@ -13,8 +13,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 
 class ModelRegistryEnforcerTest {
     @Test
@@ -38,9 +38,9 @@ class ModelRegistryEnforcerTest {
                     settings = ModelRegistrySettings(enabled = true),
                 )
 
-            assertThatThrownBy {
-                runBlocking { enforcer.authorize("provider-1", "missing") }
-            }.isInstanceOf(ModelNotRegisteredException::class.java)
+            assertFailsWith<ModelNotRegisteredException> {
+                enforcer.authorize("provider-1", "missing")
+            }
         }
 
     @Test
@@ -65,9 +65,9 @@ class ModelRegistryEnforcerTest {
                     settings = ModelRegistrySettings(enabled = true),
                 )
 
-            assertThatThrownBy {
-                runBlocking { enforcer.authorize("provider-1", "model-1") }
-            }.isInstanceOf(ModelDisabledException::class.java)
+            assertFailsWith<ModelDisabledException> {
+                enforcer.authorize("provider-1", "model-1")
+            }
         }
 
     @Test
@@ -85,9 +85,9 @@ class ModelRegistryEnforcerTest {
                     settings = ModelRegistrySettings(enabled = true),
                 )
 
-            assertThatThrownBy {
-                runBlocking { enforcer.authorize("provider-1", "model-1") }
-            }.isInstanceOf(CancellationException::class.java)
+            assertFailsWith<CancellationException> {
+                enforcer.authorize("provider-1", "model-1")
+            }
         }
 
     @Test
@@ -108,9 +108,11 @@ class ModelRegistryEnforcerTest {
                     settings = ModelRegistrySettings(enabled = true),
                 )
 
-            assertThatThrownBy {
-                runBlocking { enforcer.authorize("provider-1", "model-1") }
-            }.isInstanceOf(ModelRegistryUnavailableException::class.java)
+            val failure =
+                assertFailsWith<ModelRegistryUnavailableException> {
+                    enforcer.authorize("provider-1", "model-1")
+                }
+            assertThat(failure)
                 .hasMessage("Model registry is unavailable")
                 .hasNoCause()
                 .hasMessageNotContaining("secret-value")
@@ -121,11 +123,8 @@ class ModelRegistryEnforcerTest {
     //
     // The tests above return/throw directly from findApprovedModel, so the
     // coroutine never actually suspends and resumes inside authorize(). PIT's
-    // NO_COVERAGE mutants on the resume-path throwOnFailure (offset 167 /
-    // line 18 block 14) can therefore not be killed by them. These three tests
-    // force a genuine suspension: the registry signals entry, suspends on a
-    // CompletableDeferred, and only resumes after the test observes the
-    // suspended state — proving the continuation boundary, not a delay().
+    // NO_COVERAGE mutants on the resume-path throwOnFailure can therefore not
+    // be killed by them. These tests force a genuine suspension boundary.
 
     private class SuspendingRegistry(
         private val onEntry: () -> Unit,
@@ -162,7 +161,7 @@ class ModelRegistryEnforcerTest {
                     launch {
                         outcome.complete(runCatching { enforcer.authorize("provider-1", "model-1") })
                     }
-                registry.entered.await() // authorize() is genuinely suspended now
+                registry.entered.await()
                 registry.release.complete(Unit)
                 assertThat(outcome.await().getOrNull()).isEqualTo(approved)
                 job.join()
