@@ -74,23 +74,23 @@ object MutationProbeInitScript {
             def familyTargetTests = familyConfig.targetTests as Set
             def mutationTasks = []
             def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
-        """.trimIndent()
+            """.trimIndent()
     }
 
     private fun renderPluginApplication(): String =
         """
-            gradle.beforeProject { measuredProject ->
-                if (!(measuredProject.path in selectedModules)) return
-                def pluginClass = initscript.classLoader.loadClass(
-                    'info.solidsoft.gradle.pitest.PitestPlugin'
-                )
-                measuredProject.pluginManager.apply(pluginClass)
-                // JUnit 5 projects need the companion on PIT's runtime classpath.
-                measuredProject.dependencies.add(
-                    'pitest',
-                    'org.pitest:pitest-junit5-plugin:$JUNIT5_PLUGIN_VERSION'
-                )
-            }
+        gradle.beforeProject { measuredProject ->
+            if (!(measuredProject.path in selectedModules)) return
+            def pluginClass = initscript.classLoader.loadClass(
+                'info.solidsoft.gradle.pitest.PitestPlugin'
+            )
+            measuredProject.pluginManager.apply(pluginClass)
+            // JUnit 5 projects need the companion on PIT's runtime classpath.
+            measuredProject.dependencies.add(
+                'pitest',
+                'org.pitest:pitest-junit5-plugin:$JUNIT5_PLUGIN_VERSION'
+            )
+        }
         """.trimIndent()
 
     private fun renderPitConfiguration(): String {
@@ -122,7 +122,7 @@ object MutationProbeInitScript {
                     dependsOn mutationTasks.collect { it.get() }
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
     }
 
     private fun renderFamilyTable(configuration: TestQualityConfiguration): String =
