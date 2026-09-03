@@ -58,10 +58,11 @@ object MutationPopulationAggregator {
     }
 
     private fun validateSemantics(semantics: MutationAnalyzerSemantics) {
-        // M19/C1: the artifact must carry exact mutation semantics, or it is
-        // useless (and dangerous) as future approval authority. Timeout is
-        // part of mutation semantics: an unpinned timeout lets scheduler
-        // races flip TIMED_OUT↔SURVIVED between runs.
+        // M19/C1: the exact-population artifact is approval authority, so the
+        // metadata it persists must describe the SAME analyzer semantics that
+        // MutationProbeInitScript actually renders. This prevents a future
+        // edit from changing PIT configuration while leaving the recorded
+        // analyzer block stale (or vice versa).
         if (semantics.pluginVersion.isBlank() || semantics.engineVersion.isBlank() || semantics.mutators.isEmpty()) {
             throw GradleException(
                 "MutationAnalyzerSemantics must pin pluginVersion, engineVersion and mutators (M19).",
@@ -70,6 +71,21 @@ object MutationPopulationAggregator {
         if (semantics.timeoutConst <= 0) {
             throw GradleException(
                 "MutationAnalyzerSemantics must pin a positive timeoutConst (C1); timeout is mutation semantics.",
+            )
+        }
+
+        val canonical =
+            MutationAnalyzerSemantics(
+                pluginVersion = MutationProbeInitScript.PIT_PLUGIN_VERSION,
+                engineVersion = MutationProbeInitScript.PIT_ENGINE_VERSION,
+                mutators = MutationProbeInitScript.PIT_MUTATORS,
+                timeoutConst = MutationProbeInitScript.TIMEOUT_CONST_MILLIS.toInt(),
+                timeoutFactor = MutationProbeInitScript.TIMEOUT_FACTOR,
+            )
+        if (semantics != canonical) {
+            throw GradleException(
+                "MutationAnalyzerSemantics drift from canonical PIT renderer semantics (C1): " +
+                    "expected=$canonical, actual=$semantics",
             )
         }
     }
