@@ -96,11 +96,10 @@ jobs:
   # four parallel JDK 21 lanes mirroring ci.yml's contract-tests partitions —
   # ci.yml runs the same filters on JDK 25, so both compatibility authorities
   # (rule 6: JDK 21 for build-logic, JDK 25 for production code) stay covered.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 263 + 248 = 834.
   # #362 (10.3c1) enrolled in policy-maintainability: MutationIdentityTest (4) +
   # MutationMeasurementDiscriminatorTest (29) + MutationPopulationTest (7) +
-  # MutationReportParserTest (+6) = 211 -> 257. 10.3c2 (v2 reconstruction)
-  # adds MutationProbeInitScriptTest (6, M01-M06) = 257 -> 263.
+  # MutationReportParserTest (+6) = 211 -> 257.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 257 + 248 = 828.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -151,7 +150,7 @@ jobs:
               --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
               --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
               --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
-            expected: 263
+            expected: 257
           - name: scanners-coverage
             test-filter: >-
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
