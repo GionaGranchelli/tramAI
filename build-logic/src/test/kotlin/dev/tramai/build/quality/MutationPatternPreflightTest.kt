@@ -18,157 +18,163 @@ import kotlin.test.fail
  * have identical target sets.
  */
 class MutationPatternPreflightTest {
-
     /** Known modules from ModuleCatalog. */
-    private val knownModules: Set<String> = setOf(
-        ":tramai-core",
-        ":tramai-engine",
-        ":tramai-security",
-        ":tramai-sovereign",
-        ":tramai-standalone",
-        ":tramai-structured",
-        ":tramai-orchestration",
-        ":tramai-persistence-file",
-        ":tramai-persistence-jdbc",
-        ":tramai-anthropic",
-        ":tramai-azure-openai",
-        ":tramai-bedrock",
-        ":tramai-bom",
-        ":tramai-dashboard",
-        ":tramai-deepseek",
-        ":tramai-embedding",
-        ":tramai-gemini",
-        ":tramai-mcp",
-        ":tramai-memory",
-        ":tramai-memory-store",
-        ":tramai-observability",
-        ":tramai-ollama",
-        ":tramai-openai",
-        ":tramai-platform",
-        ":tramai-rag",
-        ":tramai-scheduler",
-        ":tramai-server",
-        ":tramai-spring",
-        ":tramai-spring-boot-starter-local-provider-openai",
-        ":tramai-spring-boot-starter-sovereign",
-        ":tramai-spring-boot-starter-sovereign-ops",
-        ":tramai-spring-boot-starter-sovereign-ops-actuator",
-        ":tramai-spring-boot-starter-sovereign-ops-micrometer",
-        ":tramai-spring-boot-starter-sovereign-ops-observability",
-        ":tramai-spring-boot-starter-sovereign-ops-rest",
-        ":tramai-spring-boot-starter-sovereign-persistence-file",
-        ":tramai-spring-boot-starter-sovereign-persistence-jdbc",
-        ":tramai-testing",
-        ":tramai-vectorstore-chroma",
-        ":tramai-vectorstore-pgvector",
-        ":tramai-vectorstore-spi"
-    )
+    private val knownModules: Set<String> =
+        setOf(
+            ":tramai-core",
+            ":tramai-engine",
+            ":tramai-security",
+            ":tramai-sovereign",
+            ":tramai-standalone",
+            ":tramai-structured",
+            ":tramai-orchestration",
+            ":tramai-persistence-file",
+            ":tramai-persistence-jdbc",
+            ":tramai-anthropic",
+            ":tramai-azure-openai",
+            ":tramai-bedrock",
+            ":tramai-bom",
+            ":tramai-dashboard",
+            ":tramai-deepseek",
+            ":tramai-embedding",
+            ":tramai-gemini",
+            ":tramai-mcp",
+            ":tramai-memory",
+            ":tramai-memory-store",
+            ":tramai-observability",
+            ":tramai-ollama",
+            ":tramai-openai",
+            ":tramai-platform",
+            ":tramai-rag",
+            ":tramai-scheduler",
+            ":tramai-server",
+            ":tramai-spring",
+            ":tramai-spring-boot-starter-local-provider-openai",
+            ":tramai-spring-boot-starter-sovereign",
+            ":tramai-spring-boot-starter-sovereign-ops",
+            ":tramai-spring-boot-starter-sovereign-ops-actuator",
+            ":tramai-spring-boot-starter-sovereign-ops-micrometer",
+            ":tramai-spring-boot-starter-sovereign-ops-observability",
+            ":tramai-spring-boot-starter-sovereign-ops-rest",
+            ":tramai-spring-boot-starter-sovereign-persistence-file",
+            ":tramai-spring-boot-starter-sovereign-persistence-jdbc",
+            ":tramai-testing",
+            ":tramai-vectorstore-chroma",
+            ":tramai-vectorstore-pgvector",
+            ":tramai-vectorstore-spi",
+        )
 
     /**
      * Known fully-qualified class names grouped by module.
      * Kept in sync with the actual source files so pattern validation
      * is meaningful.
      */
-    private val knownClasses: Map<String, Set<String>> = mapOf(
-        "tramai-core" to setOf(
-            "dev.tramai.core.provider.ProviderRegistry",
-            "dev.tramai.core.provider.ModelProvider",
-            "dev.tramai.core.provider.ProviderFailuresKt"
-        ),
-        "tramai-engine" to setOf(
-            "dev.tramai.engine.TramaiEngine",
-            "dev.tramai.engine.ModelRegistryEnforcer",
-            "dev.tramai.engine.ToolRegistry",
-            "dev.tramai.engine.RetryPolicySettings",
-            "dev.tramai.engine.CircuitBreakerSettings",
-            "dev.tramai.engine.ProviderCircuitBreaker",
-            "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
-            "dev.tramai.engine.LegacyPermissivePolicyEngine",
-            "dev.tramai.engine.PolicyEnforcementHelper",
-            "dev.tramai.engine.ToolResultFilteringSettings",
-            "dev.tramai.engine.CanonicalMessageEncoder",
-            "dev.tramai.engine.TokenBudgetSettings",
-            "dev.tramai.engine.EngineExecutionIdentity",
-            "dev.tramai.engine.ExecutionSecurityContext",
-            "dev.tramai.engine.SensitiveReplayEnvelope",
-            "dev.tramai.engine.ReplayEnvelopeFactory",
-            "dev.tramai.engine.ReplayEnvelopeDigestHelper",
-            "dev.tramai.engine.WorkflowDigestHelper",
-            "dev.tramai.engine.ResumeOperationRegistry",
-            "dev.tramai.engine.ResumeOperationReference",
-            "dev.tramai.engine.ResumeDefinitionDigestHelper",
-            "dev.tramai.engine.SuspendedInvocationStore",
-            "dev.tramai.engine.InMemorySuspendedInvocationStore",
-            "dev.tramai.engine.OperationResponseCache",
-            "dev.tramai.engine.InMemoryOperationResponseCache",
-            "dev.tramai.engine.EngineEventObserver",
-            "dev.tramai.engine.approval.DefaultApprovalGateway",
-            "dev.tramai.engine.approval.ApprovalGatewayRequestFactory",
-            "dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest",
-            "dev.tramai.engine.evidence.ProviderRoutingRuntimeEvidenceExporter"
-        ),
-        "tramai-security" to setOf(
-            "dev.tramai.security.DefaultPolicyEngine",
-            "dev.tramai.security.PolicyConfiguration",
-            "dev.tramai.security.ProviderRoutingConfiguration",
-            "dev.tramai.security.RuleBasedDlpInterceptor",
-            "dev.tramai.security.approval.AllowAnyApprovalDecisionValidator",
-            "dev.tramai.security.approval.DefaultApprovalGateCoordinator",
-            "dev.tramai.security.approval.InMemoryApprovalContinuationStore",
-            "dev.tramai.security.approval.InMemoryApprovalRecoveryCoordinator",
-            "dev.tramai.security.approval.InMemoryApprovalStore",
-            "dev.tramai.security.approval.RequireDistinctRequesterAndConsumer",
-            "dev.tramai.security.approval.SecureRandomApprovalTokenGenerator",
-            "dev.tramai.security.approval.Sha256ApprovalTokenDigester",
-            "dev.tramai.security.approval.Sha256ToolArgumentsDigester",
-            "dev.tramai.security.approval.StoredApprovalContinuation",
-            "dev.tramai.security.approval.UuidApprovalIdGenerator",
-            "dev.tramai.security.audit.AuditChainVerifier",
-            "dev.tramai.security.audit.AuditEngine",
-            "dev.tramai.security.audit.AuditEngineApprovalLifecycleAuditEmitter",
-            "dev.tramai.security.audit.AuditEngineDlpRedactionAuditEmitter",
-            "dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter",
-            "dev.tramai.security.audit.AuditEvent",
-            "dev.tramai.security.audit.AuditHashAlgorithm",
-            "dev.tramai.security.audit.AuditSerializer",
-            "dev.tramai.security.audit.AuditStore",
-            "dev.tramai.security.audit.AuditStreamIdResolver",
-            "dev.tramai.security.audit.InMemoryAuditStore",
-            "dev.tramai.security.classification.ClassificationDecision",
-            "dev.tramai.security.classification.ClassificationInput",
-            "dev.tramai.security.classification.ClassificationRule",
-            "dev.tramai.security.classification.DocumentClassifier",
-            "dev.tramai.security.classification.RuleBasedDocumentClassifier",
-            "dev.tramai.security.evidence.ManifestJsonReader",
-            "dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter",
-            "dev.tramai.security.evidence.RuntimeEvidenceBundleWriter",
-            "dev.tramai.security.evidence.RuntimeEvidenceContractValidator",
-            "dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter",
-            "dev.tramai.security.evidence.RuntimeEvidenceRecord",
-            "dev.tramai.security.evidence.ToolPermissionRuntimeEvidenceExporter",
-            "dev.tramai.security.model.InMemoryModelRegistry",
-            "dev.tramai.security.verification.FileSystemModelArtifactVerifier"
-        ),
-        "tramai-sovereign" to setOf(
-            "dev.tramai.sovereign.SovereignDeploymentMode",
-            "dev.tramai.sovereign.SovereignProfileConfiguration",
-            "dev.tramai.sovereign.SovereignTramai",
-            "dev.tramai.sovereign.evidence.ArtifactEvidenceV1",
-            "dev.tramai.sovereign.evidence.AttestationEvidenceV1",
-            "dev.tramai.sovereign.evidence.AuditChainEvidenceV1",
-            "dev.tramai.sovereign.evidence.EvidenceSafeString",
-            "dev.tramai.sovereign.evidence.ReleaseBundleEvidenceLoader",
-            "dev.tramai.sovereign.evidence.ReleaseBundleEvidenceV1",
-            "dev.tramai.sovereign.evidence.SovereignEvidencePackGenerator",
-            "dev.tramai.sovereign.evidence.SovereignEvidencePackV1",
-            "dev.tramai.sovereign.evidence.SovereignEvidencePackWriter",
-            "dev.tramai.sovereign.evidence.SupplyChainEvidenceV1",
-            "dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1"
-        ),
-        "tramai-structured" to setOf(
-            "dev.tramai.structured.JacksonStructuredOutputHandler"
+    private val knownClasses: Map<String, Set<String>> =
+        mapOf(
+            "tramai-core" to
+                setOf(
+                    "dev.tramai.core.provider.ProviderRegistry",
+                    "dev.tramai.core.provider.ModelProvider",
+                    "dev.tramai.core.provider.ProviderFailuresKt",
+                ),
+            "tramai-engine" to
+                setOf(
+                    "dev.tramai.engine.TramaiEngine",
+                    "dev.tramai.engine.ModelRegistryEnforcer",
+                    "dev.tramai.engine.ToolRegistry",
+                    "dev.tramai.engine.RetryPolicySettings",
+                    "dev.tramai.engine.CircuitBreakerSettings",
+                    "dev.tramai.engine.ProviderCircuitBreaker",
+                    "dev.tramai.engine.provider.ProviderRetryDelayPolicy",
+                    "dev.tramai.engine.LegacyPermissivePolicyEngine",
+                    "dev.tramai.engine.PolicyEnforcementHelper",
+                    "dev.tramai.engine.ToolResultFilteringSettings",
+                    "dev.tramai.engine.CanonicalMessageEncoder",
+                    "dev.tramai.engine.TokenBudgetSettings",
+                    "dev.tramai.engine.EngineExecutionIdentity",
+                    "dev.tramai.engine.ExecutionSecurityContext",
+                    "dev.tramai.engine.SensitiveReplayEnvelope",
+                    "dev.tramai.engine.ReplayEnvelopeFactory",
+                    "dev.tramai.engine.ReplayEnvelopeDigestHelper",
+                    "dev.tramai.engine.WorkflowDigestHelper",
+                    "dev.tramai.engine.ResumeOperationRegistry",
+                    "dev.tramai.engine.ResumeOperationReference",
+                    "dev.tramai.engine.ResumeDefinitionDigestHelper",
+                    "dev.tramai.engine.SuspendedInvocationStore",
+                    "dev.tramai.engine.InMemorySuspendedInvocationStore",
+                    "dev.tramai.engine.OperationResponseCache",
+                    "dev.tramai.engine.InMemoryOperationResponseCache",
+                    "dev.tramai.engine.EngineEventObserver",
+                    "dev.tramai.engine.approval.DefaultApprovalGateway",
+                    "dev.tramai.engine.approval.ApprovalGatewayRequestFactory",
+                    "dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest",
+                    "dev.tramai.engine.evidence.ProviderRoutingRuntimeEvidenceExporter",
+                ),
+            "tramai-security" to
+                setOf(
+                    "dev.tramai.security.DefaultPolicyEngine",
+                    "dev.tramai.security.PolicyConfiguration",
+                    "dev.tramai.security.ProviderRoutingConfiguration",
+                    "dev.tramai.security.RuleBasedDlpInterceptor",
+                    "dev.tramai.security.approval.AllowAnyApprovalDecisionValidator",
+                    "dev.tramai.security.approval.DefaultApprovalGateCoordinator",
+                    "dev.tramai.security.approval.InMemoryApprovalContinuationStore",
+                    "dev.tramai.security.approval.InMemoryApprovalRecoveryCoordinator",
+                    "dev.tramai.security.approval.InMemoryApprovalStore",
+                    "dev.tramai.security.approval.RequireDistinctRequesterAndConsumer",
+                    "dev.tramai.security.approval.SecureRandomApprovalTokenGenerator",
+                    "dev.tramai.security.approval.Sha256ApprovalTokenDigester",
+                    "dev.tramai.security.approval.Sha256ToolArgumentsDigester",
+                    "dev.tramai.security.approval.StoredApprovalContinuation",
+                    "dev.tramai.security.approval.UuidApprovalIdGenerator",
+                    "dev.tramai.security.audit.AuditChainVerifier",
+                    "dev.tramai.security.audit.AuditEngine",
+                    "dev.tramai.security.audit.AuditEngineApprovalLifecycleAuditEmitter",
+                    "dev.tramai.security.audit.AuditEngineDlpRedactionAuditEmitter",
+                    "dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter",
+                    "dev.tramai.security.audit.AuditEvent",
+                    "dev.tramai.security.audit.AuditHashAlgorithm",
+                    "dev.tramai.security.audit.AuditSerializer",
+                    "dev.tramai.security.audit.AuditStore",
+                    "dev.tramai.security.audit.AuditStreamIdResolver",
+                    "dev.tramai.security.audit.InMemoryAuditStore",
+                    "dev.tramai.security.classification.ClassificationDecision",
+                    "dev.tramai.security.classification.ClassificationInput",
+                    "dev.tramai.security.classification.ClassificationRule",
+                    "dev.tramai.security.classification.DocumentClassifier",
+                    "dev.tramai.security.classification.RuleBasedDocumentClassifier",
+                    "dev.tramai.security.evidence.ManifestJsonReader",
+                    "dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter",
+                    "dev.tramai.security.evidence.RuntimeEvidenceBundleWriter",
+                    "dev.tramai.security.evidence.RuntimeEvidenceContractValidator",
+                    "dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter",
+                    "dev.tramai.security.evidence.RuntimeEvidenceRecord",
+                    "dev.tramai.security.evidence.ToolPermissionRuntimeEvidenceExporter",
+                    "dev.tramai.security.model.InMemoryModelRegistry",
+                    "dev.tramai.security.verification.FileSystemModelArtifactVerifier",
+                ),
+            "tramai-sovereign" to
+                setOf(
+                    "dev.tramai.sovereign.SovereignDeploymentMode",
+                    "dev.tramai.sovereign.SovereignProfileConfiguration",
+                    "dev.tramai.sovereign.SovereignTramai",
+                    "dev.tramai.sovereign.evidence.ArtifactEvidenceV1",
+                    "dev.tramai.sovereign.evidence.AttestationEvidenceV1",
+                    "dev.tramai.sovereign.evidence.AuditChainEvidenceV1",
+                    "dev.tramai.sovereign.evidence.EvidenceSafeString",
+                    "dev.tramai.sovereign.evidence.ReleaseBundleEvidenceLoader",
+                    "dev.tramai.sovereign.evidence.ReleaseBundleEvidenceV1",
+                    "dev.tramai.sovereign.evidence.SovereignEvidencePackGenerator",
+                    "dev.tramai.sovereign.evidence.SovereignEvidencePackV1",
+                    "dev.tramai.sovereign.evidence.SovereignEvidencePackWriter",
+                    "dev.tramai.sovereign.evidence.SupplyChainEvidenceV1",
+                    "dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1",
+                ),
+            "tramai-structured" to
+                setOf(
+                    "dev.tramai.structured.JacksonStructuredOutputHandler",
+                ),
         )
-    )
 
     private val allKnownClasses: Set<String> by lazy {
         knownClasses.values.flatten().toSet()
@@ -228,15 +234,16 @@ class MutationPatternPreflightTest {
     private fun modulesContainingPattern(pattern: String): Set<String> {
         val stripped = pattern.removeSuffix("*")
         val pkgPrefix = stripped.removeSuffix(".*")
-        return knownClasses.filter { (_, classes) ->
-            if (pattern.endsWith(".*")) {
-                classes.any { it.startsWith(pkgPrefix) }
-            } else if (pattern.endsWith("*")) {
-                classes.any { it == pkgPrefix || it.startsWith("$pkgPrefix$") }
-            } else {
-                pattern in classes
-            }
-        }.keys
+        return knownClasses
+            .filter { (_, classes) ->
+                if (pattern.endsWith(".*")) {
+                    classes.any { it.startsWith(pkgPrefix) }
+                } else if (pattern.endsWith("*")) {
+                    classes.any { it == pkgPrefix || it.startsWith("$pkgPrefix$") }
+                } else {
+                    pattern in classes
+                }
+            }.keys
     }
 
     // ── Core validation tests ──────────────────────────────────────────
@@ -256,7 +263,7 @@ class MutationPatternPreflightTest {
             val existing = seen.put(patterns, name)
             if (existing != null) {
                 fail(
-                    "Mutation families '$existing' and '$name' have identical targetClasses: ${patterns.sorted()}"
+                    "Mutation families '$existing' and '$name' have identical targetClasses: ${patterns.sorted()}",
                 )
             }
         }
@@ -291,9 +298,10 @@ class MutationPatternPreflightTest {
 
     @Test
     fun `no two families have identical sets of matching known classes`() {
-        val matchSets = configuration.mutation.targetFamilies.mapValues { (_, family) ->
-            matchingKnownClasses(family)
-        }
+        val matchSets =
+            configuration.mutation.targetFamilies.mapValues { (_, family) ->
+                matchingKnownClasses(family)
+            }
         val seen = mutableMapOf<Set<String>, String>()
         for ((name, matches) in matchSets) {
             val existing = seen.put(matches, name)
@@ -302,7 +310,7 @@ class MutationPatternPreflightTest {
                     "Mutation families '$existing' and '$name' match the same set of " +
                         "${matches.size} known classes. Each family must target a distinct " +
                         "set of classes to justify a separate mutation budget.\n" +
-                        "Overlapping classes: ${matches.sorted()}"
+                        "Overlapping classes: ${matches.sorted()}",
                 )
             }
         }
@@ -315,7 +323,7 @@ class MutationPatternPreflightTest {
             assertTrue(
                 matches.isNotEmpty(),
                 "Family '$name' (modules=${family.modules}, patterns=${family.targetClasses}) " +
-                    "matches zero known classes"
+                    "matches zero known classes",
             )
         }
     }
@@ -330,7 +338,7 @@ class MutationPatternPreflightTest {
         val overlap = retryMatches.intersect(routingMatches)
         assertTrue(
             overlap.isEmpty(),
-            "Retry and routing must not overlap, but share these classes: ${overlap.sorted()}"
+            "Retry and routing must not overlap, but share these classes: ${overlap.sorted()}",
         )
     }
 
@@ -342,7 +350,7 @@ class MutationPatternPreflightTest {
         val overlap = toolsMatches.intersect(routingMatches)
         assertTrue(
             overlap.isEmpty(),
-            "Tools and routing must not overlap, but share these classes: ${overlap.sorted()}"
+            "Tools and routing must not overlap, but share these classes: ${overlap.sorted()}",
         )
     }
 
@@ -354,7 +362,7 @@ class MutationPatternPreflightTest {
         val overlap = approvalMatches.intersect(policyMatches)
         assertTrue(
             overlap.isEmpty(),
-            "Approval and policy must not overlap, but share these classes: ${overlap.sorted()}"
+            "Approval and policy must not overlap, but share these classes: ${overlap.sorted()}",
         )
     }
 
@@ -366,7 +374,7 @@ class MutationPatternPreflightTest {
         val overlap = policyMatches.intersect(evidenceMatches)
         assertTrue(
             overlap.isEmpty(),
-            "Policy and evidence must not overlap, but share these classes: ${overlap.sorted()}"
+            "Policy and evidence must not overlap, but share these classes: ${overlap.sorted()}",
         )
     }
 }

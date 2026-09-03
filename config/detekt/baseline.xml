@@ -696,10 +696,8 @@
     <ID>LongMethod:BedrockProvider.kt$BedrockProvider$@Suppress("UNCHECKED_CAST") internal fun buildClaudeMessage(message: dev.tramai.core.model.Message): Map&lt;String, Any?&gt;</ID>
     <ID>LongMethod:CancellationDeltaComparator.kt$CancellationDeltaComparator$fun compare(baseCatches: List&lt;CancellationCatchFinding&gt;, currentCatches: List&lt;CancellationCatchFinding&gt;): Result</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeApiBaseline(): ApiProbeResult</ID>
-    <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeTestQualityBaseline( configuration: TestQualityConfiguration ): TestQualityProbeResult</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$private fun dependencyInitScript(probeOutputRoot: File): String</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File ): String</ID>
-    <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$private fun testQualityInitScript( configuration: TestQualityConfiguration, coverageRoot: File, testResultsRoot: File, binaryResultsRoot: File ): String</ID>
     <ID>LongMethod:CanonicalProbeFunctionalTest.kt$CanonicalProbeFunctionalTest$@Test @Tag("integration") @Tag("slow") fun `canonical probe instantiates and validates inputs correctly`( @TempDir tempDir: File, )</ID>
     <ID>LongMethod:ChangePolicyEvaluator.kt$ChangePolicyEvaluator$fun evaluate(input: ChangePolicyInput): ChangePolicyResult</ID>
     <ID>LongMethod:CheckpointConflictRetryTest.kt$CheckpointConflictRetryTest$@Test fun `concurrent CANCELLED transition during COMPLETED persistence stays CANCELLED`()</ID>
@@ -748,8 +746,7 @@
     <ID>LongMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addApiCompatibilityDiagnostics( project: Project, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
-        <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun mutationInitScript( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
-    <ID>LongMethod:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
+        <ID>LongMethod:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
     <ID>LongMethod:McpStep.kt$McpWorkflowStep$suspend fun execute( workflowName: String, state: S, context: WorkflowContext, observer: WorkflowObserver, failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver, ): S</ID>
     <ID>LongMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
     <ID>LongMethod:ModuleCatalog.kt$ModuleCatalog$private fun parseEntry( index: Int, raw: Map&lt;String, Any&gt;, policies: Map&lt;String, Set&lt;ModuleLayer&gt;&gt;, modules: MutableMap&lt;String, ModuleEntry&gt;, errors: MutableList&lt;VerificationDiagnostic&gt;, )</ID>
@@ -4807,5 +4804,8 @@
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt")</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md")</ID>
+    <ID>LongMethod:MutationProbeInitScript.kt$MutationProbeInitScript$fun render( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
+    <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeTestQualityBaseline(configuration: TestQualityConfiguration): TestQualityProbeResult</ID>
+    <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$private fun testQualityInitScript( configuration: TestQualityConfiguration, coverageRoot: File, testResultsRoot: File, binaryResultsRoot: File, ): String</ID>
   </CurrentIssues>
 </SmellBaseline>

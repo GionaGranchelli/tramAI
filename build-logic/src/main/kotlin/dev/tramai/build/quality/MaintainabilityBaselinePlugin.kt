@@ -1591,8 +1591,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         reportRoot: File,
     ): String = MutationProbeInitScript.render(configuration, reportRoot)
 
-    private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
-
     /**
      * Registers a consumer-compatibility PRODUCER task (Epic 10.2, C3/C4).
      *

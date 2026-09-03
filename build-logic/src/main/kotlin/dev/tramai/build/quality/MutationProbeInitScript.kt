@@ -74,7 +74,8 @@ object MutationProbeInitScript {
                         target.targetTests.sorted().joinToString(", ") {
                             "'${groovyString(it)}'"
                         }
-                    "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
+                    "    '${groovyString(family)}': [modules: [$modules], " +
+                        "targetClasses: [$classes], targetTests: [$tests]]"
                 }
         return """
             initscript {

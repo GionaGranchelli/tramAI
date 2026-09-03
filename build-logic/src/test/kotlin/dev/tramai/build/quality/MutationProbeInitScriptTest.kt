@@ -125,10 +125,11 @@ class MutationProbeInitScriptTest {
         assertTrue(MutationProbeInitScript.PIT_PLUGIN_VERSION.isNotBlank())
         assertTrue(MutationProbeInitScript.JUNIT5_PLUGIN_VERSION.isNotBlank())
         assertTrue(MutationProbeInitScript.PIT_ENGINE_VERSION.isNotBlank())
+        val pitPlugin = MutationProbeInitScript.PIT_PLUGIN_VERSION
         val script = MutationProbeInitScript.render(configuration, reportRoot)
         assertContains(
             script,
-            "classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:${MutationProbeInitScript.PIT_PLUGIN_VERSION}'",
+            "classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:$pitPlugin'",
         )
         assertContains(script, "rootProject.tasks.register('canonicalMutationProbe')")
     }
