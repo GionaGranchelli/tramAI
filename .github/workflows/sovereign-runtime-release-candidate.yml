@@ -99,9 +99,9 @@ jobs:
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels) }}'
           if echo "$LABELS" | grep -q '"baseline-migration"'; then
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
+            ./gradlew verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl= -PchangeClass=baseline-migration
           else
-            ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
+            ./gradlew verifySovereignRuntimeClosure --no-daemon --no-configuration-cache --rerun-tasks -PtramaiPublishReleaseUrl=
           fi
 
       - name: Upload test reports on failure
