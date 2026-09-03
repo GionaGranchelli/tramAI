@@ -4804,7 +4804,6 @@
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$"tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt"</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt")</ID>
     <ID>MaxLineLength:TramaiSovereignVerificationPlugin.kt$TramaiSovereignVerificationPlugin$project.layout.projectDirectory.file("tramai-spring-boot-starter-sovereign-ops-observability/README.md")</ID>
-    <ID>LongMethod:MutationProbeInitScript.kt$MutationProbeInitScript$fun render( configuration: TestQualityConfiguration, reportRoot: File, ): String</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$fun probeTestQualityBaseline(configuration: TestQualityConfiguration): TestQualityProbeResult</ID>
     <ID>LongMethod:CanonicalGradleProbe.kt$CanonicalGradleProbe$private fun testQualityInitScript( configuration: TestQualityConfiguration, coverageRoot: File, testResultsRoot: File, binaryResultsRoot: File, ): String</ID>
   </CurrentIssues>
