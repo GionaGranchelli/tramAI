@@ -1619,6 +1619,8 @@ These are guardrails, not absolute design laws. Existing hotspots receive explic
 
 ## Epic 10.5: CI redesign
 
+**Status: ✅ COMPLETE — parallelized CI track #360–#375; P3-E measured closure (`docs/EPIC-10.5-ci-redesign.md`): ordinary/leaf ≈ 8–10 min, high-fanout core/compiler-global ≈ 16–17 min (target band 15–18 min).**
+
 ### Target CI lanes
 
 1. **Fast PR lane**
