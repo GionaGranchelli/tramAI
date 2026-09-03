@@ -1,0 +1,976 @@
+{
+  "schema": "tramai-performance-baseline.v1",
+  "methodology": "docs/EPIC-12.1-performance-resource-baseline.md section 4 (12.1a audit, merged #377)",
+  "measurementCommit": "d2e6beef0e1253caf13218216d936377263b25a5",
+  "measurementCommitAncestry": "contains B01-B11 enrollment (#380, #381, #382); no benchmark-relevant code changed between measurement and this capture",
+  "measurementRuns": [
+    {
+      "runId": "33811488740",
+      "startedUtc": "2026-09-03T22:07:11Z",
+      "outcome": "success",
+      "populationComplete": true
+    },
+    {
+      "runId": "33812722200",
+      "startedUtc": "2026-09-03T22:22:19Z",
+      "outcome": "success",
+      "populationComplete": true
+    },
+    {
+      "runId": "33813904962",
+      "startedUtc": "2026-09-03T22:37:00Z",
+      "outcome": "success",
+      "populationComplete": true
+    }
+  ],
+  "environment": {
+    "note": "3 independent GitHub-hosted runner instances (same runner label class); full env metadata (JDK/OS/hostname/gradle jvm args) recorded per raw sample JSON",
+    "runnerLabel": "GitHub Actions",
+    "rawSampleSource": "raw samples embedded inline per run below (durable in-repo); provenance copies on GitHub artifact store (sovereign-benchmark-reports) and local /tmp/bench-runs/run{1,2,3}"
+  },
+  "policy": "evidence only \u2014 no threshold, no regression gate, no enforcement (12.1d owns regression policy)",
+  "operations": [
+    {
+      "operationId": "B01-service-proxy-creation",
+      "module": "tramai-engine",
+      "fixture": "engine.create<BenchAskService>() on single stub provider (warm path)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 271.66610000000003,
+          "p50": 142.725,
+          "p95": 1263.655,
+          "sampleCount": 10,
+          "rawSamples": [
+            141322,
+            267012,
+            142725,
+            152539,
+            189315,
+            132219,
+            197757,
+            127262,
+            102855,
+            1263655
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 104.88140000000001,
+          "p50": 102.591,
+          "p95": 120.828,
+          "sampleCount": 10,
+          "rawSamples": [
+            104273,
+            101299,
+            115961,
+            97964,
+            120828,
+            103412,
+            115560,
+            102591,
+            94319,
+            92607
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 157.2732,
+          "p50": 145.332,
+          "p95": 223.327,
+          "sampleCount": 10,
+          "rawSamples": [
+            159458,
+            145332,
+            144421,
+            156122,
+            136916,
+            169988,
+            223327,
+            158076,
+            141455,
+            137637
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 2.59,
+        "p50MaxMin": 1.417,
+        "p95MaxMin": 10.458,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B02-operation-plan-compilation",
+      "module": "tramai-engine",
+      "fixture": "ServiceDefinitionCompiler.compile<BenchPlanService>() (2 ops, no tools)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 78.36099999999999,
+          "p50": 73.13,
+          "p95": 103.997,
+          "sampleCount": 10,
+          "rawSamples": [
+            76575,
+            65639,
+            74522,
+            89204,
+            73130,
+            71308,
+            66250,
+            66490,
+            103997,
+            96495
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 67.1329,
+          "p50": 63.574,
+          "p95": 90.674,
+          "sampleCount": 10,
+          "rawSamples": [
+            69822,
+            63444,
+            90674,
+            68872,
+            63894,
+            61851,
+            63574,
+            62832,
+            61180,
+            65186
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 104.05639999999998,
+          "p50": 101.149,
+          "p95": 130.243,
+          "sampleCount": 10,
+          "rawSamples": [
+            115927,
+            106820,
+            100458,
+            130243,
+            105206,
+            102482,
+            101149,
+            97302,
+            84828,
+            96149
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.55,
+        "p50MaxMin": 1.591,
+        "p95MaxMin": 1.436,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B03-cached-invocation-dispatch",
+      "module": "tramai-engine",
+      "fixture": "engine.create<BenchCacheService>().respond('same-input') with InMemoryOperationResponseCache, cacheable=true (warm, cache-hit)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 399.9335,
+          "p50": 279.119,
+          "p95": 914.224,
+          "sampleCount": 10,
+          "rawSamples": [
+            356406,
+            279119,
+            256196,
+            258870,
+            286721,
+            277037,
+            840384,
+            914224,
+            281363,
+            249015
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 395.9282,
+          "p50": 199.584,
+          "p95": 2247.968,
+          "sampleCount": 10,
+          "rawSamples": [
+            209008,
+            222167,
+            199584,
+            159324,
+            136801,
+            132245,
+            189584,
+            206194,
+            2247968,
+            256407
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 511.6761,
+          "p50": 318.785,
+          "p95": 1819.541,
+          "sampleCount": 10,
+          "rawSamples": [
+            372346,
+            402271,
+            318785,
+            303918,
+            360354,
+            720586,
+            257982,
+            263101,
+            297877,
+            1819541
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.292,
+        "p50MaxMin": 1.597,
+        "p95MaxMin": 2.459,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B04-structured-contract-compilation",
+      "module": "tramai-structured",
+      "fixture": "StructuredTypeCompiler.compile<BenchContract>() (3 props: @AiDescription String, @AiRange Double, List<String>)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 60.86370000000001,
+          "p50": 46.861,
+          "p95": 89.195,
+          "sampleCount": 10,
+          "rawSamples": [
+            84156,
+            73601,
+            89195,
+            67161,
+            72179,
+            46861,
+            44777,
+            45248,
+            41773,
+            43686
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 122.26259999999999,
+          "p50": 49.122,
+          "p95": 766.837,
+          "sampleCount": 10,
+          "rawSamples": [
+            49262,
+            43844,
+            45437,
+            766837,
+            60829,
+            49122,
+            51155,
+            45117,
+            65526,
+            45497
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 66.4644,
+          "p50": 63.79,
+          "p95": 87.433,
+          "sampleCount": 10,
+          "rawSamples": [
+            67035,
+            60623,
+            63770,
+            87433,
+            65623,
+            59712,
+            60543,
+            71284,
+            64831,
+            63790
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 2.009,
+        "p50MaxMin": 1.361,
+        "p95MaxMin": 8.771,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B05-structured-validation",
+      "module": "tramai-structured",
+      "fixture": "StructuredValueValidator.validate(valid BenchValidDoc, compiled descriptor)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 35.8228,
+          "p50": 34.562,
+          "p95": 42.193,
+          "sampleCount": 10,
+          "rawSamples": [
+            39920,
+            36004,
+            34332,
+            32168,
+            32289,
+            34562,
+            36525,
+            32559,
+            42193,
+            37676
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 31.835600000000007,
+          "p50": 31.065,
+          "p95": 36.373,
+          "sampleCount": 10,
+          "rawSamples": [
+            36373,
+            30775,
+            33289,
+            30895,
+            31646,
+            31577,
+            31065,
+            30335,
+            30224,
+            32177
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 49.34439999999999,
+          "p50": 48.14,
+          "p95": 54.983,
+          "sampleCount": 10,
+          "rawSamples": [
+            51166,
+            47559,
+            50194,
+            47940,
+            48140,
+            54983,
+            47038,
+            47749,
+            48431,
+            50244
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.55,
+        "p50MaxMin": 1.55,
+        "p95MaxMin": 1.512,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B06-provider-routing",
+      "module": "tramai-core",
+      "fixture": "ProviderRegistry.resolveCandidates(Operation model=gpt-5.1-chat-latest) on 3-provider/2-model registry with 1 fallback hop",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 8.706999999999999,
+          "p50": 6.41,
+          "p95": 24.336,
+          "sampleCount": 10,
+          "rawSamples": [
+            8753,
+            7331,
+            6410,
+            6079,
+            24336,
+            6900,
+            8884,
+            5999,
+            6159,
+            6219
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 7.3364,
+          "p50": 5.808,
+          "p95": 17.875,
+          "sampleCount": 10,
+          "rawSamples": [
+            8312,
+            6629,
+            5818,
+            5728,
+            17875,
+            6619,
+            5808,
+            5769,
+            5588,
+            5218
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 283.1983000000001,
+          "p50": 9.758,
+          "p95": 2736.677,
+          "sampleCount": 10,
+          "rawSamples": [
+            15218,
+            10449,
+            12052,
+            9758,
+            2736677,
+            16501,
+            9077,
+            7694,
+            7284,
+            7273
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 38.602,
+        "p50MaxMin": 1.68,
+        "p95MaxMin": 153.101,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B07-tool-governance",
+      "module": "tramai-engine",
+      "fixture": "ToolAuthorizationCoordinator.authorize(governed-tool, '{}') with allow-by-default policy (context build + policy evaluation)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 12.017000000000001,
+          "p50": 9.654,
+          "p95": 30.296,
+          "sampleCount": 10,
+          "rawSamples": [
+            30296,
+            12008,
+            10275,
+            9654,
+            9764,
+            9474,
+            9424,
+            10286,
+            9465,
+            9524
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 17.5369,
+          "p50": 14.552,
+          "p95": 35.242,
+          "sampleCount": 10,
+          "rawSamples": [
+            35242,
+            17555,
+            17256,
+            14552,
+            14241,
+            14171,
+            14011,
+            19258,
+            14581,
+            14502
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 24.501799999999996,
+          "p50": 24.777,
+          "p95": 41.468,
+          "sampleCount": 10,
+          "rawSamples": [
+            41468,
+            30537,
+            27141,
+            24777,
+            24866,
+            28463,
+            18334,
+            16541,
+            16731,
+            16160
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 2.039,
+        "p50MaxMin": 2.567,
+        "p95MaxMin": 1.369,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B08-approval-suspend-resume",
+      "module": "tramai-engine",
+      "fixture": "ApprovalResumeCoordinator.resume(ResumeApprovalCommand) full pipeline over in-memory continuation/suspended stores, policy Allow, executor no-op",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 171.6959,
+          "p50": 161.563,
+          "p95": 245.279,
+          "sampleCount": 10,
+          "rawSamples": [
+            161563,
+            153570,
+            245279,
+            210256,
+            215003,
+            185339,
+            211778,
+            129114,
+            104777,
+            100280
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 147.2566,
+          "p50": 128.659,
+          "p95": 209.018,
+          "sampleCount": 10,
+          "rawSamples": [
+            119606,
+            108970,
+            197030,
+            165724,
+            209018,
+            128659,
+            163421,
+            164361,
+            114288,
+            101489
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 205.99579999999997,
+          "p50": 201.376,
+          "p95": 221.704,
+          "sampleCount": 10,
+          "rawSamples": [
+            221704,
+            209181,
+            213599,
+            201376,
+            196818,
+            219861,
+            209371,
+            199042,
+            196026,
+            192980
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.399,
+        "p50MaxMin": 1.565,
+        "p95MaxMin": 1.173,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B09-evidence-export",
+      "module": "tramai-engine",
+      "fixture": "ProviderRoutingRuntimeEvidenceExporter.export(3-record batch: SELECTED + FALLBACK + BLOCKED, digests precomputed)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 514.8252,
+          "p50": 485.57,
+          "p95": 707.164,
+          "sampleCount": 10,
+          "rawSamples": [
+            670478,
+            677429,
+            707164,
+            555365,
+            485570,
+            425319,
+            428144,
+            521594,
+            339040,
+            338149
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 441.91139999999996,
+          "p50": 447.248,
+          "p95": 497.142,
+          "sampleCount": 10,
+          "rawSamples": [
+            497142,
+            488138,
+            493887,
+            469451,
+            460137,
+            432236,
+            359950,
+            447248,
+            444795,
+            326130
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 596.9377000000001,
+          "p50": 562.712,
+          "p95": 760.472,
+          "sampleCount": 10,
+          "rawSamples": [
+            752016,
+            760472,
+            606173,
+            562712,
+            506297,
+            585383,
+            533527,
+            519761,
+            488773,
+            654263
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.351,
+        "p50MaxMin": 1.258,
+        "p95MaxMin": 1.53,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B10-checkpoint-resume",
+      "module": "tramai-orchestration",
+      "fixture": "CheckpointPoller poll cycle over 1 due checkpoint: enumerate+order+filter+lease claim+supervisor dispatch+completion drain (one-step in-process workflow)",
+      "metric": "latency",
+      "unit": "microseconds",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 1515.5301,
+          "p50": 1196.883,
+          "p95": 3828.955,
+          "sampleCount": 10,
+          "rawSamples": [
+            3828955,
+            1191304,
+            1169241,
+            1176922,
+            1196883,
+            1206657,
+            1186867,
+            1717075,
+            1203112,
+            1278285
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 1509.9575,
+          "p50": 1189.584,
+          "p95": 3226.562,
+          "sampleCount": 10,
+          "rawSamples": [
+            3222756,
+            1207852,
+            1193781,
+            1189584,
+            3226562,
+            1227821,
+            1187411,
+            1183205,
+            1176065,
+            284538
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 1253.8223,
+          "p50": 1186.325,
+          "p95": 2266.22,
+          "sampleCount": 10,
+          "rawSamples": [
+            1382770,
+            319646,
+            666885,
+            1170906,
+            1174933,
+            1186325,
+            1455968,
+            2266220,
+            1727094,
+            1187476
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.209,
+        "p50MaxMin": 1.009,
+        "p95MaxMin": 1.69,
+        "referenceMetric": "p50 (mean is outlier-sensitive on micro-latency ops)"
+      }
+    },
+    {
+      "operationId": "B11-worker-polling-empty",
+      "module": "tramai-orchestration",
+      "fixture": "CheckpointPoller poll cycle over EMPTY catalog (0 due): idle enumerate+filter cycle; ops/sec = poll cycles/sec; no claims expected per cycle",
+      "metric": "throughput",
+      "unit": "ops/sec",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 98299.67696404086,
+          "p50": 96850.6292557912,
+          "p95": 112352.8948560464,
+          "sampleCount": 5,
+          "rawSamples": [
+            112352.8948560464,
+            108050.5165819888,
+            82782.4678742965,
+            96850.6292557912,
+            91461.87625208143
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 104144.67554703992,
+          "p50": 112596.88132288709,
+          "p95": 117975.68099375861,
+          "sampleCount": 5,
+          "rawSamples": [
+            112596.88132288709,
+            117975.68099375861,
+            114475.84499970588,
+            105411.80066628495,
+            70263.16975256313
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 129507.13105883775,
+          "p50": 135445.69337762494,
+          "p95": 151263.72379244035,
+          "sampleCount": 5,
+          "rawSamples": [
+            135445.69337762494,
+            104308.24051929335,
+            143609.5104351789,
+            151263.72379244035,
+            112908.48716965126
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.317,
+        "p50MaxMin": 1.399,
+        "p95MaxMin": 1.346,
+        "referenceMetric": "mean"
+      }
+    },
+    {
+      "operationId": "B11-worker-polling-loaded",
+      "module": "tramai-orchestration",
+      "fixture": "CheckpointPoller poll cycle over catalog with 100 due checkpoints: 100 claims+dispatches+completions per cycle, depth stable across cycles; ops/sec = poll cycles/sec (x100 = checkpoint claims/sec); step bodies trivial, lease renewal outside timed region",
+      "metric": "throughput",
+      "unit": "ops/sec",
+      "runs": {
+        "run1": {
+          "runId": "33811488740",
+          "startedUtc": "2026-09-03T22:07:11Z",
+          "runner": "GitHub Actions 1000006218",
+          "hostname": "runnervmejwal",
+          "mean": 22.77917231297859,
+          "p50": 23.29050676566659,
+          "p95": 25.957156868500253,
+          "sampleCount": 5,
+          "rawSamples": [
+            18.871598579297746,
+            23.29050676566659,
+            21.558033537405535,
+            25.957156868500253,
+            24.218565814022835
+          ]
+        },
+        "run2": {
+          "runId": "33812722200",
+          "startedUtc": "2026-09-03T22:22:19Z",
+          "runner": "GitHub Actions 1000006263",
+          "hostname": "runnervmgx7h7",
+          "mean": 24.548282482417555,
+          "p50": 25.57753843220178,
+          "p95": 27.78980638042938,
+          "sampleCount": 5,
+          "rawSamples": [
+            21.10584513026639,
+            22.17910092846644,
+            26.0891215407238,
+            25.57753843220178,
+            27.78980638042938
+          ]
+        },
+        "run3": {
+          "runId": "33813904962",
+          "startedUtc": "2026-09-03T22:37:00Z",
+          "runner": "GitHub Actions 1000006287",
+          "hostname": "runnervmgx7h7",
+          "mean": 24.259390055273013,
+          "p50": 23.54181209110196,
+          "p95": 28.564696787029018,
+          "sampleCount": 5,
+          "rawSamples": [
+            19.701892128148994,
+            23.54181209110196,
+            22.942435936975794,
+            26.546113333109282,
+            28.564696787029018
+          ]
+        }
+      },
+      "interRunSpread": {
+        "meanMaxMin": 1.078,
+        "p50MaxMin": 1.098,
+        "p95MaxMin": 1.1,
+        "referenceMetric": "mean"
+      }
+    }
+  ]
+}
