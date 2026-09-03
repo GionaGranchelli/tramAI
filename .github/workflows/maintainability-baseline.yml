@@ -151,7 +151,7 @@ jobs:
               --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
               --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
               --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
-            expected: 257
+            expected: 263
           - name: scanners-coverage
             test-filter: >-
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
