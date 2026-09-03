@@ -2,7 +2,7 @@
   "schemaVersion" : "1",
   "identitySchemaVersion" : "2",
   "status" : "measured",
-  "measuredCommit" : "49497be07bf2e7bdfa239db6a4fc6ab072e2bd3d",
+  "measuredCommit" : "7e6d30147348e2264e95496bea4c7518e9c6c025",
   "analyzer" : {
     "pluginVersion" : "1.19.0",
     "engineVersion" : "1.22.1",
@@ -49,9 +49,9 @@
       "modules" : [ ":tramai-core", ":tramai-engine" ],
       "totalMutants" : 143,
       "killedMutants" : 112,
-      "survivedMutants" : 16,
+      "survivedMutants" : 15,
       "noCoverageMutants" : 12,
-      "timedOutMutants" : 3,
+      "timedOutMutants" : 4,
       "errorMutants" : 0,
       "mutationScore" : 78.32167832167832
     },
@@ -60,9 +60,9 @@
       "modules" : [ ":tramai-core", ":tramai-engine" ],
       "totalMutants" : 15,
       "killedMutants" : 10,
-      "survivedMutants" : 2,
+      "survivedMutants" : 1,
       "noCoverageMutants" : 2,
-      "timedOutMutants" : 1,
+      "timedOutMutants" : 2,
       "errorMutants" : 0,
       "mutationScore" : 66.66666666666667
     },
@@ -82,9 +82,9 @@
       "modules" : [ ":tramai-engine" ],
       "totalMutants" : 57,
       "killedMutants" : 40,
-      "survivedMutants" : 8,
+      "survivedMutants" : 7,
       "noCoverageMutants" : 7,
-      "timedOutMutants" : 2,
+      "timedOutMutants" : 3,
       "errorMutants" : 0,
       "mutationScore" : 70.17543859649123
     }
@@ -27942,7 +27942,7 @@
     "index" : 27,
     "sourceFile" : "CircuitBreakerSettings.kt",
     "line" : 12,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "8d733cb9e0905e0bd88f619e834832c7c16e7473e9868bfc34c90ffc828c7a9d",
@@ -28902,7 +28902,7 @@
     "index" : 44,
     "sourceFile" : "ModelRegistryEnforcer.kt",
     "line" : 18,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "0f7dd84b915d598bcf7e1a43eb14dc5b6b6ee2a636231f3f49aac4093969ded9",
@@ -34977,7 +34977,7 @@
     "index" : 153,
     "sourceFile" : "ToolResultFilteringSettings.kt",
     "line" : 18,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "34adce029df4388b90413a1003cdcc0c63d89e1df5734b976cf298000591556e",
@@ -35337,7 +35337,7 @@
     "index" : 70,
     "sourceFile" : "ToolRegistry.kt",
     "line" : 24,
-    "status" : "SURVIVED",
+    "status" : "TIMED_OUT",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "a85bb29965ffc4b361243f9f6f12e280c27a14cbdd5f135e4cdb1716c84eaa1b",
@@ -35562,7 +35562,7 @@
     "index" : 67,
     "sourceFile" : "ToolRegistry.kt",
     "line" : 34,
-    "status" : "TIMED_OUT",
+    "status" : "SURVIVED",
     "outcome" : "NON_KILLED"
   }, {
     "identity" : "eba6db858b1e26cbb4ea7f45002a0f6e46ee049e0f048dad8a0105b90777a3d4",
