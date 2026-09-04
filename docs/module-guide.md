@@ -23,9 +23,10 @@ This guide covers both published consumer modules and repository runtime/platfor
 └─────────┬───────────┴──────────┬──────────┘
           │                      │
           ▼                      ▼
-  Add tramai-spring       Add tramai-standalone
-  (auto-discovers         (builder API, no
-   @AiService beans)       framework needed)
+  Add tramai-spring-boot-   Add tramai-standalone
+  starter                   (builder API, no
+  (auto-discovers           framework needed)
+   @AiService beans)
           │                      │
           └──────────┬───────────┘
                      ▼
@@ -81,10 +82,10 @@ This guide covers both published consumer modules and repository runtime/platfor
 | Your situation | Required modules | Optional modules |
 |---------------|-----------------|-----------------|
 | Local model, quick script | core, engine, ollama | structured, testing |
-| Spring Boot + OpenAI | core, engine, spring, openai | structured, observability, testing |
+| Spring Boot + OpenAI | core, engine, spring-boot-starter, openai | structured, observability, testing |
 | Multi-turn Chat Bot | core, engine, openai, memory | memory-store |
 | Document Q&A (RAG) | core, engine, rag, embedding | vectorstore-chroma, vectorstore-pgvector |
-| Production REST API | core, engine, spring, openai, server, scheduler | platform, mcp |
+| Production REST API | core, engine, spring-boot-starter, openai, server, scheduler | platform, mcp |
 | Data extraction pipeline | core, engine, ollama, structured | orchestration |
 | Multi-step agent workflow | core, engine, ollama, orchestration | scheduler, server |
 | SaaS / multi-tenant | core, engine, server, orchestration, platform | dashboard |
@@ -111,8 +112,9 @@ dependencies {
     implementation("dev.tramai:tramai-structured:0.5.0")
 
     // Pick adapter
-    // implementation("dev.tramai:tramai-standalone:0.5.0") // No framework
-    // implementation("dev.tramai:tramai-spring:0.5.0")     // Spring Boot
+    // implementation("dev.tramai:tramai-standalone:0.5.0")     // No framework
+    // implementation("dev.tramai:tramai-spring-boot-starter:0.5.0") // Spring Boot
+    // (legacy "dev.tramai:tramai-spring" exists for 0.5.x Spring apps; new apps use the unified starter)
 }
 ```
 
