@@ -141,4 +141,36 @@ Owning types verified against master `60394445` (post-10.5). "Behavioural tests"
   enforcement, no production change. 12.1d owns regression policy after
   12.1c resource/lifecycle proof.
 
+## 9. 12.1c completion record
+
+**Status: 12.1c ✅ COMPLETE** (2026-09-04; merged via #385, #386, #387).
+
+All seven resource/lifecycle requirements have named, repeatable proof. Every
+slice: test-only, no production change, no timing thresholds, no
+sleeps-as-correctness (latch/process-exit/registry observability instead), no
+platform-specific contract masquerading as portable (`/proc` is gated and
+corroborative only), no leak hidden by GC. Signal's mutation/PIT/config-quality
+authority untouched throughout.
+
+| # | Requirement | Portable proof | Linux-only corroboration | Owning test/suite | Merged PR / commit | Production defect |
+|---|---|---|---|---|---|---|
+| 1 | Runtime close → zero owned jobs | close() returns only after a provider-parked invocation and its cleanup terminate (latch-gated); repeated close is a no-op; post-close work rejected | — | `RuntimeCloseOwnedJobContractTest` (+ existing TramaiEngineTest close suites) | #385 → `d069f79` | none |
+| 2 | Shutdown-hook cleanup | hook registered while worker live, removed on normal shutdown: coordinator flag + JVM `removeShutdownHook` returns false | — | `WorkerShutdownCoordinatorTest` (2 added tests) | #385 → `d069f79` | none |
+| 3 | Subprocess kill-on-cancel | real bounded subprocess fixtures; `cancelAndJoin`; root + descendant terminated (process-exit polling, no fixed sleeps) | — | `SubprocessCancellationContractTest` (existing 27-test suite; referenced by #386, not duplicated) | #386 → `74a4fb9` (reference) | none |
+| 4 | HTTP response/stream always closed | instrumented close-observable streams: close on success, mid-read IOException, CancellationException, overflow, response-level success/failure | — | `BoundedBodyReadTest` (5 added); SSE path already in `ProviderSseTest` | #386 → `74a4fb9` | none |
+| 5 | File/JDBC descriptors bounded | JDBC: instrumented DataSource — live connections 0 after every op, 30 cycles never grow. File: real FileChannel/lock path — `pathLockRegistrySize()` back to baseline every cycle + after 50 distinct paths | `/proc/self/fd` over 200 JDBC + 200 file cycles (gated `@EnabledOnOs(LINUX)`, bounded-growth only) | `JdbcConnectionReleaseProbeTest`, `FileDescriptorReleaseProbeTest` | #387 → `92dbb8c` | none |
+| 6 | Registries/caches bounded | audit of every named candidate; module-global `pathLocks` registry is lifecycle-bounded by reference counting (`releasePathLock` removes at `users==0`) and proven to return to baseline; all others instance-scoped by construction | — | registry audit (PR #387 body) + `pathLockRegistrySize()` assertions; existing `FileWorkflowPersistenceCancellationContractTest` cancellation/lock scenarios | #387 → `92dbb8c` | none (no eviction semantics invented) |
+| 7 | Repeated create/close × N | engine 25× create→invoke→close→close cycles retain no owned state; worker 10× cycles leave no accumulated JVM hooks | — | `RuntimeCloseOwnedJobContractTest`, `WorkerShutdownCoordinatorTest` | #385 → `d069f79` | none |
+
+**Cross-cutting acceptance:** no timing thresholds anywhere; deterministic
+ownership signals only; exact-head CI + MB green for every merged slice
+(#385 `d069f79`, #386 `74a4fb9` after rebase onto post-#385 master, #387
+`92dbb8c` after rebase onto post-#386 master); no production defect was
+exposed by any probe, so no RED→GREEN production-fix PR was required.
+
+**Next:** 12.1d regression policy, using the real 12.1b performance variance
+plus the deterministic 12.1c resource proofs. Do not start before this record
+is accepted.
+
+
 *This is the Epic 12.1 opener (12.1a): measurement-only audit. No production behaviour change; no mutation/PIT/config-quality files (Signal's lane). Next slices 12.1b–d proceed only after this audit is accepted.*
