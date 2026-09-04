@@ -172,5 +172,61 @@ exposed by any probe, so no RED→GREEN production-fix PR was required.
 plus the deterministic 12.1c resource proofs. Do not start before this record
 is accepted.
 
+## 10. 12.1d completion record and Epic 12.1 closure
+
+**Status: 12.1d ✅ COMPLETE — Epic 12.1 ✅ COMPLETE** (2026-09-04; 12.1d merged
+via #389 → `235769c`).
+
+Policy adopted in `docs/EPIC-12.1d-regression-policy.md`, enforced by
+`scripts/performance_regression_verifier.py` (stdlib-only; 23 classification
+semantics tests in `scripts/test_performance_regression_verifier.py`), wired
+into `ci.yml` (fast timing-free unit job on every PR) and the deep lane
+(`sovereign-runtime-release-candidate.yml`, workflow_dispatch only).
+
+- **Resource/lifecycle regressions remain deterministic CI blockers** — the
+  seven 12.1c proofs (#385/#386/#387) are correctness contracts; no
+  statistical confirmation; the 12.1d verifier does not govern them.
+- **Ordinary PR CI remains timing-free** — B01–B11 stay gated behind
+  `tramai.benchmark=true`; timing drift is never an ordinary PR failure.
+- **Deep lane compares the complete 12-op population** against the committed
+  0.6.0 baseline (missing/duplicate identity, malformed JSON, wrong commit,
+  schema/authority mismatch, skipped execution all fail closed).
+- **Reference/envelope semantics tested**: latency p50 / throughput mean
+  ops/sec; reference = median of the 3 recorded values; envelope = min..max —
+  boundaries derived from measured 12.1b variance, no arbitrary percentage.
+- **Single-run drift never becomes a confirmed regression** — one deep run
+  yields only WITHIN / REGRESSION_CANDIDATE / IMPROVEMENT_CANDIDATE.
+- **Three-run confirmation semantics tested** — CONFIRMED_REGRESSION only
+  when all three runs are worse than the worst observed 0.6.0 boundary;
+  straddle → INCONCLUSIVE_NOISE.
+- **Authority/applicability explicit** — benchmark-authority fingerprint over
+  harness/benchmark/fixture files (production code excluded); env
+  compatibility class-based; OS/arch/JDK-family/methodology mismatch →
+  NON_COMPARABLE when recorded; runner instances/hostnames never invalidate.
+- **Structural failures fail closed** (INVALID_MEASUREMENT / NON_COMPARABLE →
+  non-zero verifier exit).
+- **No automatic baseline weakening** — confirmed regression requires explicit
+  release adjudication (fix / accept with rationale / re-authority); the
+  0.6.0 baseline stays immutable with provenance and ≥3-run replacement
+  protocol.
+- **Exact-head CI + MB green** on the merged slice (#389 `235769c`).
+
+Validated end-to-end against the real 12.1b deep-lane archives: run1 verifies
+12/12 WITHIN_BASELINE_VARIANCE; the 3-run confirm classifies
+INCONCLUSIVE_NOISE (the runs define the envelope — no regression).
+
+### Epic 12.1 — final acceptance
+
+| Slice | Deliverable | Merged |
+|---|---|---|
+| 12.1a | measurement-only audit (methodology §4, map §2/§3) | #377 |
+| 12.1b | 12-operation benchmark baseline, ≥3 independent runs, committed baseline + durable raw samples (evidence only) | #380–#384 |
+| 12.1c | 7 deterministic resource/lifecycle proofs (jobs, hooks, subprocess, HTTP, file/JDBC descriptors, registries incl. pathLocks, create/close cycles) | #385–#388 |
+| 12.1d | regression policy: hard resource failures + measured-drift performance protocol, verifier + tests + deep-lane integration | #389 |
+
+No production defect was found by any 12.1c probe; no thresholds were invented
+anywhere; the 0.6.0 baseline and its raw samples remain the durable,
+immutable evidence foundation for 0.6.0 release review. Signal's
+mutation/PIT/config-quality authority untouched throughout the epic.
 
 *This is the Epic 12.1 opener (12.1a): measurement-only audit. No production behaviour change; no mutation/PIT/config-quality files (Signal's lane). Next slices 12.1b–d proceed only after this audit is accepted.*
