@@ -734,9 +734,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 ),
             )
             sourceTree.from(
-                project.fileTree(project.rootDir) {
-                    include("**/api/*.api", "docs/releases/0.6.0-maintainability-baseline.md")
-                },
+                project
+                    .fileTree(project.rootDir) {
+                        include(
+                            "**/api/*.api",
+                            "docs/releases/0.6.0-maintainability-baseline.md",
+                        )
+                    }.files
+                    .sortedBy { it.absolutePath },
             )
         }
 
