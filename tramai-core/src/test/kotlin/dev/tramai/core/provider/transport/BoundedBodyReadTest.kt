@@ -1,6 +1,8 @@
 package dev.tramai.core.provider.transport
 
+import kotlinx.coroutines.CancellationException
 import java.io.ByteArrayInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.URI
 import java.net.http.HttpClient
@@ -16,7 +18,7 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalProviderTransportApi::class)
 class BoundedBodyReadTest {
-    private class CloseTrackingStream(
+    private open class CloseTrackingStream(
         bytes: ByteArray,
     ) : ByteArrayInputStream(bytes) {
         var closed = false
@@ -97,5 +99,97 @@ class BoundedBodyReadTest {
 
         assertEquals("{}", result.text)
         assertTrue(!result.truncated)
+    }
+
+    /**
+     * Epic 12.1c probe 4 — HTTP response/stream always closed. The transport
+     * contract closes the body stream on EVERY exit (input.use): prove the
+     * failure, cancellation, overflow, and response-level paths with an
+     * instrumented close-observable stream. SSE/streaming-path closure is
+     * covered by ProviderSseTest (caller use block closes on completion and on
+     * exception). No FD counting, no sleeps — observable close() only.
+     */
+    @Test
+    fun `readBoundedBody closes the stream when reading fails`() {
+        val stream =
+            object : CloseTrackingStream("partial".toByteArray()) {
+                private var reads = 0
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int {
+                    if (reads++ == 0) {
+                        return super.read(b, off, 1)
+                    }
+                    throw IOException("mid-read failure")
+                }
+            }
+
+        val error =
+            assertFailsWith<IOException> {
+                readBoundedBody(stream, 10)
+            }
+
+        assertTrue(stream.closed)
+        assertEquals("mid-read failure", error.message)
+    }
+
+    @Test
+    fun `readBoundedBody closes the stream on cancellation`() {
+        val stream =
+            object : CloseTrackingStream("never-read".toByteArray()) {
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = throw CancellationException("cancelled mid-read")
+            }
+
+        val error =
+            assertFailsWith<CancellationException> {
+                readBoundedBody(stream, 10)
+            }
+
+        assertTrue(stream.closed)
+        assertEquals("cancelled mid-read", error.message)
+    }
+
+    @Test
+    fun `readBoundedBody closes the stream when the body exceeds the limit`() {
+        val stream = CloseTrackingStream("0123456789".toByteArray())
+
+        val result = readBoundedBody(stream, 4)
+
+        assertTrue(result.truncated)
+        assertTrue(stream.closed)
+    }
+
+    @Test
+    fun `readBoundedResponseBody closes the response body stream`() {
+        val stream = CloseTrackingStream("{}".toByteArray())
+
+        readBoundedResponseBody(FakeResponse(stream), 10)
+
+        assertTrue(stream.closed)
+    }
+
+    @Test
+    fun `readBoundedResponseBody closes the response body stream when reading fails`() {
+        val stream =
+            object : CloseTrackingStream("{}".toByteArray()) {
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = throw IOException("response read failure")
+            }
+
+        assertFailsWith<IOException> {
+            readBoundedResponseBody(FakeResponse(stream), 10)
+        }
+
+        assertTrue(stream.closed)
     }
 }
