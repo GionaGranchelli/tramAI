@@ -16,7 +16,7 @@ components of TramAI.
 | Outbox lifecycle | ✅ #291 |
 | Workflow checkpoint/resume lifecycle | ✅ #295 |
 | Circuit breaker states | ✅ #302 |
-| Provider retry/fallback | ⏳ |
+| Provider retry/fallback | ✅ #310 |
 
 ## Method
 
@@ -1261,7 +1261,7 @@ seams to execute an impossible state would weaken the architecture.
 - `tramai-engine/src/test/.../provider/ProviderCircuitBreakerSecondaryRegressionTest.kt` (H1–H17 incl. H1b, C1–C4)
 - `tramai-engine/src/test/.../streaming/StreamingExecutionCoordinatorTest.kt` (H6, H7, H11, H13, H16)
 
-## Epic 8.2h — Provider retry/fallback lifecycle (PR pending)
+## Epic 8.2h — Provider retry/fallback lifecycle (PR #310)
 
 **Central invariant.** Every provider attempt has exactly one authoritative disposition. Retry remains within the currently admitted route; fallback can occur only after that route exhausts its retry authority; a breaker permit is owned by the route, not by each physical retry attempt; and once streaming output becomes externally visible, retry and fallback authority are permanently lost.
 

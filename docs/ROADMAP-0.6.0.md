@@ -1307,7 +1307,22 @@ repair feedback. No layer maintains its own independent fixture lists.
 
 ## Epic 8.2: State-machine and property-based tests
 
-**Status: 🚧 IN PROGRESS** — Approval lifecycle done (PR #278); continuation lifecycle done (PR #279); worker lifecycle done (PR #280); lease lifecycle done (PR #290); outbox lifecycle done (PR #291); workflow checkpoint/resume lifecycle done (PR #295); circuit breaker lifecycle done (PR #302); provider retry/fallback lifecycle done (Epic 8.2h); remaining targets pending.
+**Status: ✅ COMPLETE** — Approval lifecycle (PR #278); continuation lifecycle (PR #279); worker lifecycle (PR #280); lease lifecycle (PR #290); outbox lifecycle (PR #291); workflow checkpoint/resume lifecycle (PR #295); circuit breaker lifecycle (PR #302); provider retry/fallback lifecycle (PR #310, Epic 8.2h).
+
+**Closure record (closure audit 2026-09-04):** every intended target below is
+COMPLETE with a durable oracle/property/discriminator reference in
+`docs/reference/state-machine-property-testing-contract.md` and its owning
+test sources on master; no intended lifecycle/state machine is MISSING and no
+new state machine was invented (no additional runtime type was promised).
+Each family: pure independent model oracle + deterministic 32-seed × 32-action
+corpus (or equivalent) + semantic coverage guard + per-action invariants +
+concurrency properties + mutation evidence (0 reachable weak; production
+defects fixed RED→GREEN where found). The only open observation is a worker
+lifecycle anomaly (lease acquire → no step start → release → reacquire loop
+seen in a lifecycle-heavy harness, not isolated; deferred with a
+minimal-reproducer-first protocol — not a promised family, no evidence of a
+durable defect). The "remaining targets pending" language in the earlier
+status line was stale: the eight-family target list was completed by #310.
 
 **Goal:** Test lifecycle logic through transitions rather than isolated examples.
 
