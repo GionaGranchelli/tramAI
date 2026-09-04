@@ -110,4 +110,35 @@ Owning types verified against master `60394445` (post-10.5). "Behavioural tests"
 3. **12.1c** resource/lifecycle proof (7 probes; RED→GREEN per defect).
 4. **12.1d** regression policy — only after real measurements exist.
 
+---
+
+## 8. 12.1b completion record
+
+**Status: 12.1b ✅ COMPLETE** (2026-09-04; merged via #380, #381, #382, #383).
+
+- **Enrolled operations:** B01–B11 — 12 operation identities (`B11` measured
+  at both `empty` and `loaded` depths). Owning-module benchmark classes under
+  `src/test/.../benchmark/`, gated by `tramai.benchmark=true` (skipped by
+  default in ordinary PR CI), using the canonical `BenchmarkHarness`
+  (`tramai-testing` testFixtures) and the module-local `BenchmarkSupport`
+  copies in `tramai-core`/`tramai-structured` (documented bounded exception:
+  base modules cannot take the upward fixtures edge).
+- **Measurement authority:** exact commit
+  `d2e6beef0e1253caf13218216d936377263b25a5` (branch
+  `epic/12.1b-measurement-authority`, = master after #382; no
+  benchmark-relevant code changed before/during measurement).
+- **Three independent deep-lane runs:** `33811488740` (22:07:11Z),
+  `33812722200` (22:22:19Z), `33813904962` (22:37:00Z) — all success, all
+  12/12 population, no missing/duplicate ids, nothing discarded. Variance
+  review in `docs/EPIC-12.1b-baseline-evidence.md` (B06 run-3 mean outlier
+  recorded; p50 is the reference metric for micro-latency ops).
+- **Committed baseline:** `config/quality/performance/0.6.0-performance-baseline.json`
+  — measuredCommit provenance, methodology/schema version, per-operation
+  fixture/metric/unit, and per run the mean/p50/p95 **plus the raw sample
+  population** (durable in-repo evidence; no artifact-store dependency for
+  audit).
+- **Policy:** evidence only — no thresholds, no regression gate, no
+  enforcement, no production change. 12.1d owns regression policy after
+  12.1c resource/lifecycle proof.
+
 *This is the Epic 12.1 opener (12.1a): measurement-only audit. No production behaviour change; no mutation/PIT/config-quality files (Signal's lane). Next slices 12.1b–d proceed only after this audit is accepted.*
