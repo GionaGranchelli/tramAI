@@ -16,14 +16,14 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
 
 class WorkerShutdownCoordinatorTest {
-
-    private val config = WorkerConfig(
-        workerId = "shutdown-test",
-        poolName = "tests",
-        pollIntervalMillis = 20,
-        leaseDurationMillis = 5_000,
-        drainTimeoutMillis = 60_000,
-    )
+    private val config =
+        WorkerConfig(
+            workerId = "shutdown-test",
+            poolName = "tests",
+            pollIntervalMillis = 20,
+            leaseDurationMillis = 5_000,
+            drainTimeoutMillis = 60_000,
+        )
 
     private class RecordingObserver : TramaiWorkerObserver {
         val events = CopyOnWriteArrayList<String>()
@@ -32,7 +32,11 @@ class WorkerShutdownCoordinatorTest {
             events += "shutdownStarted"
         }
 
-        override fun onDrainProgress(workerId: String, done: Int, pending: Int) {
+        override fun onDrainProgress(
+            workerId: String,
+            done: Int,
+            pending: Int,
+        ) {
             events += "drainProgress($done,$pending)"
         }
 
@@ -44,23 +48,45 @@ class WorkerShutdownCoordinatorTest {
             events += "workerStopped"
         }
 
-        override fun onLeaseAcquired(workflowId: String, workerId: String) {
+        override fun onLeaseAcquired(
+            workflowId: String,
+            workerId: String,
+        ) {
             events += "leaseAcquired"
         }
 
-        override fun onLeaseReleased(workflowId: String, workerId: String) {
+        override fun onLeaseReleased(
+            workflowId: String,
+            workerId: String,
+        ) {
             events += "leaseReleased"
         }
 
-        override fun onStepAttemptStarted(runId: String, stepName: String, attemptId: String, workerId: String) {
+        override fun onStepAttemptStarted(
+            runId: String,
+            stepName: String,
+            attemptId: String,
+            workerId: String,
+        ) {
             events += "attemptStarted"
         }
 
-        override fun onStepAttemptCompleted(runId: String, stepName: String, attemptId: String, workerId: String) {
+        override fun onStepAttemptCompleted(
+            runId: String,
+            stepName: String,
+            attemptId: String,
+            workerId: String,
+        ) {
             events += "attemptCompleted"
         }
 
-        override fun onStepAttemptFailed(runId: String, stepName: String, attemptId: String, workerId: String, error: Throwable) {
+        override fun onStepAttemptFailed(
+            runId: String,
+            stepName: String,
+            attemptId: String,
+            workerId: String,
+            error: Throwable,
+        ) {
             events += "attemptFailed"
         }
     }
@@ -79,20 +105,22 @@ class WorkerShutdownCoordinatorTest {
         // the coordinator is assigned right after (same pattern as the
         // lifecycle controller). Only invoked during execution, so lateinit is safe.
         lateinit var coordinator: WorkerShutdownCoordinator
-        val supervisor = WorkflowExecutionSupervisor(
-            config = config,
-            leaseStore = leaseStore,
-            checkpointStore = store,
-            stepAttemptStore = store,
-            workflowBindings = WorkflowBindingRegistry {
-                bind(workflow, WorkflowPersistence(checkpointStore = store, stateCodec = TestCodec))
-            },
-            observability = observer,
-            leaseCoordinator = leaseCoordinator,
-            recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, store),
-            leaseRenewalLoop = LeaseRenewalLoop(config, leaseStore, observer),
-            shuttingDownGracefully = { coordinator.isShuttingDownGracefully() },
-        )
+        val supervisor =
+            WorkflowExecutionSupervisor(
+                config = config,
+                leaseStore = leaseStore,
+                checkpointStore = store,
+                stepAttemptStore = store,
+                workflowBindings =
+                    WorkflowBindingRegistry {
+                        bind(workflow, WorkflowPersistence(checkpointStore = store, stateCodec = TestCodec))
+                    },
+                observability = observer,
+                leaseCoordinator = leaseCoordinator,
+                recoveryCoordinator = WorkflowRecoveryCoordinator(leaseStore, store),
+                leaseRenewalLoop = LeaseRenewalLoop(config, leaseStore, observer),
+                shuttingDownGracefully = { coordinator.isShuttingDownGracefully() },
+            )
         coordinator = WorkerShutdownCoordinator(config, observer, supervisor, leaseStore)
         val rootSupervisor = SupervisorJob()
         val scope = CoroutineScope(rootSupervisor + Dispatchers.Default)
@@ -137,26 +165,32 @@ class WorkerShutdownCoordinatorTest {
     @Test
     fun `shutdown drains a running execution to completion before finishing`() {
         val gate = CompletableDeferred<Unit>()
-        val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
-            localStep("mark") { state, _ -> gate.await(); state.copy(value = "done") }
-        }.build { it.value }
+        val workflow =
+            workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ ->
+                    gate.await()
+                    state.copy(value = "done")
+                }
+            }.build { it.value }
         val h = harness(workflow = workflow)
         h.start()
         h.registerWorker()
 
-        val cp = WorkflowCheckpoint(
-            workflowName = "wf",
-            workflowId = "w-1",
-            nextStepIndex = 0,
-            stepExecutions = 0,
-            lastCompletedStepName = null,
-            statePayload = TestCodec.encode(TestState("start")),
-            metadata = workflow.checkpointMetadata(),
-        )
+        val cp =
+            WorkflowCheckpoint(
+                workflowName = "wf",
+                workflowId = "w-1",
+                nextStepIndex = 0,
+                stepExecutions = 0,
+                lastCompletedStepName = null,
+                statePayload = TestCodec.encode(TestState("start")),
+                metadata = workflow.checkpointMetadata(),
+            )
         val saved = runBlocking { h.store.save(cp) }
-        val lease = runBlocking {
-            h.leaseStore.claim("wf", "w-1", "shutdown-test", saved.revision, 5_000)
-        }
+        val lease =
+            runBlocking {
+                h.leaseStore.claim("wf", "w-1", "shutdown-test", saved.revision, 5_000)
+            }
         h.supervisor.launch(saved, lease)
 
         runBlocking {
@@ -194,28 +228,34 @@ class WorkerShutdownCoordinatorTest {
     @Test
     fun `drain timeout cancels the remaining execution`() {
         val never = CompletableDeferred<Unit>()
-        val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
-            localStep("mark") { state, _ -> never.await(); state }
-        }.build { it.value }
+        val workflow =
+            workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ ->
+                    never.await()
+                    state
+                }
+            }.build { it.value }
         val h = harness(drainTimeoutMillis = 150, workflow = workflow)
         h.start()
 
-        val saved = runBlocking {
-            h.store.save(
-                WorkflowCheckpoint(
-                    workflowName = "wf",
-                    workflowId = "w-1",
-                    nextStepIndex = 0,
-                    stepExecutions = 0,
-                    lastCompletedStepName = null,
-                    statePayload = TestCodec.encode(TestState("start")),
-                    metadata = workflow.checkpointMetadata(),
-                ),
-            )
-        }
-        val lease = runBlocking {
-            h.leaseStore.claim("wf", "w-1", "shutdown-test", saved.revision, 5_000)
-        }
+        val saved =
+            runBlocking {
+                h.store.save(
+                    WorkflowCheckpoint(
+                        workflowName = "wf",
+                        workflowId = "w-1",
+                        nextStepIndex = 0,
+                        stepExecutions = 0,
+                        lastCompletedStepName = null,
+                        statePayload = TestCodec.encode(TestState("start")),
+                        metadata = workflow.checkpointMetadata(),
+                    ),
+                )
+            }
+        val lease =
+            runBlocking {
+                h.leaseStore.claim("wf", "w-1", "shutdown-test", saved.revision, 5_000)
+            }
         h.supervisor.launch(saved, lease)
         runBlocking {
             withTimeout(10_000) {
@@ -236,9 +276,10 @@ class WorkerShutdownCoordinatorTest {
         val hook = Thread { }
         Runtime.getRuntime().addShutdownHook(hook)
         try {
-            val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
-                localStep("mark") { state, _ -> state }
-            }.build { it.value }
+            val workflow =
+                workflow<TestState>("wf", definitionVersion = "v1") {
+                    localStep("mark") { state, _ -> state }
+                }.build { it.value }
             val h = harness(workflow = workflow)
             h.start(hook)
 
@@ -265,9 +306,10 @@ class WorkerShutdownCoordinatorTest {
 
     @Test
     fun `repeated shutdown is idempotent`() {
-        val workflow = workflow<TestState>("wf", definitionVersion = "v1") {
-            localStep("mark") { state, _ -> state }
-        }.build { it.value }
+        val workflow =
+            workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ -> state }
+            }.build { it.value }
         val h = harness(workflow = workflow)
         h.start()
         runBlocking {
@@ -280,10 +322,88 @@ class WorkerShutdownCoordinatorTest {
         h.scope.cancel()
     }
 
-    private data class TestState(val value: String)
+    /**
+     * Epic 12.1c probe 2 — hook registration/removal symmetry across a full
+     * live cycle: the hook is registered while the owned worker is live,
+     * removed on normal shutdown, and no hook survives after the cycle.
+     * Deterministic: the coordinator's stored-hook flag plus the JVM-level
+     * deregistration probe (removeShutdownHook returns false once the hook is
+     * gone) — no sleeps.
+     */
+    @Test
+    fun `hook is registered while live and deregistered on shutdown`() {
+        val hook = Thread { }
+        val workflow =
+            workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ -> state }
+            }.build { it.value }
+        val h = harness(workflow = workflow)
+        try {
+            h.start(hook)
+            // Registered while the owned worker is live.
+            assertThat(h.coordinator.hasShutdownHook()).isTrue()
+
+            runBlocking {
+                withTimeout(10_000) { h.coordinator.shutdown(h.rootSupervisor) }
+            }
+
+            // Removed on normal shutdown: coordinator dropped the reference...
+            assertThat(h.coordinator.hasShutdownHook()).isFalse()
+            // ...and the JVM hook is deregistered (false = not still registered).
+            assertThat(Runtime.getRuntime().removeShutdownHook(hook)).isFalse()
+        } finally {
+            runCatching { Runtime.getRuntime().removeShutdownHook(hook) }
+            h.scope.cancel()
+        }
+    }
+
+    /**
+     * Epic 12.1c probe 7 (hook component) — repeated create/close cycles do
+     * not accumulate JVM shutdown hooks. Each cycle registers a distinct hook
+     * while the worker is live and must fully deregister it on shutdown; if
+     * hooks accumulated, a later cycle's deregistration probe would find the
+     * earlier hooks still registered (removeShutdownHook returning true).
+     */
+    @Test
+    fun `repeated create close cycles do not accumulate shutdown hooks`() {
+        val workflow =
+            workflow<TestState>("wf", definitionVersion = "v1") {
+                localStep("mark") { state, _ -> state }
+            }.build { it.value }
+        repeat(HOOK_CYCLE_COUNT) { cycle ->
+            val hook = Thread { }
+            val h = harness(workflow = workflow)
+            try {
+                h.start(hook)
+                assertThat(h.coordinator.hasShutdownHook()).isTrue()
+                runBlocking {
+                    withTimeout(10_000) { h.coordinator.shutdown(h.rootSupervisor) }
+                }
+                assertThat(h.coordinator.hasShutdownHook()).isFalse()
+                // Cycle's own hook must be gone from the JVM. A true return
+                // here would mean this hook (or an earlier cycle's leak) is
+                // still registered.
+                assertThat(Runtime.getRuntime().removeShutdownHook(hook))
+                    .describedAs("cycle %d left its shutdown hook registered", cycle)
+                    .isFalse()
+            } finally {
+                runCatching { Runtime.getRuntime().removeShutdownHook(hook) }
+                h.scope.cancel()
+            }
+        }
+    }
+
+    private data class TestState(
+        val value: String,
+    )
+
+    private companion object {
+        const val HOOK_CYCLE_COUNT = 10
+    }
 
     private object TestCodec : WorkflowStateCodec<TestState> {
         override fun encode(state: TestState): String = state.value
+
         override fun decode(payload: String): TestState = TestState(payload)
     }
 }
