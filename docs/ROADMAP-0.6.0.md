@@ -1669,6 +1669,44 @@ These are guardrails, not absolute design laws. Existing hotspots receive explic
 
 ## Epic 11.1: Code organization standards
 
+**Status: ✅ COMPLETE** (closure audit 2026-09-04; docs-only — the standards
+were met and enforced incrementally under other epics; no dedicated delivery
+PR existed, which is why this epic had no status marker).
+
+**Closure record** — every standard maps to durable enforcement/evidence:
+
+- *One primary responsibility per file; file names describe the owned
+  concept; packages reflect architectural boundaries* — enforced by the
+  architecture-guard test family (`WorkflowDecompositionArchitectureTest`,
+  `TramaiWorkerDecompositionArchitectureTest`,
+  `WorkflowStepExecutionArchitectureTest`, `ReplayPolicyBoundaryArchitectureTest`,
+  TCK/store `*EnrollmentArchitectureTest` guards) plus ADR guardrails
+  (`docs/adr/`) and `ARCHITECTURE.md` ownership pointers.
+- *Public classes document lifecycle/thread-safety/failure semantics/
+  ownership* — module docs (`docs/modules/`, per-module guides) +
+  `CONTRIBUTING.md`/AGENTS.md quality bar; invariant cross-references are
+  cited next to enforcing code (e.g. `FileApprovalContinuationStore` cites
+  contract property P1-3 "CLAIMED must never lazily expire").
+- *No review-residue comments* — no `P1-2`-style temporary references remain
+  in production sources.
+- *Boolean security/lifecycle parameters → named policies/value types* and
+  *typed outcomes over exception-message inspection* — repository-wide
+  conventions delivered with the state-machine/time/authority epics
+  (sealed decision types, typed outcomes, injected clocks/identity sources);
+  enforced by review checklists (PR template + AGENTS.md required PR
+  questions, Epic 11.3 artifacts).
+- *String maps at important boundaries → typed metadata* — typed metadata key
+  constants at orchestration/persistence boundaries.
+- *No vague generic `Manager`/`Helper`/`Utils`* — the remaining `Helper`
+  classes are domain-precise (`WorkflowDigestHelper`,
+  `ResumeDefinitionDigestHelper`, `ReplayEnvelopeDigestHelper`,
+  `PolicyEnforcementHelper`); `PluginManager` owns a real plugin lifecycle.
+- *Acceptance criteria* — behaviour locatable by package/type name via
+  `ARCHITECTURE.md` + change guides (`docs/architecture/change-guides/`:
+  provider, store, workflow step, approval state, event, structured-output);
+  critical invariants visible next to enforcing code (property citations,
+  KDoc contracts). No code change required; no MISSING standard.
+
 ### Standards
 
 - One primary responsibility per production file.
