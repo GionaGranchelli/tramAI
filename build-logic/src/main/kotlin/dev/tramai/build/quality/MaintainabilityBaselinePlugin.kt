@@ -1349,10 +1349,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             // The scanner itself only inspects src/test|src/testFixtures .kt,
             // so excluding outputs changes no semantics.
             testSources.from(
-                project.fileTree(project.rootDir) {
-                    include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
-                    exclude("**/build/**", "**/api/**")
-                },
+                project
+                    .fileTree(project.rootDir) {
+                        include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
+                        exclude("**/build/**", "**/api/**")
+                    }.files
+                    .sortedBy { it.absolutePath },
             )
         }
         verifyPr.configure {
