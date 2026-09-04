@@ -32,7 +32,7 @@ val tramai = Tramai {
 - `OpenAiCompatibleProvider`
 - `OllamaProvider`
 
-`tramai-spring` has built-in property binding for Anthropic, OpenAI, OpenAI-compatible endpoints, and Ollama. Other provider modules can still be used in Spring applications by registering the provider as a `ModelProvider` bean.
+`tramai-spring-boot-starter` (integration in `tramai-spring-core`) has built-in property binding for Anthropic, OpenAI, OpenAI-compatible endpoints, and Ollama. Other provider modules can still be used in Spring applications by registering the provider as a `ModelProvider` bean.
 
 ## How Routing Works
 

@@ -110,8 +110,8 @@ Built-in resolvers:
 
 - `env:NAME`
 - `file:/path/to/secret.txt`
-- `vault:path[#field]` through `tramai-spring` when `tramai.secrets.vault.enabled=true`
-- `aws-secretsmanager:secret-id[#field]` through `tramai-spring` when `tramai.secrets.aws-secrets-manager.enabled=true`
+- `vault:path[#field]` through `tramai-spring-boot-starter` when `tramai.secrets.vault.enabled=true`
+- `aws-secretsmanager:secret-id[#field]` through `tramai-spring-boot-starter` when `tramai.secrets.aws-secrets-manager.enabled=true`
 
 ### Standalone Usage
 
@@ -183,7 +183,7 @@ Custom resolvers still work the same way when you need a different backend or cl
 Current boundary:
 
 - built-in support covers `env:` and `file:` in the shared secret SPI
-- `tramai-spring` bundles Vault and AWS Secrets Manager resolvers behind `tramai.secrets.*`
+- `tramai-spring-boot-starter` bundles Vault and AWS Secrets Manager resolvers (auto-config in `tramai-spring-core`) behind `tramai.secrets.*`
 - standalone usage still resolves the secret before provider construction
 
 ---
