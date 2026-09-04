@@ -52,6 +52,8 @@ class StaticAnalysisPlugin : Plugin<Project> {
                     "examples/*/build/**", // example module output dirs
                     "build-logic/build/**", // included-build output dir
                     "**/.gradle/**", // caches — no source lives here
+                    "**/node_modules/**", // npm packages
+                    "**/dist/**", // frontend build outputs
                 )
             }
 
