@@ -408,3 +408,14 @@ jobs:
           name: zero-egress-verification-report
           path: |
             build/zero-egress-report/zero-egress-report.json
+
+  performance-policy-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Epic 12.1d: classification-semantics unit tests are pure logic on
+      # synthetic fixtures — fast, timing-free, runs on every PR.
+      - name: Run performance regression policy unit tests
+        run: python3 scripts/test_performance_regression_verifier.py

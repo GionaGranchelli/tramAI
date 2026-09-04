@@ -168,6 +168,48 @@ jobs:
           path: '**/build/reports/benchmark/*.json'
           if-no-files-found: error
 
+      - name: Compare deep-lane benchmark run against 0.6.0 baseline (Epic 12.1d)
+        # Timing drift is NOT a failure here: candidates are classified, never
+        # auto-rejected. The step fails closed ONLY on structural errors
+        # (INVALID_MEASUREMENT / NON_COMPARABLE) — missing population,
+        # malformed JSON, wrong measured commit, schema/authority mismatch.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p build
+          set +e
+          python3 scripts/performance_regression_verifier.py verify \
+            --baseline config/quality/performance/0.6.0-performance-baseline.json \
+            --runs '**/build/reports/benchmark/*.json' \
+            --expected-commit "${{ github.sha }}" \
+            --repo-root . --summary \
+            > build/performance-regression-report.json 2>&1
+          code=$?
+          set -e
+          python3 - <<'EOF'
+          import json
+          report = json.load(open('build/performance-regression-report.json'))
+          status = report.get('status', 'INVALID_MEASUREMENT')
+          print(f'## Epic 12.1d deep-run classification: {status}', file=open('summary.txt', 'w'))
+          for op in report.get('operations', []):
+              print(f"- {op['operationId']}: {op['classification']} "
+                    f"(measured {op['measured']:.2f}, envelope {op['envelopeMin']:.2f}..{op['envelopeMax']:.2f})",
+                    file=open('summary.txt', 'a'))
+          EOF
+          cat summary.txt >> $GITHUB_STEP_SUMMARY
+          if [ "$code" -ne 0 ]; then
+            echo "Structural benchmark failure (exit $code): fail closed. See build/performance-regression-report.json"
+            exit "$code"
+          fi
+          echo "Comparable report emitted; candidates require the 3-run confirmation protocol before any release adjudication."
+
+      - name: Upload performance regression report
+        if: github.event_name == 'workflow_dispatch' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-regression-report
+          path: build/performance-regression-report.json
+          if-no-files-found: warn
+
       - name: Write Summary
         run: |
           echo "## Sovereign Runtime Release Candidate" >> $GITHUB_STEP_SUMMARY
