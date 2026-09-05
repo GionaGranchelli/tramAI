@@ -317,9 +317,10 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     }
 
     @Test
-    fun `M20 vacuous configured family fails closed`() {
+    fun `M20 configured family emptied of rows fails closed`() {
         // Candidate retains the configured family in its target config but
-        // carries zero rows for it — byFamily must never go vacuous.
+        // carries zero rows for it — a configured family must never go
+        // silently empty (row families must equal the configured families).
         val twoFamilyTargets = mapOf(policyFamily to policyTarget, retryFamily to retryTarget)
         val base =
             population(
@@ -338,11 +339,47 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
                 candidatePopulation = candidate,
                 candidateFamilies = twoFamilyTargets,
             )
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID),
-            "a configured family emptied of rows must fail closed",
+        assertFailsWith(
+            diagnostics,
+            DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+            "rows carry families",
         )
-        assertTrue(failures(diagnostics).any { it.message.contains("vacuous") })
+    }
+
+    @Test
+    fun `M20 row in an unconfigured family fails closed`() {
+        // A mutant row claiming family="rogue" sits outside byFamily and the
+        // governing target config — it is not a measured mutant.
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate =
+            population(
+                listOf(
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("r1", family = "rogue", status = "KILLED", outcome = "KILLED"),
+                ),
+            )
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID, "rows carry families")
+    }
+
+    @Test
+    fun `M20 row in a module outside its family configured scope fails closed`() {
+        // A row claiming family="policy" but module=":rogue-module" widens the
+        // measured scope without the target config saying so.
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate =
+            population(
+                listOf(
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("r1", module = ":rogue-module", status = "KILLED", outcome = "KILLED"),
+                ),
+            )
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(
+            diagnostics,
+            DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+            "outside the configured modules",
+        )
     }
 
     @Test

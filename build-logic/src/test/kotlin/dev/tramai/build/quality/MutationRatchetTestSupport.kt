@@ -142,7 +142,7 @@ abstract class MutationRatchetTestSupport {
         baseClassifications: MutationClassifications = classifications(),
         candidatePopulation: MutationPopulationBaseline,
         candidateClassifications: MutationClassifications = classifications(),
-        executable: MutationAnalyzerSemantics = basePopulation.analyzer,
+        executable: MutationAnalyzerSemantics = MutationPopulationAggregator.canonicalSemantics(),
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
             MutationRatchetAuthority(BASE_SHA, basePopulation, baseClassifications, baseFamilies),
@@ -159,6 +159,7 @@ abstract class MutationRatchetTestSupport {
         MutationRatchetVerifier().verify(
             MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
             MutationRatchetCandidate(candidatePopulation, classifications(), candidateFamilies),
+            MutationPopulationAggregator.canonicalSemantics(),
         )
 
     protected fun failures(diagnostics: List<VerificationDiagnostic>): List<VerificationDiagnostic> =

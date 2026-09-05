@@ -62,7 +62,7 @@ class MutationRatchetVerifier {
     fun verify(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        executable: MutationAnalyzerSemantics = base.population.analyzer,
+        executable: MutationAnalyzerSemantics,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         diagnostics += schemaAndStatusChecks(base.population, candidate.population)
@@ -473,29 +473,18 @@ class MutationRatchetVerifier {
                         "targetFamilies ${targetFamilies.keys.sorted()}. Every configured family must appear in the " +
                         "population and vice versa.",
                 )
-            return diagnostics
-        }
-        population.byFamily.forEach { (family, familyPopulation) ->
-            val config = targetFamilies.getValue(family)
-            val familyRows = population.mutants.filter { it.family == family }
-            if (familyRows.isEmpty()) {
+        } else {
+            val rowFamilies = population.mutants.map { it.family }.toSet()
+            if (rowFamilies != targetFamilies.keys) {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
-                        "$label family '$family' is vacuous — zero mutant rows persisted for a configured family. " +
-                            "A configured family must not be silently emptied.",
+                        "$label mutant rows carry families ${rowFamilies.sorted()} that disagree with the governing " +
+                            "targetFamilies ${targetFamilies.keys.sorted()}. A row in an unconfigured family is not " +
+                            "a measured mutant and cannot be ratcheted.",
                     )
-                return@forEach
-            }
-            val recomputed = recomputeFamilyPopulation(family, familyRows, config.modules)
-            if (recomputed != familyPopulation) {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
-                        "$label family '$family' byFamily entry ${summarizeFamily(familyPopulation)} disagrees with " +
-                            "its rows (recomputed ${summarizeFamily(recomputed)}). byFamily is derived truth; " +
-                            "hand-edited metrics fail closed.",
-                    )
+            } else {
+                diagnostics += familyEntryChecks(label, population, targetFamilies)
             }
         }
         return diagnostics
@@ -605,6 +594,42 @@ class MutationRatchetVerifier {
                         findingId = mutant.identity,
                         modulePath = mutant.module,
                     )
+            }
+            return diagnostics
+        }
+
+        /** Per-family row-scope and derived-metric validation (M14/M20). */
+        fun familyEntryChecks(
+            label: String,
+            population: MutationPopulationBaseline,
+            targetFamilies: Map<String, MutationTargetFamily>,
+        ): List<VerificationDiagnostic> {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            population.byFamily.forEach { (family, familyPopulation) ->
+                val config = targetFamilies.getValue(family)
+                val familyRows = population.mutants.filter { it.family == family }
+                val unexpectedModules = familyRows.map { it.module }.toSet() - config.modules.toSet()
+                if (unexpectedModules.isNotEmpty()) {
+                    diagnostics +=
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+                            "$label family '$family' rows reference module(s) " +
+                                "${unexpectedModules.sorted().joinToString()} outside the configured modules " +
+                                "[${config.modules.joinToString()}] for that family. Rows may only sit inside their " +
+                                "family's measured scope.",
+                        )
+                    return@forEach
+                }
+                val recomputed = recomputeFamilyPopulation(family, familyRows, config.modules)
+                if (recomputed != familyPopulation) {
+                    diagnostics +=
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+                            "$label family '$family' byFamily entry ${summarizeFamily(familyPopulation)} disagrees " +
+                                "with its rows (recomputed ${summarizeFamily(recomputed)}). byFamily is derived " +
+                                "truth; hand-edited metrics fail closed.",
+                        )
+                }
             }
             return diagnostics
         }
