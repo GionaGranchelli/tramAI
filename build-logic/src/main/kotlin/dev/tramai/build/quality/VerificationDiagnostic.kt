@@ -146,6 +146,40 @@ enum class DiagnosticCode {
     MODULE_CARD_VERSIONLESS_DEPENDENCY,
     MODULE_CARD_INTERNAL_MAVEN_ADVERTISEMENT,
     MODULE_CARD_COVERAGE_MISMATCH,
+
+    // Mutation ratchet (Epic 10.3c3) — base-authoritative exact-set enforcement.
+    // M01 killed -> non-killed regression; never a score floor, never a budget.
+    MUTATION_RATCHET_REGRESSION,
+
+    // M06 new NON_KILLED identity (incl. M08 self-classification attempts).
+    MUTATION_RATCHET_NEW_SURVIVOR,
+
+    // M05 stale / M09 fabricated / M10 orphaned classification.
+    MUTATION_RATCHET_CLASSIFICATION_INVALID,
+
+    // M11 base classification removed while its survivor remains.
+    MUTATION_RATCHET_CLASSIFICATION_REMOVED,
+
+    // M12 duplicate identities.
+    MUTATION_RATCHET_DUPLICATE_IDENTITY,
+
+    // M13 unknown / non-canonical outcome — fail closed.
+    MUTATION_RATCHET_UNKNOWN_OUTCOME,
+
+    // M14 family narrowing (family or module scope shrinks).
+    MUTATION_RATCHET_FAMILY_NARROWING,
+
+    // M15 target-class / target-test narrowing.
+    MUTATION_RATCHET_TARGET_DRIFT,
+
+    // M16 plugin/engine, M17 mutator, M18 timeout semantics drift.
+    MUTATION_RATCHET_SEMANTICS_DRIFT,
+
+    // M19 identity-schema drift.
+    MUTATION_RATCHET_SCHEMA_DRIFT,
+
+    // M20 malformed / missing / self-inconsistent authority or candidate.
+    MUTATION_RATCHET_AUTHORITY_INVALID,
 }
 
 /**

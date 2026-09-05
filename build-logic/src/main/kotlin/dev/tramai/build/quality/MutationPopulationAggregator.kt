@@ -86,7 +86,7 @@ object MutationPopulationAggregator {
         }
     }
 
-    private fun canonicalSemantics(): MutationAnalyzerSemantics =
+    fun canonicalSemantics(): MutationAnalyzerSemantics =
         MutationAnalyzerSemantics(
             pluginVersion = MutationProbeInitScript.PIT_PLUGIN_VERSION,
             engineVersion = MutationProbeInitScript.PIT_ENGINE_VERSION,
