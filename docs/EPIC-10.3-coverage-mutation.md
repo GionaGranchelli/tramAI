@@ -165,11 +165,11 @@ Report XML lands at `tramai-core/build/mutation-pilot/routing-core/tramai-core/m
 | Slice | PR | Summary |
 |---|---|---|
 | **10.3a** | #345 | Coverage baseline: JaCoCo on 9 critical modules; first real coverage-baseline.json (92.51% line / 76.17% branch); A1–A10 measurement discriminators. |
-| **10.3b** | #345 | Coverage ratchet: base-authoritative CoveragePolicyDeltaVerifier; B01–B22 discriminators covering M1–M7 gate mutations; `verifyCriticalCoverage` wired into `verifyPr` + CI. |
+| **10.3b** | #345 | Coverage ratchet: base-authoritative CoveragePolicyDeltaVerifier; 28 discriminator tests across B01–B22 (including six 'b'-variants: B07b, B12b, B14b, B17b, B20b, B21b) covering M1–M7 gate mutations; `verifyCriticalCoverage` wired into `verifyPr` + CI. |
 | **10.3c1** | #362 | Mutation measurement: repaired dormant PITest probe; 2,372 mutants across 7 families; identity schema v2 (SHA-256); determinism proven; M01–M20 measurement discriminators. |
 | **10.3c2** | (within #362) | Mutation baseline: exact population + survivor inventory committed; 20 classified survivors (equivalent-mutant + tool-limitation); `mutation-classifications.yml` populated. |
 | **10.3c3** | #394 | Mutation ratchet enforcement: `MutationRatchetVerifier` (pure, in-memory, exact-set); M01–M20 ratchet discriminators (38 tests); classification authority rules; three-way PIT renderer semantics check; `verifyMutationRatchet` wired into `verifyPr` + CI. |
-| **10.3d** | (this PR) | Integration + adversarial closure: W4 wiring discriminator; docs reconciliation; closure audit; epic marked complete. |
+| **10.3d** | (this PR) | Integration + adversarial closure: W4 `verifyPr` wiring discriminator + W5 CI workflow wiring discriminators (#29); CC-compatibility correction; docs reconciliation; closure audit; epic marked complete. |
 
 ## 9. 10.3d — Integration and Adversarial Closure
 
@@ -183,21 +183,21 @@ cited by file, test name, or CI line number.
 | # | Requirement | Status | Evidence |
 |---|---|---|---|
 | R01 | Coverage baseline measured for 9 critical modules | **COMPLETE** | `config/quality/coverage-baseline.json` — 9 modules, 92.51% line / 76.17% branch. `CoverageMeasurementDiscriminatorTest` (A1–A10): 9 tests. |
-| R02 | No coverage regression in critical modules | **COMPLETE** | `CoveragePolicyDeltaVerifier` enforces base-authoritative ratchet. 28 discriminator tests (B01–B22) covering 7 gate mutations. CI: `verifyCriticalCoverage` in `ci.yml` lines 204–216. |
+| R02 | No coverage regression in critical modules | **COMPLETE** | `CoveragePolicyDeltaVerifier` enforces base-authoritative ratchet. 28 discriminator tests across B01–B22 (including six 'b'-variants: B07b, B12b, B14b, B17b, B20b, B21b) covering 7 gate mutations. CI: `verifyCriticalCoverage` in `ci.yml` lines 204–216. |
 | R03 | Coverage exclusions explicit and justified | **COMPLETE** | `test-quality.yml` declares one exclusion: `**/model/**` ("Generated model classes"). B09/B10 discriminators prevent undocumented additions or reason rewrites. |
 | R04 | Targeted mutation testing for critical logic | **COMPLETE** | 2,384 mutants across 7 families (policy, approval, routing, retry, tools, evidence, structuredOutput). `config/quality/mutation-baseline.json` — identity schema v2, measured at commit `5856530e`. |
 | R05 | Surviving mutants tracked and justified | **COMPLETE** | 20 classified survivors in `mutation-classifications.yml` — all `equivalent-mutant` or `tool-limitation`. M03/M08/M09 discriminators enforce that classifications can only be added on master during ceremonies, never by PRs. |
-| R06 | Mutation ratchet enforced on every PR | **COMPLETE** | `verifyMutationRatchet` in `verifyPr` (MaintainabilityBaselinePlugin line 1383). CI: `ci.yml` lines 218–230. W4 wiring discriminator (CoverageWiringTest) proves the task is in the `verifyPr` graph. |
+| R06 | Mutation ratchet enforced on every PR | **COMPLETE** | `verifyMutationRatchet` in `verifyPr` (MaintainabilityBaselinePlugin line 1383) and CI (`ci.yml` lines 218–230). W4 and W5 wiring discriminators (`CoverageWiringTest.kt`) prove presence in the `verifyPr` graph and in the CI workflow with PR base SHA authority. |
 | R07 | Base-authoritative enforcement (no self-judging) | **COMPLETE** | `MutationRatchetAuthorityLoader` resolves base SHA from Git; no fallback to candidate authority (M20). `CoverageAuthorityLoader` does the same. 7 authority-loading tests in `MutationRatchetAuthorityTest`. |
 | R08 | Discriminator tests for all 20 failure modes | **COMPLETE** | M01–M20 covered by 38 tests in `MutationRatchetDiscriminatorTest` (25) + `MutationRatchetClassificationDiscriminatorTest` (13). M01–M20 measurement pipeline covered by 29 tests in `MutationMeasurementDiscriminatorTest`. |
-| R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 249 tests (pinned). Python assertions enforce exact counts after every CI run. |
+| R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 252 tests (pinned). Python assertions enforce exact counts after every CI run. |
 | R10 | Mutation reports available for release review | **COMPLETE** | `maintainability-full.yml` (weekly + manual) runs `verifyFullMaintainabilityBaseline` which generates mutation-summary.json and PIT HTML reports as CI artifacts. |
 | R11 | Docs and roadmap reconciled | **COMPLETE** | This document + ROADMAP-0.6.0.md updated. |
 
 ### 9.2. Adversarial gate mapping
 
-28 failure modes were evaluated. All 28 are already defended by durable
-discriminators. The table maps each failure mode to its enforcing test.
+29 failure modes were evaluated. All 29 are defended by durable discriminators.
+The table maps each failure mode to its enforcing test.
 
 | # | Failure mode | Discriminator | Status |
 |---|---|---|---|
@@ -229,19 +229,22 @@ discriminators. The table maps each failure mode to its enforcing test.
 | 26 | Coverage regression beyond tolerance | B01/B02 in `CoveragePolicyDeltaVerifierTest` | ✅ |
 | 27 | Coverage tolerance widening | B07 in `CoveragePolicyDeltaVerifierTest` | ✅ |
 | 28 | Coverage exclusion injection | B09/B10 in `CoveragePolicyDeltaVerifierTest` | ✅ |
+| 29 | PR CI mutation-ratchet step removed or detached from PR-base authority | W5 (3 tests) in `CoverageWiringTest` | ✅ (10.3d) |
 
-Only failure mode #25 was a genuine gap. The W4 wiring discriminator was added
-by this PR. All other modes were already covered by 10.3c3 or earlier.
+Failure modes #25 (verifyPr task graph wiring) and #29 (CI workflow invocation
+with PR-base SHA authority) were addressed by the W4 and W5 wiring
+discriminators in `CoverageWiringTest`. All other modes were already covered by
+10.3c3 or earlier.
 
 ### 9.3. Configuration-cache classification
 
 | Task | CC classification | Rationale |
 |---|---|---|
-| `verifyMutationRatchet` | CC_SUPPORTED_BUT_NOT_REUSABLE | Loads base authority from Git at execution time (`git show $sha:path`). Git subcommands use `ProcessBuilder` which is inherently non-cacheable; the task is safe for configuration caching (no project-level Git during configuration) but its output is SHA-dependent. |
-| `verifyCriticalCoverage` | CC_SUPPORTED_BUT_NOT_REUSABLE | Same pattern — resolves base SHA, loads authority from Git. Depends on `generateCoverageBaseline` which reads JaCoCo XML at execution time. |
-| `generateCriticalMutationBaseline` | DELIBERATELY_NON_CACHEABLE | Spawns nested Gradle builds per family via `ProcessBuilder`. Must use `--rerun-tasks` and bracketed provenance. Non-cacheable by construction. |
-| `verifyMaintainabilityBaseline` | CC_REUSABLE | Compares committed JSON baselines against canonical reference. Pure file comparison. |
-| `verifyChangePolicy` | CC_SUPPORTED_BUT_NOT_REUSABLE | Loads base SHA via `-PchangePolicyBase` (Gradle property → configuration-time) and computes `git diff`. Configuration-cache safe but result depends on base SHA. |
+| `verifyMutationRatchet` | `CC_UNSUPPORTED_CURRENTLY` | Accesses `Project` during execution in `doLast` (`project.rootDir`, `project.findProperty`, `verifyTestQualityDiagnostics(project, ...)`), which is unsupported by the Gradle Configuration Cache. Globally disabled in TramAI (`org.gradle.configuration-cache=false`). Typed-input refactoring deferred to a dedicated CC track. |
+| `verifyCriticalCoverage` | `CC_UNSUPPORTED_CURRENTLY` | Accesses `Project` during execution in `doLast` (`project.rootDir`, `project.findProperty`, `verifyTestQualityDiagnostics(project, ...)`), which is unsupported by the Gradle Configuration Cache. Globally disabled in TramAI (`org.gradle.configuration-cache=false`). Typed-input refactoring deferred to a dedicated CC track. |
+| `generateCriticalMutationBaseline` | `DELIBERATELY_NON_CACHEABLE` | Spawns nested Gradle builds per family via `ProcessBuilder`. Must use `--rerun-tasks` and bracketed provenance. Non-cacheable by construction. |
+| `verifyMaintainabilityBaseline` | `CC_REUSABLE` | Pure in-memory file comparison of committed JSON baselines against canonical reference. |
+| `verifyChangePolicy` | `CC_SUPPORTED_BUT_NOT_REUSABLE` | Consumes base SHA property and computes diff at execution time. |
 
 ### 9.4. Determinism and provenance boundary
 

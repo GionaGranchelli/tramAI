@@ -52,13 +52,62 @@ class CoverageWiringTest {
                 .create()
                 .withProjectDir(dir)
                 .withGradleVersion("9.0.0")
-                .withArguments(":generateCoverageBaseline", "--no-build-cache", "verifyPr", "--dry-run")
+                .withArguments("verifyPr", "--no-build-cache", "--dry-run")
                 .withPluginClasspath()
                 .build()
 
         assertTrue(
             result.output.contains(":verifyMutationRatchet"),
             "verifyPr must run verifyMutationRatchet\n${result.output}",
+        )
+    }
+
+    // ── W5: CI workflow wiring discriminators (10.3d / #29) ──
+
+    @Test
+    fun `W5 CI workflow invokes verifyMutationRatchet with PR base authority`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val ciWorkflow = File(repoRoot, ".github/workflows/ci.yml")
+        assertTrue(ciWorkflow.isFile, "CI workflow file must exist: ${ciWorkflow.absolutePath}")
+        assertCiMutationRatchetWiring(ciWorkflow.readText())
+    }
+
+    @Test
+    fun `W5 discriminator deleting verifyMutationRatchet from CI workflow fails`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val content = File(repoRoot, ".github/workflows/ci.yml").readText()
+        val mutated = content.replace("./gradlew verifyMutationRatchet", "./gradlew verifySomethingElse")
+        val error =
+            kotlin.test.assertFailsWith<AssertionError> {
+                assertCiMutationRatchetWiring(mutated)
+            }
+        assertTrue(error.message!!.contains("verifyMutationRatchet"))
+    }
+
+    @Test
+    fun `W5 discriminator deleting PR base sha property from CI workflow fails`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val content = File(repoRoot, ".github/workflows/ci.yml").readText()
+        val mutated = content.replace("-PtramaiMutationBaseSha=\"\${{ github.event.pull_request.base.sha }}\"", "")
+        val error =
+            kotlin.test.assertFailsWith<AssertionError> {
+                assertCiMutationRatchetWiring(mutated)
+            }
+        assertTrue(error.message!!.contains("tramaiMutationBaseSha"))
+    }
+
+    private fun assertCiMutationRatchetWiring(content: String) {
+        assertTrue(
+            content.contains("./gradlew verifyMutationRatchet"),
+            "ci.yml must invoke verifyMutationRatchet in CI",
+        )
+        assertTrue(
+            content.contains("-PtramaiMutationBaseSha=\"\${{ github.event.pull_request.base.sha }}\""),
+            "ci.yml must pass PR base SHA to verifyMutationRatchet (-PtramaiMutationBaseSha)",
+        )
+        assertTrue(
+            content.contains("-PtramaiMutationBaseSha=\"\${{ github.event.before }}\""),
+            "ci.yml must pass push before SHA to verifyMutationRatchet (-PtramaiMutationBaseSha)",
         )
     }
 
