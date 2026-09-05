@@ -855,6 +855,54 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        // ── Epic 10.3c3: base-authoritative mutation ratchet ──
+        // Fail-closed exact-set gate over the COMMITTED candidate population
+        // (config/quality/mutation-baseline.json), classifications
+        // (mutation-classifications.yml) and mutation target configuration
+        // (test-quality.yml) vs the PR base / master authority. Deliberately
+        // runs NO PITest campaign: it compares exact identities and canonical
+        // KILLED|NON_KILLED outcomes in memory, so it joins verifyPr without
+        // adding a measurement run. Accepts -PtramaiMutationBaseSha for PR
+        // base SHA comparison (mirrors cancellation safety and coverage).
+        project.tasks.register("verifyMutationRatchet") {
+            group = "maintainability"
+            description =
+                "Base-authoritative mutation ratchet: judges candidate mutation population, classifications, " +
+                "and target configuration against the PR base / master authority. Accepts " +
+                "-PtramaiMutationBaseSha for PR base SHA comparison. Runs no PITest campaign."
+            doLast {
+                val baseSha =
+                    MutationRatchetAuthorityLoader.resolveBaseSha(
+                        project.rootDir,
+                        project.findProperty("tramaiMutationBaseSha")?.toString(),
+                    )
+                val authority = MutationRatchetAuthorityLoader.load(project.rootDir, baseSha)
+                val candidatePopulationFile = File(project.rootDir, "config/quality/mutation-baseline.json")
+                if (!candidatePopulationFile.isFile) {
+                    throw GradleException(
+                        "Candidate mutation population not found: ${candidatePopulationFile.absolutePath} — " +
+                            "the committed mutation-baseline.json is the ratchet proposal; removing it is not " +
+                            "a valid population evolution.",
+                    )
+                }
+                val candidatePopulation =
+                    try {
+                        ReportNormalizer.readJson(candidatePopulationFile, MutationPopulationBaseline::class.java)
+                    } catch (e: Exception) {
+                        throw GradleException("Failed to read candidate mutation population: ${e.message}", e)
+                    }
+                val candidateClassifications = MutationClassificationLoader.load(project.rootDir)
+                val candidate =
+                    MutationRatchetCandidate(
+                        population = candidatePopulation,
+                        classifications = candidateClassifications,
+                        targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                    )
+                val diagnostics = MutationRatchetVerifier().verify(authority, candidate)
+                verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
+            }
+        }
+
         project.tasks.register("verifyCriticalMutationBaseline") {
             group = "maintainability"
             description = "Compares current critical mutation results with the committed baseline"
@@ -1328,6 +1376,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 dependsOn("verifyModuleManifest")
                 dependsOn("verifyModuleMatrixDrift")
                 dependsOn("verifyCriticalCoverage")
+                // 10.3c3: static base-authoritative mutation ratchet. Runs no
+                // PITest campaign (the exact-set comparison is pure in-memory).
+                dependsOn("verifyMutationRatchet")
                 // Module documentation contract gate is registered by a
                 // separate plugin (TramaiDocsGuardsPlugin). It is a REQUIRED
                 // authority: if it disappears, verifyPr must fail closed, never

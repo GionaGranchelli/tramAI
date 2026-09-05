@@ -482,6 +482,19 @@ abstract class VerifyArchitectureTask : DefaultTask() {
             DiagnosticCode.COVERAGE_BASELINE_WEAKENED,
             DiagnosticCode.COVERAGE_NEW_MODULE_UNMEASURED,
             DiagnosticCode.COVERAGE_BASELINE_INCONSISTENT,
+            // Mutation ratchet (Epic 10.3c3) — enforced by the
+            // verifyMutationRatchet task directly, not the maintainability baseline.
+            DiagnosticCode.MUTATION_RATCHET_REGRESSION,
+            DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
+            DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID,
+            DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_REMOVED,
+            DiagnosticCode.MUTATION_RATCHET_DUPLICATE_IDENTITY,
+            DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME,
+            DiagnosticCode.MUTATION_RATCHET_FAMILY_NARROWING,
+            DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+            DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT,
+            DiagnosticCode.MUTATION_RATCHET_SCHEMA_DRIFT,
+            DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
             -> null
         }
 
