@@ -2,7 +2,7 @@
 
 > **Status:** P1 / first-0.7.x productization direction with explicit architecture commitments  
 > **Target:** TramAI 0.7.0 where bounded slices fit safely; otherwise first 0.7.x follow-up  
-> **Relationship:** Complements `ROADMAP-0.7.0-RELEASE-CUT.md` P0.9/P0.11, `ROADMAP-0.7.0.md` Phase 6, and `ROADMAP-0.7.0-WORKFLOW-DX-AND-DSL.md`.  
+> **Relationship:** Complements `ROADMAP-0.7.0-RELEASE-CUT.md` P0.9/P0.11, `ROADMAP-0.7.0.md` Phase 6, and `ROADMAP-0.7.0-WORKFLOW-DX-AND-DSL.md`. The release cut remains authoritative when deciding whether any item blocks 0.7.0.  
 > **Purpose:** Close the gap between a technically complete governed-AI control plane and something a JVM team or enterprise platform team can adopt, secure, and operate without building the surrounding integration layer from scratch.
 
 ---
