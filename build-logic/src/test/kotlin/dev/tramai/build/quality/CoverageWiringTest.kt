@@ -42,6 +42,26 @@ class CoverageWiringTest {
         )
     }
 
+    // ── W4: mutation ratchet wiring (10.3d) ──
+
+    @Test
+    fun `W4 verifyPr owns verifyMutationRatchet`() {
+        val dir = wiringFixture()
+        val result =
+            GradleRunner
+                .create()
+                .withProjectDir(dir)
+                .withGradleVersion("9.0.0")
+                .withArguments(":generateCoverageBaseline", "--no-build-cache", "verifyPr", "--dry-run")
+                .withPluginClasspath()
+                .build()
+
+        assertTrue(
+            result.output.contains(":verifyMutationRatchet"),
+            "verifyPr must run verifyMutationRatchet\n${result.output}",
+        )
+    }
+
     // ── W2/W3: required verifyPr authorities must be fail-closed (review P1) ──
 
     @Test

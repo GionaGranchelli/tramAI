@@ -1588,6 +1588,17 @@ These are guardrails, not absolute design laws. Existing hotspots receive explic
 
 **Goal:** Use coverage as a risk signal, not a vanity score.
 
+**Status: COMPLETE** (10.3a #345, 10.3c1/c2 #362, 10.3c3 #394, 10.3d this PR).
+
+Delivered: coverage ratchet (9 critical modules, 92.51% line / 76.17% branch,
+base-authoritative CoveragePolicyDeltaVerifier with 28 B-series discriminators);
+mutation ratchet (2,384 mutants across 7 families, identity schema v2,
+MutationRatchetVerifier with 38 M01–M20 ratchet + 29 measurement discriminators);
+20 adjudicated classified survivors (equivalent-mutant + tool-limitation);
+verifyMutationRatchet + verifyCriticalCoverage wired into verifyPr and CI;
+W4 wiring discriminator; CI non-vacuity guards (exact pinned test counts).
+See `docs/EPIC-10.3-coverage-mutation.md` for full closure audit.
+
 ### Policy
 
 1. Establish baseline coverage first.
