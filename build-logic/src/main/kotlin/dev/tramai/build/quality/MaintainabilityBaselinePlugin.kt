@@ -734,14 +734,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 ),
             )
             sourceTree.from(
-                project
-                    .fileTree(project.rootDir) {
-                        include(
-                            "**/api/*.api",
-                            "docs/releases/0.6.0-maintainability-baseline.md",
-                        )
-                    }.files
-                    .sortedBy { it.absolutePath },
+                project.rootDir.resolve(
+                    "docs/releases/0.6.0-maintainability-baseline.md",
+                ),
+            )
+            sourceTree.from(
+                project.files(
+                    project.allprojects
+                        .filter { it != project && it.buildFile.exists() }
+                        .map { sub ->
+                            File(sub.projectDir, "api/${sub.name}.api")
+                        },
+                ),
             )
         }
 
@@ -1256,9 +1260,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 ),
             )
             sourceTree.from(
-                project.fileTree(project.rootDir) {
-                    include("**/api/*.api", "docs/releases/0.6.0-maintainability-baseline.md")
-                },
+                project.rootDir.resolve(
+                    "docs/releases/0.6.0-maintainability-baseline.md",
+                ),
+            )
+            sourceTree.from(
+                project.files(
+                    project.allprojects
+                        .filter { it != project && it.buildFile.exists() }
+                        .map { sub ->
+                            File(sub.projectDir, "api/${sub.name}.api")
+                        },
+                ),
             )
         }
 
@@ -1349,18 +1362,21 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Fails if any @Test function uses an expression body whose inferred " +
                 "return type is not provably Unit (JUnit silently skips non-void @Test methods)."
             this.scanRoot.set(project.rootDir)
-            // FileTree base is rootDir; exclude task-output dirs (build/,
-            // api/) or Gradle 9 flags the input as overlapping a task output.
-            // The scanner itself only inspects src/test|src/testFixtures .kt,
-            // so excluding outputs changes no semantics.
-            testSources.from(
-                project
-                    .fileTree(project.rootDir) {
-                        include("**/src/test/**/*.kt", "**/src/testFixtures/**/*.kt")
-                        exclude("**/build/**", "**/api/**")
-                    }.files
-                    .sortedBy { it.absolutePath },
-            )
+            // Inputs are subproject-rooted fileTrees for src/test and src/testFixtures.
+            // Narrowing roots avoids root FileTree aliasing in Gradle 9 and prevents
+            // eager configuration-time evaluation that breaks CC reuse.
+            project.allprojects
+                .filter { it != project && it.buildFile.exists() }
+                .forEach { sub ->
+                    listOf("src/test", "src/testFixtures").forEach { rel ->
+                        val dir = File(sub.projectDir, rel)
+                        testSources.from(
+                            project.fileTree(dir) {
+                                include("**/*.kt")
+                            },
+                        )
+                    }
+                }
         }
         verifyPr.configure {
             dependsOn("verifyJUnitTestSignatures")

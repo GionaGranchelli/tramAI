@@ -14,6 +14,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
 
 /**
  * Typed maintainability-baseline verifier (Epic 9.2d-a3c2). Compares the
@@ -24,7 +25,12 @@ import org.gradle.api.tasks.TaskAction
  * input. No Task.project access at execution time — declared inputs are the
  * execution authority (a3 discipline).
  */
+@DisableCachingByDefault(because = "Verification task has no reusable output artifact")
 abstract class VerifyMaintainabilityBaselineTask : DefaultTask() {
+    init {
+        outputs.upToDateWhen { false }
+    }
+
     private companion object {
         const val MAX_WARNINGS_LOGGED = 100
     }
