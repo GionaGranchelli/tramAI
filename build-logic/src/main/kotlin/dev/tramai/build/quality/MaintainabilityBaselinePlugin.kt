@@ -898,7 +898,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         classifications = candidateClassifications,
                         targetFamilies = testQualityConfiguration.mutation.targetFamilies,
                     )
-                val diagnostics = MutationRatchetVerifier().verify(authority, candidate)
+                val diagnostics =
+                    MutationRatchetVerifier().verify(
+                        authority,
+                        candidate,
+                        executable = MutationPopulationAggregator.canonicalSemantics(),
+                    )
                 verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
             }
         }

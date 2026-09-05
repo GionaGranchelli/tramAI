@@ -99,7 +99,10 @@ jobs:
   # #362 (10.3c1) enrolled in policy-maintainability: MutationIdentityTest (4) +
   # MutationMeasurementDiscriminatorTest (29) + MutationPopulationTest (7) +
   # MutationReportParserTest (+6) = 211 -> 257.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 257 + 248 = 828.
+  # #394 (10.3c3) enrolled MutationRatchetDiscriminatorTest (23) +
+  # MutationRatchetClassificationDiscriminatorTest (13) +
+  # MutationRatchetAuthorityTest (7) = 257 -> 300.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 300 + 248 = 871.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -150,7 +153,7 @@ jobs:
               --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
               --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
               --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
-            expected: 257
+            expected: 300
           - name: scanners-coverage
             test-filter: >-
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'

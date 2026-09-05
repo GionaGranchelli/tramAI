@@ -13,27 +13,37 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  *
  * Certified authority facts it preserves (identity schema v2):
  * - canonical outcomes are exactly KILLED | NON_KILLED; raw PIT statuses are
- *   diagnostic evidence and never participate in the ratchet (C7).
+ *   diagnostic evidence and never participate in the ratchet (C7), but every
+ *   persisted row MUST be self-consistent: its identity must equal the
+ *   SHA-256 recomputed over its own fields, and its stored outcome must equal
+ *   [MutationOutcome.canonical] of its raw status. Hand-edited rows cannot
+ *   forge a kill (a raw SURVIVED cannot be stored as outcome=KILLED) and
+ *   cannot launder a survivor into the authority under a fake identity.
  * - identity = SHA-256 over (module, class, method, descriptor, mutator,
  *   description, block, index) — see [MutationIdentity].
  *
  * Discriminator matrix (each rule maps to at least one focused test):
  * - M01 base KILLED -> candidate NON_KILLED                    = regression
  * - M02 base KILLED -> candidate KILLED                        = pass
- * - M03 approved (base-classified) survivor stays NON_KILLED   = pass
+ * - M03 approved (base-classified) survivor stays NON_KILLED   = pass; a
+ *   retained classification record must stay byte-identical — rewriting
+ *   classification/reason/issue/targetPhase of an existing approval fails
  * - M04 approved survivor -> KILLED + classification removed   = pass
  * - M05 approved survivor -> KILLED + classification retained  = stale
  * - M06 new NON_KILLED identity                                = new survivor
- * - M07 new KILLED identity                                    = pass
+ * - M07 new KILLED identity                                    = pass (only if
+ *   the row is self-consistent — forged kills fail closed)
  * - M08 candidate self-classification (new survivor)           = fail
  * - M09 fabricated classification (never certified)            = fail
  * - M10 classification for disappeared mutant retained         = orphaned
  * - M11 base classification removed while survivor remains     = fail
  * - M12 duplicate identities                                   = fail
- * - M13 unknown/non-canonical outcome                          = fail closed
+ * - M13 unknown/non-canonical outcome OR raw status, and stored
+ *   outcome contradicting canonical(raw status)                = fail closed
  * - M14 family narrowing (family/module set shrinks)           = fail
  * - M15 target-class / target-test narrowing                   = fail
- * - M16/M17/M18 analyzer semantics/mutator/timeout drift       = fail
+ * - M16/M17/M18 analyzer semantics/mutator/timeout drift, base vs candidate
+ *   AND candidate vs the executable PIT renderer               = fail
  * - M19 identity-schema drift                                  = fail
  * - M20 malformed / missing / self-inconsistent authority      = fail closed
  *
@@ -41,7 +51,9 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  * (when the underlying mutant dies), never add or re-author one. New
  * classifications are adjudicated on master during an enrollment ceremony and
  * become part of the base; anything a candidate adds is either self-approval
- * of its own survivor (M08) or fabrication (M09).
+ * of its own survivor (M08) or fabrication (M09). byFamily metrics are
+ * derived truth: they are recomputed from the persisted rows and must equal
+ * the persisted entry exactly; every configured family must stay non-vacuous.
  *
  * No wildcards, no family allowances, no budgets, no score thresholds and no
  * mutation-score floor are consulted anywhere in this class.
@@ -50,10 +62,11 @@ class MutationRatchetVerifier {
     fun verify(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
+        executable: MutationAnalyzerSemantics = base.population.analyzer,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         diagnostics += schemaAndStatusChecks(base.population, candidate.population)
-        diagnostics += analyzerSemanticsChecks(base.population.analyzer, candidate.population.analyzer)
+        diagnostics += semanticsChecks(base.population.analyzer, candidate.population.analyzer, executable)
         diagnostics += validatePopulationRows("base authority", base.population)
         diagnostics += validatePopulationRows("candidate", candidate.population)
         diagnostics += validateClassificationList("base authority", base.classifications)
@@ -124,34 +137,51 @@ class MutationRatchetVerifier {
         return diagnostics
     }
 
-    private fun analyzerSemanticsChecks(
+    /**
+     * Three-way semantics pin (M16/M17/M18): the committed base metadata, the
+     * committed candidate metadata and the EXECUTABLE PIT renderer semantics
+     * ([MutationPopulationAggregator.canonicalSemantics], derived from
+     * [MutationProbeInitScript]) must all agree. Comparing base vs candidate
+     * alone only proves the JSON description did not drift; comparing both
+     * against the renderer proves the actual PIT configuration did not drift
+     * either — a future PR that bumps PIT in build-logic while leaving the
+     * committed analyzer block untouched now fails.
+     */
+    private fun semanticsChecks(
         base: MutationAnalyzerSemantics,
         candidate: MutationAnalyzerSemantics,
+        executable: MutationAnalyzerSemantics,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
-        if (base.pluginVersion != candidate.pluginVersion || base.engineVersion != candidate.engineVersion) {
+        val baseVsCandidate = semanticsDiffs(base, candidate)
+        if (baseVsCandidate.isNotEmpty()) {
             diagnostics +=
                 VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT,
-                    "M16: PIT semantics drift — plugin ${base.pluginVersion}->${candidate.pluginVersion}, " +
-                        "engine ${base.engineVersion}->${candidate.engineVersion}. Killed/survived meaning changed.",
+                    "M16/M17/M18: PIT semantics drift, base authority -> candidate: " +
+                        baseVsCandidate.joinToString("; ") + ". Killed/survived meaning changed.",
                 )
         }
-        if (base.mutators != candidate.mutators) {
+        val candidateVsExecutable = semanticsDiffs(candidate, executable)
+        if (candidateVsExecutable.isNotEmpty()) {
             diagnostics +=
                 VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT,
-                    "M17: mutator drift — base [${base.mutators.joinToString()}] vs " +
-                        "candidate [${candidate.mutators.joinToString()}]. The 11-mutator DEFAULT expansion is pinned.",
+                    "M16/M17/M18: candidate analyzer metadata differs from the executable PIT renderer " +
+                        "(MutationProbeInitScript): " + candidateVsExecutable.joinToString("; ") +
+                        ". Changing PIT configuration without re-measuring the population and updating its " +
+                        "committed metadata is semantics drift.",
                 )
         }
-        if (base.timeoutConst != candidate.timeoutConst || base.timeoutFactor != candidate.timeoutFactor) {
+        val baseVsExecutable = semanticsDiffs(base, executable)
+        if (baseVsExecutable.isNotEmpty()) {
             diagnostics +=
                 VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT,
-                    "M18: timeout drift — base ${base.timeoutConst}ms x${base.timeoutFactor} vs " +
-                        "candidate ${candidate.timeoutConst}ms x${candidate.timeoutFactor}. " +
-                        "Timeouts are mutation semantics.",
+                    "M16/M17/M18: base authority analyzer metadata differs from the executable PIT renderer: " +
+                        baseVsExecutable.joinToString("; ") +
+                        ". The authority predates the current renderer or the renderer drifted — " +
+                        "a re-enrollment ceremony is required.",
                 )
         }
         return diagnostics
@@ -170,26 +200,19 @@ class MutationRatchetVerifier {
                         DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
                         "$label: mutant row has a blank identity — malformed authority input fails closed",
                     )
-            } else if (!seen.add(mutant.identity)) {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_DUPLICATE_IDENTITY,
-                        "M12: $label contains duplicate identity ${short(mutant.identity)} " +
-                            "(${mutant.className}#${mutant.method} ${mutant.mutator}). " +
-                            "Duplicate identities cannot be ratcheted.",
-                        findingId = mutant.identity,
-                        modulePath = mutant.module,
-                    )
-            }
-            if (mutant.outcome != KILLED && mutant.outcome != NON_KILLED) {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME,
-                        "M13: $label mutant ${short(mutant.identity)} has non-canonical outcome '${mutant.outcome}'. " +
-                            "Canonical outcomes are exactly KILLED | NON_KILLED; unknown outcomes fail closed.",
-                        findingId = mutant.identity,
-                        modulePath = mutant.module,
-                    )
+            } else {
+                if (!seen.add(mutant.identity)) {
+                    diagnostics +=
+                        VerificationDiagnostic.failure(
+                            DiagnosticCode.MUTATION_RATCHET_DUPLICATE_IDENTITY,
+                            "M12: $label contains duplicate identity ${short(mutant.identity)} " +
+                                "(${mutant.className}#${mutant.method} ${mutant.mutator}). " +
+                                "Duplicate identities cannot be ratcheted.",
+                            findingId = mutant.identity,
+                            modulePath = mutant.module,
+                        )
+                }
+                diagnostics += rowSelfChecks(label, mutant)
             }
         }
         return diagnostics
@@ -268,6 +291,7 @@ class MutationRatchetVerifier {
                     )
             }
             // M07: new KILLED identities pass — improved protection is the ratchet's goal.
+            // (Only self-consistent kills pass: rowSelfChecks already rejected forged ones.)
         }
         return diagnostics
     }
@@ -282,8 +306,11 @@ class MutationRatchetVerifier {
         val baseById = base.population.mutants.associateBy { it.identity }
         val candidateById = candidate.population.mutants.associateBy { it.identity }
 
-        // Retained classifications (M03/M05/M10).
+        // Retained classifications (M03/M05/M10). Retained means byte-identical:
+        // the id alone is never authority for an approval record.
         (candidateClassById.keys intersect baseClassById.keys).forEach { id ->
+            val baseClassification = baseClassById.getValue(id)
+            val candidateClassification = candidateClassById.getValue(id)
             val mutant = candidateById[id]
             if (mutant == null) {
                 diagnostics +=
@@ -302,8 +329,19 @@ class MutationRatchetVerifier {
                         findingId = id,
                         modulePath = mutant.module,
                     )
+            } else if (baseClassification != candidateClassification) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID,
+                        "M03: retained classification ${short(id)} was rewritten — classification/reason/issue/" +
+                            "targetPhase of an approved survivor must stay byte-identical while it remains " +
+                            "NON_KILLED. A PR may remove a classification when the mutant dies (M04); it may not " +
+                            "re-author an existing approval.",
+                        findingId = id,
+                        modulePath = mutant.module,
+                    )
             }
-            // M03: approved survivor stays NON_KILLED with its classification → pass.
+            // M03: approved survivor stays NON_KILLED with an identical classification -> pass.
         }
 
         // Added classifications (M08/M09): a candidate may never add one.
@@ -325,7 +363,7 @@ class MutationRatchetVerifier {
                         modulePath = mutant.module,
                     )
             }
-            // M04: removed + mutant KILLED → pass. Removed + mutant disappeared → pass.
+            // M04: removed + mutant KILLED -> pass. Removed + mutant disappeared -> pass.
         }
         return diagnostics
     }
@@ -416,10 +454,10 @@ class MutationRatchetVerifier {
     }
 
     /**
-     * The committed population's byFamily section must be the exact, consistent
-     * mirror of the governing target configuration and of the mutant rows
-     * themselves. A hand-trimmed byFamily that disagrees with config or with
-     * row counts is evidence of tampering.
+     * byFamily is derived truth: family keys, modules, totals and every raw
+     * bucket are recomputed from the persisted mutant rows + the governing
+     * target configuration and must equal the persisted entry exactly. Every
+     * configured family must also stay non-vacuous.
      */
     private fun familyScopeConsistency(
         label: String,
@@ -439,21 +477,24 @@ class MutationRatchetVerifier {
         }
         population.byFamily.forEach { (family, familyPopulation) ->
             val config = targetFamilies.getValue(family)
-            if (familyPopulation.modules != config.modules.sorted()) {
+            val familyRows = population.mutants.filter { it.family == family }
+            if (familyRows.isEmpty()) {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
-                        "$label family '$family' byFamily modules ${familyPopulation.modules} disagree with " +
-                            "config modules ${config.modules.sorted()}.",
+                        "$label family '$family' is vacuous — zero mutant rows persisted for a configured family. " +
+                            "A configured family must not be silently emptied.",
                     )
+                return@forEach
             }
-            val rowCount = population.mutants.count { it.family == family }
-            if (familyPopulation.totalMutants != rowCount) {
+            val recomputed = recomputeFamilyPopulation(family, familyRows, config.modules)
+            if (recomputed != familyPopulation) {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
-                        "$label family '$family' byFamily.totalMutants=${familyPopulation.totalMutants} does not " +
-                            "match the $rowCount mutant rows persisted for that family.",
+                        "$label family '$family' byFamily entry ${summarizeFamily(familyPopulation)} disagrees with " +
+                            "its rows (recomputed ${summarizeFamily(recomputed)}). byFamily is derived truth; " +
+                            "hand-edited metrics fail closed.",
                     )
             }
         }
@@ -465,6 +506,7 @@ class MutationRatchetVerifier {
         const val NON_KILLED = "NON_KILLED"
         const val IDENTITY_SCHEMA_VERSION = "2"
         const val ID_SHORT_LENGTH = 8
+        val KNOWN_STATUSES = setOf("KILLED", "SURVIVED", "NO_COVERAGE", "TIMED_OUT")
 
         fun describe(mutant: MutationOutcome): String =
             "${mutant.module} ${mutant.className}#${mutant.method}${mutant.methodDescription} " +
@@ -487,5 +529,137 @@ class MutationRatchetVerifier {
             }
             return diagnostics
         }
+
+        /**
+         * Per-row cryptographic and canonical self-validation (M13/M20): the
+         * stored identity must equal the SHA-256 over the row's own identity
+         * fields.
+         */
+        fun rowSelfChecks(
+            label: String,
+            mutant: MutationOutcome,
+        ): List<VerificationDiagnostic> {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            if (mutant.outcome != KILLED && mutant.outcome != NON_KILLED) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME,
+                        "M13: $label mutant ${short(mutant.identity)} has non-canonical outcome '${mutant.outcome}'. " +
+                            "Canonical outcomes are exactly KILLED | NON_KILLED; unknown outcomes fail closed.",
+                        findingId = mutant.identity,
+                        modulePath = mutant.module,
+                    )
+            }
+            val recomputed =
+                MutationIdentity(
+                    mutant.module,
+                    mutant.className,
+                    mutant.method,
+                    mutant.methodDescription,
+                    mutant.mutator,
+                    mutant.description,
+                    mutant.block,
+                    mutant.index,
+                ).stableKey()
+            if (recomputed != mutant.identity) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+                        "M20: $label mutant ${short(mutant.identity)} is self-inconsistent — its stored identity " +
+                            "does not equal the SHA-256 over its own module/class/method/descriptor/mutator/" +
+                            "description/block/index fields (recomputed ${short(recomputed)}). " +
+                            "Hand-forged rows fail closed.",
+                        findingId = mutant.identity,
+                        modulePath = mutant.module,
+                    )
+            }
+            diagnostics += canonicalOutcomeChecks(label, mutant)
+            return diagnostics
+        }
+
+        fun canonicalOutcomeChecks(
+            label: String,
+            mutant: MutationOutcome,
+        ): List<VerificationDiagnostic> {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            val canonicalAttempt = runCatching { MutationOutcome.canonical(mutant.status) }
+            val canonicalOutcome = canonicalAttempt.getOrNull()
+            if (canonicalOutcome == null) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME,
+                        "M13: $label mutant ${short(mutant.identity)} has raw status '${mutant.status}' which " +
+                            "cannot be canonicalized (${canonicalAttempt.exceptionOrNull()?.message}); " +
+                            "tool-failure statuses fail closed and never become NON_KILLED or KILLED.",
+                        findingId = mutant.identity,
+                        modulePath = mutant.module,
+                    )
+            } else if (canonicalOutcome != mutant.outcome) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME,
+                        "M13: $label mutant ${short(mutant.identity)} stores outcome '${mutant.outcome}' which " +
+                            "contradicts the canonical mapping of its raw status '${mutant.status}' " +
+                            "(canonical '$canonicalOutcome'). A hand-edited outcome cannot turn a raw survivor " +
+                            "into a kill.",
+                        findingId = mutant.identity,
+                        modulePath = mutant.module,
+                    )
+            }
+            return diagnostics
+        }
+
+        fun semanticsDiffs(
+            a: MutationAnalyzerSemantics,
+            b: MutationAnalyzerSemantics,
+        ): List<String> {
+            val diffs = mutableListOf<String>()
+            if (a.pluginVersion != b.pluginVersion) {
+                diffs += "plugin ${a.pluginVersion}->${b.pluginVersion}"
+            }
+            if (a.engineVersion != b.engineVersion) {
+                diffs += "engine ${a.engineVersion}->${b.engineVersion}"
+            }
+            if (a.mutators != b.mutators) {
+                diffs += "mutators [${a.mutators.joinToString()}]->[${b.mutators.joinToString()}]"
+            }
+            if (a.timeoutConst != b.timeoutConst) {
+                diffs += "timeoutConst ${a.timeoutConst}->${b.timeoutConst}"
+            }
+            if (a.timeoutFactor != b.timeoutFactor) {
+                diffs += "timeoutFactor ${a.timeoutFactor}->${b.timeoutFactor}"
+            }
+            return diffs
+        }
+
+        /** Mirrors MutationPopulationAggregator.familyPopulation over persisted rows. */
+        fun recomputeFamilyPopulation(
+            family: String,
+            familyRows: List<MutationOutcome>,
+            configuredModules: List<String>,
+        ): MutationFamilyPopulation {
+            val killed = familyRows.count { it.status == "KILLED" }
+            val survived = familyRows.count { it.status == "SURVIVED" }
+            val noCoverage = familyRows.count { it.status == "NO_COVERAGE" }
+            val timedOut = familyRows.count { it.status == "TIMED_OUT" }
+            val errors = familyRows.count { it.status !in KNOWN_STATUSES }
+            return MutationFamilyPopulation(
+                family = family,
+                modules = configuredModules.sorted(),
+                totalMutants = familyRows.size,
+                killedMutants = killed,
+                survivedMutants = survived,
+                noCoverageMutants = noCoverage,
+                timedOutMutants = timedOut,
+                errorMutants = errors,
+                mutationScore = if (familyRows.isEmpty()) 0.0 else 100.0 * killed / familyRows.size,
+            )
+        }
+
+        fun summarizeFamily(population: MutationFamilyPopulation): String =
+            "modules=${population.modules} total=${population.totalMutants} killed=${population.killedMutants} " +
+                "survived=${population.survivedMutants} noCoverage=${population.noCoverageMutants} " +
+                "timedOut=${population.timedOutMutants} errors=${population.errorMutants} " +
+                "score=${population.mutationScore}"
     }
 }

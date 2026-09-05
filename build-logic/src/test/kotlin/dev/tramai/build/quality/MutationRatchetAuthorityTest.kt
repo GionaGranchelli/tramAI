@@ -16,8 +16,28 @@ import kotlin.test.assertTrue
  * that the certified 10.3c2 authority passes its own ratchet.
  */
 class MutationRatchetAuthorityTest {
-    private val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+    private val repoRoot =
+        File(
+            requireNotNull(System.getProperty("tramai.repositoryRoot")) {
+                "tramai.repositoryRoot must be set (build-logic/build.gradle.kts test wiring); " +
+                    "cannot resolve the real repository for authority loader tests"
+            },
+        )
     private val headSha = git("rev-parse", "HEAD").trim()
+
+    private fun git(vararg args: String): String {
+        val process =
+            ProcessBuilder(listOf("git") + args)
+                .directory(repoRoot)
+                .redirectErrorStream(true)
+                .start()
+        val out = process.inputStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+        check(exitCode == 0) {
+            "git ${args.joinToString(" ")} failed with exit $exitCode: ${out.trim()}"
+        }
+        return out
+    }
 
     @Test
     fun `load reads the certified authority at head`() {
@@ -65,6 +85,7 @@ class MutationRatchetAuthorityTest {
                         classifications = candidateClassifications,
                         targetFamilies = candidateConfiguration.mutation.targetFamilies,
                     ),
+                    executable = MutationPopulationAggregator.canonicalSemantics(),
                 ).filter { it.severity == DiagnosticSeverity.FAILURE }
         assertEquals(
             emptyList(),
@@ -111,15 +132,4 @@ class MutationRatchetAuthorityTest {
             }
         assertTrue(e.isFailure, "a base SHA without the mutation authority must fail hard")
     }
-
-    private fun git(vararg args: String): String =
-        ProcessBuilder(listOf("git") + args)
-            .directory(repoRoot)
-            .redirectErrorStream(true)
-            .start()
-            .let { p ->
-                val out = p.inputStream.bufferedReader().readText()
-                p.waitFor()
-                out
-            }
 }

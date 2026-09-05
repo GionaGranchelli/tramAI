@@ -1,364 +1,111 @@
 package dev.tramai.build.quality
 
-import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
 import org.junit.jupiter.api.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * 10.3c3 discriminator matrix M01-M20 for the base-authoritative mutation
- * ratchet, plus the critical self-approval test. All tests use small
- * synthetic populations and classifications — NONE of them runs PITest.
- *
- * The verifier is pure and typed: base authority and candidate are both built
- * in memory, so every rule is proven without touching git, files, or Gradle.
+ * 10.3c3 discriminator matrix M01-M20 (outcome, scope and semantics half) for
+ * the base-authoritative mutation ratchet. Classification-authority rules
+ * (M03-M05, M08-M11) live in [MutationRatchetClassificationDiscriminatorTest].
+ * All tests use small synthetic populations and classifications — NONE of
+ * them runs PITest.
  */
-class MutationRatchetDiscriminatorTest {
-    private val policyFamily = "policy"
-    private val retryFamily = "retry"
-
-    private companion object {
-        const val BASE_SHA = "base-sha"
-    }
-
-    private val policyTarget =
-        MutationTargetFamily(
-            modules = listOf(":engine"),
-            targetClasses = listOf("dev.tramai.policy.*"),
-            targetTests = listOf("dev.tramai.policy.PolicyTest"),
-        )
-    private val retryTarget =
-        MutationTargetFamily(
-            modules = listOf(":engine"),
-            targetClasses = listOf("dev.tramai.retry.*"),
-            targetTests = listOf("dev.tramai.retry.RetryTest"),
-        )
-    private val baseFamilies = mapOf(policyFamily to policyTarget)
-
-    private val semantics =
-        MutationAnalyzerSemantics(
-            pluginVersion = MutationProbeInitScript.PIT_PLUGIN_VERSION,
-            engineVersion = MutationProbeInitScript.PIT_ENGINE_VERSION,
-            mutators = MutationProbeInitScript.PIT_MUTATORS,
-            timeoutConst = MutationProbeInitScript.TIMEOUT_CONST_MILLIS.toInt(),
-            timeoutFactor = MutationProbeInitScript.TIMEOUT_FACTOR,
-        )
-
-    private val mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
-
-    private fun row(
-        id: String,
-        family: String = policyFamily,
-        outcome: String = "NON_KILLED",
-        status: String = "SURVIVED",
-        module: String = ":engine",
-    ): MutationOutcome =
-        MutationOutcome(
-            identity = id,
-            family = family,
-            module = module,
-            className = "dev.tramai.$family.Policy",
-            method = "apply",
-            methodDescription = "()V",
-            mutator = mutator,
-            description = "replaced int with +1",
-            block = 1,
-            index = 7,
-            sourceFile = "Policy.kt",
-            line = 10,
-            status = status,
-            outcome = outcome,
-        )
-
-    private fun population(
-        rows: List<MutationOutcome>,
-        families: Map<String, MutationTargetFamily> = baseFamilies,
-        measuredCommit: String = "candidate-head",
-        analyzer: MutationAnalyzerSemantics = semantics,
-    ): MutationPopulationBaseline =
-        MutationPopulationBaseline(
-            measuredCommit = measuredCommit,
-            analyzer = analyzer,
-            byFamily =
-                families.keys.associateWith { family ->
-                    val familyRows = rows.filter { it.family == family }
-                    MutationFamilyPopulation(
-                        family = family,
-                        modules = families.getValue(family).modules.sorted(),
-                        totalMutants = familyRows.size,
-                        killedMutants = familyRows.count { it.outcome == "KILLED" },
-                        survivedMutants = familyRows.count { it.status == "SURVIVED" },
-                        noCoverageMutants = familyRows.count { it.status == "NO_COVERAGE" },
-                        timedOutMutants = familyRows.count { it.status == "TIMED_OUT" },
-                        errorMutants = 0,
-                        mutationScore =
-                            if (familyRows.isEmpty()) {
-                                0.0
-                            } else {
-                                100.0 * familyRows.count { it.outcome == "KILLED" } / familyRows.size
-                            },
-                    )
-                },
-            mutants = rows.sortedWith(compareBy<MutationOutcome> { it.family }.thenBy { it.identity }),
-        )
-
-    private fun classifications(vararg ids: String): MutationClassifications =
-        MutationClassifications(
-            schemaVersion = "1",
-            classifications =
-                ids.map { id ->
-                    MutationClassification(
-                        id = id,
-                        classification = "equivalent-mutant",
-                        reason = "test fixture",
-                    )
-                },
-        )
-
-    private fun verify(
-        basePopulation: MutationPopulationBaseline,
-        baseClassifications: MutationClassifications = classifications(),
-        candidatePopulation: MutationPopulationBaseline,
-        candidateClassifications: MutationClassifications = classifications(),
-    ): List<VerificationDiagnostic> =
-        MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, baseClassifications, baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, candidateClassifications, baseFamilies),
-        )
-
-    private fun verify(
-        basePopulation: MutationPopulationBaseline,
-        baseFamilies: Map<String, MutationTargetFamily>,
-        candidatePopulation: MutationPopulationBaseline,
-        candidateFamilies: Map<String, MutationTargetFamily>,
-    ): List<VerificationDiagnostic> =
-        MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, classifications(), candidateFamilies),
-        )
-
-    private fun failures(diagnostics: List<VerificationDiagnostic>): List<VerificationDiagnostic> =
-        diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
-
-    private fun hasCode(
-        diagnostics: List<VerificationDiagnostic>,
-        code: DiagnosticCode,
-    ): Boolean = failures(diagnostics).any { it.code == code }
-
-    private fun passes(diagnostics: List<VerificationDiagnostic>) {
-        assertEquals(emptyList(), failures(diagnostics).map { "${it.code}: ${it.message}" })
-    }
-
+class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     // ── M01 / M02: killed-mutant regression vs stability ──
 
     @Test
     fun `M01 base KILLED to candidate NON_KILLED fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val candidate = population(listOf(row("k1", outcome = "NON_KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate = population(listOf(row("k1")))
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_REGRESSION), "M01 must fail")
+        assertTrue(failures(diagnostics).any { it.message.contains("apply_k1") })
     }
 
     @Test
     fun `M02 base KILLED to candidate KILLED passes`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         passes(verify(basePopulation = base, candidatePopulation = candidate))
-    }
-
-    // ── M03 / M04 / M05: approved survivors ──
-
-    @Test
-    fun `M03 approved survivor remaining NON_KILLED passes`() {
-        val base = population(listOf(row("s1")))
-        val candidate = population(listOf(row("s1")))
-        passes(
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications("s1"),
-            ),
-        )
-    }
-
-    @Test
-    fun `M04 approved survivor killed with classification removed passes`() {
-        val base = population(listOf(row("s1")))
-        val candidate = population(listOf(row("s1", outcome = "KILLED", status = "KILLED")))
-        passes(
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications(),
-            ),
-        )
-    }
-
-    @Test
-    fun `M05 approved survivor killed with stale classification fails`() {
-        val base = population(listOf(row("s1")))
-        val candidate = population(listOf(row("s1", outcome = "KILLED", status = "KILLED")))
-        val diagnostics =
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications("s1"),
-            )
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID),
-            "stale classification on a now-killed mutant must fail",
-        )
     }
 
     // ── M06 / M07: new identities ──
 
     @Test
     fun `M06 new NON_KILLED identity fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
                 listOf(
-                    row("k1", outcome = "KILLED", status = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
                     row("n1"),
                 ),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR), "new survivor must fail")
-        assertTrue(failures(diagnostics).any { it.message.contains("n1") })
+        assertTrue(failures(diagnostics).any { it.message.contains("apply_n1") })
     }
 
     @Test
     fun `M07 new KILLED identity passes`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
                 listOf(
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                    row("k2", outcome = "KILLED", status = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("k2", status = "KILLED", outcome = "KILLED"),
                 ),
             )
         passes(verify(basePopulation = base, candidatePopulation = candidate))
     }
 
-    // ── M08 / M09 / M10 / M11: classification authority ──
-
     @Test
-    fun `M08 candidate self-classification of a new survivor fails`() {
-        // THE critical test: BASE: A absent; CANDIDATE: A = NON_KILLED and
-        // classification includes A => FAIL. A PR cannot approve its own
-        // survivor by classifying it.
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+    fun `M07 forged kill with raw SURVIVED status fails closed`() {
+        // A hand-edited candidate cannot store status=SURVIVED with
+        // outcome=KILLED to sneak a new mutant past M07.
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
                 listOf(
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                    row("a", outcome = "NON_KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("k2", status = "SURVIVED", outcome = "KILLED"),
                 ),
             )
-        val diagnostics =
-            verify(
-                basePopulation = base,
-                candidatePopulation = candidate,
-                candidateClassifications = classifications("a"),
-            )
-        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR))
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID),
-            "self-classification must itself be rejected",
-        )
-        assertTrue(failures(diagnostics).any { it.message.contains("a") })
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME, "contradicts the canonical")
     }
 
     @Test
-    fun `M09 fabricated classification fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val diagnostics =
-            verify(
-                basePopulation = base,
-                candidatePopulation = candidate,
-                candidateClassifications = classifications("never-measured"),
-            )
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID),
-            "fabricated classification must fail",
-        )
-        assertTrue(failures(diagnostics).any { it.message.contains("fabricated") })
+    fun `M13 unknown raw status fails closed`() {
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate = population(listOf(row("k2", status = "NON_VIABLE", outcome = "NON_KILLED")))
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_UNKNOWN_OUTCOME, "cannot be canonicalized")
     }
 
     @Test
-    fun `M10 disappeared mutant with retained classification fails`() {
-        val base =
+    fun `M20 forged identity fails closed`() {
+        // A row whose stored identity does not equal the SHA-256 over its own
+        // fields cannot be ratcheted: the identity is the trust anchor.
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate =
             population(
-                listOf(
-                    row("s1"),
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                ),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED").copy(identity = "0".repeat(64))),
             )
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val diagnostics =
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications("s1"),
-            )
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID),
-            "classification retained after its mutant disappeared must fail",
-        )
-    }
-
-    @Test
-    fun `M10 disappeared mutant with classification removed passes`() {
-        val base =
-            population(
-                listOf(
-                    row("s1"),
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                ),
-            )
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        passes(
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications(),
-            ),
-        )
-    }
-
-    @Test
-    fun `M11 removing base classification while survivor remains fails`() {
-        val base = population(listOf(row("s1")))
-        val candidate = population(listOf(row("s1")))
-        val diagnostics =
-            verify(
-                basePopulation = base,
-                baseClassifications = classifications("s1"),
-                candidatePopulation = candidate,
-                candidateClassifications = classifications(),
-            )
-        assertTrue(
-            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_REMOVED),
-            "removing an approval while its survivor remains must fail",
-        )
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID, "self-inconsistent")
     }
 
     // ── M12 / M13: structural integrity, fail closed ──
 
     @Test
     fun `M12 duplicate identity fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
                 listOf(
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                    row("k1", outcome = "KILLED", status = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
                 ),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
@@ -366,8 +113,8 @@ class MutationRatchetDiscriminatorTest {
     }
 
     @Test
-    fun `M13 unknown outcome fails closed`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+    fun `M13 non-canonical outcome fails closed`() {
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate = population(listOf(row("k1", outcome = "SURVIVED")))
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(
@@ -384,14 +131,14 @@ class MutationRatchetDiscriminatorTest {
         val base =
             population(
                 listOf(
-                    row("k1", outcome = "KILLED", status = "KILLED"),
-                    row("k2", family = retryFamily, outcome = "KILLED", status = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("k2", family = retryFamily, status = "KILLED", outcome = "KILLED"),
                 ),
                 families = twoFamilyTargets,
             )
         val candidate =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 families = baseFamilies,
             )
         val diagnostics =
@@ -412,10 +159,10 @@ class MutationRatchetDiscriminatorTest {
         val wideTarget = policyTarget.copy(modules = listOf(":engine", ":security"))
         val base =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 families = mapOf(policyFamily to wideTarget),
             )
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")), families = baseFamilies)
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")), families = baseFamilies)
         val diagnostics =
             verify(
                 basePopulation = base,
@@ -435,10 +182,10 @@ class MutationRatchetDiscriminatorTest {
             policyTarget.copy(targetClasses = listOf("dev.tramai.policy.*", "dev.tramai.policy.deep.*"))
         val base =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 families = mapOf(policyFamily to wideTarget),
             )
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val diagnostics =
             verify(
                 basePopulation = base,
@@ -458,10 +205,10 @@ class MutationRatchetDiscriminatorTest {
             policyTarget.copy(targetTests = listOf("dev.tramai.policy.PolicyTest", "dev.tramai.policy.PolicyDeepTest"))
         val base =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 families = mapOf(policyFamily to wideTarget),
             )
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val diagnostics =
             verify(
                 basePopulation = base,
@@ -479,10 +226,10 @@ class MutationRatchetDiscriminatorTest {
 
     @Test
     fun `M16 plugin engine semantics drift fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 analyzer = semantics.copy(pluginVersion = "9.9.9"),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
@@ -491,10 +238,10 @@ class MutationRatchetDiscriminatorTest {
 
     @Test
     fun `M17 mutator drift fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 analyzer = semantics.copy(mutators = semantics.mutators + "EXTRA_MUTATOR"),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
@@ -503,23 +250,38 @@ class MutationRatchetDiscriminatorTest {
 
     @Test
     fun `M18 timeout drift fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
-                listOf(row("k1", outcome = "KILLED", status = "KILLED")),
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
                 analyzer = semantics.copy(timeoutConst = 9_999),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT), "timeout drift must fail")
     }
 
+    @Test
+    fun `M16 executable PIT renderer drift fails even when metadata matches base`() {
+        // Blocker 3: base == candidate metadata, but the executable renderer
+        // (MutationProbeInitScript) drifted -> the gate must still fail.
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                executable = semantics.copy(engineVersion = "9.9.9"),
+            )
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT, "executable PIT renderer")
+    }
+
     // ── M19 / M20: schema and input integrity ──
 
     @Test
     fun `M19 identity schema drift fails`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
-            population(listOf(row("k1", outcome = "KILLED", status = "KILLED"))).copy(identitySchemaVersion = "3")
+            population(listOf(row("k1", status = "KILLED", outcome = "KILLED"))).copy(identitySchemaVersion = "3")
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(
             hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_SCHEMA_DRIFT),
@@ -530,7 +292,7 @@ class MutationRatchetDiscriminatorTest {
     @Test
     fun `M20 empty authority fails closed`() {
         val base = population(rows = emptyList())
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
         assertTrue(
             hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID),
@@ -540,12 +302,11 @@ class MutationRatchetDiscriminatorTest {
 
     @Test
     fun `M20 blank identity row fails closed`() {
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
         val candidate =
             population(
                 listOf(
-                    row("", outcome = "KILLED", status = "KILLED"),
-                    row("k1", outcome = "KILLED", status = "KILLED"),
+                    row("k1", status = "KILLED", outcome = "KILLED").copy(identity = ""),
                 ),
             )
         val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
@@ -556,20 +317,59 @@ class MutationRatchetDiscriminatorTest {
     }
 
     @Test
-    fun `M20 self-inconsistent base classification fails closed`() {
-        // Base classification referencing a KILLED mutant is an authority defect.
-        val base = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
-        val candidate = population(listOf(row("k1", outcome = "KILLED", status = "KILLED")))
+    fun `M20 vacuous configured family fails closed`() {
+        // Candidate retains the configured family in its target config but
+        // carries zero rows for it — byFamily must never go vacuous.
+        val twoFamilyTargets = mapOf(policyFamily to policyTarget, retryFamily to retryTarget)
+        val base =
+            population(
+                listOf(
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("k2", family = retryFamily, status = "KILLED", outcome = "KILLED"),
+                ),
+                families = twoFamilyTargets,
+            )
+        val candidate =
+            population(listOf(row("k1", status = "KILLED", outcome = "KILLED")), families = twoFamilyTargets)
         val diagnostics =
             verify(
                 basePopulation = base,
-                baseClassifications = classifications("k1"),
+                baseFamilies = twoFamilyTargets,
                 candidatePopulation = candidate,
+                candidateFamilies = twoFamilyTargets,
             )
         assertTrue(
             hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID),
-            "a base classification over a killed mutant is not an approval source",
+            "a configured family emptied of rows must fail closed",
         )
+        assertTrue(failures(diagnostics).any { it.message.contains("vacuous") })
+    }
+
+    @Test
+    fun `M20 tampered byFamily metrics fail closed`() {
+        val base = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val candidate =
+            population(
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
+            ).copy(
+                byFamily =
+                    mapOf(
+                        policyFamily to
+                            MutationFamilyPopulation(
+                                family = policyFamily,
+                                modules = listOf(":engine"),
+                                totalMutants = 1,
+                                killedMutants = 999,
+                                survivedMutants = 0,
+                                noCoverageMutants = 0,
+                                timedOutMutants = 0,
+                                errorMutants = 0,
+                                mutationScore = 999.0,
+                            ),
+                    ),
+            )
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID, "byFamily")
     }
 
     // ── master identity: the committed authority must pass its own ratchet ──
@@ -579,7 +379,7 @@ class MutationRatchetDiscriminatorTest {
         val rows =
             listOf(
                 row("s1"),
-                row("k1", outcome = "KILLED", status = "KILLED"),
+                row("k1", status = "KILLED", outcome = "KILLED"),
                 row("u1"),
             )
         val base = population(rows, measuredCommit = "base")
@@ -587,9 +387,9 @@ class MutationRatchetDiscriminatorTest {
         passes(
             verify(
                 basePopulation = base,
-                baseClassifications = classifications("s1"),
+                baseClassifications = approvedClassifications("s1"),
                 candidatePopulation = candidate,
-                candidateClassifications = classifications("s1"),
+                candidateClassifications = approvedClassifications("s1"),
             ),
         )
     }
