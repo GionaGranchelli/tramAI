@@ -19,11 +19,11 @@ class MutationPopulationTest {
 
     private val semantics =
         MutationAnalyzerSemantics(
-            pluginVersion = "1.19.0",
-            engineVersion = "1.22.1",
-            mutators = listOf("MATH"),
-            timeoutConst = 4_000,
-            timeoutFactor = 1.25,
+            pluginVersion = MutationProbeInitScript.PIT_PLUGIN_VERSION,
+            engineVersion = MutationProbeInitScript.PIT_ENGINE_VERSION,
+            mutators = MutationProbeInitScript.PIT_MUTATORS,
+            timeoutConst = MutationProbeInitScript.TIMEOUT_CONST_MILLIS.toInt(),
+            timeoutFactor = MutationProbeInitScript.TIMEOUT_FACTOR,
         )
 
     private fun record(

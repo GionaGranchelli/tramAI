@@ -23,7 +23,7 @@ class MutationIdentityTest {
     }
 
     @Test
-    fun `distinct PIT mutation indexes are distinct identities`() {
+    fun `PIT bytecode coordinates are part of mutation identity`() {
         val base =
             MutationIdentity(
                 module = ":engine",
@@ -35,30 +35,22 @@ class MutationIdentityTest {
                 block = 1,
                 index = 5,
             )
-        val otherIndex = base.copy(index = 6)
-        assertNotEquals(base.stableKey(), otherIndex.stableKey(), "M08: index must separate bytecode points")
-    }
 
-    @Test
-    fun `distinct blocks are distinct identities`() {
-        val base =
-            MutationIdentity(
-                module = ":engine",
-                className = "dev.tramai.Router",
-                method = "route",
-                methodDescription = "()V",
-                mutator = "M",
-                description = "d",
-                block = 1,
-                index = 5,
-            )
-        val otherBlock = base.copy(block = 2)
-        assertNotEquals(base.stableKey(), otherBlock.stableKey())
+        assertNotEquals(
+            base.stableKey(),
+            base.copy(index = 6).stableKey(),
+            "M08: index must separate bytecode points",
+        )
+        assertNotEquals(
+            base.stableKey(),
+            base.copy(block = 2).stableKey(),
+            "block must separate bytecode regions",
+        )
     }
 
     @Test
     fun `identity excludes line number and source file`() {
-        val a =
+        val identity =
             MutationIdentity(
                 module = ":engine",
                 className = "dev.tramai.Router",
@@ -69,10 +61,9 @@ class MutationIdentityTest {
                 block = 1,
                 index = 5,
             )
-        // Same mutation, different line: identical identity (M20).
-        assertEquals(a.stableKey(), a.copy().stableKey())
-        // Identity has no line/sourceFile fields at all by construction.
-        assertEquals(8, a.toList().size)
+
+        assertEquals(identity.stableKey(), identity.copy().stableKey())
+        assertEquals(8, identity.toList().size)
     }
 
     private fun MutationIdentity.toList() =

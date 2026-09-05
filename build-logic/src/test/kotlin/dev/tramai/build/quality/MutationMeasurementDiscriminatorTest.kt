@@ -58,7 +58,14 @@ class MutationMeasurementDiscriminatorTest {
                 ),
         )
 
-    private val semantics = MutationAnalyzerSemantics("1.19.0", "1.22.1", listOf("MATH"), 4_000, 1.25)
+    private val semantics =
+        MutationAnalyzerSemantics(
+            pluginVersion = MutationProbeInitScript.PIT_PLUGIN_VERSION,
+            engineVersion = MutationProbeInitScript.PIT_ENGINE_VERSION,
+            mutators = MutationProbeInitScript.PIT_MUTATORS,
+            timeoutConst = MutationProbeInitScript.TIMEOUT_CONST_MILLIS.toInt(),
+            timeoutFactor = MutationProbeInitScript.TIMEOUT_FACTOR,
+        )
 
     private fun overlappingFamilies(): Map<String, MutationTargetFamily> =
         mapOf(
@@ -432,16 +439,29 @@ class MutationMeasurementDiscriminatorTest {
             MutationPopulationAggregator.aggregate(allSeven(), families, "abc", bare)
         }
         // Unpinned timeout is also a C1 failure (timeout is mutation semantics).
-        val noTimeout = MutationAnalyzerSemantics("1.19.0", "1.22.1", listOf("MATH"), 0, 1.25)
+        val noTimeout = semantics.copy(timeoutConst = 0)
         assertFailsWith<GradleException> {
             MutationPopulationAggregator.aggregate(allSeven(), families, "abc", noTimeout)
         }
-        // With pinned semantics the artifact carries them (C1).
+        // Any analyzer metadata drift from the renderer is a hard C1 failure.
+        listOf(
+            semantics.copy(pluginVersion = "1.19.1"),
+            semantics.copy(engineVersion = "1.22.2"),
+            semantics.copy(mutators = semantics.mutators.dropLast(1)),
+            semantics.copy(timeoutConst = semantics.timeoutConst + 1),
+            semantics.copy(timeoutFactor = 2.0),
+        ).forEach { drifted ->
+            assertFailsWith<GradleException> {
+                MutationPopulationAggregator.aggregate(allSeven(), families, "abc", drifted)
+            }
+        }
+        // With canonical semantics the artifact carries the renderer authority.
         val baseline = MutationPopulationAggregator.aggregate(allSeven(), families, "abc", semantics)
-        assertEquals("1.19.0", baseline.analyzer.pluginVersion)
-        assertEquals("1.22.1", baseline.analyzer.engineVersion)
-        assertEquals(listOf("MATH"), baseline.analyzer.mutators)
-        assertEquals(4_000, baseline.analyzer.timeoutConst)
+        assertEquals(MutationProbeInitScript.PIT_PLUGIN_VERSION, baseline.analyzer.pluginVersion)
+        assertEquals(MutationProbeInitScript.PIT_ENGINE_VERSION, baseline.analyzer.engineVersion)
+        assertEquals(MutationProbeInitScript.PIT_MUTATORS, baseline.analyzer.mutators)
+        assertEquals(MutationProbeInitScript.TIMEOUT_CONST_MILLIS.toInt(), baseline.analyzer.timeoutConst)
+        assertEquals(MutationProbeInitScript.TIMEOUT_FACTOR, baseline.analyzer.timeoutFactor)
         assertEquals("2", baseline.identitySchemaVersion)
     }
 

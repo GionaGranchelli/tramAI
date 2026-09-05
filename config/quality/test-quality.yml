@@ -37,19 +37,35 @@ mutation:
       targetClasses: ["dev.tramai.core.provider.ProviderRegistry",
                       "dev.tramai.core.provider.ModelProvider",
                       "dev.tramai.engine.ModelRegistryEnforcer"]
+      targetTests:
+        - "dev.tramai.core.provider.ProviderRegistryTest"
+        - "dev.tramai.core.provider.ProviderRegistryCompatibilityTest"
+        - "dev.tramai.core.provider.ModelProviderDefaultContractTest"
+        - "dev.tramai.engine.ModelRegistryEnforcerTest"
     retry:
       modules: [":tramai-core", ":tramai-engine"]
       targetClasses: ["dev.tramai.engine.RetryPolicySettings*",
                       "dev.tramai.engine.CircuitBreakerSettings*",
                       "dev.tramai.engine.ProviderCircuitBreaker*",
-                      "dev.tramai.engine.ProviderRetryDelayPolicy*",
+                      "dev.tramai.engine.provider.ProviderRetryDelayPolicy*",
                       "dev.tramai.core.provider.ProviderFailuresKt*"]
+      targetTests: ["dev.tramai.core.provider.ProviderFailuresTest",
+                    "dev.tramai.engine.RetrySettingsContractTest",
+                    "dev.tramai.engine.provider.ProviderRetryPolicyTest",
+                    "dev.tramai.engine.provider.ProviderRetryFallbackLifecyclePropertyTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerLifecycleDiscriminatorTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerSecondaryRegressionTest",
+                    "dev.tramai.engine.provider.ProviderCircuitBreakerContractTest"]
     tools:
       modules: [":tramai-engine"]
       targetClasses:
         - "dev.tramai.engine.ToolRegistry"
         - "dev.tramai.engine.ToolResultFilteringSettings"
         - "dev.tramai.engine.CanonicalMessageEncoder"
+      targetTests:
+        - "dev.tramai.engine.ToolRegistryTest"
+        - "dev.tramai.engine.ToolResultFilteringSettingsTest"
+        - "dev.tramai.engine.CanonicalMessageEncoderTest"
     evidence:
       modules: [":tramai-sovereign", ":tramai-engine", ":tramai-security"]
       targetClasses:
