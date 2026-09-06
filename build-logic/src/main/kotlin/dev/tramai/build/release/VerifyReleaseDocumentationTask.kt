@@ -14,6 +14,7 @@ import java.io.File
 
 private val LINK_PATTERN = Regex("""\[([^\]]*)\]\(([^)]+)\)""")
 private val DEV_HOME_PATTERN = Regex("""/home/(?!\.\.\.)[^\s\)"]+""")
+private val RECOGNIZED_PLACEHOLDER_PATTERN = Regex("(?:.*/)?(?:spec|adr)-NNN(?:-[^/]*)?\\.md")
 
 /**
  * Verifies repository documentation link integrity and path hygiene (Epic 12.4a).
@@ -141,8 +142,10 @@ abstract class VerifyReleaseDocumentationTask : DefaultTask() {
                 .substringBefore('#')
                 .substringBefore('?')
 
-        return if (clean.isBlank() || clean.contains("NNN") || clean.contains("example")) null else clean
+        return if (clean.isBlank() || isRecognizedPlaceholder(clean)) null else clean
     }
+
+    private fun isRecognizedPlaceholder(target: String): Boolean = target.matches(RECOGNIZED_PLACEHOLDER_PATTERN)
 
     private fun reportViolations(
         securityViolations: List<String>,

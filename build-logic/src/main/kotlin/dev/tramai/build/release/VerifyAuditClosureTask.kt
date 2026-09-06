@@ -13,11 +13,69 @@ import org.gradle.work.DisableCachingByDefault
 import java.io.File
 import java.io.IOException
 
-private const val MIN_AUDIT_FINDINGS = 15
+private const val EXACT_AUDIT_FINDINGS = 15
+private const val FINDING_ID_WIDTH = 3
+private val P0P1_IDS = setOf("R12-001", "R12-002", "R12-003")
+private val EXPECTED_FINDING_IDS =
+    (1..EXACT_AUDIT_FINDINGS).map { "R12-${it.toString().padStart(FINDING_ID_WIDTH, '0')}" }.toSet()
+
+private fun validateAuditBlock(
+    root: JsonNode,
+    errors: MutableList<String>,
+) {
+    val audit =
+        root.get("audit") ?: run {
+            errors.add("12.3a findings: missing 'audit' block")
+            return
+        }
+    if (audit.get("status")?.asText().isNullOrBlank()) {
+        errors.add("12.3a audit.status must preserve a non-blank historical status")
+    }
+    if (audit.get("disposition")?.asText().isNullOrBlank()) {
+        errors.add("12.3a audit.disposition must preserve a non-blank historical disposition")
+    }
+}
+
+private fun validateClosureBlock(
+    root: JsonNode,
+    errors: MutableList<String>,
+) {
+    val closure =
+        root.get("closure") ?: run {
+            errors.add("12.3b closure: missing 'closure' block")
+            return
+        }
+    val status = closure.get("status")?.asText() ?: ""
+    if (status != "CLOSED") {
+        errors.add("12.3b closure.status must be 'CLOSED', found: '$status'")
+    }
+    if (closure.get("disposition")?.asText() == "READY_FOR_0.6.0_RELEASE") {
+        errors.add("12.3b closure must not contain the final release certification verdict")
+    }
+}
+
+private fun validateAuditDeferrals(
+    auditFindings: Map<String, JsonNode>,
+    errors: MutableList<String>,
+) {
+    auditFindings.forEach { (id, finding) ->
+        if (id in P0P1_IDS) return@forEach
+        if ((finding.get("owner")?.asText() ?: "").isBlank()) {
+            errors.add("12.3a deferred finding $id must have an assigned owner")
+        }
+        if ((finding.get("rationale")?.asText() ?: "").isBlank()) {
+            errors.add("12.3a deferred finding $id must have a rationale")
+        }
+    }
+}
 
 /**
- * Verifies that all P0/P1 independent audit findings from Epic 12.3 are CLOSED and
- * that all deferred P2/P3 findings retain assigned owners and rationales (Epic 12.4a).
+ * Verifies that all P0/P1 independent audit findings from Epic 12.3 are CLOSED (via 12.3b closure
+ * evidence) and that all deferred P2/P3 findings retain assigned owners and rationales (Epic 12.4a).
+ *
+ * Dual-file contract:
+ * - 12.3a: original audit with its historical status and verdicts preserved
+ * - 12.3b: remediation closure evidence (CLOSED, closedFindings and deferredFindings arrays)
  */
 @DisableCachingByDefault(because = "Audit closure verification inspects release review findings")
 abstract class VerifyAuditClosureTask : DefaultTask() {
@@ -25,11 +83,25 @@ abstract class VerifyAuditClosureTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val auditFindingsFile: RegularFileProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val remediationClosureFile: RegularFileProperty
+
     @TaskAction
     fun verify() {
-        val file = auditFindingsFile.get().asFile
-        val root = parseAuditJson(file)
-        val errors = evaluateFindings(root)
+        val auditFile = auditFindingsFile.get().asFile
+        val closureFile = remediationClosureFile.get().asFile
+
+        val auditRoot = parseJson(auditFile, "auditFindingsFile")
+        val closureRoot = parseJson(closureFile, "remediationClosureFile")
+
+        val errors = mutableListOf<String>()
+        validateAuditBlock(auditRoot, errors)
+        validateClosureBlock(closureRoot, errors)
+        validateClosureReferences(auditRoot, closureRoot, errors)
+        val auditFindings = validateAuditFindings(auditRoot, errors)
+        validateAuditDeferrals(auditFindings, errors)
+        validateClosureFindings(auditFindings, closureRoot, errors)
 
         if (errors.isNotEmpty()) {
             throw GradleException(
@@ -39,79 +111,185 @@ abstract class VerifyAuditClosureTask : DefaultTask() {
         }
 
         logger.lifecycle(
-            "verifyAuditClosure: verified all P0/P1 audit findings CLOSED and " +
+            "verifyAuditClosure: verified all P0/P1 audit findings CLOSED (via 12.3b) and " +
                 "all P2/P3 deferrals documented.",
         )
     }
 
-    private fun parseAuditJson(file: File): JsonNode {
+    private fun parseJson(
+        file: File,
+        inputName: String,
+    ): JsonNode {
         if (!file.isFile) {
             throw GradleException(
-                "verifyAuditClosure: Audit findings evidence file missing: ${file.absolutePath}",
+                "verifyAuditClosure: $inputName evidence file missing: ${file.absolutePath}",
             )
         }
         return try {
             ObjectMapper().readTree(file)
         } catch (e: IOException) {
             throw GradleException(
-                "verifyAuditClosure: Failed to parse audit findings evidence JSON: ${e.message}",
+                "verifyAuditClosure: Failed to parse $inputName JSON: ${e.message}",
                 e,
             )
         }
     }
 
-    private fun evaluateFindings(root: JsonNode): List<String> {
-        val errors = mutableListOf<String>()
-        val findingsNode = root.get("findings")
-        if (findingsNode == null || !findingsNode.isArray || findingsNode.size() < MIN_AUDIT_FINDINGS) {
-            val count = findingsNode?.size() ?: 0
-            errors.add(
-                "Audit evidence must contain at least $MIN_AUDIT_FINDINGS findings, found $count.",
-            )
-            return errors
-        }
-
-        val p0p1RequiredClosed = setOf("R12-001", "R12-002", "R12-003")
-        val foundIds = mutableSetOf<String>()
-
-        for (finding in findingsNode) {
-            validateFindingEntry(finding, p0p1RequiredClosed, foundIds, errors)
-        }
-
-        val missingP0P1 = p0p1RequiredClosed - foundIds
-        if (missingP0P1.isNotEmpty()) {
-            errors.add("Missing mandatory release-blocking audit findings: $missingP0P1")
-        }
-        return errors
-    }
-
-    private fun validateFindingEntry(
-        finding: JsonNode,
-        p0p1RequiredClosed: Set<String>,
-        foundIds: MutableSet<String>,
+    private fun validateClosureReferences(
+        auditRoot: JsonNode,
+        closureRoot: JsonNode,
         errors: MutableList<String>,
     ) {
-        val id = finding.get("id")?.asText() ?: return
-        foundIds.add(id)
-        val severity = finding.get("severity")?.asText() ?: ""
-        val status = finding.get("status")?.asText() ?: ""
-        val owner = finding.get("owner")?.asText() ?: ""
+        val auditTargetCommit =
+            auditRoot
+                .get("audit")
+                ?.get("targetCommit")
+                ?.asText()
+                .orEmpty()
+        val closure = closureRoot.get("closure") ?: return
+        if (auditTargetCommit.isBlank()) {
+            errors.add("12.3a audit: missing 'targetCommit' cross-reference")
+        } else if (closure.get("baseCommit")?.asText() != auditTargetCommit) {
+            errors.add("12.3b closure.baseCommit must match 12.3a audit.targetCommit")
+        }
+        if (closure.get("auditRef")?.asText() != "12.3a-independent-review-findings.json") {
+            errors.add("12.3b closure.auditRef must identify the 12.3a findings register")
+        }
+    }
 
-        if (id in p0p1RequiredClosed || severity in setOf("P0", "P1")) {
-            if (!status.equals("CLOSED", ignoreCase = true)) {
-                errors.add("Release-blocking audit finding $id ($severity) is not CLOSED (status: '$status').")
+    private fun validateAuditFindings(
+        root: JsonNode,
+        errors: MutableList<String>,
+    ): Map<String, JsonNode> {
+        val findings = root.get("findings")
+        if (findings == null || !findings.isArray) {
+            errors.add("12.3a findings: 'findings' array missing")
+            return emptyMap()
+        }
+        val count = findings.size()
+        if (count != EXACT_AUDIT_FINDINGS) {
+            errors.add("12.3a findings: must contain exactly $EXACT_AUDIT_FINDINGS findings, found $count")
+        }
+        val ids = findings.map { it.get("id")?.asText()?.takeIf(String::isNotBlank) ?: "<missing>" }
+        ids.groupingBy { it }.eachCount().filterValues { it > 1 }.forEach { (id, duplicateCount) ->
+            errors.add("12.3a findings: duplicate finding ID '$id' appears $duplicateCount times")
+        }
+        val foundIds = ids.toSet() - "<missing>"
+        val missingIds = EXPECTED_FINDING_IDS - foundIds
+        val extraIds = foundIds - EXPECTED_FINDING_IDS
+        if ("<missing>" in ids) {
+            errors.add("12.3a findings: every finding must have a non-blank ID")
+        }
+        if (missingIds.isNotEmpty()) {
+            errors.add("12.3a findings: missing expected finding IDs: $missingIds")
+        }
+        if (extraIds.isNotEmpty()) {
+            errors.add("12.3a findings: unexpected extra finding IDs: $extraIds")
+        }
+        return findings
+            .mapNotNull { finding ->
+                finding
+                    .get("id")
+                    ?.asText()
+                    ?.takeIf { it in EXPECTED_FINDING_IDS }
+                    ?.let { it to finding }
+            }.toMap()
+    }
+
+    private fun validateClosureFindings(
+        auditFindings: Map<String, JsonNode>,
+        closureRoot: JsonNode,
+        errors: MutableList<String>,
+    ) {
+        val entries = closureEntries(closureRoot, errors)
+        validateEntryUniverse(entries, errors)
+        entries.forEach { validateClosureEntry(it, auditFindings, errors) }
+    }
+
+    private fun closureEntries(
+        root: JsonNode,
+        errors: MutableList<String>,
+    ): List<JsonNode> {
+        val arrays =
+            listOf("closedFindings", "deferredFindings").mapNotNull { name ->
+                root.get(name)?.takeIf { it.isArray } ?: run {
+                    errors.add("12.3b closure: missing '$name' array")
+                    null
+                }
             }
-        } else {
-            val rationale =
-                finding.get("rationale")?.asText()
-                    ?: finding.get("remediationPlan")?.asText()
-                    ?: ""
-            if (owner.isBlank()) {
-                errors.add("Deferred audit finding $id must have an assigned 'owner'.")
-            }
-            if (rationale.isBlank()) {
-                errors.add("Deferred audit finding $id must have a documented 'rationale'.")
-            }
+        return arrays.flatMap { it.toList() }
+    }
+
+    private fun validateEntryUniverse(
+        entries: List<JsonNode>,
+        errors: MutableList<String>,
+    ) {
+        if (entries.size != EXACT_AUDIT_FINDINGS) {
+            errors.add(
+                "12.3b closure: must contain exactly $EXACT_AUDIT_FINDINGS remediation entries, found ${entries.size}",
+            )
+        }
+        val ids = entries.map { it.get("id")?.asText()?.takeIf(String::isNotBlank) ?: "<missing>" }
+        ids.groupingBy { it }.eachCount().filterValues { it > 1 }.forEach { (id, duplicateCount) ->
+            errors.add("12.3b closure: duplicate finding ID '$id' appears $duplicateCount times")
+        }
+        val foundIds = ids.toSet() - "<missing>"
+        val missingIds = EXPECTED_FINDING_IDS - foundIds
+        val extraIds = foundIds - EXPECTED_FINDING_IDS
+        if (missingIds.isNotEmpty()) errors.add("12.3b closure: missing expected finding IDs: $missingIds")
+        if (extraIds.isNotEmpty()) errors.add("12.3b closure: unexpected finding IDs: $extraIds")
+    }
+
+    private fun validateClosureEntry(
+        entry: JsonNode,
+        auditFindings: Map<String, JsonNode>,
+        errors: MutableList<String>,
+    ) {
+        val id = entry.get("id")?.asText() ?: "<missing>"
+        val audit = auditFindings[id] ?: return
+        val auditSeverity = audit.get("severity")?.asText() ?: ""
+        val closureSeverity = entry.get("severity")?.asText() ?: ""
+        if (closureSeverity != auditSeverity) {
+            errors.add(
+                "12.3b closure: severity for $id must match 12.3a ('$auditSeverity'), found '$closureSeverity'",
+            )
+        }
+        if (id in P0P1_IDS) validateClosedEntry(id, entry, errors) else validateDeferredEntry(id, entry, errors)
+    }
+
+    private fun validateClosedEntry(
+        id: String,
+        entry: JsonNode,
+        errors: MutableList<String>,
+    ) {
+        val status = entry.get("status")?.asText() ?: ""
+        if (!status.equals("CLOSED", ignoreCase = true)) {
+            errors.add("12.3b closure: $id must have status CLOSED, found: '$status'")
+        }
+        if (entry.get("closurePr")?.canConvertToInt() != true ||
+            entry.get("closureCommit")?.asText().isNullOrBlank() ||
+            entry.get("closureNotes")?.asText().isNullOrBlank()
+        ) {
+            errors.add(
+                "12.3b closure: CLOSED finding $id must include closurePr, closureCommit, and closureNotes evidence",
+            )
+        }
+    }
+
+    private fun validateDeferredEntry(
+        id: String,
+        entry: JsonNode,
+        errors: MutableList<String>,
+    ) {
+        val status = entry.get("status")?.asText() ?: ""
+        if (!status.equals("DEFERRED", ignoreCase = true)) {
+            errors.add("12.3b closure: $id must have status DEFERRED, found: '$status'")
+        }
+        if ((entry.get("owner")?.asText() ?: "").isBlank()) {
+            errors.add("12.3b closure: deferred finding $id must have an assigned owner")
+        }
+        if ((entry.get("rationale")?.asText() ?: "").isBlank()) {
+            errors.add("12.3b closure: deferred finding $id must have a rationale")
         }
     }
 }

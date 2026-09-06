@@ -23,6 +23,21 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Apply in root build.gradle.kts with: `plugins { id("tramai.maintainability-baseline") }`
  */
 abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
+    private data class MutationMeasurementRequest(
+        val project: Project,
+        val generator: BaselineGenerator,
+        val configuration: TestQualityConfiguration,
+        val reportDir: File,
+        val measurementName: String,
+        val persistCommittedBaseline: Boolean,
+    )
+
+    private data class MutationMeasurement(
+        val measuredCommit: String,
+        val mutationRoot: File,
+        val familyTimings: Map<String, Long>,
+    )
+
     /** Root project this plugin was applied to (set in apply()). */
     private lateinit var rootProject: Project
 
@@ -381,95 +396,15 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             group = "maintainability"
             description = "Runs targeted PITest mutation analysis and generates the critical mutation baseline"
             doLast {
-                // P1 (10.3c1 review): provenance must bracket the whole
-                // measurement — capture the clean HEAD BEFORE PIT runs and
-                // re-verify the SAME clean HEAD AFTER. The baseline records
-                // the commit that was actually measured, not merely the
-                // commit the result happened to be accepted on.
-                val measuredCommit = requireCleanProvenance(project)
-                val mutationRoot = File(reportDir, "mutation")
-                mutationRoot.mkdirs()
-                val initScript = File(reportDir, "critical-mutation-probe.init.gradle")
-                initScript.writeText(
-                    mutationInitScript(testQualityConfiguration, mutationRoot),
-                    Charsets.UTF_8,
-                )
-                // 10.3c1-C8: per-family wall time for the cost report.
-                val familyTimings = linkedMapOf<String, Long>()
-                testQualityConfiguration.mutation.targetFamilies.keys.sorted().forEach { family ->
-                    val started = System.nanoTime()
-                    runNestedGradle(
+                runMutationMeasurement(
+                    MutationMeasurementRequest(
                         project,
-                        listOf(
-                            "--init-script",
-                            initScript.absolutePath,
-                            "-PtramaiMutationFamily=$family",
-                            "canonicalMutationProbe",
-                        ),
-                    )
-                    familyTimings[family] = (System.nanoTime() - started) / NANOS_PER_MILLI
-                }
-                // P1: the tree must be unchanged and still clean after PIT ran.
-                val completedCommit = requireCleanProvenance(project)
-                if (completedCommit != measuredCommit) {
-                    throw GradleException(
-                        "Mutation measurement repository identity changed during execution: started at " +
-                            "$measuredCommit, completed at $completedCommit. Baseline not written.",
-                    )
-                }
-                val mutation =
-                    generator.generateMutationBaseline(
+                        generator,
                         testQualityConfiguration,
-                        mutationRoot,
-                    )
-                ReportNormalizer.writeJson(mutation, File(reportDir, "mutation-summary.json"))
-                // 10.3c1-C3/C5/C9: exact population baseline + survivor inventory.
-                val reports =
-                    testQualityConfiguration.mutation.targetFamilies.flatMap { (family, target) ->
-                        target.modules.map { module ->
-                            val moduleSlug = module.removePrefix(":").replace(":", "_")
-                            // P0 (10.3c1 review): authoritative population
-                            // requires PITest XML — HTML is lossy and cannot
-                            // carry the descriptor/block/index identity v2
-                            // fields. An XML failure must fail generation,
-                            // never silently downgrade to HTML interpretation.
-                            val report = File(mutationRoot, "$family/$moduleSlug/mutations.xml")
-                            if (!report.isFile) {
-                                throw GradleException(
-                                    "No PITest XML for configured target $family/$module; expected $report. " +
-                                        "Authoritative population requires mutations.xml " +
-                                        "(HTML is not an authority input).",
-                                )
-                            }
-                            MutationReportParser().parse(module, family, report)
-                        }
-                    }
-                val population =
-                    MutationPopulationAggregator.aggregate(
-                        reports = reports,
-                        configuredFamilies = testQualityConfiguration.mutation.targetFamilies,
-                        measuredCommit = measuredCommit,
-                        semantics =
-                            MutationAnalyzerSemantics(
-                                pluginVersion = "1.19.0",
-                                engineVersion = "1.22.1",
-                                mutators = mutatorSet,
-                                timeoutConst = 4_000,
-                                timeoutFactor = 1.25,
-                            ),
-                    )
-                ReportNormalizer.writeJson(
-                    population,
-                    File(project.rootDir, "config/quality/mutation-baseline.json"),
-                )
-                MutationSurvivorInventory.write(
-                    population,
-                    File(reportDir, "mutation-survivors.json"),
-                )
-                printMutationCostTable(project, population, familyTimings)
-                println(
-                    "Critical mutation baseline: ${mutation.totalMutants} mutants, " +
-                        "${"%.2f".format(mutation.mutationScore)}% killed",
+                        reportDir,
+                        measurementName = "mutation",
+                        persistCommittedBaseline = true,
+                    ),
                 )
             }
         }
@@ -906,6 +841,57 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                     )
                 verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
+            }
+        }
+
+        project.tasks.register("verifyReleaseMutation") {
+            group = "maintainability"
+            description =
+                "Runs a fresh bounded PIT measurement and verifies it against the committed mutation authority."
+            notCompatibleWithConfigurationCache("Release mutation verification runs a nested PIT build.")
+            doLast {
+                val current =
+                    runMutationMeasurement(
+                        MutationMeasurementRequest(
+                            project,
+                            generator,
+                            testQualityConfiguration,
+                            reportDir,
+                            measurementName = "release-mutation",
+                            persistCommittedBaseline = false,
+                        ),
+                    )
+                val committedFile = File(project.rootDir, "config/quality/mutation-baseline.json")
+                if (!committedFile.isFile) {
+                    throw GradleException("Release mutation authority missing: ${committedFile.absolutePath}.")
+                }
+                val committed =
+                    try {
+                        ReportNormalizer.readJson(committedFile, MutationPopulationBaseline::class.java)
+                    } catch (e: Exception) {
+                        throw GradleException("Failed to read release mutation authority: ${e.message}", e)
+                    }
+                val classifications = MutationClassificationLoader.load(project.rootDir)
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Release mutation",
+                    MutationRatchetVerifier().verify(
+                        base =
+                            MutationRatchetAuthority(
+                                baseSha = "committed mutation authority",
+                                population = committed,
+                                classifications = classifications,
+                                targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                            ),
+                        candidate =
+                            MutationRatchetCandidate(
+                                population = current,
+                                classifications = classifications,
+                                targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                            ),
+                        executable = MutationPopulationAggregator.canonicalSemantics(),
+                    ),
+                )
             }
         }
 
@@ -1481,6 +1467,121 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         } catch (e: Exception) {
             throw GradleException("Failed to read candidate coverage baseline: ${e.message}", e)
         }
+    }
+
+    /**
+     * Runs the canonical bounded PIT campaign and parses its exact population.
+     * Release verification reuses this authority but never writes the committed
+     * population; only the enrollment task may persist that file.
+     */
+    private fun runMutationMeasurement(request: MutationMeasurementRequest): MutationPopulationBaseline {
+        val measurement = executeMutationMeasurement(request)
+        val mutation = request.generator.generateMutationBaseline(request.configuration, measurement.mutationRoot)
+        ReportNormalizer.writeJson(
+            mutation,
+            File(request.reportDir, "${request.measurementName}-summary.json"),
+        )
+        val population = aggregateMutationPopulation(request, measurement)
+        if (request.persistCommittedBaseline) persistMutationBaseline(request, population)
+        printMutationCostTable(request.project, population, measurement.familyTimings)
+        println(
+            "Critical mutation measurement: ${mutation.totalMutants} mutants, " +
+                "${"%.2f".format(mutation.mutationScore)}% killed",
+        )
+        return population
+    }
+
+    private fun executeMutationMeasurement(request: MutationMeasurementRequest): MutationMeasurement {
+        val measuredCommit = requireCleanProvenance(request.project)
+        val mutationRoot = File(request.reportDir, request.measurementName)
+        clearMutationRoot(mutationRoot)
+        mutationRoot.mkdirs()
+        val initScript = File(request.reportDir, "${request.measurementName}.init.gradle")
+        initScript.writeText(mutationInitScript(request.configuration, mutationRoot), Charsets.UTF_8)
+        val familyTimings = linkedMapOf<String, Long>()
+        request.configuration.mutation.targetFamilies.keys.sorted().forEach { family ->
+            val started = System.nanoTime()
+            runNestedGradle(
+                request.project,
+                listOf(
+                    "--rerun-tasks",
+                    "--init-script",
+                    initScript.absolutePath,
+                    "-PtramaiMutationFamily=$family",
+                    "canonicalMutationProbe",
+                ),
+            )
+            familyTimings[family] = (System.nanoTime() - started) / NANOS_PER_MILLI
+        }
+        val completedCommit = requireCleanProvenance(request.project)
+        if (completedCommit != measuredCommit) {
+            throw GradleException(
+                "Mutation measurement repository identity changed during execution: started at " +
+                    "$measuredCommit, completed at $completedCommit.",
+            )
+        }
+        return MutationMeasurement(measuredCommit, mutationRoot, familyTimings)
+    }
+
+    private fun clearMutationRoot(mutationRoot: File) {
+        if (mutationRoot.exists() && !mutationRoot.deleteRecursively()) {
+            throw GradleException("Cannot clear stale mutation measurement directory: ${mutationRoot.absolutePath}")
+        }
+    }
+
+    private fun aggregateMutationPopulation(
+        request: MutationMeasurementRequest,
+        measurement: MutationMeasurement,
+    ): MutationPopulationBaseline {
+        val reports =
+            request.configuration.mutation.targetFamilies.flatMap { (family, target) ->
+                target.modules.map { module ->
+                    val moduleSlug = module.removePrefix(":").replace(":", "_")
+                    val report = File(measurement.mutationRoot, "$family/$moduleSlug/mutations.xml")
+                    MutationReportParser().parse(module, family, requireMutationXml(report, family, module))
+                }
+            }
+        return MutationPopulationAggregator.aggregate(
+            reports = reports,
+            configuredFamilies = request.configuration.mutation.targetFamilies,
+            measuredCommit = measurement.measuredCommit,
+            semantics =
+                MutationAnalyzerSemantics(
+                    pluginVersion = "1.19.0",
+                    engineVersion = "1.22.1",
+                    mutators = mutatorSet,
+                    timeoutConst = 4_000,
+                    timeoutFactor = 1.25,
+                ),
+        )
+    }
+
+    private fun requireMutationXml(
+        report: File,
+        family: String,
+        module: String,
+    ): File {
+        if (!report.isFile) {
+            throw GradleException(
+                "No PITest XML for configured target $family/$module; expected $report. " +
+                    "Authoritative population requires mutations.xml (HTML is not an authority input).",
+            )
+        }
+        return report
+    }
+
+    private fun persistMutationBaseline(
+        request: MutationMeasurementRequest,
+        population: MutationPopulationBaseline,
+    ) {
+        ReportNormalizer.writeJson(
+            population,
+            File(request.project.rootDir, "config/quality/mutation-baseline.json"),
+        )
+        MutationSurvivorInventory.write(
+            population,
+            File(request.reportDir, "mutation-survivors.json"),
+        )
     }
 
     private fun verifyTestQualityDiagnostics(

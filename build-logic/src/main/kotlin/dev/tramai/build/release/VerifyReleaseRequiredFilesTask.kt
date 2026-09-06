@@ -28,7 +28,7 @@ abstract class VerifyReleaseRequiredFilesTask : DefaultTask() {
         val requiredFiles =
             listOf(
                 "CHANGELOG.md" to listOf("## $version", "### Added"),
-                "docs/releases/$version-release-readiness.md" to listOf("READY_FOR_0.6.0_RELEASE", version),
+                "docs/releases/$version-release-readiness.md" to listOf(version, "Release Readiness"),
                 "docs/releases/$version-release-notes.md" to listOf(version, "Release Notes"),
                 "docs/releases/$version-migration-guide.md" to listOf(version, "Migration Guide"),
             )

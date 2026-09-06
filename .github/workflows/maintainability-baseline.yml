@@ -104,7 +104,7 @@ jobs:
   # MutationRatchetAuthorityTest (7) = 257 -> 302.
   # 10.3d: W4 mutation ratchet wiring discriminator + W5 CI workflow wiring discriminators in CoverageWiringTest = 248 -> 253.
   # 12.3b (R12-003): Gradle 9 strict task dependency validation tests (+1 in policy-maintainability, +1 in scanners-coverage) = 302 -> 303, 253 -> 254.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 303 + 254 = 880.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 173 + 303 + 254 = 909.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -139,7 +139,7 @@ jobs:
               --tests 'dev.tramai.build.publishing.*'
               --tests 'dev.tramai.build.docs.*'
               --tests 'dev.tramai.build.conventions.*'
-            expected: 144
+            expected: 173
           - name: policy-maintainability
             test-filter: >-
               --tests 'dev.tramai.build.quality.ChangePolicy*Test'
