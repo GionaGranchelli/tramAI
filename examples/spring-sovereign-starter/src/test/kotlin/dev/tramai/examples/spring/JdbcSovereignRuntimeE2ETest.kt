@@ -291,7 +291,8 @@ class JdbcSovereignRuntimeE2ETest {
                 assertThat(auditStore).isExactlyInstanceOf(JdbcAuditStore::class.java)
                 assertThat(auditStore).isNotInstanceOf(InMemoryAuditStore::class.java)
 
-                // A store operation fails with sanitized IllegalStateException (not silently succeeds or leaks raw SQLException)
+                // Store operation fails with sanitized IllegalStateException
+                // (does not silently succeed or leak raw SQLException)
                 org.assertj.core.api.Assertions
                     .assertThatThrownBy {
                         runBlocking {
