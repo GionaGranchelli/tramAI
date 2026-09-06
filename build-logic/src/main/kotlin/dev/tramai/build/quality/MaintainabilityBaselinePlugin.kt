@@ -811,8 +811,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .filter { it != project }
                     .filterNot { it.path.startsWith(":examples:") }
                     .map { subproject ->
-                        project.fileTree(subproject.projectDir) {
-                            include("src/main/**/*.kt", "src/main/**/*.java")
+                        val srcMain = subproject.layout.projectDirectory.dir("src/main")
+                        project.fileTree(srcMain) {
+                            include("**/*.kt", "**/*.java")
                             exclude("**/build/**", "**/api/**")
                         }
                     },
@@ -1724,10 +1725,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         this.markerFile.set(markerFile)
                         val sourceDir = if (extension == "kotlin") "kotlin" else "java"
                         val sourceExt = if (extension == "kotlin") "kt" else "java"
-                        val sourceGlob = "**/src/main/$sourceDir/**/*.$sourceExt"
+                        val sourceDirectory = fixture.layout.projectDirectory.dir("src/main/$sourceDir")
                         sources.from(
-                            fixture.fileTree(fixture.projectDir) {
-                                include(sourceGlob)
+                            fixture.fileTree(sourceDirectory) {
+                                include("**/*.$sourceExt")
                             },
                         )
                         compileClasspath.from(fixture.configurations.getByName("compileClasspath"))
