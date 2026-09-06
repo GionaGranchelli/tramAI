@@ -45,7 +45,7 @@ class JdbcSafeOperationTest {
     }
 
     @Test
-    fun `withSafeJdbc rethrows domain exceptions unmodified`() {
+    fun `withSafeJdbc rethrows store exceptions unmodified`() {
         val approvalException = ApprovalStoreNotFoundException("approval-123")
         val thrownApproval =
             assertThrows<ApprovalStoreNotFoundException> {
@@ -54,7 +54,10 @@ class JdbcSafeOperationTest {
                 }
             }
         assertSame(approvalException, thrownApproval)
+    }
 
+    @Test
+    fun `withSafeJdbc rethrows tramai exceptions unmodified`() {
         val tramaiException = StructuredOutputException("tramai failed")
         val thrownTramai =
             assertThrows<StructuredOutputException> {
@@ -63,7 +66,10 @@ class JdbcSafeOperationTest {
                 }
             }
         assertSame(tramaiException, thrownTramai)
+    }
 
+    @Test
+    fun `withSafeJdbc rethrows illegal argument exceptions unmodified`() {
         val illegalArg = IllegalArgumentException("bad arg")
         val thrownArg =
             assertThrows<IllegalArgumentException> {
