@@ -626,6 +626,29 @@ class MaintainabilityBaselineVerificationTest {
         )
     }
 
+    @Test
+    fun `R12-003 aggregate architecture graph passes Gradle 9 strict validation`() {
+        val dir = architectureFixture(applyPlugins = "")
+        generateCommittedBaseline(dir)
+
+        val result =
+            runner(
+                dir,
+                "verify060Architecture",
+                "--warning-mode=fail",
+            ).buildAndFail()
+
+        val output = result.output
+        assertTrue(
+            !output.contains("without declaring an explicit or implicit dependency"),
+            "build graph must have zero implicit task dependency warnings under Gradle 9: ${output.take(1200)}",
+        )
+        assertTrue(
+            !output.contains("overlapping outputs"),
+            "build graph must have zero overlapping output warnings under Gradle 9: ${output.take(1200)}",
+        )
+    }
+
     // ─── Fixture ───
 
     /** Module catalog for the architecture gate fixture (adds :tramai-testing,
