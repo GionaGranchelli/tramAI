@@ -29,6 +29,7 @@ A platform/security/operator should be able to answer:
 - Which actions are waiting for approval?
 - What happened during a particular run?
 - Can an authorized operator suspend/quarantine/reactivate supported workloads?
+- Can an authorized operator permanently cancel a persisted suspended run so that late approval, restart, or competing resume cannot reactivate it?
 - What authoritative evidence exists for later review?
 
 0.7.0 does **not** attempt to finish developer governance UX, enterprise deployment productization, governed learning, or rich optimization. Those now have explicit later release themes.
@@ -333,7 +334,25 @@ Every successful privileged action includes or derives:
 - quarantine;
 - reactivate;
 - retire;
-- cancel execution where semantics permit.
+- cancel active execution where semantics permit;
+- **authoritatively cancel a persisted suspended run and fence all future resume.**
+
+For persisted suspended-run cancellation, the authoritative contract must ensure:
+
+```text
+cancelled(run) => no subsequent authoritative execution(run)
+```
+
+Once cancellation wins:
+
+- future resume fails closed;
+- a pending approval continuation cannot later authorize execution;
+- cancel/resume races have one authoritative winner;
+- cancellation survives restart;
+- repeated cancellation is idempotent;
+- terminal cancellation remains reconstructable rather than being represented only by checkpoint deletion.
+
+Applications and Dashboard 2.0 must not emulate this behavior using local flags, direct checkpoint deletion, or independent approval-store mutation.
 
 Broader policy-authoring/change workflows belong later unless required for the supported 0.7 profile.
 
@@ -413,6 +432,20 @@ Authorized operator can issue supported control
 Execution can later be reconstructed from evidence
 ```
 
+A second mandatory runtime-control proof covers persisted suspension:
+
+```text
+Workflow suspends awaiting approval
+        ↓
+Authorized operator cancels the persisted run
+        ↓
+Cancellation becomes authoritative
+        ↓
+Late approval / restart / competing resume cannot reactivate execution
+        ↓
+Timeline and reconstruction show terminal cancellation
+```
+
 ## Acceptance criteria
 
 - Policy-ineligible provider never receives the governed request.
@@ -420,6 +453,7 @@ Execution can later be reconstructed from evidence
 - Approval/control action is attributable to an authorized actor.
 - Timeline explains classification, routing, approval, execution, and control where applicable.
 - Reconstruction does not repeat side effects.
+- A cancelled persisted run can never resume authoritative execution.
 
 ---
 
@@ -439,6 +473,8 @@ Execution can later be reconstructed from evidence
 - richer metadata classification;
 - richer findings/incident analysis;
 - approval-lifecycle refinements beyond P0 safety.
+
+See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md).
 
 ## 0.9 — Enterprise Deployment & Security
 
@@ -461,6 +497,8 @@ See [`ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md`](ROADMAP-0.9.0-ENTERP
 - richer adaptive routing strategies;
 - training/evaluation integrations where justified.
 
+See [`ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md`](ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md).
+
 ---
 
 # 10. Release gates
@@ -474,6 +512,8 @@ See [`ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md`](ROADMAP-0.9.0-ENTERP
 - dashboard mutates authoritative stores directly;
 - UI visibility substitutes for authorization;
 - stale control commands overwrite newer state;
+- a cancelled persisted suspended workflow later resumes authoritative execution;
+- late approval reactivates an authoritatively cancelled run;
 - generic telemetry leaks protected payloads;
 - projection state is shown as stronger authority than its source;
 - reconstruction repeats external side effects;
@@ -485,6 +525,6 @@ See [`ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md`](ROADMAP-0.9.0-ENTERP
 
 TramAI 0.7.0 is successful when it can demonstrate, end to end:
 
-> A governed workload receives sensitive input; TramAI resolves classification before provider exposure; restrictive policy determines authorized provider deployments; an authorized execution route is selected with an explainable reason; approval/runtime state is projected into the control plane; an authenticated and authorized operator can inspect and control the workload through typed APIs; Dashboard 2.0 exposes those capabilities without becoming an authority; and the execution can later be reconstructed from authoritative evidence without repeating side effects.
+> A governed workload receives sensitive input; TramAI resolves classification before provider exposure; restrictive policy determines authorized provider deployments; an authorized execution route is selected with an explainable reason; approval/runtime state is projected into the control plane; an authenticated and authorized operator can inspect and control the workload through typed APIs; a persisted suspended run can be authoritatively cancelled such that late approval, restart, and competing resume cannot reactivate it; Dashboard 2.0 exposes those capabilities without becoming an authority; and the execution can later be reconstructed from authoritative evidence without repeating side effects.
 
 > **0.7.0 makes governed AI execution visible, explainable, controllable, and reconstructable.**
