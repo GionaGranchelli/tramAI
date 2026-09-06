@@ -24,7 +24,7 @@ However, the blind release audit identified **1 P0 blocker** and **2 P1 blockers
 |---|---|:---:|---|
 | **Q1** | *Can the execution path be followed without reading a multi-thousand-line class?* | **PASS** | `TramaiEngine` is ~55 LOC, `InvocationExecutionCoordinator` is ~240 LOC, `DefaultWorkflowExecutionSupervisor` is ~260 LOC, `ProviderExecutionCoordinator` is ~230 LOC. The runtime is decomposed into 10 clean layers. |
 | **Q2** | *Are cancellation and lifecycle rules obvious?* | **PASS** | `CancellationException` is preserved and rethrown cleanly across all provider executors, tool coordinators, and workflow steps without swallowing. Worker shutdown and engine closure use explicit lifecycle owners. |
-| **Q3** | *Are provider and persistence contracts consistent?* | **PASS** | All 8 model providers implement `ModelProvider` and pass `ProviderTck`. All persistence stores implement sealed contracts and pass shared `*StoreTck` suites across file, memory, and JDBC backends. |
+| **Q3** | *Are provider and persistence contracts consistent?* | **PASS** | All eight roadmap provider implementations are enrolled in `ProviderTck`. Core persistence store families are covered by shared `*StoreTck` suites across memory/file/JDBC implementations; the explicitly documented `ApprovalResumeCredentialStore` and `SovereignOpsWorkerLeaseStore` exceptions use module-level contract tests. |
 | **Q4** | *Are security boundaries accurately described?* | **PARTIAL** | Core policy enforcement and credential redacting are well-structured, but `ImageDownloader.kt` lacks URL scheme/SSRF egress validation (`R12-001`), and JDBC stores leak raw SQL diagnostics (`R12-002`). |
 | **Q5** | *Are failures safe and diagnosable?* | **PARTIAL** | Engine and orchestration map failures into structured, redacted exceptions (`ProviderException`, `StructuredOutputException`). However, JDBC stores bypass safe failure boundaries by rethrowing unmapped `SQLException` (`R12-002`). |
 | **Q6** | *Can a new provider, store, or workflow step be added through a documented extension path?* | **PASS** | All 6 change guides in `docs/architecture/change-guides/` accurately describe SPI contracts, TCK runners, architectural invariants, and verification steps (with minor line-number drifts: `R12-012`–`R12-015`). |
@@ -38,7 +38,7 @@ However, the blind release audit identified **1 P0 blocker** and **2 P1 blockers
 The audit evaluated the repository across 6 structured passes:
 - **Pass A (Discoverability):** README, ARCHITECTURE.md, CONTRIBUTING.md, AGENTS.md, docs tree navigation, 10-layer model discoverability.
 - **Pass B (Runtime Architecture & Lifecycle):** End-to-end trace from `@AiService` invocation down to provider transport, workflow supervisor state machines, cancellation propagation, and clean shutdown.
-- **Pass C (Contract Consistency):** Verification of 8 ModelProvider implementations against `ProviderTck`, 8 Persistence SPIs against `*StoreTck`, and sealed workflow step serialization.
+- **Pass C (Contract Consistency):** Verification of 8 ModelProvider implementations across 7 modules against `ProviderTck`, persistence SPIs against `*StoreTck`, and sealed workflow step serialization.
 - **Pass D (Security & Failure Boundaries):** Input/output sanitization, SSRF/egress boundaries, SQL/JDBC leakage, secret masking, and fail-open vs fail-closed defaults.
 - **Pass E (Tests as Documentation):** Classification of test suites into Behavioral, TCK Contract, Adversarial Discriminator, and Implementation-Coupled.
 - **Pass F (Contributor Change Drills):** Auditing all 6 change guides for accuracy against the actual codebase contracts and architecture guards.
@@ -96,8 +96,18 @@ All coroutine execution paths adhere strictly to Kotlin structured concurrency:
 
 ## 5. Pass C: Contract Consistency & TCKs
 
-### 1. Provider Implementations (8 Modules)
-All 8 providers (`openai`, `ollama`, `anthropic`, `gemini`, `bedrock`, `mistral`, `deepseek`, `groq`) implement `ModelProvider` and pass the common `ProviderTck`.
+### 1. Provider Implementations (8 roadmap providers across 7 modules)
+The eight roadmap provider implementations across 7 provider modules are all enrolled in and pass `ProviderTck` via their dedicated runners (enforced by `ProviderTckEnrollmentArchitectureTest`):
+1. `OpenAiProvider` (`tramai-openai` / `OpenAiProviderTckTest`)
+2. `OpenAiCompatibleProvider` (`tramai-openai` / `OpenAiCompatibleProviderTckTest`)
+3. `AzureOpenAiProvider` (`tramai-azure-openai` / `AzureOpenAiProviderTckTest`)
+4. `AnthropicProvider` (`tramai-anthropic` / `AnthropicProviderTckTest`)
+5. `OllamaProvider` (`tramai-ollama` / `OllamaProviderTckTest`)
+6. `GeminiProvider` (`tramai-gemini` / `GeminiProviderTckTest`)
+7. `BedrockProvider` (`tramai-bedrock` / `BedrockProviderTckTest`)
+8. `DeepSeekProvider` (`tramai-deepseek` / `DeepSeekProviderTckTest`)
+
+Across all implementations:
 - Consistent request/response mapping: `ModelRequest` -> `ModelResponse`.
 - Consistent structured schema formatting (JSON Schema draft-07 / OpenAI function calling).
 - Standardized error classification via `ProviderException`.
