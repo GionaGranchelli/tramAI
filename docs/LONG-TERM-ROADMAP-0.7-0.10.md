@@ -56,10 +56,14 @@ OIDC-backed authentication + server-side authorization
         ↓
 Authorized runtime control
         ↓
+Authoritative suspended-run cancellation + future-resume fencing
+        ↓
 Forensic reconstruction without side effects
         ↓
 Dashboard 2.0 as a client of those APIs
 ```
+
+A persisted suspended run that has been authoritatively cancelled must never become executable again through late approval, process restart, or a competing resume. This is a generic runtime-control requirement, not an agent-specific feature.
 
 ## 0.7.0 non-goals
 
@@ -263,6 +267,7 @@ Examples:
 | Workflow DSL 2.0 | canonical workflow/runtime semantics must not depend on one authoring syntax |
 | Governance debugger | decisions must expose stable structured reason paths |
 | Policy replay | evidence/configuration identities must preserve historical semantics |
+| Governed autonomous workers | 0.7 persisted suspended-run cancellation must establish authoritative terminal state and fence future resume |
 | Learning traces | audit/telemetry must not silently become training-data collection |
 | Adaptive optimization | authorization, viability, and selection must remain distinct stages |
 | Helm/reference deployment | Dashboard/control plane must remain headless/API-first and not own policy authority |
