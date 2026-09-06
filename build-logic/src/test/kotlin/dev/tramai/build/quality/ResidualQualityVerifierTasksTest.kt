@@ -170,50 +170,7 @@ class ResidualQualityVerifierTasksTest {
 
     @Test
     fun `java consumer smoke compiles real fixture and writes marker`() {
-        val dir = fixture()
-        copyFromRepo(
-            dir,
-            "examples/java-consumer-smoke/src",
-            "tramai-core/src/main/kotlin/dev/tramai/core/annotations",
-            // Transitive closure of the annotations' imports:
-            // model/SideEffectLevel lives in Tool.kt; all policy enums used by
-            // AiTool (ApprovalMode, AuditDetail, ManagedNetworkEgress, RiskLevel)
-            // plus ToolSecurityMetadata are in the self-contained policy package.
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/Tool.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolResult.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ContentPart.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ModelVisibleToolMessage.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolFailureCode.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/policy",
-        )
-        writeFile(
-            dir,
-            "settings.gradle.kts",
-            """
-            rootProject.name = "quality-fixture"
-            include(":tramai-core")
-            include(":examples:java-consumer-smoke")
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "tramai-core/build.gradle.kts",
-            """
-            plugins { id("org.jetbrains.kotlin.jvm") }
-            group = "dev.tramai"
-            version = "0.5.0"
-            repositories { mavenCentral() }
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "examples/java-consumer-smoke/build.gradle.kts",
-            """
-            plugins { id("java") }
-            repositories { mavenCentral() }
-            dependencies { implementation(project(":tramai-core")) }
-            """.trimIndent(),
-        )
+        val dir = consumerFixture("java")
         val result = runner(dir, ":examples:java-consumer-smoke:verifyJavaConsumerCompatibility").build()
         assertTrue(
             result.task(":examples:java-consumer-smoke:verifyJavaConsumerCompatibility")?.outcome == TaskOutcome.SUCCESS,
@@ -236,50 +193,7 @@ class ResidualQualityVerifierTasksTest {
 
     @Test
     fun `kotlin consumer smoke compiles real fixture and writes marker`() {
-        val dir = fixture()
-        copyFromRepo(
-            dir,
-            "examples/kotlin-consumer-smoke/src",
-            "tramai-core/src/main/kotlin/dev/tramai/core/annotations",
-            // Transitive closure of the annotations' imports:
-            // model/SideEffectLevel lives in Tool.kt; all policy enums used by
-            // AiTool (ApprovalMode, AuditDetail, ManagedNetworkEgress, RiskLevel)
-            // plus ToolSecurityMetadata are in the self-contained policy package.
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/Tool.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolResult.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ContentPart.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ModelVisibleToolMessage.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolFailureCode.kt",
-            "tramai-core/src/main/kotlin/dev/tramai/core/policy",
-        )
-        writeFile(
-            dir,
-            "settings.gradle.kts",
-            """
-            rootProject.name = "quality-fixture"
-            include(":tramai-core")
-            include(":examples:kotlin-consumer-smoke")
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "tramai-core/build.gradle.kts",
-            """
-            plugins { id("org.jetbrains.kotlin.jvm") }
-            group = "dev.tramai"
-            version = "0.5.0"
-            repositories { mavenCentral() }
-            """.trimIndent(),
-        )
-        writeFile(
-            dir,
-            "examples/kotlin-consumer-smoke/build.gradle.kts",
-            """
-            plugins { id("org.jetbrains.kotlin.jvm") }
-            repositories { mavenCentral() }
-            dependencies { implementation(project(":tramai-core")) }
-            """.trimIndent(),
-        )
+        val dir = consumerFixture("kotlin")
         val result = runner(dir, ":examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility").build()
         assertTrue(
             result.task(":examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility")?.outcome == TaskOutcome.SUCCESS,
