@@ -190,8 +190,8 @@ cited by file, test name, or CI line number.
 | R06 | Mutation ratchet enforced on every PR | **COMPLETE** | `verifyMutationRatchet` in `verifyPr` (MaintainabilityBaselinePlugin line 1383) and CI (`ci.yml` lines 218–230). W4 and W5 wiring discriminators (`CoverageWiringTest.kt`) prove presence in the `verifyPr` graph and in the CI workflow with PR base SHA authority. |
 | R07 | Base-authoritative enforcement (no self-judging) | **COMPLETE** | `MutationRatchetAuthorityLoader` resolves base SHA from Git; no fallback to candidate authority (M20). `CoverageAuthorityLoader` does the same. 7 authority-loading tests in `MutationRatchetAuthorityTest`. |
 | R08 | Discriminator tests for all 20 failure modes | **COMPLETE** | M01–M20 covered by 38 tests in `MutationRatchetDiscriminatorTest` (25) + `MutationRatchetClassificationDiscriminatorTest` (13). M01–M20 measurement pipeline covered by 29 tests in `MutationMeasurementDiscriminatorTest`. |
-| R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 252 tests (pinned). Python assertions enforce exact counts after every CI run. |
-| R10 | Mutation reports available for release review | **COMPLETE** | `maintainability-full.yml` (weekly + manual) runs `verifyFullMaintainabilityBaseline` which generates mutation-summary.json and PIT HTML reports as CI artifacts. |
+| R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 253 tests (pinned). Python assertions enforce exact counts after every CI run. |
+| R10 | Mutation reports available for release review | **COMPLETE** | `maintainability-full.yml` (weekly + manual) runs `verifyFullMaintainabilityBaseline`, generating `mutation-summary.json` and PITest HTML reports as CI artifacts. |
 | R11 | Docs and roadmap reconciled | **COMPLETE** | This document + ROADMAP-0.6.0.md updated. |
 
 ### 9.2. Adversarial gate mapping
@@ -229,7 +229,7 @@ The table maps each failure mode to its enforcing test.
 | 26 | Coverage regression beyond tolerance | B01/B02 in `CoveragePolicyDeltaVerifierTest` | ✅ |
 | 27 | Coverage tolerance widening | B07 in `CoveragePolicyDeltaVerifierTest` | ✅ |
 | 28 | Coverage exclusion injection | B09/B10 in `CoveragePolicyDeltaVerifierTest` | ✅ |
-| 29 | PR CI mutation-ratchet step removed or detached from PR-base authority | W5 (3 tests) in `CoverageWiringTest` | ✅ (10.3d) |
+| 29 | PR CI mutation-ratchet step removed or detached from PR-base authority | W5 (4 tests) in `CoverageWiringTest` | ✅ (10.3d) |
 
 Failure modes #25 (verifyPr task graph wiring) and #29 (CI workflow invocation
 with PR-base SHA authority) were addressed by the W4 and W5 wiring
