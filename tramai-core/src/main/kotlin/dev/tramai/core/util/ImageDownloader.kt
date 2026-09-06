@@ -42,7 +42,12 @@ object ImageDownloader {
      *         resolves to a restricted address, or the content exceeds [MAX_DOWNLOAD_SIZE].
      * @throws IllegalStateException if the HTTP request fails or exceeds redirect limit.
      */
-    fun download(url: String): ByteArray {
+    fun download(url: String): ByteArray = download(url, allowPrivateDestinations = false)
+
+    internal fun download(
+        url: String,
+        allowPrivateDestinations: Boolean = false,
+    ): ByteArray {
         var currentUri =
             try {
                 URI(url)
@@ -52,7 +57,7 @@ object ImageDownloader {
 
         var redirectCount = 0
         while (true) {
-            OutboundAddressSecurity.validateOutboundUri(currentUri)
+            OutboundAddressSecurity.validateOutboundUri(currentUri, allowPrivateDestinations = allowPrivateDestinations)
 
             val connection =
                 currentUri.toURL().openConnection() as? HttpURLConnection

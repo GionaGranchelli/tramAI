@@ -100,20 +100,25 @@ object OutboundAddressSecurity {
 
     /**
      * Validates that [uri] uses an allowed HTTP/HTTPS scheme and resolves strictly
-     * to non-restricted, public IP addresses.
+     * to non-restricted, public IP addresses unless [allowPrivateDestinations] is true.
      *
      * @throws IllegalArgumentException if the scheme is not http/https or if the destination
      *         resolves to a restricted IP address or localhost.
      */
-    fun validateOutboundUri(uri: URI) {
+    fun validateOutboundUri(
+        uri: URI,
+        allowPrivateDestinations: Boolean = false,
+    ) {
         val scheme = uri.scheme?.lowercase()
         require(scheme == "http" || scheme == "https") {
             "unsupported outbound scheme: ${uri.scheme} (only http and https are permitted)"
         }
         val rawHost = extractHost(uri)
         val canonicalHost = canonicalizeOutboundHost(rawHost)
-        require(canonicalHost != LOCALHOST_HOSTNAME) {
-            "outbound host is restricted: $rawHost"
+        if (!allowPrivateDestinations) {
+            require(canonicalHost != LOCALHOST_HOSTNAME) {
+                "outbound host is restricted: $rawHost"
+            }
         }
         val addresses =
             try {
@@ -124,9 +129,11 @@ object OutboundAddressSecurity {
         require(addresses.isNotEmpty()) {
             "outbound host did not resolve to any address: $rawHost"
         }
-        val restricted = addresses.firstOrNull(::isPrivateOrRestrictedAddress)
-        require(restricted == null) {
-            "outbound host resolves to a restricted address: $rawHost ($restricted)"
+        if (!allowPrivateDestinations) {
+            val restricted = addresses.firstOrNull(::isPrivateOrRestrictedAddress)
+            require(restricted == null) {
+                "outbound host resolves to a restricted address: $rawHost ($restricted)"
+            }
         }
     }
 

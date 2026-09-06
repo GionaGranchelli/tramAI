@@ -29,6 +29,131 @@ class ImageDownloaderTest {
             .isInstanceOf(IllegalArgumentException::class.java)
     }
 
+    // ---- HTTP Download and Redirect Tests ----
+
+    @Test
+    fun `download successfully fetches image bytes from HTTP server`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val expectedBytes = "image-data-payload-12345".toByteArray()
+        server.createContext("/photo.png") { exchange ->
+            exchange.responseHeaders.add("Content-Type", "image/png")
+            exchange.sendResponseHeaders(200, expectedBytes.size.toLong())
+            exchange.responseBody.use { it.write(expectedBytes) }
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            val downloaded =
+                ImageDownloader.download(
+                    "http://127.0.0.1:$port/photo.png",
+                    allowPrivateDestinations = true,
+                )
+            assertThat(downloaded).isEqualTo(expectedBytes)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `download follows redirects up to limit`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val expectedBytes = "redirected-image-bytes".toByteArray()
+        server.createContext("/redirect1") { exchange ->
+            exchange.responseHeaders.add("Location", "/redirect2")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.responseBody.close()
+        }
+        server.createContext("/redirect2") { exchange ->
+            exchange.responseHeaders.add("Location", "/final.png")
+            exchange.sendResponseHeaders(307, -1)
+            exchange.responseBody.close()
+        }
+        server.createContext("/final.png") { exchange ->
+            exchange.responseHeaders.add("Content-Type", "image/png")
+            exchange.sendResponseHeaders(200, expectedBytes.size.toLong())
+            exchange.responseBody.use { it.write(expectedBytes) }
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            val downloaded =
+                ImageDownloader.download(
+                    "http://127.0.0.1:$port/redirect1",
+                    allowPrivateDestinations = true,
+                )
+            assertThat(downloaded).isEqualTo(expectedBytes)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `download throws on excessive redirect loop`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/loop") { exchange ->
+            exchange.responseHeaders.add("Location", "/loop")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.responseBody.close()
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            assertThatThrownBy {
+                ImageDownloader.download("http://127.0.0.1:$port/loop", allowPrivateDestinations = true)
+            }.isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("Too many redirects")
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `download throws on redirect missing Location header`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/bad-redirect") { exchange ->
+            exchange.sendResponseHeaders(301, -1)
+            exchange.responseBody.close()
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            assertThatThrownBy {
+                ImageDownloader.download("http://127.0.0.1:$port/bad-redirect", allowPrivateDestinations = true)
+            }.isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("missing Location header")
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `download throws on HTTP error status`() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/not-found") { exchange ->
+            exchange.sendResponseHeaders(404, -1)
+            exchange.responseBody.close()
+        }
+        server.createContext("/server-error") { exchange ->
+            exchange.sendResponseHeaders(500, -1)
+            exchange.responseBody.close()
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            assertThatThrownBy {
+                ImageDownloader.download("http://127.0.0.1:$port/not-found", allowPrivateDestinations = true)
+            }.isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("HTTP status 404")
+
+            assertThatThrownBy {
+                ImageDownloader.download("http://127.0.0.1:$port/server-error", allowPrivateDestinations = true)
+            }.isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("HTTP status 500")
+        } finally {
+            server.stop(0)
+        }
+    }
+
     // ---- SSRF and Scheme Security Tests (R12-001) ----
 
     @Test

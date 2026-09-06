@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalProviderTransportApi::class)
+
 package dev.tramai.core.util
 
+import dev.tramai.core.provider.transport.ExperimentalProviderTransportApi
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetAddress
@@ -15,6 +18,8 @@ class OutboundAddressSecurityTest {
             .isEqualTo("example.com")
         assertThat(OutboundAddressSecurity.canonicalizeOutboundHost("[2001:db8::1]"))
             .isEqualTo("2001:db8::1")
+        assertThat(OutboundAddressSecurity.canonicalizeOutboundHost("xn--mller-kva.de"))
+            .isEqualTo("xn--mller-kva.de")
     }
 
     @Test
@@ -30,7 +35,7 @@ class OutboundAddressSecurityTest {
     }
 
     @Test
-    fun `canonicalizeOutboundHost throws on empty host`() {
+    fun `canonicalizeOutboundHost throws on empty or invalid host`() {
         assertThatThrownBy { OutboundAddressSecurity.canonicalizeOutboundHost("") }
             .isInstanceOf(IllegalArgumentException::class.java)
         assertThatThrownBy { OutboundAddressSecurity.canonicalizeOutboundHost("[]") }
@@ -124,5 +129,74 @@ class OutboundAddressSecurityTest {
         assertThatThrownBy { OutboundAddressSecurity.validateOutboundUri(URI("http://169.254.169.254/metadata")) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("restricted")
+    }
+
+    @Test
+    fun `validateOutboundUri accepts public IP literals`() {
+        OutboundAddressSecurity.validateOutboundUri(URI("http://93.184.216.34/image.png"))
+        OutboundAddressSecurity.validateOutboundUri(URI("https://8.8.8.8/test"))
+    }
+
+    @Test
+    fun `validateOutboundUri allows private destinations when explicitly enabled`() {
+        OutboundAddressSecurity.validateOutboundUri(URI("http://127.0.0.1/test"), allowPrivateDestinations = true)
+        OutboundAddressSecurity.validateOutboundUri(URI("http://localhost/test"), allowPrivateDestinations = true)
+        OutboundAddressSecurity.validateOutboundUri(
+            URI("http://192.168.1.1:8080/test"),
+            allowPrivateDestinations = true,
+        )
+    }
+
+    @Test
+    fun `validateOutboundUri throws on unresolvable host`() {
+        assertThatThrownBy {
+            val unresolvable = URI("http://invalid-non-existent-domain-123456789.example/test")
+            OutboundAddressSecurity.validateOutboundUri(unresolvable)
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("failed to resolve")
+    }
+
+    @Test
+    fun `extractHost extracts host from various URI formats`() {
+        assertThat(OutboundAddressSecurity.extractHost(URI("http://example.com/path"))).isEqualTo("example.com")
+        val uriWithAuth = URI("http://user:pass@example.com:8080/path")
+        assertThat(OutboundAddressSecurity.extractHost(uriWithAuth)).isEqualTo("example.com")
+        assertThat(OutboundAddressSecurity.extractHost(URI("http://127.1/path"))).isEqualTo("127.1")
+        assertThat(OutboundAddressSecurity.extractHost(URI("http://0x7f000001/path"))).isEqualTo("0x7f000001")
+
+        assertThatThrownBy { OutboundAddressSecurity.extractHost(URI("http:///path")) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("valid host")
+    }
+
+    @Test
+    fun `parseAlternativeIpv4Literal handles all component lengths and invalid inputs`() {
+        // 1 part
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("2130706433")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+        // 2 parts
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("127.1")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+        // 3 parts
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("127.0.1")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+        // 4 parts
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("127.0.0.1")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+        // 4 parts hex
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("0x7f.0.0.1")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+        // 4 parts octal
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("0177.0.0.1")?.hostAddress)
+            .isEqualTo("127.0.0.1")
+
+        // Non-IPv4 or invalid
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("::1")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("1.2.3.4.5")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("1.2.3.999")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("1.2.99999999")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("999999999999")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("not.an.ip.address")).isNull()
+        assertThat(OutboundAddressSecurity.parseAlternativeIpv4Literal("1..2.3")).isNull()
     }
 }
