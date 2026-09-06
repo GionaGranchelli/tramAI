@@ -1,5 +1,6 @@
 package dev.tramai.examples.spring
 
+import com.zaxxer.hikari.HikariDataSource
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
@@ -15,13 +16,23 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.security.audit.calculateHash
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
-import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseAcquisition
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
-import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseAcquisition
-import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
-import com.zaxxer.hikari.HikariDataSource
+import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Duration
@@ -29,17 +40,6 @@ import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 import javax.sql.DataSource
-import kotlinx.coroutines.runBlocking
-import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.springframework.boot.autoconfigure.AutoConfigurations
-import org.springframework.boot.test.context.runner.ApplicationContextRunner
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
 
 /**
  * End-to-end tests proving that a Spring Boot TramAI sovereign runtime with
@@ -51,7 +51,6 @@ import org.springframework.context.annotation.Configuration
  */
 @org.junit.jupiter.api.Tag("e2e")
 class JdbcSovereignRuntimeE2ETest {
-
     companion object {
         @JvmStatic
         @BeforeAll
@@ -96,13 +95,11 @@ class JdbcSovereignRuntimeE2ETest {
                     SovereignJdbcPersistenceAutoConfiguration::class.java,
                     SovereignTramaiAutoConfiguration::class.java,
                 ),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 JdbcE2eDataSourceConfig::class.java,
                 DemoProviderConfiguration::class.java,
                 *configClasses,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-invoice-model",
                 "tramai.sovereign.allowed-providers[0]=deterministic-local-provider",
@@ -218,19 +215,20 @@ class JdbcSovereignRuntimeE2ETest {
                     }
 
                     // Append an outbox record in PREPARED state — capture the outboxId
-                    val appended = outboxStore.append(
-                        SovereignOpsAuditOutboxRecord(
-                            aggregateIdDigest = sha256Hex("agg-1"),
-                            eventKey = eventKey,
-                            actor = "e2e-actor",
-                            workflowRunId = "e2e-wf",
-                            correlationId = "e2e-corr",
-                            approvalStatus = "DENIED",
-                            approvalVersion = 1,
-                            reasonDigest = sha256Hex("reason"),
-                            reasonLength = 6,
-                        ),
-                    )
+                    val appended =
+                        outboxStore.append(
+                            SovereignOpsAuditOutboxRecord(
+                                aggregateIdDigest = sha256Hex("agg-1"),
+                                eventKey = eventKey,
+                                actor = "e2e-actor",
+                                workflowRunId = "e2e-wf",
+                                correlationId = "e2e-corr",
+                                approvalStatus = "DENIED",
+                                approvalVersion = 1,
+                                reasonDigest = sha256Hex("reason"),
+                                reasonLength = 6,
+                            ),
+                        )
                     outboxId = appended.outboxId
                 }
             }
@@ -272,12 +270,10 @@ class JdbcSovereignRuntimeE2ETest {
                     SovereignJdbcPersistenceAutoConfiguration::class.java,
                     SovereignTramaiAutoConfiguration::class.java,
                 ),
-            )
-            .withUserConfiguration(
+            ).withUserConfiguration(
                 DemoProviderConfiguration::class.java,
                 AlwaysFailingDataSourceConfig::class.java,
-            )
-            .withPropertyValues(
+            ).withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-invoice-model",
                 "tramai.sovereign.allowed-providers[0]=deterministic-local-provider",
@@ -285,8 +281,7 @@ class JdbcSovereignRuntimeE2ETest {
                 "tramai.sovereign.models.local-invoice-model=deterministic-local-provider",
                 "tramai.sovereign.persistence.type=jdbc",
                 "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 // The app should NOT have failed at startup — JDBC stores wire
                 // without contacting the database (schema existence is not checked eagerly).
                 assertThat(ctx).hasNotFailed()
@@ -296,12 +291,14 @@ class JdbcSovereignRuntimeE2ETest {
                 assertThat(auditStore).isExactlyInstanceOf(JdbcAuditStore::class.java)
                 assertThat(auditStore).isNotInstanceOf(InMemoryAuditStore::class.java)
 
-                // A store operation fails with SQLException (not silently succeeds)
-                org.assertj.core.api.Assertions.assertThatThrownBy {
-                    runBlocking {
-                        auditStore.readStream("unavailable-db-test")
-                    }
-                }.isInstanceOf(java.sql.SQLException::class.java)
+                // A store operation fails with sanitized IllegalStateException (not silently succeeds or leaks raw SQLException)
+                org.assertj.core.api.Assertions
+                    .assertThatThrownBy {
+                        runBlocking {
+                            auditStore.readStream("unavailable-db-test")
+                        }
+                    }.isInstanceOf(IllegalStateException::class.java)
+                    .hasMessageContaining("Database operation failed for audit stream")
             }
     }
 
@@ -322,17 +319,18 @@ class JdbcSovereignRuntimeE2ETest {
 
                 runBlocking {
                     // Append PREPARED record
-                    val record = SovereignOpsAuditOutboxRecord(
-                        aggregateIdDigest = sha256Hex("agg-outbox-restart"),
-                        eventKey = eventKey,
-                        actor = "e2e-actor",
-                        workflowRunId = "e2e-wf",
-                        correlationId = "e2e-corr",
-                        approvalStatus = "DENIED",
-                        approvalVersion = 1,
-                        reasonDigest = sha256Hex("reason"),
-                        reasonLength = 6,
-                    )
+                    val record =
+                        SovereignOpsAuditOutboxRecord(
+                            aggregateIdDigest = sha256Hex("agg-outbox-restart"),
+                            eventKey = eventKey,
+                            actor = "e2e-actor",
+                            workflowRunId = "e2e-wf",
+                            correlationId = "e2e-corr",
+                            approvalStatus = "DENIED",
+                            approvalVersion = 1,
+                            reasonDigest = sha256Hex("reason"),
+                            reasonLength = 6,
+                        )
                     val appended = outboxStore.append(record)
 
                     // Mark ready for dispatch → PENDING
@@ -350,23 +348,25 @@ class JdbcSovereignRuntimeE2ETest {
 
                 runBlocking {
                     // Claim pending records
-                    val claimed = outboxStore.claimPending(
-                        claimedBy = "worker-B",
-                        limit = 10,
-                        now = Instant.now(),
-                    )
+                    val claimed =
+                        outboxStore.claimPending(
+                            claimedBy = "worker-B",
+                            limit = 10,
+                            now = Instant.now(),
+                        )
                     assertThat(claimed).isNotEmpty
                     val claim = claimed.first { it.eventKey == eventKey }
                     assertThat(claim.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
                     assertThat(claim.claimedBy).isEqualTo("worker-B")
 
                     // Complete the dispatch
-                    val emitted = outboxStore.markEmitted(
-                        claim.outboxId,
-                        SovereignOpsAuditOutboxStatus.EMITTING,
-                        expectedAttemptCount = claim.attemptCount,
-                        emittedAt = Instant.now(),
-                    )
+                    val emitted =
+                        outboxStore.markEmitted(
+                            claim.outboxId,
+                            SovereignOpsAuditOutboxStatus.EMITTING,
+                            expectedAttemptCount = claim.attemptCount,
+                            emittedAt = Instant.now(),
+                        )
                     assertThat(emitted.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
                 }
             }
@@ -575,14 +575,25 @@ class JdbcSovereignRuntimeE2ETest {
             val failure = java.sql.SQLException("Simulated database unavailable for no-fallback test")
             return object : javax.sql.DataSource {
                 override fun getConnection() = throw failure
-                override fun getConnection(unused: String?, unused2: String?) = throw failure
+
+                override fun getConnection(
+                    unused: String?,
+                    unused2: String?,
+                ) = throw failure
+
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : Any> unwrap(iface: Class<T>): T = throw failure
+
                 override fun isWrapperFor(unused: Class<*>?) = false
+
                 override fun getLogWriter() = null
+
                 override fun setLogWriter(unused: java.io.PrintWriter?) {}
+
                 override fun getLoginTimeout() = 0
+
                 override fun setLoginTimeout(unused: Int) {}
+
                 override fun getParentLogger() = throw java.sql.SQLFeatureNotSupportedException()
             }
         }
