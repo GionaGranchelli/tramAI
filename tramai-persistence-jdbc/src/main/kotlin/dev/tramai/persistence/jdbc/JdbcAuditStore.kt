@@ -10,7 +10,6 @@ import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.CURRENT_AUDIT_SCHEMA_VERSION
 import dev.tramai.security.audit.calculateHash
-import java.util.concurrent.CancellationException
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -18,6 +17,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.concurrent.CancellationException
 import javax.sql.DataSource
 
 /**
@@ -79,15 +79,15 @@ class JdbcAuditStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxPageSize: Int = 500,
 ) : AuditStore {
-
     init {
         require(maxPageSize > 0) { "maxPageSize must be positive" }
     }
 
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    private val mapper: ObjectMapper =
+        ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     // ══════════════════════════════════════════════════════════════════
     // AuditStore SPI
@@ -96,79 +96,81 @@ class JdbcAuditStore(
     override suspend fun appendNext(
         auditStreamId: String,
         eventFactory: (latest: AuditEvent?) -> AuditEvent,
-    ): AuditEvent {
-        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
+    ): AuditEvent =
+        withSafeJdbc({ "Database operation failed for audit stream: $auditStreamId" }) {
+            require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
 
-        dataSource.connection.use { conn ->
-            val previousAutoCommit = conn.autoCommit
-            conn.autoCommit = false
-            var primaryFailure: Exception? = null
-            try {
-                // Ensure stream head row exists (idempotent)
-                ensureStreamHead(conn, auditStreamId)
+            dataSource.connection.use { conn ->
+                val previousAutoCommit = conn.autoCommit
+                conn.autoCommit = false
+                var primaryFailure: Exception? = null
+                try {
+                    // Ensure stream head row exists (idempotent)
+                    ensureStreamHead(conn, auditStreamId)
 
-                // Acquire the stream-level lock via FOR UPDATE on the head row.
-                // This serializes all concurrent appenders to the same stream.
-                val head = selectHeadForUpdate(conn, auditStreamId)
-                val latest = resolveLatestFromHead(conn, auditStreamId, head)
+                    // Acquire the stream-level lock via FOR UPDATE on the head row.
+                    // This serializes all concurrent appenders to the same stream.
+                    val head = selectHeadForUpdate(conn, auditStreamId)
+                    val latest = resolveLatestFromHead(conn, auditStreamId, head)
 
-                // eventFactory is called INSIDE the transaction, AFTER the
-                // stream-level lock is acquired. Factories should be
-                // deterministic or side-effect-free — external side effects
-                // (webhooks, file writes, API calls) performed inside the
-                // factory will not be rolled back.
-                val event = eventFactory(latest)
+                    // eventFactory is called INSIDE the transaction, AFTER the
+                    // stream-level lock is acquired. Factories should be
+                    // deterministic or side-effect-free — external side effects
+                    // (webhooks, file writes, API calls) performed inside the
+                    // factory will not be rolled back.
+                    val event = eventFactory(latest)
 
-                // Validate the event against the stream head and latest
-                validateEvent(event, auditStreamId, latest, head)
+                    // Validate the event against the stream head and latest
+                    validateEvent(event, auditStreamId, latest, head)
 
-                // Serialize and encrypt
-                val payloadJson = mapper.writeValueAsBytes(
-                    PersistedAuditEventV1(
-                        schemaVersion = event.schemaVersion,
-                        hashAlgorithm = event.hashAlgorithm.wireName,
-                        auditStreamId = event.auditStreamId,
-                        eventId = event.eventId,
-                        sequenceNumber = event.sequenceNumber,
-                        workflowRunId = event.workflowRunId,
-                        correlationId = event.correlationId,
-                        actor = event.actor,
-                        enforcementPoint = event.enforcementPoint,
-                        decision = event.decision,
-                        policyVersion = event.policyVersion,
-                        workflowDigest = event.workflowDigest,
-                        previousEventHash = event.previousEventHash,
-                        eventHash = event.eventHash,
-                        timestamp = event.timestamp.toString(),
-                        reasonCode = event.reasonCode,
-                        metadata = event.metadata,
-                    ),
-                )
-                val encrypted = payloadCodec.encode(payloadJson)
-                val nowOdt = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
+                    // Serialize and encrypt
+                    val payloadJson =
+                        mapper.writeValueAsBytes(
+                            PersistedAuditEventV1(
+                                schemaVersion = event.schemaVersion,
+                                hashAlgorithm = event.hashAlgorithm.wireName,
+                                auditStreamId = event.auditStreamId,
+                                eventId = event.eventId,
+                                sequenceNumber = event.sequenceNumber,
+                                workflowRunId = event.workflowRunId,
+                                correlationId = event.correlationId,
+                                actor = event.actor,
+                                enforcementPoint = event.enforcementPoint,
+                                decision = event.decision,
+                                policyVersion = event.policyVersion,
+                                workflowDigest = event.workflowDigest,
+                                previousEventHash = event.previousEventHash,
+                                eventHash = event.eventHash,
+                                timestamp = event.timestamp.toString(),
+                                reasonCode = event.reasonCode,
+                                metadata = event.metadata,
+                            ),
+                        )
+                    val encrypted = payloadCodec.encode(payloadJson)
+                    val nowOdt = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
 
-                // Insert the audit event
-                insertEvent(conn, event, encrypted, nowOdt)
+                    // Insert the audit event
+                    insertEvent(conn, event, encrypted, nowOdt)
 
-                // Update the stream head
-                updateHead(conn, auditStreamId, event, nowOdt)
+                    // Update the stream head
+                    updateHead(conn, auditStreamId, event, nowOdt)
 
-                conn.commit()
-                return event
-            } catch (e: Exception) {
-                if (e is CancellationException) {
+                    conn.commit()
+                    event
+                } catch (e: Exception) {
+                    if (e is CancellationException) {
+                        primaryFailure = e
+                        rollbackSuppressing(conn, e)
+                        throw e
+                    }
                     primaryFailure = e
                     rollbackSuppressing(conn, e)
                     throw e
+                } finally {
+                    restoreAutoCommitSuppressing(conn, previousAutoCommit, primaryFailure)
                 }
-                primaryFailure = e
-                rollbackSuppressing(conn, e)
-                throw e
-            } finally {
-                restoreAutoCommitSuppressing(conn, previousAutoCommit, primaryFailure)
             }
         }
-    }
 
     /**
      * Deliberately non-suspend helper (the #267 cleanup model): rolls back,
@@ -176,7 +178,10 @@ class JdbcAuditStore(
      * never mask the primary exception or cancellation. Runs for
      * cancellations too — a cancelled append leaves no partial stream head.
      */
-    private fun rollbackSuppressing(conn: Connection, primary: Exception) {
+    private fun rollbackSuppressing(
+        conn: Connection,
+        primary: Exception,
+    ) {
         try {
             conn.rollback()
         } catch (rollbackFailure: Exception) {
@@ -206,57 +211,60 @@ class JdbcAuditStore(
         }
     }
 
-    override suspend fun readStream(auditStreamId: String): List<AuditEvent> {
-        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
+    override suspend fun readStream(auditStreamId: String): List<AuditEvent> =
+        withSafeJdbc({ "Database operation failed for audit stream: $auditStreamId" }) {
+            require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
 
-        dataSource.connection.use { conn ->
-            val events = readAllEvents(conn, auditStreamId)
-            if (events.isEmpty()) return emptyList()
+            dataSource.connection.use { conn ->
+                val events = readAllEvents(conn, auditStreamId)
+                if (events.isEmpty()) return@use emptyList()
 
-            // Full chain validation
-            validateChain(auditStreamId, events)
+                // Full chain validation
+                validateChain(auditStreamId, events)
 
-            return events.map { immutableCopy(it) }
+                events.map { immutableCopy(it) }
+            }
         }
-    }
 
     override suspend fun readStreamPage(
         auditStreamId: String,
         afterSequenceNumber: Long?,
         limit: Int,
-    ): List<AuditEvent> {
-        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
-        require(limit > 0) { "audit-store-invalid-limit" }
-        require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
-            "audit-store-invalid-cursor"
-        }
-
-        dataSource.connection.use { conn ->
-            val events = readEventPage(conn, auditStreamId, afterSequenceNumber, limit)
-            if (events.isEmpty()) return emptyList()
-
-            // Page-level validation: local invariants + chain continuity within page
-            validatePage(auditStreamId, events)
-
-            return events.map { immutableCopy(it) }
-        }
-    }
-
-    override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
-        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
-
-        dataSource.connection.use { conn ->
-            val latest = readLatestEvent(conn, auditStreamId) ?: return null
-
-            // Validate self-hash only (no full-chain scan).
-            // Full chain validation is the responsibility of readStream().
-            require(latest.eventHash == latest.copy(eventHash = "").calculateHash()) {
-                "audit-event-hash-mismatch"
+    ): List<AuditEvent> =
+        withSafeJdbc({ "Database operation failed for audit stream: $auditStreamId" }) {
+            require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
+            require(limit > 0) { "audit-store-invalid-limit" }
+            require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
+                "audit-store-invalid-cursor"
             }
 
-            return immutableCopy(latest)
+            dataSource.connection.use { conn ->
+                val events = readEventPage(conn, auditStreamId, afterSequenceNumber, limit)
+                if (events.isEmpty()) return@use emptyList()
+
+                // Page-level validation: local invariants + chain continuity within page
+                validatePage(auditStreamId, events)
+
+                events.map { immutableCopy(it) }
+            }
         }
-    }
+
+    override suspend fun latestEvent(auditStreamId: String): AuditEvent? =
+        withSafeJdbc({ "Database operation failed for audit stream: $auditStreamId" }) {
+            require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
+
+            dataSource.connection.use { conn ->
+                val latest = readLatestEvent(conn, auditStreamId) ?: return@use null
+
+                // Validate self-hash only (no full-chain scan).
+                // Full chain validation is the responsibility of readStream().
+                require(latest.eventHash == latest.copy(eventHash = "").calculateHash()) {
+                    "audit-event-hash-mismatch"
+                }
+
+                immutableCopy(latest)
+            }
+        }
 
     // ── Internal data types ──────────────────────────────────────────
 
@@ -289,57 +297,63 @@ class JdbcAuditStore(
         val metadata: Map<String, String> = emptyMap(),
     )
 
-    private fun AuditEvent.toPersistedV1(): PersistedAuditEventV1 = PersistedAuditEventV1(
-        schemaVersion = schemaVersion,
-        hashAlgorithm = hashAlgorithm.wireName,
-        auditStreamId = auditStreamId,
-        eventId = eventId,
-        sequenceNumber = sequenceNumber,
-        workflowRunId = workflowRunId,
-        correlationId = correlationId,
-        actor = actor,
-        enforcementPoint = enforcementPoint,
-        decision = decision,
-        policyVersion = policyVersion,
-        workflowDigest = workflowDigest,
-        previousEventHash = previousEventHash,
-        eventHash = eventHash,
-        timestamp = timestamp.toString(),
-        reasonCode = reasonCode,
-        metadata = metadata,
-    )
+    private fun AuditEvent.toPersistedV1(): PersistedAuditEventV1 =
+        PersistedAuditEventV1(
+            schemaVersion = schemaVersion,
+            hashAlgorithm = hashAlgorithm.wireName,
+            auditStreamId = auditStreamId,
+            eventId = eventId,
+            sequenceNumber = sequenceNumber,
+            workflowRunId = workflowRunId,
+            correlationId = correlationId,
+            actor = actor,
+            enforcementPoint = enforcementPoint,
+            decision = decision,
+            policyVersion = policyVersion,
+            workflowDigest = workflowDigest,
+            previousEventHash = previousEventHash,
+            eventHash = eventHash,
+            timestamp = timestamp.toString(),
+            reasonCode = reasonCode,
+            metadata = metadata,
+        )
 
-    private fun PersistedAuditEventV1.toDomain(): AuditEvent = AuditEvent(
-        schemaVersion = schemaVersion,
-        hashAlgorithm = AuditHashAlgorithm.entries.first { it.wireName == hashAlgorithm },
-        auditStreamId = auditStreamId,
-        eventId = eventId,
-        sequenceNumber = sequenceNumber,
-        workflowRunId = workflowRunId,
-        correlationId = correlationId,
-        actor = actor,
-        enforcementPoint = enforcementPoint,
-        decision = decision,
-        policyVersion = policyVersion,
-        workflowDigest = workflowDigest,
-        previousEventHash = previousEventHash,
-        eventHash = eventHash,
-        timestamp = Instant.parse(timestamp),
-        reasonCode = reasonCode,
-        metadata = metadata,
-    )
+    private fun PersistedAuditEventV1.toDomain(): AuditEvent =
+        AuditEvent(
+            schemaVersion = schemaVersion,
+            hashAlgorithm = AuditHashAlgorithm.entries.first { it.wireName == hashAlgorithm },
+            auditStreamId = auditStreamId,
+            eventId = eventId,
+            sequenceNumber = sequenceNumber,
+            workflowRunId = workflowRunId,
+            correlationId = correlationId,
+            actor = actor,
+            enforcementPoint = enforcementPoint,
+            decision = decision,
+            policyVersion = policyVersion,
+            workflowDigest = workflowDigest,
+            previousEventHash = previousEventHash,
+            eventHash = eventHash,
+            timestamp = Instant.parse(timestamp),
+            reasonCode = reasonCode,
+            metadata = metadata,
+        )
 
     // ── Stream head operations ───────────────────────────────────────
 
     /**
      * Ensures a stream head row exists. Idempotent — uses INSERT ... ON CONFLICT DO NOTHING.
      */
-    private fun ensureStreamHead(conn: Connection, auditStreamId: String) {
-        val sql = """
+    private fun ensureStreamHead(
+        conn: Connection,
+        auditStreamId: String,
+    ) {
+        val sql =
+            """
             INSERT INTO audit_stream_heads (stream_id, latest_sequence, updated_at)
             VALUES (?, 0, NOW())
             ON CONFLICT (stream_id) DO NOTHING
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             stmt.executeUpdate()
@@ -349,13 +363,17 @@ class JdbcAuditStore(
     /**
      * Selects the stream head row with FOR UPDATE — acquires the stream-level lock.
      */
-    private fun selectHeadForUpdate(conn: Connection, auditStreamId: String): StreamHead {
-        val sql = """
+    private fun selectHeadForUpdate(
+        conn: Connection,
+        auditStreamId: String,
+    ): StreamHead {
+        val sql =
+            """
             SELECT stream_id, latest_sequence, latest_event_id, latest_event_hash, updated_at
             FROM audit_stream_heads
             WHERE stream_id = ?
             FOR UPDATE
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             stmt.executeQuery().use { rs ->
@@ -368,13 +386,14 @@ class JdbcAuditStore(
         }
     }
 
-    private fun mapHeadRow(rs: ResultSet): StreamHead = StreamHead(
-        streamId = rs.getString("stream_id"),
-        latestSequence = rs.getLong("latest_sequence"),
-        latestEventId = rs.getString("latest_event_id"),
-        latestEventHash = rs.getString("latest_event_hash"),
-        updatedAt = rs.getObject("updated_at", OffsetDateTime::class.java),
-    )
+    private fun mapHeadRow(rs: ResultSet): StreamHead =
+        StreamHead(
+            streamId = rs.getString("stream_id"),
+            latestSequence = rs.getLong("latest_sequence"),
+            latestEventId = rs.getString("latest_event_id"),
+            latestEventHash = rs.getString("latest_event_hash"),
+            updatedAt = rs.getObject("updated_at", OffsetDateTime::class.java),
+        )
 
     /**
      * Updates the stream head after a successful event append.
@@ -385,14 +404,15 @@ class JdbcAuditStore(
         event: AuditEvent,
         nowOdt: OffsetDateTime,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_stream_heads
             SET latest_sequence = ?,
                 latest_event_id = ?,
                 latest_event_hash = ?,
                 updated_at = ?
             WHERE stream_id = ?
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setLong(1, event.sequenceNumber)
             stmt.setString(2, event.eventId)
@@ -434,7 +454,10 @@ class JdbcAuditStore(
      * stream binding, schema version, sequence ordering, hash chain continuity,
      * and self-hash correctness. Also checks for duplicate event IDs.
      */
-    private fun validateChain(expectedAuditStreamId: String, events: List<AuditEvent>) {
+    private fun validateChain(
+        expectedAuditStreamId: String,
+        events: List<AuditEvent>,
+    ) {
         val seenEventIds = mutableSetOf<String>()
         var previousEvent: AuditEvent? = null
         for (event in events) {
@@ -465,7 +488,10 @@ class JdbcAuditStore(
      * version, sequence ordering, self-hash) and chain continuity within the page.
      * Full-chain validation is deferred to [readStream].
      */
-    private fun validatePage(expectedAuditStreamId: String, events: List<AuditEvent>) {
+    private fun validatePage(
+        expectedAuditStreamId: String,
+        events: List<AuditEvent>,
+    ) {
         var previousEvent: AuditEvent? = null
         for (event in events) {
             require(event.auditStreamId == expectedAuditStreamId) { "audit-stream-id-mismatch" }
@@ -498,7 +524,8 @@ class JdbcAuditStore(
         encrypted: JdbcEncryptedAuditPayload,
         nowOdt: OffsetDateTime,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO audit_events (
                 stream_id, sequence_number, event_id, event_type, event_hash,
                 previous_event_hash, occurred_at, sanitized_actor,
@@ -510,7 +537,7 @@ class JdbcAuditStore(
                 ?, ?, ?,
                 ?, ?, ?
             )
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, event.auditStreamId)
             stmt.setLong(2, event.sequenceNumber)
@@ -555,8 +582,9 @@ class JdbcAuditStore(
             return null
         }
 
-        val latest = readEventBySequence(conn, auditStreamId, head.latestSequence)
-            ?: throw IllegalStateException("audit-stream-head-latest-event-missing")
+        val latest =
+            readEventBySequence(conn, auditStreamId, head.latestSequence)
+                ?: throw IllegalStateException("audit-stream-head-latest-event-missing")
 
         require(latest.eventId == head.latestEventId) {
             "audit-stream-head-event-id-mismatch"
@@ -568,8 +596,12 @@ class JdbcAuditStore(
         return latest
     }
 
-    private fun readAllEvents(conn: Connection, auditStreamId: String): List<AuditEvent> {
-        val sql = """
+    private fun readAllEvents(
+        conn: Connection,
+        auditStreamId: String,
+    ): List<AuditEvent> {
+        val sql =
+            """
             SELECT stream_id, sequence_number, event_id, event_type, event_hash,
                    previous_event_hash, occurred_at, sanitized_actor,
                    encrypted_payload, encryption_key_id, encryption_algorithm,
@@ -577,7 +609,7 @@ class JdbcAuditStore(
             FROM audit_events
             WHERE stream_id = ?
             ORDER BY sequence_number ASC
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             stmt.executeQuery().use { rs ->
@@ -597,7 +629,8 @@ class JdbcAuditStore(
         limit: Int,
     ): List<AuditEvent> {
         val cappedLimit = minOf(limit, maxPageSize)
-        val sql = """
+        val sql =
+            """
             SELECT stream_id, sequence_number, event_id, event_type, event_hash,
                    previous_event_hash, occurred_at, sanitized_actor,
                    encrypted_payload, encryption_key_id, encryption_algorithm,
@@ -607,7 +640,7 @@ class JdbcAuditStore(
               AND (? IS NULL OR sequence_number > ?)
             ORDER BY sequence_number ASC
             LIMIT ?
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             if (afterSequenceNumber != null) {
@@ -633,14 +666,15 @@ class JdbcAuditStore(
         auditStreamId: String,
         sequenceNumber: Long,
     ): AuditEvent? {
-        val sql = """
+        val sql =
+            """
             SELECT stream_id, sequence_number, event_id, event_type, event_hash,
                    previous_event_hash, occurred_at, sanitized_actor,
                    encrypted_payload, encryption_key_id, encryption_algorithm,
                    encryption_nonce, payload_digest, schema_version
             FROM audit_events
             WHERE stream_id = ? AND sequence_number = ?
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             stmt.setLong(2, sequenceNumber)
@@ -651,8 +685,12 @@ class JdbcAuditStore(
         }
     }
 
-    private fun readLatestEvent(conn: Connection, auditStreamId: String): AuditEvent? {
-        val sql = """
+    private fun readLatestEvent(
+        conn: Connection,
+        auditStreamId: String,
+    ): AuditEvent? {
+        val sql =
+            """
             SELECT stream_id, sequence_number, event_id, event_type, event_hash,
                    previous_event_hash, occurred_at, sanitized_actor,
                    encrypted_payload, encryption_key_id, encryption_algorithm,
@@ -661,7 +699,7 @@ class JdbcAuditStore(
             WHERE stream_id = ?
             ORDER BY sequence_number DESC
             LIMIT 1
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, auditStreamId)
             stmt.executeQuery().use { rs ->
@@ -672,28 +710,36 @@ class JdbcAuditStore(
     }
 
     private fun mapEventRow(rs: ResultSet): AuditEvent {
-        val encrypted = JdbcEncryptedAuditPayload(
-            ciphertext = rs.getBytes("encrypted_payload")
-                ?: throw IllegalStateException("audit-event-corrupted: encrypted_payload is null"),
-            keyId = rs.getString("encryption_key_id")
-                ?: throw IllegalStateException("audit-event-corrupted: encryption_key_id is null"),
-            algorithm = rs.getString("encryption_algorithm")
-                ?: throw IllegalStateException("audit-event-corrupted: encryption_algorithm is null"),
-            nonce = rs.getBytes("encryption_nonce")
-                ?: throw IllegalStateException("audit-event-corrupted: encryption_nonce is null"),
-            payloadDigest = rs.getString("payload_digest")
-                ?: throw IllegalStateException("audit-event-corrupted: payload_digest is null"),
-        )
-        val plaintext = try {
-            payloadCodec.decode(encrypted)
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-event-decryption-failed", e)
-        }
-        val persisted: PersistedAuditEventV1 = try {
-            mapper.readValue(plaintext)
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-event-deserialization-failed", e)
-        }
+        val encrypted =
+            JdbcEncryptedAuditPayload(
+                ciphertext =
+                    rs.getBytes("encrypted_payload")
+                        ?: throw IllegalStateException("audit-event-corrupted: encrypted_payload is null"),
+                keyId =
+                    rs.getString("encryption_key_id")
+                        ?: throw IllegalStateException("audit-event-corrupted: encryption_key_id is null"),
+                algorithm =
+                    rs.getString("encryption_algorithm")
+                        ?: throw IllegalStateException("audit-event-corrupted: encryption_algorithm is null"),
+                nonce =
+                    rs.getBytes("encryption_nonce")
+                        ?: throw IllegalStateException("audit-event-corrupted: encryption_nonce is null"),
+                payloadDigest =
+                    rs.getString("payload_digest")
+                        ?: throw IllegalStateException("audit-event-corrupted: payload_digest is null"),
+            )
+        val plaintext =
+            try {
+                payloadCodec.decode(encrypted)
+            } catch (e: Exception) {
+                throw IllegalStateException("audit-event-decryption-failed", e)
+            }
+        val persisted: PersistedAuditEventV1 =
+            try {
+                mapper.readValue(plaintext)
+            } catch (e: Exception) {
+                throw IllegalStateException("audit-event-deserialization-failed", e)
+            }
         val domainEvent = persisted.toDomain()
         require(domainEvent.auditStreamId == rs.getString("stream_id")) {
             "audit-stream-id-mismatch"

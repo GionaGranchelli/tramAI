@@ -6,6 +6,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
@@ -18,7 +19,6 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TokenBudgetSnapshot
-import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.time.Clock
@@ -69,7 +69,6 @@ class JdbcSuspendedInvocationStore(
     private val replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
     private val clock: Clock = Clock.systemUTC(),
 ) : SuspendedInvocationStore {
-
     /**
      * Plain ObjectMapper for JSONB-safe metadata serialization (toolSecurity).
      * No default typing — only used for safe primitive/String fields.
@@ -78,32 +77,35 @@ class JdbcSuspendedInvocationStore(
         private const val REDACTED_APPROVAL_CONTINUATION_ARGUMENTS =
             "__redacted_approval_continuation_args__"
 
-        private val mapper: ObjectMapper = ObjectMapper()
-            .registerKotlinModule()
-            .registerModule(JavaTimeModule())
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        private val mapper: ObjectMapper =
+            ObjectMapper()
+                .registerKotlinModule()
+                .registerModule(JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
     }
 
     override suspend fun create(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
-    ) {
-        validateCreateInput(metadata)
-        val payloadJson = buildCreatePayload(metadata, replayEnvelope)
-        val encrypted = replayEnvelopeCodec.encode(payloadJson)
-        val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
+    ): Unit =
+        withSafeJdbc({ "Database operation failed for suspended invocation: ${metadata.approvalId}" }) {
+            validateCreateInput(metadata)
+            val payloadJson = buildCreatePayload(metadata, replayEnvelope)
+            val encrypted = replayEnvelopeCodec.encode(payloadJson)
+            val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
 
-        dataSource.connection.use { conn ->
-            insertSuspendedInvocation(conn, metadata, encrypted, now)
+            dataSource.connection.use { conn ->
+                insertSuspendedInvocation(conn, metadata, encrypted, now)
+            }
         }
-    }
 
-    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? {
-        validateIdField(approvalId, "approvalId")
+    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? =
+        withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
+            validateIdField(approvalId, "approvalId")
 
-        val row = readCurrent(approvalId) ?: return null
-        return row.metadata.toDomain()
-    }
+            val row = readCurrent(approvalId) ?: return@withSafeJdbc null
+            row.metadata.toDomain()
+        }
 
     /**
      * Validates non-sensitive create fields before any replay payload is serialized.
@@ -127,10 +129,11 @@ class JdbcSuspendedInvocationStore(
         val messages = replayEnvelope.revealForResume().messages
         validateReplayEnvelopeInvariants(metadata, messages)
         validateReplayEnvelopeDigest(metadata, messages)
-        val payload = Payload(
-            metadata = PayloadMetadata.fromDomain(metadata),
-            persistedMessages = messages.map { toPersisted(it) },
-        )
+        val payload =
+            Payload(
+                metadata = PayloadMetadata.fromDomain(metadata),
+                persistedMessages = messages.map { toPersisted(it) },
+            )
         return mapper.writeValueAsBytes(payload)
     }
 
@@ -156,7 +159,8 @@ class JdbcSuspendedInvocationStore(
         encrypted: JdbcEncryptedReplayEnvelope,
         now: OffsetDateTime,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO suspended_invocations (
                 invocation_id, status, service_key, operation_key, descriptor_hash,
                 replay_envelope_digest, encrypted_replay_envelope,
@@ -168,7 +172,7 @@ class JdbcSuspendedInvocationStore(
                 ?, ?, ?, ?,
                 1, ?
             )
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, metadata.approvalId)
             stmt.setString(2, metadata.operationReference.serviceInterface)
@@ -214,62 +218,66 @@ class JdbcSuspendedInvocationStore(
         throw IllegalArgumentException("suspended-invocation-replay-envelope-digest-already-exists")
     }
 
-    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? {
-        validateIdField(approvalId, "approvalId")
+    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? =
+        withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
+            validateIdField(approvalId, "approvalId")
 
-        val row = readCurrent(approvalId) ?: return null
-        return SensitiveReplayEnvelope.of(row.messages)
-    }
+            val row = readCurrent(approvalId) ?: return@withSafeJdbc null
+            SensitiveReplayEnvelope.of(row.messages)
+        }
 
-    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? {
-        validateIdField(approvalId, "approvalId")
+    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? =
+        withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
+            validateIdField(approvalId, "approvalId")
 
-        // Read + delete inside one explicit transaction with row lock
-        dataSource.connection.use { conn ->
-            val previousAutoCommit = conn.autoCommit
-            conn.autoCommit = false
-            try {
-                val sql = """
-                    SELECT encrypted_replay_envelope, encryption_key_id, encryption_algorithm,
-                           encryption_nonce, payload_digest, version
-                    FROM suspended_invocations
-                    WHERE invocation_id = ?
-                    FOR UPDATE
-                """.trimIndent()
-                val row = conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, approvalId)
-                    stmt.executeQuery().use { rs ->
-                        if (!rs.next()) {
-                            conn.rollback()
-                            return@remove null
-                        }
+            // Read + delete inside one explicit transaction with row lock
+            dataSource.connection.use { conn ->
+                val previousAutoCommit = conn.autoCommit
+                conn.autoCommit = false
+                try {
+                    val sql =
+                        """
+                        SELECT encrypted_replay_envelope, encryption_key_id, encryption_algorithm,
+                               encryption_nonce, payload_digest, version
+                        FROM suspended_invocations
+                        WHERE invocation_id = ?
+                        FOR UPDATE
+                        """.trimIndent()
+                    val row =
+                        conn.prepareStatement(sql).use { stmt ->
+                            stmt.setString(1, approvalId)
+                            stmt.executeQuery().use { rs ->
+                                if (!rs.next()) {
+                                    conn.rollback()
+                                    return@use null
+                                }
 
-                        val encrypted = readEncryptedFromRow(rs)
-                        val v = rs.getLong("version")
-                        val payload = decryptAndDeserialize(encrypted)
-                        val domainMessages = payload.persistedMessages.map { toDomainMessage(it) }
-                        Triple(encrypted, v, PayloadWithDomainMessages(payload.metadata, domainMessages))
+                                val encrypted = readEncryptedFromRow(rs)
+                                val v = rs.getLong("version")
+                                val payload = decryptAndDeserialize(encrypted)
+                                val domainMessages = payload.persistedMessages.map { toDomainMessage(it) }
+                                Triple(encrypted, v, PayloadWithDomainMessages(payload.metadata, domainMessages))
+                            }
+                        } ?: return@use null
+                    val (_, _, payloadWithMessages) = row
+
+                    val deleteSql = "DELETE FROM suspended_invocations WHERE invocation_id = ?"
+                    conn.prepareStatement(deleteSql).use { stmt ->
+                        stmt.setString(1, approvalId)
+                        stmt.executeUpdate()
                     }
-                }
-                val (_, _, payloadWithMessages) = row
 
-                val deleteSql = "DELETE FROM suspended_invocations WHERE invocation_id = ?"
-                conn.prepareStatement(deleteSql).use { stmt ->
-                    stmt.setString(1, approvalId)
-                    stmt.executeUpdate()
+                    conn.commit()
+                    payloadWithMessages.metadata.toDomain()
+                } catch (e: Exception) {
+                    conn.rollback()
+                    e.rethrowIfCancellation()
+                    throw e
+                } finally {
+                    conn.autoCommit = previousAutoCommit
                 }
-
-                conn.commit()
-                return payloadWithMessages.metadata.toDomain()
-            } catch (e: Exception) {
-                conn.rollback()
-                e.rethrowIfCancellation()
-                throw e
-            } finally {
-                conn.autoCommit = previousAutoCommit
             }
         }
-    }
 
     // ── Internal helpers ──────────────────────────────────────────
 
@@ -294,11 +302,12 @@ class JdbcSuspendedInvocationStore(
         require(metadata.historySize >= 0) { "suspended-replay-envelope-history-size-negative" }
         require(messages.size > metadata.historySize) { "suspended-replay-envelope-history-size-mismatch" }
 
-        val allSlots = messages.flatMapIndexed { messageIndex, message ->
-            message.toolCalls.orEmpty().mapIndexed { toolCallIndex, call ->
-                ReplayToolCallSlot(messageIndex, toolCallIndex, call)
+        val allSlots =
+            messages.flatMapIndexed { messageIndex, message ->
+                message.toolCalls.orEmpty().mapIndexed { toolCallIndex, call ->
+                    ReplayToolCallSlot(messageIndex, toolCallIndex, call)
+                }
             }
-        }
         val matchingSlots = allSlots.filter { it.call.id == metadata.toolCallId }
         require(matchingSlots.size == 1) { "suspended-replay-envelope-tool-call-id-mismatch" }
         val selectedSlot = matchingSlots.single()
@@ -311,17 +320,19 @@ class JdbcSuspendedInvocationStore(
             "suspended-replay-envelope-tool-call-name-mismatch"
         }
 
-        val latestAssistantIdx = messages.indexOfLast {
-            it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty()
-        }
+        val latestAssistantIdx =
+            messages.indexOfLast {
+                it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty()
+            }
         require(latestAssistantIdx >= 0) { "suspended-replay-envelope-assistant-batch-not-found" }
         require(selectedSlot.messageIndex == latestAssistantIdx) {
             "suspended-replay-envelope-tool-call-slot-mismatch"
         }
 
-        val sentinelSlots = allSlots.filter {
-            it.call.argumentsJson == REDACTED_APPROVAL_CONTINUATION_ARGUMENTS
-        }
+        val sentinelSlots =
+            allSlots.filter {
+                it.call.argumentsJson == REDACTED_APPROVAL_CONTINUATION_ARGUMENTS
+            }
         require(sentinelSlots.size == 1) { "suspended-replay-envelope-redaction-count-mismatch" }
         val sentinelSlot = sentinelSlots.single()
         require(
@@ -356,7 +367,10 @@ class JdbcSuspendedInvocationStore(
      * Checks whether a row with the given [approvalId] exists in the table.
      * Uses the same connection to stay within the existing transaction context.
      */
-    private fun invocationExists(conn: java.sql.Connection, approvalId: String): Boolean {
+    private fun invocationExists(
+        conn: java.sql.Connection,
+        approvalId: String,
+    ): Boolean {
         val sql = "SELECT 1 FROM suspended_invocations WHERE invocation_id = ?"
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
@@ -373,12 +387,13 @@ class JdbcSuspendedInvocationStore(
      */
     private fun readCurrent(approvalId: String): DecryptedRow? {
         dataSource.connection.use { conn ->
-            val sql = """
+            val sql =
+                """
                 SELECT encrypted_replay_envelope, encryption_key_id, encryption_algorithm,
                        encryption_nonce, payload_digest, version
                 FROM suspended_invocations
                 WHERE invocation_id = ?
-            """.trimIndent()
+                """.trimIndent()
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, approvalId)
                 stmt.executeQuery().use { rs ->
@@ -405,16 +420,21 @@ class JdbcSuspendedInvocationStore(
     )
 
     private fun readEncryptedFromRow(rs: ResultSet): JdbcEncryptedReplayEnvelope {
-        val ciphertext = rs.getBytes("encrypted_replay_envelope")
-            ?: throw IllegalStateException("suspended-invocation-corrupted: encrypted_replay_envelope is null")
-        val keyId = rs.getString("encryption_key_id")
-            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_key_id is null")
-        val algorithm = rs.getString("encryption_algorithm")
-            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_algorithm is null")
-        val nonce = rs.getBytes("encryption_nonce")
-            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_nonce is null")
-        val payloadDigest = rs.getString("payload_digest")
-            ?: throw IllegalStateException("suspended-invocation-corrupted: payload_digest is null")
+        val ciphertext =
+            rs.getBytes("encrypted_replay_envelope")
+                ?: throw IllegalStateException("suspended-invocation-corrupted: encrypted_replay_envelope is null")
+        val keyId =
+            rs.getString("encryption_key_id")
+                ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_key_id is null")
+        val algorithm =
+            rs.getString("encryption_algorithm")
+                ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_algorithm is null")
+        val nonce =
+            rs.getBytes("encryption_nonce")
+                ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_nonce is null")
+        val payloadDigest =
+            rs.getString("payload_digest")
+                ?: throw IllegalStateException("suspended-invocation-corrupted: payload_digest is null")
 
         return JdbcEncryptedReplayEnvelope(
             ciphertext = ciphertext,
@@ -426,11 +446,12 @@ class JdbcSuspendedInvocationStore(
     }
 
     private fun decryptAndDeserialize(encrypted: JdbcEncryptedReplayEnvelope): Payload {
-        val plaintext = try {
-            replayEnvelopeCodec.decode(encrypted)
-        } catch (e: Exception) {
-            throw IllegalStateException("suspended-invocation-decryption-failed", e)
-        }
+        val plaintext =
+            try {
+                replayEnvelopeCodec.decode(encrypted)
+            } catch (e: Exception) {
+                throw IllegalStateException("suspended-invocation-decryption-failed", e)
+            }
 
         return try {
             mapper.readValue(plaintext)
@@ -439,7 +460,10 @@ class JdbcSuspendedInvocationStore(
         }
     }
 
-    private fun validateIdField(value: String, fieldName: String) {
+    private fun validateIdField(
+        value: String,
+        fieldName: String,
+    ) {
         require(value.isNotBlank()) { "$fieldName must not be blank" }
         require(value.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
         require(value.length <= 256) { "$fieldName exceeds maximum length of 256" }
@@ -459,17 +483,19 @@ class JdbcSuspendedInvocationStore(
         val messages: List<Message>,
     )
 
-    private fun toDomainMessage(pm: PersistedMessage): Message = Message(
-        role = MessageRole.valueOf(pm.role),
-        content = pm.content,
-        toolCalls = pm.toolCalls?.map { toDomainToolCall(it) },
-    )
+    private fun toDomainMessage(pm: PersistedMessage): Message =
+        Message(
+            role = MessageRole.valueOf(pm.role),
+            content = pm.content,
+            toolCalls = pm.toolCalls?.map { toDomainToolCall(it) },
+        )
 
-    private fun toDomainToolCall(ptc: PersistedToolCall): ToolCall = ToolCall(
-        id = ptc.id,
-        name = ptc.name,
-        argumentsJson = ptc.argumentsJson,
-    )
+    private fun toDomainToolCall(ptc: PersistedToolCall): ToolCall =
+        ToolCall(
+            id = ptc.id,
+            name = ptc.name,
+            argumentsJson = ptc.argumentsJson,
+        )
 
     /**
      * Persistable snapshot of a [Message] — no Jackson default typing needed.
@@ -489,17 +515,19 @@ class JdbcSuspendedInvocationStore(
         val argumentsJson: String,
     )
 
-    private fun toPersisted(msg: Message): PersistedMessage = PersistedMessage(
-        role = msg.role.name,
-        content = msg.content,
-        toolCalls = msg.toolCalls?.map { toPersistedToolCall(it) },
-    )
+    private fun toPersisted(msg: Message): PersistedMessage =
+        PersistedMessage(
+            role = msg.role.name,
+            content = msg.content,
+            toolCalls = msg.toolCalls?.map { toPersistedToolCall(it) },
+        )
 
-    private fun toPersistedToolCall(tc: ToolCall): PersistedToolCall = PersistedToolCall(
-        id = tc.id,
-        name = tc.name,
-        argumentsJson = tc.argumentsJson,
-    )
+    private fun toPersistedToolCall(tc: ToolCall): PersistedToolCall =
+        PersistedToolCall(
+            id = tc.id,
+            name = tc.name,
+            argumentsJson = tc.argumentsJson,
+        )
 
     // ── Internal data types for serialisation ─────────────────────
 
@@ -546,77 +574,84 @@ class JdbcSuspendedInvocationStore(
         val toolSecurity: String?,
     ) {
         companion object {
-            fun fromDomain(metadata: SuspendedInvocationMetadata): PayloadMetadata = PayloadMetadata(
-                approvalId = metadata.approvalId,
-                toolCallId = metadata.toolCallId,
-                toolName = metadata.toolName,
-                toolCallIndex = metadata.toolCallIndex,
-                correlationId = metadata.correlationId,
-                identityWorkflowRunId = metadata.identity.workflowRunId,
-                identityCorrelationId = metadata.identity.correlationId,
-                identityWorkflowDigest = metadata.identity.workflowDigest.value,
-                identityPolicyVersion = metadata.identity.policyVersion,
-                identityActorId = metadata.identity.actorId,
-                securityDataClassification = metadata.securityContext.dataClassification?.name,
-                securityClassificationSource = metadata.securityContext.classificationSource?.name,
-                operationServiceInterface = metadata.operationReference.serviceInterface,
-                operationMethodName = metadata.operationReference.methodName,
-                operationJvmMethodDescriptor = metadata.operationReference.jvmMethodDescriptor,
-                operationResumeDefinitionDigest = metadata.operationReference.resumeDefinitionDigest.value,
-                replayEnvelopeDigest = metadata.replayEnvelopeDigest.value,
-                conversationId = metadata.conversationId,
-                historySize = metadata.historySize,
-                tokenBudgetTotalInputTokens = metadata.tokenBudgetSnapshot?.totalInputTokens,
-                tokenBudgetTotalOutputTokens = metadata.tokenBudgetSnapshot?.totalOutputTokens,
-                tokenBudgetTotalInputCost = metadata.tokenBudgetSnapshot?.totalInputCost,
-                tokenBudgetTotalOutputCost = metadata.tokenBudgetSnapshot?.totalOutputCost,
-                tokenBudgetWarnIfExceeded = metadata.tokenBudgetSnapshot?.warnIfExceeded,
-                toolReferenceName = metadata.toolReference.toolName,
-                toolReferenceDeclarationDigest = metadata.toolReference.declarationDigest.value,
-                toolSecurity = metadata.toolSecurity?.let { mapper.writeValueAsString(it) },
-            )
+            fun fromDomain(metadata: SuspendedInvocationMetadata): PayloadMetadata =
+                PayloadMetadata(
+                    approvalId = metadata.approvalId,
+                    toolCallId = metadata.toolCallId,
+                    toolName = metadata.toolName,
+                    toolCallIndex = metadata.toolCallIndex,
+                    correlationId = metadata.correlationId,
+                    identityWorkflowRunId = metadata.identity.workflowRunId,
+                    identityCorrelationId = metadata.identity.correlationId,
+                    identityWorkflowDigest = metadata.identity.workflowDigest.value,
+                    identityPolicyVersion = metadata.identity.policyVersion,
+                    identityActorId = metadata.identity.actorId,
+                    securityDataClassification = metadata.securityContext.dataClassification?.name,
+                    securityClassificationSource = metadata.securityContext.classificationSource?.name,
+                    operationServiceInterface = metadata.operationReference.serviceInterface,
+                    operationMethodName = metadata.operationReference.methodName,
+                    operationJvmMethodDescriptor = metadata.operationReference.jvmMethodDescriptor,
+                    operationResumeDefinitionDigest = metadata.operationReference.resumeDefinitionDigest.value,
+                    replayEnvelopeDigest = metadata.replayEnvelopeDigest.value,
+                    conversationId = metadata.conversationId,
+                    historySize = metadata.historySize,
+                    tokenBudgetTotalInputTokens = metadata.tokenBudgetSnapshot?.totalInputTokens,
+                    tokenBudgetTotalOutputTokens = metadata.tokenBudgetSnapshot?.totalOutputTokens,
+                    tokenBudgetTotalInputCost = metadata.tokenBudgetSnapshot?.totalInputCost,
+                    tokenBudgetTotalOutputCost = metadata.tokenBudgetSnapshot?.totalOutputCost,
+                    tokenBudgetWarnIfExceeded = metadata.tokenBudgetSnapshot?.warnIfExceeded,
+                    toolReferenceName = metadata.toolReference.toolName,
+                    toolReferenceDeclarationDigest = metadata.toolReference.declarationDigest.value,
+                    toolSecurity = metadata.toolSecurity?.let { mapper.writeValueAsString(it) },
+                )
         }
 
-        fun toDomain(): SuspendedInvocationMetadata = SuspendedInvocationMetadata(
-            approvalId = approvalId,
-            toolCallId = toolCallId,
-            toolName = toolName,
-            toolCallIndex = toolCallIndex,
-            correlationId = correlationId,
-            identity = EngineExecutionIdentity(
-                workflowRunId = identityWorkflowRunId,
-                correlationId = identityCorrelationId,
-                workflowDigest = Sha256Digest.of(identityWorkflowDigest),
-                policyVersion = identityPolicyVersion,
-                actorId = identityActorId,
-            ),
-            securityContext = ExecutionSecurityContext(
-                dataClassification = securityDataClassification?.let { enumValueOf(it) },
-                classificationSource = securityClassificationSource?.let { enumValueOf(it) },
-            ),
-            operationReference = ResumeOperationReference(
-                serviceInterface = operationServiceInterface,
-                methodName = operationMethodName,
-                jvmMethodDescriptor = operationJvmMethodDescriptor,
-                resumeDefinitionDigest = Sha256Digest.of(operationResumeDefinitionDigest),
-            ),
-            replayEnvelopeDigest = Sha256Digest.of(replayEnvelopeDigest),
-            conversationId = conversationId,
-            historySize = historySize,
-            tokenBudgetSnapshot = tokenBudgetTotalInputTokens?.let { inputTokens ->
-                TokenBudgetSnapshot(
-                    totalInputTokens = inputTokens,
-                    totalOutputTokens = tokenBudgetTotalOutputTokens ?: 0L,
-                    totalInputCost = tokenBudgetTotalInputCost ?: 0.0,
-                    totalOutputCost = tokenBudgetTotalOutputCost ?: 0.0,
-                    warnIfExceeded = tokenBudgetWarnIfExceeded ?: false,
-                )
-            },
-            toolReference = ResumeToolReference(
-                toolName = toolReferenceName,
-                declarationDigest = Sha256Digest.of(toolReferenceDeclarationDigest),
-            ),
-            toolSecurity = toolSecurity?.let { mapper.readValue(it) },
-        )
+        fun toDomain(): SuspendedInvocationMetadata =
+            SuspendedInvocationMetadata(
+                approvalId = approvalId,
+                toolCallId = toolCallId,
+                toolName = toolName,
+                toolCallIndex = toolCallIndex,
+                correlationId = correlationId,
+                identity =
+                    EngineExecutionIdentity(
+                        workflowRunId = identityWorkflowRunId,
+                        correlationId = identityCorrelationId,
+                        workflowDigest = Sha256Digest.of(identityWorkflowDigest),
+                        policyVersion = identityPolicyVersion,
+                        actorId = identityActorId,
+                    ),
+                securityContext =
+                    ExecutionSecurityContext(
+                        dataClassification = securityDataClassification?.let { enumValueOf(it) },
+                        classificationSource = securityClassificationSource?.let { enumValueOf(it) },
+                    ),
+                operationReference =
+                    ResumeOperationReference(
+                        serviceInterface = operationServiceInterface,
+                        methodName = operationMethodName,
+                        jvmMethodDescriptor = operationJvmMethodDescriptor,
+                        resumeDefinitionDigest = Sha256Digest.of(operationResumeDefinitionDigest),
+                    ),
+                replayEnvelopeDigest = Sha256Digest.of(replayEnvelopeDigest),
+                conversationId = conversationId,
+                historySize = historySize,
+                tokenBudgetSnapshot =
+                    tokenBudgetTotalInputTokens?.let { inputTokens ->
+                        TokenBudgetSnapshot(
+                            totalInputTokens = inputTokens,
+                            totalOutputTokens = tokenBudgetTotalOutputTokens ?: 0L,
+                            totalInputCost = tokenBudgetTotalInputCost ?: 0.0,
+                            totalOutputCost = tokenBudgetTotalOutputCost ?: 0.0,
+                            warnIfExceeded = tokenBudgetWarnIfExceeded ?: false,
+                        )
+                    },
+                toolReference =
+                    ResumeToolReference(
+                        toolName = toolReferenceName,
+                        declarationDigest = Sha256Digest.of(toolReferenceDeclarationDigest),
+                    ),
+                toolSecurity = toolSecurity?.let { mapper.readValue(it) },
+            )
     }
 }
