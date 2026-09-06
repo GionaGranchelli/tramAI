@@ -31,13 +31,15 @@
       "severity": "P0",
       "area": "security",
       "subproject": "tramai-core",
-      "targetFile": "tramai-core/src/main/kotlin/dev/tramai/core/util/ImageDownloader.kt",
+      "targetFiles": [
+        "tramai-core/src/main/kotlin/dev/tramai/core/util/ImageDownloader.kt"
+      ],
       "releaseBlocking": true,
       "title": "SSRF and Local File Inclusion in ImageDownloader",
       "claim": "Multimodal image downloading allows arbitrary URL fetching without protocol validation or IP address filtering.",
       "risk": "Local file exfiltration (e.g. file:///etc/passwd) and cloud metadata token theft (http://169.254.169.254/) via multimodal prompt injection.",
       "reproduction": "ImageDownloader.download(\"file:///etc/hosts\") reads and encodes local files.",
-      "recommendation": "Restrict URL schemes to http/https and enforce private/link-local IP filtering prior to connection.",
+      "recommendation": "Route image retrieval through an explicit governed outbound-fetch boundary with HTTP/HTTPS scheme enforcement, redirect validation/deny-by-default semantics, prohibited-address filtering (private RFC 1918, loopback 127.0.0.0/8, link-local 169.254.0.0/16, IPv6) on every resolution and request attempt, and connected-peer validation where transport capabilities permit. Reuse or factor TramAI's established outbound network governance principles (e.g. OutboundNetworkPolicy / injected image fetch transport abstraction) rather than creating a weaker, ad-hoc DNS precheck.",
       "owner": "security"
     },
     {
@@ -65,15 +67,16 @@
       "area": "build-logic",
       "subproject": "build-logic",
       "targetFiles": [
-        "build-logic/",
+        "build-logic/src/main/kotlin/dev/tramai/build/quality/MaintainabilityBaselinePlugin.kt",
+        "build-logic/src/main/kotlin/dev/tramai/build/quality/ResidualQualityVerifierTasks.kt",
         "examples/kotlin-consumer-smoke/build.gradle.kts"
       ],
       "releaseBlocking": true,
       "title": "Gradle Strict Task Dependency Validation Failures",
-      "claim": "verify060Architecture and verifyPr encounter implicit task dependency errors under strict validation.",
-      "risk": "CI or clean daemon verification fails under Gradle 9.0 strict execution rules.",
-      "reproduction": "Run ./gradlew verify060Architecture --warning-mode=fail.",
-      "recommendation": "Declare explicit task dependencies via dependsOn or use typed Provider/TaskProvider wiring.",
+      "claim": "verify060Architecture encounters implicit task dependency validation errors under Gradle 9.0.0.",
+      "risk": "CI or clean daemon verification fails under Gradle 9.0 strict execution rules (--warning-mode=fail).",
+      "reproduction": "env -u TRAMAI_PUBLISH_RELEASE_URL ./gradlew verify060Architecture --warning-mode=fail --no-daemon (fails on :examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility using output of :examples:kotlin-consumer-smoke:compileKotlin without dependency declaration).",
+      "recommendation": "Scope ConsumerSmokeCompileTask.sources to exact source files or declare explicit task dependencies (dependsOn / mustRunAfter) on compileKotlin.",
       "owner": "build-logic"
     },
     {
@@ -81,7 +84,9 @@
       "severity": "P2",
       "area": "security",
       "subproject": "tramai-engine",
-      "targetFile": "tramai-engine/src/main/kotlin/dev/tramai/engine/EngineComponentFactory.kt",
+      "targetFiles": [
+        "tramai-engine/src/main/kotlin/dev/tramai/engine/components/EngineComponentFactory.kt"
+      ],
       "releaseBlocking": false,
       "title": "Permissive Default Policy Engine in EngineComponentFactory",
       "claim": "Defaults to LegacyPermissivePolicyEngine when no policy engine is configured.",
@@ -95,7 +100,9 @@
       "severity": "P2",
       "area": "security",
       "subproject": "tramai-security",
-      "targetFile": "tramai-security/src/main/kotlin/dev/tramai/security/policy/DefaultPolicyEngine.kt",
+      "targetFiles": [
+        "tramai-security/src/main/kotlin/dev/tramai/security/DefaultPolicyEngine.kt"
+      ],
       "releaseBlocking": false,
       "title": "Hardcoded Allow at BEFORE_TOOL_RESULT_REINJECTION",
       "claim": "BEFORE_TOOL_RESULT_REINJECTION returns PolicyDecision.Allow unconditionally.",
@@ -109,7 +116,9 @@
       "severity": "P2",
       "area": "observability",
       "subproject": "tramai-observability",
-      "targetFile": "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
+      "targetFiles": [
+        "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt"
+      ],
       "releaseBlocking": false,
       "title": "Unredacted Exception Recording in OpenTelemetry Spans",
       "claim": "span.recordException is invoked with raw throwable instances.",
@@ -123,7 +132,9 @@
       "severity": "P2",
       "area": "testing",
       "subproject": "tramai-testing",
-      "targetFile": "tramai-testing/src/main/kotlin/dev/tramai/testing/tck/ProviderTck.kt",
+      "targetFiles": [
+        "tramai-testing/src/testFixtures/kotlin/dev/tramai/testing/provider/ProviderTck.kt"
+      ],
       "releaseBlocking": false,
       "title": "Weak Fallback Assertion in ProviderTck for Vision/Structured Content",
       "claim": "ProviderTck falls back to assertNotNull when expectedContent is null.",
@@ -137,7 +148,9 @@
       "severity": "P2",
       "area": "testing",
       "subproject": "tramai-persistence-jdbc",
-      "targetFile": "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalContinuationStoreTest.kt",
+      "targetFiles": [
+        "tramai-persistence-jdbc/src/test/kotlin/dev/tramai/persistence/jdbc/JdbcApprovalContinuationStoreTest.kt"
+      ],
       "releaseBlocking": false,
       "title": "Vacuous Ciphertext Assertions in JdbcApprovalContinuationStoreTest",
       "claim": "Test uses assertNotNull on encrypted columns rather than validating entropy or ciphertext format.",
@@ -151,23 +164,31 @@
       "severity": "P3",
       "area": "security",
       "subproject": "tramai-orchestration",
-      "targetFile": "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/step/ShellStep.kt",
+      "targetFiles": [
+        "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt"
+      ],
       "releaseBlocking": false,
       "title": "Shell Step Command Policy Evaluates Binary Path Only",
       "claim": "Policy evaluation checks only the executable binary name without inspecting command-line flags.",
+      "risk": "Flag-level granularity is unsupported in shell authorization policies.",
       "owner": "orchestration",
+      "rationale": "Command authorization operates fail-closed at the executable binary boundary (unallowlisted binaries are rejected). Granular regex/argument inspection is an expressiveness enhancement for advanced sandboxing rather than a core release correctness requirement for 0.6.0.",
       "recommendation": "Support argument-aware regex policies for shell step authorization."
     },
     {
       "id": "R12-010",
       "severity": "P3",
       "area": "testing",
-      "subproject": "tramai-persistence",
-      "targetFile": "tramai-persistence-file/src/test/kotlin/dev/tramai/persistence/file/StoreManifestV1Test.kt",
+      "subproject": "tramai-persistence-file",
+      "targetFiles": [
+        "tramai-persistence-file/src/test/kotlin/dev/tramai/persistence/file/StoreManifestV1Test.kt"
+      ],
       "releaseBlocking": false,
       "title": "Manifest Test Coupled to Whitespace-Free JSON Substring",
       "claim": "Tests assert exact raw string matches instead of parsing JSON AST.",
+      "risk": "Refactoring JSON serialization formatting breaks test without behavioral regression.",
       "owner": "persistence",
+      "rationale": "The test exercises StoreManifestV1 serialization determinism against a fixed canonical representation. While AST-based comparison would be more resilient to formatting changes, the current test is completely green and does not indicate any runtime defect.",
       "recommendation": "Use JSON structure comparison in manifest serialization tests."
     },
     {
@@ -175,55 +196,79 @@
       "severity": "P3",
       "area": "testing",
       "subproject": "tramai-orchestration",
-      "targetFile": "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/worker/ShutdownHookTest.kt",
+      "targetFiles": [
+        "tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/ShutdownHookTest.kt"
+      ],
       "releaseBlocking": false,
       "title": "Misleading Test Class Name ShutdownHookTest",
       "claim": "Tests programmatic worker shutdown rather than JVM shutdown hooks.",
+      "risk": "Misleading test naming confuses contributors auditing JVM hook registration.",
       "owner": "orchestration",
+      "rationale": "The test accurately exercises WorkerShutdownCoordinator graceful shutdown and job draining. The class name ShutdownHookTest is a historical artifact from earlier design iterations and does not affect test execution, coverage, or runtime behavior.",
       "recommendation": "Rename test class to WorkerShutdownCoordinatorTest."
     },
     {
       "id": "R12-012",
       "severity": "P3",
       "area": "documentation",
-      "targetFile": "docs/architecture/change-guides/adding-a-provider.md",
+      "subproject": "docs",
+      "targetFiles": [
+        "docs/architecture/change-guides/adding-a-provider.md"
+      ],
       "releaseBlocking": false,
       "title": "Line Number Drifts in adding-a-provider.md",
       "claim": "Code reference line numbers have drifted slightly from master source.",
+      "risk": "Minor contributor friction when locating code references.",
       "owner": "docs",
+      "rationale": "The change guide accurately describes the ModelProvider SPI, module catalog wiring, and ProviderTck enrollment. The line-number drifts of 1–5 lines in code pointers do not prevent contributors from finding the referenced members or implementing new providers.",
       "recommendation": "Update line number references in change guide."
     },
     {
       "id": "R12-013",
       "severity": "P3",
       "area": "documentation",
-      "targetFile": "docs/architecture/change-guides/adding-a-store.md",
+      "subproject": "docs",
+      "targetFiles": [
+        "docs/architecture/change-guides/adding-a-store.md"
+      ],
       "releaseBlocking": false,
       "title": "Line Number Drifts in adding-a-store.md",
       "claim": "Code reference line numbers have drifted slightly from master source.",
+      "risk": "Minor contributor friction when locating code references.",
       "owner": "docs",
+      "rationale": "The store SPI method signatures, TCK harness requirements, and enrollment architecture tests are completely accurate. Line-number offsets do not impact store implementation correctness.",
       "recommendation": "Update line number references in change guide."
     },
     {
       "id": "R12-014",
       "severity": "P3",
       "area": "documentation",
-      "targetFile": "docs/architecture/change-guides/adding-a-workflow-step.md",
+      "subproject": "docs",
+      "targetFiles": [
+        "docs/architecture/change-guides/adding-a-workflow-step.md"
+      ],
       "releaseBlocking": false,
       "title": "Line Number Drifts in adding-a-workflow-step.md",
       "claim": "Code reference line numbers have drifted slightly from master source.",
+      "risk": "Minor contributor friction when locating code references.",
       "owner": "docs",
+      "rationale": "The sealed InternalWorkflowStep hierarchy and required compiler when branches are accurately documented. Line-number drifts do not affect step authoring.",
       "recommendation": "Update line number references in change guide."
     },
     {
       "id": "R12-015",
       "severity": "P3",
       "area": "documentation",
-      "targetFile": "docs/architecture/change-guides/changing-structured-output-constraints.md",
+      "subproject": "docs",
+      "targetFiles": [
+        "docs/architecture/change-guides/changing-structured-output-constraints.md"
+      ],
       "releaseBlocking": false,
       "title": "Package Path Drift in changing-structured-output-constraints.md",
       "claim": "Example snippet uses slightly outdated package namespace.",
+      "risk": "Minor contributor friction when copying example snippet.",
       "owner": "docs",
+      "rationale": "The constraint compilation pipeline, validator stages, and TCK failure taxonomy are correctly detailed. The minor package path drift in the descriptive text is easily disambiguated by IDE auto-import.",
       "recommendation": "Update package name in example snippet."
     }
   ]
