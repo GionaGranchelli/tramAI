@@ -68,56 +68,53 @@ object ImageDownloader {
             connection.readTimeout = READ_TIMEOUT_MS
             connection.setRequestProperty("User-Agent", "TramAI-ImageDownloader/1.0")
 
-            val responseCode =
-                try {
-                    connection.responseCode
-                } catch (error: Exception) {
-                    throw IllegalStateException("Failed to connect to image URL: $currentUri", error)
-                }
+            try {
+                val responseCode =
+                    try {
+                        connection.responseCode
+                    } catch (error: Exception) {
+                        throw IllegalStateException("Failed to connect to image URL: $currentUri", error)
+                    }
 
-            when (responseCode) {
-                in 200..299 -> {
-                    val stream: InputStream =
-                        try {
-                            connection.inputStream
+                when (responseCode) {
+                    in 200..299 -> {
+                        return try {
+                            val stream: InputStream = connection.inputStream
+                            stream.use { readBoundedBodyBytes(it, MAX_DOWNLOAD_SIZE) }
+                        } catch (error: IllegalArgumentException) {
+                            throw IllegalArgumentException("Image download exceeds maximum size: $MAX_DOWNLOAD_SIZE", error)
                         } catch (error: Exception) {
-                            throw IllegalStateException("Failed to open stream for image URL: $currentUri", error)
+                            throw IllegalStateException("Failed to read image stream from: $currentUri", error)
                         }
-                    return try {
-                        readBoundedBodyBytes(stream, MAX_DOWNLOAD_SIZE)
-                    } catch (error: IllegalArgumentException) {
-                        throw IllegalArgumentException("Image download exceeds maximum size: $MAX_DOWNLOAD_SIZE", error)
-                    } finally {
-                        connection.disconnect()
+                    }
+
+                    HttpURLConnection.HTTP_MOVED_PERM,
+                    HttpURLConnection.HTTP_MOVED_TEMP,
+                    HttpURLConnection.HTTP_SEE_OTHER,
+                    307, // Temporary Redirect
+                    308, // Permanent Redirect
+                    -> {
+                        redirectCount++
+                        if (redirectCount > MAX_REDIRECTS) {
+                            throw IllegalStateException("Too many redirects ($redirectCount) downloading image from: $url")
+                        }
+                        val location =
+                            connection.getHeaderField("Location")
+                                ?: throw IllegalStateException("Redirect response missing Location header from: $currentUri")
+                        currentUri =
+                            try {
+                                currentUri.resolve(location)
+                            } catch (error: Exception) {
+                                throw IllegalArgumentException("Invalid redirect Location '$location' from: $currentUri", error)
+                            }
+                    }
+
+                    else -> {
+                        throw IllegalStateException("Image download failed with HTTP status $responseCode from: $currentUri")
                     }
                 }
-
-                HttpURLConnection.HTTP_MOVED_PERM,
-                HttpURLConnection.HTTP_MOVED_TEMP,
-                HttpURLConnection.HTTP_SEE_OTHER,
-                307, // Temporary Redirect
-                308, // Permanent Redirect
-                -> {
-                    connection.disconnect()
-                    redirectCount++
-                    if (redirectCount > MAX_REDIRECTS) {
-                        throw IllegalStateException("Too many redirects ($redirectCount) downloading image from: $url")
-                    }
-                    val location =
-                        connection.getHeaderField("Location")
-                            ?: throw IllegalStateException("Redirect response missing Location header from: $currentUri")
-                    currentUri =
-                        try {
-                            currentUri.resolve(location)
-                        } catch (error: Exception) {
-                            throw IllegalArgumentException("Invalid redirect Location '$location' from: $currentUri", error)
-                        }
-                }
-
-                else -> {
-                    connection.disconnect()
-                    throw IllegalStateException("Image download failed with HTTP status $responseCode from: $currentUri")
-                }
+            } finally {
+                connection.disconnect()
             }
         }
     }

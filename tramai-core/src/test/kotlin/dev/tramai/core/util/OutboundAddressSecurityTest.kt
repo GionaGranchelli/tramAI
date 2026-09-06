@@ -117,6 +117,17 @@ class OutboundAddressSecurityTest {
     }
 
     @Test
+    fun `validateOutboundUri rejects user info in URI authority`() {
+        assertThatThrownBy { OutboundAddressSecurity.validateOutboundUri(URI("http://user:pass@93.184.216.34/photo.png")) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("outbound URI must not contain user info")
+
+        assertThatThrownBy { OutboundAddressSecurity.validateOutboundUri(URI("http://admin@93.184.216.34/photo.png")) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("outbound URI must not contain user info")
+    }
+
+    @Test
     fun `validateOutboundUri rejects localhost and restricted destinations`() {
         assertThatThrownBy { OutboundAddressSecurity.validateOutboundUri(URI("http://localhost/test")) }
             .isInstanceOf(IllegalArgumentException::class.java)

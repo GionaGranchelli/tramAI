@@ -22,7 +22,7 @@ internal inline fun <T> withSafeJdbc(
 ): T =
     try {
         block()
-    } catch (e: Throwable) {
+    } catch (e: Exception) {
         if (e is CancellationException) {
             throw e
         }

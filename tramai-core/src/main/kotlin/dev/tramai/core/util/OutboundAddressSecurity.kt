@@ -113,6 +113,9 @@ object OutboundAddressSecurity {
         require(scheme == "http" || scheme == "https") {
             "unsupported outbound scheme: ${uri.scheme} (only http and https are permitted)"
         }
+        require(uri.userInfo == null) {
+            "outbound URI must not contain user info: $uri"
+        }
         val rawHost = extractHost(uri)
         val canonicalHost = canonicalizeOutboundHost(rawHost)
         if (!allowPrivateDestinations) {
