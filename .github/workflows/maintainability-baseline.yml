@@ -102,7 +102,8 @@ jobs:
   # #394 (10.3c3) enrolled MutationRatchetDiscriminatorTest (25) +
   # MutationRatchetClassificationDiscriminatorTest (13) +
   # MutationRatchetAuthorityTest (7) = 257 -> 302.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 302 + 248 = 873.
+  # 10.3d: W4 mutation ratchet wiring discriminator + W5 CI workflow wiring discriminators in CoverageWiringTest = 248 -> 253.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 144 + 302 + 253 = 878.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -175,7 +176,7 @@ jobs:
               --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
               --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
               --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
-            expected: 248
+            expected: 253
 
     steps:
       - name: Checkout

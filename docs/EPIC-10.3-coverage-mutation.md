@@ -1,8 +1,11 @@
-# Epic 10.3 — Coverage and Mutation Policy: T0 audit
+# Epic 10.3 — Coverage and Mutation Policy
 
-**Slice:** 10.3a — measurement/baseline authority (facts first, zero enforcement).
+**Status:** **COMPLETE** (10.3a → 10.3d).
 
-**Branch:** `epic/10.3a-coverage-mutation-baseline` · **Date:** 2026-08-31 · **Master:** post-10.1d/10.2-closure.
+**Slice history:** §8. T0 audit below is the original 10.3a discovery document;
+sections 7–9 record the measurement pilot, slice history, and closure evidence.
+
+**Branch (T0):** `epic/10.3a-coverage-mutation-baseline` · **Date:** 2026-08-31 · **Master:** post-10.1d/10.2-closure.
 
 > Guiding question — *not* "what percentage coverage should TramAI have?", but:
 > **"Which critical behavior can currently be removed or inverted while all mandatory gates remain green?"**
@@ -154,3 +157,113 @@ Report XML lands at `tramai-core/build/mutation-pilot/routing-core/tramai-core/m
 **Expected at this head:** 4 mutations, 4 KILLED, 0 survivors. The 3× identity/status stability experiment = run the command 3× from the same HEAD with `rm -rf build/mutation-pilot` between runs and diff the normalized identity/status sets; the recorded result is 4/4 identical identities and 4/4 identical statuses. The line-movement probe = add harmless comment lines above `providerId()`/`supportsCapability()` and confirm identities unchanged.
 
 **Decision:** the pilot answers its question affirmatively — bounded PIT execution is deterministic, identities are durable, statuses are repeatable, and the routing-core population is currently fully killed (4/4) with no sanctioned survivors. Proceed to **10.3c2**: complete routing with `ModelRegistryEnforcer`, then expand family-by-family with the same evidence unit (configured targets → nonzero population → survivor adjudication → missing tests added → exact-ID classifications for genuine residuals). Before any enforcement wiring in 10.3c3, fix the two production-path root causes from C8.1/C8.2 and add the C6 discriminators.
+
+---
+
+## 8. Slice history
+
+| Slice | PR | Summary |
+|---|---|---|
+| **10.3a** | #345 | Coverage baseline: JaCoCo on 9 critical modules; first real coverage-baseline.json (92.51% line / 76.17% branch); A1–A10 measurement discriminators. |
+| **10.3b** | #345 | Coverage ratchet: base-authoritative CoveragePolicyDeltaVerifier; 28 discriminator tests across B01–B22 (including six 'b'-variants: B07b, B12b, B14b, B17b, B20b, B21b) covering M1–M7 gate mutations; `verifyCriticalCoverage` wired into `verifyPr` + CI. |
+| **10.3c1** | #362 | Mutation measurement: repaired dormant PITest probe; 2,372 mutants across 7 families; identity schema v2 (SHA-256); determinism proven; M01–M20 measurement discriminators. |
+| **10.3c2** | (within #362) | Mutation baseline: exact population + survivor inventory committed; 20 classified survivors (equivalent-mutant + tool-limitation); `mutation-classifications.yml` populated. |
+| **10.3c3** | #394 | Mutation ratchet enforcement: `MutationRatchetVerifier` (pure, in-memory, exact-set); M01–M20 ratchet discriminators (38 tests); classification authority rules; three-way PIT renderer semantics check; `verifyMutationRatchet` wired into `verifyPr` + CI. |
+| **10.3d** | (this PR) | Integration + adversarial closure: W4 `verifyPr` wiring discriminator + W5 CI workflow wiring discriminators (#29); CC-compatibility correction; docs reconciliation; closure audit; epic marked complete. |
+
+## 9. 10.3d — Integration and Adversarial Closure
+
+**Slice:** 10.3d — integration audit, adversarial closure, and documentation reconciliation.
+
+### 9.1. Closure audit matrix
+
+Each row represents a requirement from the 10.3d specification. Evidence is
+cited by file, test name, or CI line number.
+
+| # | Requirement | Status | Evidence |
+|---|---|---|---|
+| R01 | Coverage baseline measured for 9 critical modules | **COMPLETE** | `config/quality/coverage-baseline.json` — 9 modules, 92.51% line / 76.17% branch. `CoverageMeasurementDiscriminatorTest` (A1–A10): 9 tests. |
+| R02 | No coverage regression in critical modules | **COMPLETE** | `CoveragePolicyDeltaVerifier` enforces base-authoritative ratchet. 28 discriminator tests across B01–B22 (including six 'b'-variants: B07b, B12b, B14b, B17b, B20b, B21b) covering 7 gate mutations. CI: `verifyCriticalCoverage` in `ci.yml` lines 204–216. |
+| R03 | Coverage exclusions explicit and justified | **COMPLETE** | `test-quality.yml` declares one exclusion: `**/model/**` ("Generated model classes"). B09/B10 discriminators prevent undocumented additions or reason rewrites. |
+| R04 | Targeted mutation testing for critical logic | **COMPLETE** | 2,384 mutants across 7 families (policy, approval, routing, retry, tools, evidence, structuredOutput). `config/quality/mutation-baseline.json` — identity schema v2, measured at commit `5856530e`. |
+| R05 | Surviving mutants tracked and justified | **COMPLETE** | 20 classified survivors in `mutation-classifications.yml` — all `equivalent-mutant` or `tool-limitation`. M03/M08/M09 discriminators enforce that classifications can only be added on master during ceremonies, never by PRs. |
+| R06 | Mutation ratchet enforced on every PR | **COMPLETE** | `verifyMutationRatchet` in `verifyPr` (MaintainabilityBaselinePlugin line 1383) and CI (`ci.yml` lines 218–230). W4 and W5 wiring discriminators (`CoverageWiringTest.kt`) prove presence in the `verifyPr` graph and in the CI workflow with PR base SHA authority. |
+| R07 | Base-authoritative enforcement (no self-judging) | **COMPLETE** | `MutationRatchetAuthorityLoader` resolves base SHA from Git; no fallback to candidate authority (M20). `CoverageAuthorityLoader` does the same. 7 authority-loading tests in `MutationRatchetAuthorityTest`. |
+| R08 | Discriminator tests for all 20 failure modes | **COMPLETE** | M01–M20 covered by 38 tests in `MutationRatchetDiscriminatorTest` (25) + `MutationRatchetClassificationDiscriminatorTest` (13). M01–M20 measurement pipeline covered by 29 tests in `MutationMeasurementDiscriminatorTest`. |
+| R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 253 tests (pinned). Python assertions enforce exact counts after every CI run. |
+| R10 | Mutation reports available for release review | **COMPLETE** | `maintainability-full.yml` (weekly + manual) runs `verifyFullMaintainabilityBaseline`, generating `mutation-summary.json` and PITest HTML reports as CI artifacts. |
+| R11 | Docs and roadmap reconciled | **COMPLETE** | This document + ROADMAP-0.6.0.md updated. |
+
+### 9.2. Adversarial gate mapping
+
+29 failure modes were evaluated. All 29 are defended by durable discriminators.
+The table maps each failure mode to its enforcing test.
+
+| # | Failure mode | Discriminator | Status |
+|---|---|---|---|
+| 1 | KILLED→NON_KILLED regression | M01 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 2 | New NON_KILLED identity | M06 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 3 | Forged kill (raw SURVIVED stored as KILLED) | M07 + M13 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 4 | Forged identity (SHA-256 mismatch) | M20 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 5 | Duplicate identity | M12 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 6 | Unknown/non-canonical outcome | M13 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 7 | Self-approval of own survivor | M08 in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 8 | Fabricated classification | M09 in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 9 | Rewrite existing classification | M03 (4 variants) in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 10 | Stale classification retained after kill | M05 in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 11 | Orphaned classification for disappeared mutant | M10 in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 12 | Removed classification while survivor lives | M11 in `MutationRatchetClassificationDiscriminatorTest` | ✅ |
+| 13 | Family narrowing (dropping families) | M14 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 14 | Module narrowing inside family | M14 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 15 | Target-class narrowing | M15 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 16 | Target-test narrowing | M15 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 17 | PIT plugin/engine version drift | M16 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 18 | Mutator set drift | M17 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 19 | Timeout drift | M18 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 20 | Executable PIT renderer drift | M16 three-way in `MutationRatchetDiscriminatorTest` | ✅ |
+| 21 | Identity schema version drift | M19 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 22 | Empty authority vacuity | M20 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 23 | Blank identity row | M20 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 24 | Tampered byFamily summary metrics | M20 in `MutationRatchetDiscriminatorTest` | ✅ |
+| 25 | Mutation gate removed from verifyPr | W4 in `CoverageWiringTest` | ✅ (10.3d) |
+| 26 | Coverage regression beyond tolerance | B01/B02 in `CoveragePolicyDeltaVerifierTest` | ✅ |
+| 27 | Coverage tolerance widening | B07 in `CoveragePolicyDeltaVerifierTest` | ✅ |
+| 28 | Coverage exclusion injection | B09/B10 in `CoveragePolicyDeltaVerifierTest` | ✅ |
+| 29 | PR CI mutation-ratchet step removed or detached from PR-base authority | W5 (4 tests) in `CoverageWiringTest` | ✅ (10.3d) |
+
+Failure modes #25 (verifyPr task graph wiring) and #29 (CI workflow invocation
+with PR-base SHA authority) were addressed by the W4 and W5 wiring
+discriminators in `CoverageWiringTest`. All other modes were already covered by
+10.3c3 or earlier.
+
+### 9.3. Configuration-cache classification
+
+| Task | CC classification | Rationale |
+|---|---|---|
+| `verifyMutationRatchet` | `CC_UNSUPPORTED_CURRENTLY` | Accesses `Project` during execution in `doLast` (`project.rootDir`, `project.findProperty`, `verifyTestQualityDiagnostics(project, ...)`), which is unsupported by the Gradle Configuration Cache. Globally disabled in TramAI (`org.gradle.configuration-cache=false`). Typed-input refactoring deferred to a dedicated CC track. |
+| `verifyCriticalCoverage` | `CC_UNSUPPORTED_CURRENTLY` | Accesses `Project` during execution in `doLast` (`project.rootDir`, `project.findProperty`, `verifyTestQualityDiagnostics(project, ...)`), which is unsupported by the Gradle Configuration Cache. Globally disabled in TramAI (`org.gradle.configuration-cache=false`). Typed-input refactoring deferred to a dedicated CC track. |
+| `generateCriticalMutationBaseline` | `DELIBERATELY_NON_CACHEABLE` | Spawns nested Gradle builds per family via `ProcessBuilder`. Must use `--rerun-tasks` and bracketed provenance. Non-cacheable by construction. |
+| `verifyMaintainabilityBaseline` | `CC_REUSABLE` | Pure in-memory file comparison of committed JSON baselines against canonical reference. |
+| `verifyChangePolicy` | `CC_SUPPORTED_BUT_NOT_REUSABLE` | Consumes base SHA property and computes diff at execution time. |
+
+### 9.4. Determinism and provenance boundary
+
+The mutation system operates in two distinct trust modes:
+
+1. **Normal PR enforcement** (`verifyMutationRatchet`): static comparison of
+   committed `mutation-baseline.json` + `mutation-classifications.yml` between
+   the PR branch and the base authority at the PR's merge-base SHA. **No PITest
+   campaign runs.** The result is deterministic and fully reproducible: given
+   the same base SHA and the same committed files, the verifier produces
+   identical diagnostics. This is what runs on every PR in CI.
+
+2. **Measurement ceremony** (`generateCriticalMutationBaseline`): full PITest
+   campaign across all 7 families. Runs ~60 minutes on a quiet machine.
+   Produces `mutation-baseline.json` with bracketed provenance (clean committed
+   tree verified before AND after PIT execution). Determinism at the canonical
+   `KILLED|NON_KILLED` level is proven by the paired-run evidence in
+   `docs/evidence/10.3c1-mutation-measurement.md`. This is a human-supervised
+   operation run during enrollment/audit; it never runs on PR CI.
+
+The boundary is crisp: no PR CI step ever invokes PITest.
+

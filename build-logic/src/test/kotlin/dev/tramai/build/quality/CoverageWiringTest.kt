@@ -42,6 +42,115 @@ class CoverageWiringTest {
         )
     }
 
+    // ── W4: mutation ratchet wiring (10.3d) ──
+
+    @Test
+    fun `W4 verifyPr owns verifyMutationRatchet`() {
+        val dir = wiringFixture()
+        val result =
+            GradleRunner
+                .create()
+                .withProjectDir(dir)
+                .withGradleVersion("9.0.0")
+                .withArguments("verifyPr", "--no-build-cache", "--dry-run")
+                .withPluginClasspath()
+                .build()
+
+        assertTrue(
+            result.output.contains(":verifyMutationRatchet"),
+            "verifyPr must run verifyMutationRatchet\n${result.output}",
+        )
+    }
+
+    // ── W5: CI workflow wiring discriminators (10.3d / #29) ──
+
+    @Test
+    fun `W5 CI workflow invokes verifyMutationRatchet with PR base authority`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val ciWorkflow = File(repoRoot, ".github/workflows/ci.yml")
+        assertTrue(ciWorkflow.isFile, "CI workflow file must exist: ${ciWorkflow.absolutePath}")
+        assertCiMutationRatchetWiring(ciWorkflow.readText())
+    }
+
+    @Test
+    fun `W5 discriminator deleting verifyMutationRatchet from CI workflow fails`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val content = File(repoRoot, ".github/workflows/ci.yml").readText()
+        val mutated = content.replace("./gradlew verifyMutationRatchet", "./gradlew verifySomethingElse")
+        val error =
+            kotlin.test.assertFailsWith<AssertionError> {
+                assertCiMutationRatchetWiring(mutated)
+            }
+        assertTrue(error.message!!.contains("verifyMutationRatchet"))
+    }
+
+    @Test
+    fun `W5 discriminator deleting PR base sha property from CI workflow fails`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val content = File(repoRoot, ".github/workflows/ci.yml").readText()
+        val mutated = content.replace("-PtramaiMutationBaseSha=\"\${{ github.event.pull_request.base.sha }}\"", "")
+        val error =
+            kotlin.test.assertFailsWith<AssertionError> {
+                assertCiMutationRatchetWiring(mutated)
+            }
+        assertTrue(error.message!!.contains("tramaiMutationBaseSha"))
+    }
+
+    @Test
+    fun `W5 discriminator changing PR ratchet condition away from pull request fails`() {
+        val repoRoot = File(System.getProperty("tramai.repositoryRoot"))
+        val content = File(repoRoot, ".github/workflows/ci.yml").readText()
+        val mutated = content.replace("if: github.event_name == 'pull_request'", "if: github.event_name == 'push'")
+        val error =
+            kotlin.test.assertFailsWith<AssertionError> {
+                assertCiMutationRatchetWiring(mutated)
+            }
+        assertTrue(error.message!!.contains("pull_request"))
+    }
+
+    private fun assertCiMutationRatchetWiring(content: String) {
+        val prStep = extractStep(content, "Verify mutation ratchet against PR base")
+        assertTrue(
+            prStep.contains("if: github.event_name == 'pull_request'"),
+            "PR mutation ratchet step must run on github.event_name == 'pull_request'",
+        )
+        assertTrue(
+            prStep.contains("./gradlew verifyMutationRatchet"),
+            "PR mutation ratchet step must invoke verifyMutationRatchet",
+        )
+        assertTrue(
+            prStep.contains("-PtramaiMutationBaseSha=\"\${{ github.event.pull_request.base.sha }}\""),
+            "PR mutation ratchet step must pass PR base SHA (-PtramaiMutationBaseSha)",
+        )
+
+        val pushStep = extractStep(content, "Verify mutation ratchet against previous master")
+        assertTrue(
+            pushStep.contains("github.event_name == 'push'"),
+            "push mutation ratchet step must run on github.event_name == 'push'",
+        )
+        assertTrue(
+            pushStep.contains("./gradlew verifyMutationRatchet"),
+            "push mutation ratchet step must invoke verifyMutationRatchet",
+        )
+        assertTrue(
+            pushStep.contains("-PtramaiMutationBaseSha=\"\${{ github.event.before }}\""),
+            "push mutation ratchet step must pass push before SHA (-PtramaiMutationBaseSha)",
+        )
+    }
+
+    private fun extractStep(
+        content: String,
+        stepName: String,
+    ): String {
+        val marker = "      - name: $stepName"
+        val startIndex = content.indexOf(marker)
+        assertTrue(startIndex != -1, "ci.yml must declare step '$stepName'")
+        val afterStart = content.substring(startIndex + marker.length)
+        val nextBoundary = Regex("\n(      - |  [a-zA-Z0-9_-]+:)").find(afterStart)
+        val endIndex = nextBoundary?.range?.first ?: afterStart.length
+        return content.substring(startIndex, startIndex + marker.length + endIndex)
+    }
+
     // ── W2/W3: required verifyPr authorities must be fail-closed (review P1) ──
 
     @Test
