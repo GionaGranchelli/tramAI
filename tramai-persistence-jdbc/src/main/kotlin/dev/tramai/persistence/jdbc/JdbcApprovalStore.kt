@@ -65,173 +65,188 @@ class JdbcApprovalStore(
     private val maxCommentLength: Int = 4096,
     private val maxCreationTtl: Duration = Duration.ofMinutes(15),
 ) : ApprovalStore {
-
     init {
         require(maxCreationTtl > Duration.ZERO) {
             "maxCreationTtl must be positive"
         }
     }
 
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    private val mapper: ObjectMapper =
+        ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
-    override suspend fun create(request: ApprovalRequest): ApprovalRequest {
-        require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
-        require(request.status == ApprovalStatus.PENDING) { "Initial approval status must be PENDING, got ${request.status}" }
-        require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
-        require(request.decidedAt == null) { "Initial approval must not have decidedAt set" }
-        require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
+    override suspend fun create(request: ApprovalRequest): ApprovalRequest =
+        withSafeJdbc({ "Database operation failed for approval: ${request.approvalId}" }) {
+            require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
+            require(request.status == ApprovalStatus.PENDING) { "Initial approval status must be PENDING, got ${request.status}" }
+            require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
+            require(request.decidedAt == null) { "Initial approval must not have decidedAt set" }
+            require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
 
-        validateIdField(request.approvalId, "approvalId", maxIdLength)
-        validateIdField(request.requestedBy, "requestedBy", maxIdLength)
-        SafeActorIdPolicy.validateActorId(request.requestedBy, "requestedBy")
+            validateIdField(request.approvalId, "approvalId", maxIdLength)
+            validateIdField(request.requestedBy, "requestedBy", maxIdLength)
+            SafeActorIdPolicy.validateActorId(request.requestedBy, "requestedBy")
 
-        val binding = request.binding
-        validateIdField(binding.workflowRunId, "workflowRunId", maxIdLength)
-        validateIdField(binding.toolName, "toolName", maxIdLength)
-        validateIdField(binding.policyVersion, "policyVersion", maxIdLength)
+            val binding = request.binding
+            validateIdField(binding.workflowRunId, "workflowRunId", maxIdLength)
+            validateIdField(binding.toolName, "toolName", maxIdLength)
+            validateIdField(binding.policyVersion, "policyVersion", maxIdLength)
 
-        val now = clock.instant()
-        require(request.expiresAt > now) { "expiresAt must be in the future, got $now for expiry ${request.expiresAt}" }
-        require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
-        require(request.requestedAt <= now) { "requestedAt must not be in the future, got ${request.requestedAt} for now $now" }
-        require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
-        require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
+            val now = clock.instant()
+            require(request.expiresAt > now) {
+                "expiresAt must be in the future, got $now for expiry ${request.expiresAt}"
+            }
+            require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
+            require(request.requestedAt <= now) {
+                "requestedAt must not be in the future, got ${request.requestedAt} for now $now"
+            }
+            require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
+            require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
 
-        val ttl = Duration.between(request.requestedAt, request.expiresAt)
-        require(ttl <= maxCreationTtl) {
-            "expiresAt exceeds maximum creation TTL of $maxCreationTtl"
-        }
+            val ttl = Duration.between(request.requestedAt, request.expiresAt)
+            require(ttl <= maxCreationTtl) {
+                "expiresAt exceeds maximum creation TTL of $maxCreationTtl"
+            }
 
-        val metadata = ApprovalMetadata(
-            binding = BindingMetadata(
-                workflowRunId = binding.workflowRunId,
-                toolName = binding.toolName,
-                argumentsDigest = binding.argumentsDigest.value,
-                policyVersion = binding.policyVersion,
-                workflowDigest = binding.workflowDigest.value,
-                approvalTokenDigest = binding.approvalTokenDigest.value,
-            ),
-            requestedBy = request.requestedBy,
-            expiresAt = request.expiresAt.toString(),
-            requestedAt = request.requestedAt.toString(),
-            decidedBy = null,
-            decisionComment = null,
-            consumedBy = null,
-            consumedAt = null,
-        )
-        val metadataJson = mapper.writeValueAsString(metadata)
-        val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+            val metadata =
+                ApprovalMetadata(
+                    binding =
+                        BindingMetadata(
+                            workflowRunId = binding.workflowRunId,
+                            toolName = binding.toolName,
+                            argumentsDigest = binding.argumentsDigest.value,
+                            policyVersion = binding.policyVersion,
+                            workflowDigest = binding.workflowDigest.value,
+                            approvalTokenDigest = binding.approvalTokenDigest.value,
+                        ),
+                    requestedBy = request.requestedBy,
+                    expiresAt = request.expiresAt.toString(),
+                    requestedAt = request.requestedAt.toString(),
+                    decidedBy = null,
+                    decisionComment = null,
+                    consumedBy = null,
+                    consumedAt = null,
+                )
+            val metadataJson = mapper.writeValueAsString(metadata)
+            val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
 
-        dataSource.connection.use { conn ->
-            val sql = """
-                INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
-                VALUES (?, 'PENDING', ?, ?::jsonb, 0)
-            """.trimIndent()
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, request.approvalId)
-                stmt.setObject(2, nowOdt)
-                stmt.setString(3, metadataJson)
-                try {
-                    stmt.executeUpdate()
-                } catch (e: SQLException) {
-                    // Map PostgreSQL unique violation (23505) to domain exception;
-                    // rethrow all other SQL failures accurately.
-                    if (e.sqlState == "23505") {
-                        throw ApprovalStoreConflictException(request.approvalId)
+            dataSource.connection.use { conn ->
+                val sql =
+                    """
+                    INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
+                    VALUES (?, 'PENDING', ?, ?::jsonb, 0)
+                    """.trimIndent()
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, request.approvalId)
+                    stmt.setObject(2, nowOdt)
+                    stmt.setString(3, metadataJson)
+                    try {
+                        stmt.executeUpdate()
+                    } catch (e: SQLException) {
+                        // Map PostgreSQL unique violation (23505) to domain exception;
+                        // rethrow all other SQL failures accurately.
+                        if (e.sqlState == "23505") {
+                            throw ApprovalStoreConflictException(request.approvalId)
+                        }
+                        throw e
                     }
-                    throw e
+                }
+            }
+
+            request
+        }
+
+    override suspend fun get(approvalId: String): ApprovalRequest? =
+        withSafeJdbc({ "Database operation failed for approval: $approvalId" }) {
+            validateIdField(approvalId, "approvalId", maxIdLength)
+
+            dataSource.connection.use { conn ->
+                val sql =
+                    """
+                    SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
+                           sanitized_metadata, version
+                    FROM approvals
+                    WHERE approval_id = ?
+                    """.trimIndent()
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, approvalId)
+                    stmt.executeQuery().use { rs ->
+                        if (!rs.next()) return@use null
+                        mapToApprovalRequest(mapToRow(rs))
+                    }
                 }
             }
         }
-
-        return request
-    }
-
-    override suspend fun get(approvalId: String): ApprovalRequest? {
-        validateIdField(approvalId, "approvalId", maxIdLength)
-
-        dataSource.connection.use { conn ->
-            val sql = """
-                SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
-                       sanitized_metadata, version
-                FROM approvals
-                WHERE approval_id = ?
-            """.trimIndent()
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, approvalId)
-                stmt.executeQuery().use { rs ->
-                    if (!rs.next()) return null
-                    return mapToApprovalRequest(mapToRow(rs))
-                }
-            }
-        }
-    }
 
     override suspend fun transition(
         approvalId: String,
         expectedVersion: Long,
         transition: ApprovalTransition,
-    ): ApprovalRequest {
-        validateIdField(approvalId, "approvalId", maxIdLength)
-        validateTransitionInput(transition)
+    ): ApprovalRequest =
+        withSafeJdbc({ "Database operation failed for approval: $approvalId" }) {
+            validateIdField(approvalId, "approvalId", maxIdLength)
+            validateTransitionInput(transition)
 
-        dataSource.connection.use { conn ->
-            val current = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
-            if (current.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+            dataSource.connection.use { conn ->
+                val current = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
+                if (current.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
 
-            val now = clock.instant()
-            resolveNextStatus(current, transition, now)
+                val now = clock.instant()
+                resolveNextStatus(current, transition, now)
 
-            val nextVersion = incrementVersion(approvalId, current.version)
-            val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
-            val metadata = parseMetadata(current.sanitizedMetadataJson)
-            val decisionFields = transition.toDecisionFields()
-            val actorHash = decisionFields.decidedBy?.let { sha256Hex(it) }
-            val updatedMetadata = metadata.copy(
-                decidedBy = decisionFields.decidedBy,
-                decisionComment = decisionFields.comment,
-            )
-            val metadataJson = mapper.writeValueAsString(updatedMetadata)
+                val nextVersion = incrementVersion(approvalId, current.version)
+                val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+                val metadata = parseMetadata(current.sanitizedMetadataJson)
+                val decisionFields = transition.toDecisionFields()
+                val actorHash = decisionFields.decidedBy?.let { sha256Hex(it) }
+                val updatedMetadata =
+                    metadata.copy(
+                        decidedBy = decisionFields.decidedBy,
+                        decisionComment = decisionFields.comment,
+                    )
+                val metadataJson = mapper.writeValueAsString(updatedMetadata)
 
-            updateDecisionRow(
-                DecisionRowUpdate(
-                    conn = conn,
-                    target = DecisionRowTarget(
-                        approvalId = approvalId,
-                        expectedVersion = expectedVersion,
+                updateDecisionRow(
+                    DecisionRowUpdate(
+                        conn = conn,
+                        target =
+                            DecisionRowTarget(
+                                approvalId = approvalId,
+                                expectedVersion = expectedVersion,
+                            ),
+                        fields =
+                            DecisionRowFields(
+                                decisionFields = decisionFields,
+                                decidedAt = nowOdt,
+                                actorHash = actorHash,
+                                metadataJson = metadataJson,
+                                nextVersion = nextVersion,
+                            ),
                     ),
-                    fields = DecisionRowFields(
-                        decisionFields = decisionFields,
-                        decidedAt = nowOdt,
-                        actorHash = actorHash,
-                        metadataJson = metadataJson,
-                        nextVersion = nextVersion,
-                    ),
-                ),
-            )
+                )
 
-            val updatedCurrent = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
-            return mapToApprovalRequest(updatedCurrent)
+                val updatedCurrent = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
+                mapToApprovalRequest(updatedCurrent)
+            }
         }
-    }
 
     override suspend fun consumeApprovedOrReplay(
         approvalId: String,
         expectedVersion: Long,
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
-    ): ApprovalConsumptionReceipt {
-        validateIdField(approvalId, "approvalId", maxIdLength)
-        validateIdField(consumedBy, "consumedBy", maxIdLength)
-        SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")
+    ): ApprovalConsumptionReceipt =
+        withSafeJdbc({ "Database operation failed for approval: $approvalId" }) {
+            validateIdField(approvalId, "approvalId", maxIdLength)
+            validateIdField(consumedBy, "consumedBy", maxIdLength)
+            SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")
 
-        return dataSource.connection.use { conn ->
-            consumeApprovedInTransaction(conn, approvalId, expectedVersion, presentedTokenDigest, consumedBy)
+            dataSource.connection.use { conn ->
+                consumeApprovedInTransaction(conn, approvalId, expectedVersion, presentedTokenDigest, consumedBy)
+            }
         }
-    }
 
     /**
      * Row lock + explicit transaction so concurrent identical deliveries
@@ -290,8 +305,9 @@ class JdbcApprovalStore(
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
     ): ApprovalConsumptionReceipt {
-        val current = readCurrent(conn, approvalId, forUpdate = true)
-            ?: throw ApprovalStoreNotFoundException(approvalId)
+        val current =
+            readCurrent(conn, approvalId, forUpdate = true)
+                ?: throw ApprovalStoreNotFoundException(approvalId)
         val req = mapToApprovalRequest(current)
 
         if (req.status != ApprovalStatus.APPROVED) throw ApprovalStoreNotConsumableException(approvalId)
@@ -351,12 +367,13 @@ class JdbcApprovalStore(
         nextVersion: Long,
         metadataJson: String,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE approvals
             SET sanitized_metadata = ?::jsonb,
                 version = ?
             WHERE approval_id = ? AND version = ?
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, metadataJson)
             stmt.setLong(2, nextVersion)
@@ -379,11 +396,12 @@ class JdbcApprovalStore(
         }
         if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
 
-        val replayVersion = try {
-            Math.addExact(expectedVersion, 1L)
-        } catch (_: ArithmeticException) {
-            throw ApprovalStoreConflictException(approvalId)
-        }
+        val replayVersion =
+            try {
+                Math.addExact(expectedVersion, 1L)
+            } catch (_: ArithmeticException) {
+                throw ApprovalStoreConflictException(approvalId)
+            }
         if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
 
         return ApprovalConsumptionReceipt(request = req, replayed = true)
@@ -487,35 +505,39 @@ class JdbcApprovalStore(
     /**
      * Extracts the human decision actor from non-timeout transitions.
      */
-    private fun ApprovalTransition.decidedByOrNull(): String? = when (this) {
-        is ApprovalTransition.Approve -> decidedBy
-        is ApprovalTransition.Deny -> decidedBy
-        is ApprovalTransition.Timeout -> null
-    }
+    private fun ApprovalTransition.decidedByOrNull(): String? =
+        when (this) {
+            is ApprovalTransition.Approve -> decidedBy
+            is ApprovalTransition.Deny -> decidedBy
+            is ApprovalTransition.Timeout -> null
+        }
 
     /**
      * Extracts the optional human decision comment from non-timeout transitions.
      */
-    private fun ApprovalTransition.commentOrNull(): String? = when (this) {
-        is ApprovalTransition.Approve -> comment
-        is ApprovalTransition.Deny -> comment
-        is ApprovalTransition.Timeout -> null
-    }
+    private fun ApprovalTransition.commentOrNull(): String? =
+        when (this) {
+            is ApprovalTransition.Approve -> comment
+            is ApprovalTransition.Deny -> comment
+            is ApprovalTransition.Timeout -> null
+        }
 
     /**
      * Returns the database status and decision type value for a transition.
      */
-    private fun ApprovalTransition.targetStatusWireValue(): String = when (this) {
-        is ApprovalTransition.Approve -> "APPROVED"
-        is ApprovalTransition.Deny -> "DENIED"
-        is ApprovalTransition.Timeout -> "TIMED_OUT"
-    }
+    private fun ApprovalTransition.targetStatusWireValue(): String =
+        when (this) {
+            is ApprovalTransition.Approve -> "APPROVED"
+            is ApprovalTransition.Deny -> "DENIED"
+            is ApprovalTransition.Timeout -> "TIMED_OUT"
+        }
 
     /**
      * Performs the optimistic-concurrency decision update.
      */
     private fun updateDecisionRow(update: DecisionRowUpdate) {
-        val sql = """
+        val sql =
+            """
             UPDATE approvals
             SET status = ?,
                 decided_at = ?,
@@ -524,7 +546,7 @@ class JdbcApprovalStore(
                 sanitized_metadata = ?::jsonb,
                 version = ?
             WHERE approval_id = ? AND version = ?
-        """.trimIndent()
+            """.trimIndent()
         update.conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, update.fields.decisionFields.targetStatus)
             stmt.setObject(2, update.fields.decidedAt)
@@ -549,12 +571,13 @@ class JdbcApprovalStore(
         approvalId: String,
         forUpdate: Boolean = false,
     ): ApprovalRow? {
-        val sql = """
+        val sql =
+            """
             SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
                    sanitized_metadata, version
             FROM approvals
             WHERE approval_id = ?
-        """.trimIndent() + if (forUpdate) " FOR UPDATE" else ""
+            """.trimIndent() + if (forUpdate) " FOR UPDATE" else ""
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
@@ -564,16 +587,17 @@ class JdbcApprovalStore(
         }
     }
 
-    private fun mapToRow(rs: ResultSet): ApprovalRow = ApprovalRow(
-        approvalId = rs.getString("approval_id"),
-        status = rs.getString("status"),
-        createdAt = rs.getObject("created_at", OffsetDateTime::class.java),
-        decidedAt = rs.getObject("decided_at", OffsetDateTime::class.java),
-        decisionActorHash = rs.getString("decision_actor_hash"),
-        decisionType = rs.getString("decision_type"),
-        sanitizedMetadataJson = rs.getString("sanitized_metadata"),
-        version = rs.getLong("version"),
-    )
+    private fun mapToRow(rs: ResultSet): ApprovalRow =
+        ApprovalRow(
+            approvalId = rs.getString("approval_id"),
+            status = rs.getString("status"),
+            createdAt = rs.getObject("created_at", OffsetDateTime::class.java),
+            decidedAt = rs.getObject("decided_at", OffsetDateTime::class.java),
+            decisionActorHash = rs.getString("decision_actor_hash"),
+            decisionType = rs.getString("decision_type"),
+            sanitizedMetadataJson = rs.getString("sanitized_metadata"),
+            version = rs.getLong("version"),
+        )
 
     private fun mapToApprovalRequest(row: ApprovalRow): ApprovalRequest {
         val metadata = parseMetadata(row.sanitizedMetadataJson)
@@ -585,14 +609,15 @@ class JdbcApprovalStore(
         val consumedBy = metadata.consumedBy
         val consumedAt = metadata.consumedAt?.let { Instant.parse(it) }
 
-        val binding = ApprovalBinding(
-            workflowRunId = metadata.binding.workflowRunId,
-            toolName = metadata.binding.toolName,
-            argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
-            policyVersion = metadata.binding.policyVersion,
-            workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
-            approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
-        )
+        val binding =
+            ApprovalBinding(
+                workflowRunId = metadata.binding.workflowRunId,
+                toolName = metadata.binding.toolName,
+                argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
+                policyVersion = metadata.binding.policyVersion,
+                workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
+                approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
+            )
 
         return ApprovalRequest(
             approvalId = row.approvalId,
@@ -617,7 +642,10 @@ class JdbcApprovalStore(
         return mapper.readValue(json)
     }
 
-    private fun incrementVersion(approvalId: String, version: Long): Long =
+    private fun incrementVersion(
+        approvalId: String,
+        version: Long,
+    ): Long =
         try {
             Math.addExact(version, 1L)
         } catch (_: ArithmeticException) {
@@ -648,30 +676,58 @@ class JdbcApprovalStore(
                         return ApprovalStatus.TIMED_OUT
                     }
                     throw IllegalApprovalTransitionException(
-                        current.approvalId, status, transition.targetStatus(),
+                        current.approvalId,
+                        status,
+                        transition.targetStatus(),
                         "approval has expired at $expiresAt",
                     )
                 }
                 when (transition) {
-                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
+                    is ApprovalTransition.Approve -> {
+                        ApprovalStatus.APPROVED
+                    }
+
+                    is ApprovalTransition.Deny -> {
+                        ApprovalStatus.DENIED
+                    }
+
                     is ApprovalTransition.Timeout -> {
                         throw IllegalApprovalTransitionException(
-                            current.approvalId, status, transition.targetStatus(),
+                            current.approvalId,
+                            status,
+                            transition.targetStatus(),
                             "Cannot time out approval before expiry at $expiresAt",
                         )
                     }
                 }
             }
-            ApprovalStatus.APPROVED -> throw IllegalApprovalTransitionException(
-                current.approvalId, status, transition.targetStatus(), "approval already granted",
-            )
-            ApprovalStatus.DENIED -> throw IllegalApprovalTransitionException(
-                current.approvalId, status, transition.targetStatus(), "approval already denied",
-            )
-            ApprovalStatus.TIMED_OUT -> throw IllegalApprovalTransitionException(
-                current.approvalId, status, transition.targetStatus(), "approval already timed out",
-            )
+
+            ApprovalStatus.APPROVED -> {
+                throw IllegalApprovalTransitionException(
+                    current.approvalId,
+                    status,
+                    transition.targetStatus(),
+                    "approval already granted",
+                )
+            }
+
+            ApprovalStatus.DENIED -> {
+                throw IllegalApprovalTransitionException(
+                    current.approvalId,
+                    status,
+                    transition.targetStatus(),
+                    "approval already denied",
+                )
+            }
+
+            ApprovalStatus.TIMED_OUT -> {
+                throw IllegalApprovalTransitionException(
+                    current.approvalId,
+                    status,
+                    transition.targetStatus(),
+                    "approval already timed out",
+                )
+            }
         }
     }
 
@@ -682,7 +738,11 @@ class JdbcApprovalStore(
         return "sha256:$hex"
     }
 
-    private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {
+    private fun validateIdField(
+        value: String,
+        fieldName: String,
+        maxLength: Int,
+    ): String {
         val trimmed = value.trim()
         require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
         require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }

@@ -73,7 +73,10 @@ object OutboundNetworkPolicies {
      * when both are configured, the target must satisfy both restrictions — the effective
      * hostname authority is their intersection. A workflow policy can narrow a step, never widen it.
      */
-    fun governed(allowedHosts: Set<String>, allowPrivateDestinations: Boolean = false): OutboundNetworkPolicy {
+    fun governed(
+        allowedHosts: Set<String>,
+        allowPrivateDestinations: Boolean = false,
+    ): OutboundNetworkPolicy {
         require(allowedHosts.isNotEmpty()) { "Governed outbound network policy requires at least one allowed hostname" }
         return DefaultOutboundNetworkPolicy(allowedHosts.map(::canonicalizeOutboundHost).toSet(), allowPrivateDestinations)
     }
@@ -88,26 +91,16 @@ private class DefaultOutboundNetworkPolicy(
         allowedHosts?.let { hosts ->
             require(target.host in hosts) { "outbound host is not in the allowlist: ${target.host}" }
         }
-        require(allowPrivateDestinations ||
-            (target.host != localhostHostName && target.addresses.none(::isPrivateOrRestrictedAddress))) {
+        require(
+            allowPrivateDestinations ||
+                (target.host != localhostHostName && target.addresses.none(::isPrivateOrRestrictedAddress)),
+        ) {
             "outbound host resolves to a restricted address: ${target.host}"
         }
     }
 }
 
-internal fun isPrivateOrRestrictedAddress(address: InetAddress): Boolean = address.isAnyLocalAddress ||
-    address.isLoopbackAddress ||
-    address.isLinkLocalAddress ||
-    address.isSiteLocalAddress ||
-    address.isCarrierGradeNatIpv4() ||
-    address.isUniqueLocalIpv6()
-
-private fun InetAddress.isCarrierGradeNatIpv4(): Boolean {
-    if (this !is Inet4Address) return false
-    val bytes = address
-    return bytes[0].toInt() and 0xff == 100 &&
-        (bytes[1].toInt() and 0b1100_0000) == 0b0100_0000
-}
-
-private fun InetAddress.isUniqueLocalIpv6(): Boolean =
-    this is Inet6Address && address[0].toInt() and 0xfe == 0xfc
+@OptIn(dev.tramai.core.provider.transport.ExperimentalProviderTransportApi::class)
+internal fun isPrivateOrRestrictedAddress(address: InetAddress): Boolean =
+    dev.tramai.core.util.OutboundAddressSecurity
+        .isPrivateOrRestrictedAddress(address)
