@@ -10,14 +10,16 @@
 
 TramAI should progress through four distinct product questions rather than attempt to answer all of them in one release.
 
-| Release | Theme | Product question |
-|---|---|---|
-| **0.7.0** | **Governed AI Control Plane** | Can operators see, explain, and control governed AI workloads? |
-| **0.8.0** | **Governance DX & Intelligence** | Can developers define, test, simulate, and reason about governance easily? |
-| **0.9.0** | **Enterprise Deployment & Security** | Can an enterprise adopt, secure, and operate TramAI without building the surrounding platform layer itself? |
-| **0.10.0** | **Governed Learning & Optimization** | Can TramAI learn from and optimize governed execution without weakening governance? |
+| Release | Theme | Product question | Authoritative roadmap |
+|---|---|---|---|
+| **0.7.0** | **Governed AI Control Plane** | Can operators see, explain, and control governed AI workloads? | [`ROADMAP-0.7.0-RELEASE-CUT.md`](ROADMAP-0.7.0-RELEASE-CUT.md) |
+| **0.8.0** | **Governance DX & Intelligence** | Can developers define, test, simulate, and reason about governance easily? | [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md) |
+| **0.9.0** | **Enterprise Deployment & Security** | Can an enterprise adopt, secure, and operate TramAI without building the surrounding platform layer itself? | [`ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md`](ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md) |
+| **0.10.0** | **Governed Learning & Optimization** | Can TramAI learn from and optimize governed execution without weakening governance? | [`ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md`](ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md) |
 
 Potential **1.0** work starts only when the critical public contracts required for a stable governed-AI platform are mature enough for a long-term compatibility commitment.
+
+Detailed architecture explorations that span releases live under [`design/`](design/). They are supporting material, not release-scope authority.
 
 ---
 
@@ -98,6 +100,8 @@ Those concerns remain valuable architectural inputs, but they belong to later re
 
 0.8.0 focuses on the developer and governance-authoring experience over the authoritative runtime/control-plane contracts proven in 0.7.
 
+See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md).
+
 ## Candidate scope
 
 ### Governance authoring and semantics
@@ -141,6 +145,8 @@ Future annotations, YAML/configuration, and Kotlin DSLs are presentation/authori
 > **Make the governed control plane deployable and operable as an enterprise platform component.**
 
 0.9.0 productizes the runtime/control-plane and governance-DX foundations without changing their authority model.
+
+See [`ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md`](ROADMAP-0.9.0-ENTERPRISE-DEPLOYMENT-AND-SECURITY.md).
 
 ## Candidate scope
 
@@ -204,6 +210,8 @@ Candidate packaging:
 ## Release thesis
 
 > **Learn and optimize from governed outcomes without turning governance into surveillance or allowing optimization to widen authority.**
+
+See [`ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md`](ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md).
 
 ## Candidate scope
 
@@ -293,7 +301,19 @@ Default to the later release when the answer is uncertain.
 
 ---
 
-# 8. Path toward 1.0
+# 8. Documentation authority
+
+Release ownership is determined in this order:
+
+1. `LONG-TERM-ROADMAP-0.7-0.10.md` — cross-release sequence;
+2. the release-specific top-level roadmap file — release scope and acceptance boundary;
+3. `design/` notes — supporting architecture, invariants, threat analysis, and implementation ideas.
+
+Historical version labels inside `design/` notes never override the active release roadmap.
+
+---
+
+# 9. Path toward 1.0
 
 1.0 should not be scheduled merely because 0.10 is complete.
 
