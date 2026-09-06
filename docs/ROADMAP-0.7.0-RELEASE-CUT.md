@@ -145,24 +145,24 @@ Every privileged command must include or derive:
 - previous/resulting state;
 - audit/runtime evidence linkage.
 
-Runtime control includes authoritative cancellation of persisted suspended workflows for supported profiles. Cancellation must establish a durable terminal authority/fence rather than relying on checkpoint deletion or an application-local flag.
+Runtime control includes authoritative cancellation of persisted suspended workflows where the supported profile permits cancellation.
 
 Once cancellation becomes authoritative:
 
-- future resume attempts fail closed and perform no model, tool, approval, or workflow side effects;
-- pending approval continuations cannot later authorize execution;
-- concurrent cancel/resume has exactly one authoritative winner;
-- cancellation survives process restart;
-- repeated cancellation is idempotent;
-- terminal cancellation remains reconstructable through authoritative state/evidence.
+- future resume must fail closed with no model, tool, approval, network, or workflow side effects;
+- a pending approval continuation must not later authorize execution;
+- concurrent cancel/resume attempts must have one authoritative winner;
+- cancellation must survive process restart;
+- repeated cancellation must be idempotent;
+- terminal cancellation must retain enough state/evidence for timeline and reconstruction rather than being represented only by checkpoint deletion.
 
-Core lifecycle invariant:
+Core invariant:
 
 ```text
-cancelled(run) ⇒ no subsequent authoritative execution(run)
+cancelled(run) => no subsequent authoritative execution(run)
 ```
 
-The cancellation authority belongs to the TramAI workflow/control lifecycle. Applications and Dashboard 2.0 must not emulate cancellation through independent flags, direct checkpoint deletion, or out-of-band approval mutation.
+Cancellation authority must be established through the authoritative workflow lifecycle/control contract. Applications and dashboards must not emulate cancellation through local flags, direct checkpoint deletion, or independent approval-state mutation.
 
 The dashboard never mutates authoritative stores directly and never becomes a second policy engine.
 
@@ -203,7 +203,8 @@ P0 behavior is protected by deterministic tests, compatibility/TCK coverage wher
 - dashboard-only authorization;
 - stale privileged commands;
 - approval authority;
-- resume after authoritative cancellation or a cancel/resume race with two effective winners;
+- cancelled/suspended workflow resumed after authoritative cancellation;
+- late approval reactivating an authoritatively cancelled run;
 - reconstruction side effects;
 - sensitive payload exposure.
 
@@ -228,6 +229,8 @@ The following do **not** block 0.7.0 unless implementation proves that a narrow 
 - richer deterministic findings/incident analysis;
 - approval lifetime/replacement redesign beyond existing safety requirements.
 
+See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md).
+
 ## Targeted primarily at 0.9.0 — Enterprise Deployment & Security
 
 - Entra/Okta/Keycloak productized compatibility beyond generic OIDC;
@@ -248,6 +251,8 @@ The following do **not** block 0.7.0 unless implementation proves that a narrow 
 - broad cost/latency/quality/capacity/budget strategies;
 - machine-learned routing;
 - managed training/fine-tuning infrastructure.
+
+See [`ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md`](ROADMAP-0.10.0-GOVERNED-LEARNING-AND-OPTIMIZATION.md).
 
 ---
 
@@ -357,7 +362,7 @@ L. DASHBOARD 2.0 CORE
 1. Generic OIDC authentication boundary.
 2. Capability-based authorization.
 3. Typed lifecycle/control commands.
-4. Authoritative persisted-run cancellation and cancel/resume fencing.
+4. Authoritative persisted suspended-run cancellation + future-resume fencing.
 5. Privileged-action audit/evidence.
 6. Dashboard 2.0 inventory/detail/timeline/control/reconstruction.
 
@@ -392,7 +397,7 @@ Authorized operator can issue supported controls
         ↓
 Persisted suspended run can be cancelled authoritatively
         ↓
-Late approval, restart, or resume cannot execute after cancellation wins
+Late approval / restart / competing resume cannot reactivate it
         ↓
 Historical run can be reconstructed without side effects
 ```
@@ -431,6 +436,7 @@ IDENTITY
   → CONTROL PLANE
   → EXPLAINABILITY
   → AUTHORIZED CONTROL
+  → AUTHORITATIVE CANCELLATION / RESUME FENCING
   → RECONSTRUCTION
   → DASHBOARD 2.0
 ```
