@@ -145,6 +145,25 @@ Every privileged command must include or derive:
 - previous/resulting state;
 - audit/runtime evidence linkage.
 
+Runtime control includes authoritative cancellation of persisted suspended workflows for supported profiles. Cancellation must establish a durable terminal authority/fence rather than relying on checkpoint deletion or an application-local flag.
+
+Once cancellation becomes authoritative:
+
+- future resume attempts fail closed and perform no model, tool, approval, or workflow side effects;
+- pending approval continuations cannot later authorize execution;
+- concurrent cancel/resume has exactly one authoritative winner;
+- cancellation survives process restart;
+- repeated cancellation is idempotent;
+- terminal cancellation remains reconstructable through authoritative state/evidence.
+
+Core lifecycle invariant:
+
+```text
+cancelled(run) ⇒ no subsequent authoritative execution(run)
+```
+
+The cancellation authority belongs to the TramAI workflow/control lifecycle. Applications and Dashboard 2.0 must not emulate cancellation through independent flags, direct checkpoint deletion, or out-of-band approval mutation.
+
 The dashboard never mutates authoritative stores directly and never becomes a second policy engine.
 
 ## P0.10 Forensic reconstruction
@@ -184,6 +203,7 @@ P0 behavior is protected by deterministic tests, compatibility/TCK coverage wher
 - dashboard-only authorization;
 - stale privileged commands;
 - approval authority;
+- resume after authoritative cancellation or a cancel/resume race with two effective winners;
 - reconstruction side effects;
 - sensitive payload exposure.
 
@@ -337,8 +357,9 @@ L. DASHBOARD 2.0 CORE
 1. Generic OIDC authentication boundary.
 2. Capability-based authorization.
 3. Typed lifecycle/control commands.
-4. Privileged-action audit/evidence.
-5. Dashboard 2.0 inventory/detail/timeline/control/reconstruction.
+4. Authoritative persisted-run cancellation and cancel/resume fencing.
+5. Privileged-action audit/evidence.
+6. Dashboard 2.0 inventory/detail/timeline/control/reconstruction.
 
 No Wave E exists in the 0.7.0 release cut. Additional capability belongs to the long-term roadmap unless required to close a P0 defect.
 
@@ -368,6 +389,10 @@ Control plane projects the run safely
 Operator can inspect the semantic timeline
         ↓
 Authorized operator can issue supported controls
+        ↓
+Persisted suspended run can be cancelled authoritatively
+        ↓
+Late approval, restart, or resume cannot execute after cancellation wins
         ↓
 Historical run can be reconstructed without side effects
 ```
