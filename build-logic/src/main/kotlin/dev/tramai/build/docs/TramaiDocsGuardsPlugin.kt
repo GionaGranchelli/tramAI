@@ -21,7 +21,6 @@ import org.gradle.kotlin.dsl.register
  * maintainability analysis stay in their own plugins.
  */
 class TramaiDocsGuardsPlugin : Plugin<Project> {
-
     override fun apply(project: Project) {
         if (project != project.rootProject) return
         val projectRoot = project.rootDir
@@ -43,7 +42,7 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                     "Non-Goals",
                     "Claim Boundaries",
                     "Global Acceptance Criteria",
-                )
+                ),
             )
             forbiddenClaims.set(listOf("production certified", "is GA-certified"))
             requiredClaimMessagePrefix.set("Post-sovereignty roadmap is missing required phrase: ")
@@ -52,7 +51,9 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyProductPositioning") {
             group = "verification"
-            description = "Verifies the canonical product positioning document exists, contains required sections, and avoids forbidden claims."
+            description =
+                "Verifies the canonical product positioning document exists, " +
+                "contains required sections, and avoids forbidden claims."
             contractId.set("verifyProductPositioning")
             verifierKind.set(DocGuardKind.PRODUCT_POSITIONING)
             this.rootDir.set(project.rootDir)
@@ -75,11 +76,12 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                 projectRoot.resolve("docs/architecture/overview.md"),
                 projectRoot.resolve("docs/modules/sovereign-runtime-module-matrix.md"),
             )
-            val exampleDirs = listOf(
-                projectRoot.resolve("examples/governed-workflow"),
-                projectRoot.resolve("examples/approval-resume"),
-                projectRoot.resolve("examples/sovereign-document-intelligence"),
-            )
+            val exampleDirs =
+                listOf(
+                    projectRoot.resolve("examples/governed-workflow"),
+                    projectRoot.resolve("examples/approval-resume"),
+                    projectRoot.resolve("examples/sovereign-document-intelligence"),
+                )
             exampleDirs.forEach { dir ->
                 // The verifier only checks these dirs EXIST. Exclude task
                 // outputs inside them (apiBuild -> api/, processResources ->
@@ -102,11 +104,12 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                 projectRoot.resolve("docs/product/positioning.md"),
                 projectRoot.resolve("docs/STATUS.md"),
             )
-            val articleExampleDirs = listOf(
-                projectRoot.resolve("examples/governed-workflow"),
-                projectRoot.resolve("examples/approval-resume"),
-                projectRoot.resolve("examples/sovereign-document-intelligence"),
-            )
+            val articleExampleDirs =
+                listOf(
+                    projectRoot.resolve("examples/governed-workflow"),
+                    projectRoot.resolve("examples/approval-resume"),
+                    projectRoot.resolve("examples/sovereign-document-intelligence"),
+                )
             articleExampleDirs.forEach { dir ->
                 // The verifier only checks these dirs EXIST. Exclude task
                 // outputs inside them (apiBuild -> api/, processResources ->
@@ -118,7 +121,9 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyExampleSelectionGuide") {
             group = "verification"
-            description = "Verifies the example selection guide covers eight examples with correct classifications, commands, and non-claims."
+            description =
+                "Verifies the example selection guide covers eight examples with correct " +
+                "classifications, commands, and non-claims."
             contractId.set("verifyExampleSelectionGuide")
             verifierKind.set(DocGuardKind.EXAMPLE_SELECTION_GUIDE)
             this.rootDir.set(project.rootDir)
@@ -143,7 +148,9 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyWorkflowApiStabilityBoundary") {
             group = "verification"
-            description = "Verifies the workflow API stability boundary document exists, contains required classifications, and avoids forbidden overclaims."
+            description =
+                "Verifies the workflow API stability boundary document exists, contains " +
+                "required classifications, and avoids forbidden overclaims."
             contractId.set("verifyWorkflowApiStabilityBoundary")
             verifierKind.set(DocGuardKind.WORKFLOW_API_STABILITY_BOUNDARY)
             this.rootDir.set(project.rootDir)
@@ -152,13 +159,13 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyVersionAlignment") {
             group = "verification"
-            description = "Verifies the repository version surfaces are aligned: 0.5.0 as release version."
+            description = "Verifies the repository version surfaces are aligned: 0.6.0 as release version."
             contractId.set("verifyVersionAlignment")
             verifierKind.set(DocGuardKind.VERSION_ALIGNMENT)
             this.rootDir.set(project.rootDir)
             // Canonical values come from gradle.properties (same sources of truth
             // the historical closure used); no self-introspection of build files.
-            expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.5.0"))
+            expectedVersion.set(project.providers.gradleProperty("tramaiVersion").orElse("0.6.0"))
             expectedReleaseDate.set(project.providers.gradleProperty("tramaiReleaseDate"))
             documents.from(
                 projectRoot.resolve("gradle.properties"),
@@ -166,7 +173,7 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
                 projectRoot.resolve("CHANGELOG.md"),
                 projectRoot.resolve("docs/STATUS.md"),
                 projectRoot.resolve("docs/POST-SOVEREIGNTY-ROADMAP.md"),
-                projectRoot.resolve("docs/releases/0.5.0-release-readiness.md"),
+                projectRoot.resolve("docs/releases/0.6.0-release-readiness.md"),
                 projectRoot.resolve("docs/releases/sovereign-runtime-release-readiness.md"),
                 projectRoot.resolve("README.md"),
                 projectRoot.resolve("docs/guides/getting-started.md"),
@@ -207,7 +214,11 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyModuleDocContract") {
             group = "verification"
-            description = "Verifies the module-card documentation contract (Epic 11.2b3): manifest/card coverage, required headings, link/path resolution, no legacy classification, resolvable dependency snippets, no internal Maven advertisement, README counts"
+            description =
+                "Verifies the module-card documentation contract (Epic 11.2b3): " +
+                "manifest/card coverage, required headings, link/path resolution, no legacy " +
+                "classification, resolvable dependency snippets, no internal Maven " +
+                "advertisement, README counts"
             contractId.set("verifyModuleDocContract")
             verifierKind.set(DocGuardKind.MODULE_DOC_CONTRACT)
             this.rootDir.set(project.rootDir)

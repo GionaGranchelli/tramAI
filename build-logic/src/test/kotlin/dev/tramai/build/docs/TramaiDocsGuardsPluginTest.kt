@@ -21,7 +21,6 @@ import kotlin.test.assertTrue
  * and assert the exact historical diagnostic.
  */
 class TramaiDocsGuardsPluginTest {
-
     @TempDir
     lateinit var tempDir: File
 
@@ -41,10 +40,14 @@ class TramaiDocsGuardsPluginTest {
     // ------------------------------------------------------------------
 
     /** Copies tracked files under [relativePaths] from the real repo into [dir]. */
-    private fun copyFromRepo(dir: File, vararg relativePaths: String) {
-        val git = ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", *relativePaths)
-            .redirectErrorStream(true)
-            .start()
+    private fun copyFromRepo(
+        dir: File,
+        vararg relativePaths: String,
+    ) {
+        val git =
+            ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", *relativePaths)
+                .redirectErrorStream(true)
+                .start()
         val listing = git.inputStream.bufferedReader().readText()
         check(git.waitFor() == 0) { "git ls-files failed: $listing" }
         listing.lineSequence().filter { it.isNotBlank() }.forEach { rel ->
@@ -58,39 +61,61 @@ class TramaiDocsGuardsPluginTest {
     }
 
     /** Minimal fixture root that applies tramai.docs-guards on the root project. */
-    private fun fixture(settingsModules: String = "", exampleDirs: List<String> = emptyList()): File {
+    private fun fixture(
+        settingsModules: String = "",
+        exampleDirs: List<String> = emptyList(),
+    ): File {
         val dir = File(tempDir, "fixture-${System.nanoTime()}").apply { mkdirs() }
-        writeFile(dir, "settings.gradle.kts", """
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
             rootProject.name = "docs-guards-fixture"
             $settingsModules
-        """.trimIndent())
-        writeFile(dir, "build.gradle.kts", """
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
             plugins { id("tramai.docs-guards") }
-        """.trimIndent())
+            """.trimIndent(),
+        )
         // Included example projects must exist as directories or Gradle refuses
         // to configure them ("without an existing directory is not allowed").
         exampleDirs.forEach { rel -> File(dir, rel).mkdirs() }
         return dir
     }
 
-    private fun runner(dir: File, vararg args: String): GradleRunner =
-        GradleRunner.create()
+    private fun runner(
+        dir: File,
+        vararg args: String,
+    ): GradleRunner =
+        GradleRunner
+            .create()
             .withProjectDir(dir)
             .withGradleVersion("9.0.0")
             .withArguments(*args, "--stacktrace")
             .withPluginClasspath()
 
-    private fun writeFile(base: File, relativePath: String, content: String) {
+    private fun writeFile(
+        base: File,
+        relativePath: String,
+        content: String,
+    ) {
         val target = File(base, relativePath)
         target.parentFile.mkdirs()
         target.writeText(content)
     }
 
-    private fun runTask(dir: File, task: String): org.gradle.testkit.runner.BuildResult {
+    private fun runTask(
+        dir: File,
+        task: String,
+    ): org.gradle.testkit.runner.BuildResult {
         val result = runner(dir, task, "--no-build-cache").build()
         assertTrue(
             result.task(":$task")?.outcome == TaskOutcome.SUCCESS,
-            "$task must succeed: ${result.output.take(1200)}"
+            "$task must succeed: ${result.output.take(1200)}",
         )
         return result
     }
@@ -153,24 +178,27 @@ class TramaiDocsGuardsPluginTest {
 
     @Test
     fun `verifyExampleSelectionGuide passes on real guide`() {
-        val dir = fixture(
-            settingsModules = """
-                include("examples:support-agent")
-                include("examples:sovereign-document-intelligence")
-                include("examples:sovereign-offline-verification")
-                include("examples:spring-sovereign-starter")
-                include("examples:governed-workflow")
-                include("examples:approval-resume")
-            """.trimIndent(),
-            exampleDirs = listOf(
-                "examples/support-agent",
-                "examples/sovereign-document-intelligence",
-                "examples/sovereign-offline-verification",
-                "examples/spring-sovereign-starter",
-                "examples/governed-workflow",
-                "examples/approval-resume",
-            ),
-        )
+        val dir =
+            fixture(
+                settingsModules =
+                    """
+                    include("examples:support-agent")
+                    include("examples:sovereign-document-intelligence")
+                    include("examples:sovereign-offline-verification")
+                    include("examples:spring-sovereign-starter")
+                    include("examples:governed-workflow")
+                    include("examples:approval-resume")
+                    """.trimIndent(),
+                exampleDirs =
+                    listOf(
+                        "examples/support-agent",
+                        "examples/sovereign-document-intelligence",
+                        "examples/sovereign-offline-verification",
+                        "examples/spring-sovereign-starter",
+                        "examples/governed-workflow",
+                        "examples/approval-resume",
+                    ),
+            )
         copyFromRepo(
             dir,
             "examples/README.md",
@@ -206,7 +234,7 @@ class TramaiDocsGuardsPluginTest {
             "CHANGELOG.md",
             "docs/STATUS.md",
             "docs/POST-SOVEREIGNTY-ROADMAP.md",
-            "docs/releases/0.5.0-release-readiness.md",
+            "docs/releases/0.6.0-release-readiness.md",
             "docs/releases/sovereign-runtime-release-readiness.md",
             "README.md",
             "docs/guides",
@@ -222,20 +250,25 @@ class TramaiDocsGuardsPluginTest {
         )
         // The real build.gradle.kts uses version-catalog aliases that need a
         // libs.versions.toml; restore a minimal fixture build file that still
-        // carries the orElse("0.5.0") fallback the verifier checks.
-        writeFile(dir, "build.gradle.kts", """
+        // carries the orElse("0.6.0") fallback the verifier checks.
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
             plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("0.5.0")
-        """.trimIndent())
+            version = providers.gradleProperty("tramaiVersion").orElse("0.6.0")
+            """.trimIndent(),
+        )
         runTask(dir, "verifyVersionAlignment")
     }
 
     @Test
     fun `verifyToolGovernanceExample passes on real example`() {
-        val dir = fixture(
-            settingsModules = """include("examples:tool-governance")""",
-            exampleDirs = listOf("examples/tool-governance"),
-        )
+        val dir =
+            fixture(
+                settingsModules = """include("examples:tool-governance")""",
+                exampleDirs = listOf("examples/tool-governance"),
+            )
         copyFromRepo(
             dir,
             "examples/tool-governance",
@@ -319,7 +352,7 @@ class TramaiDocsGuardsPluginTest {
             "CHANGELOG.md",
             "docs/STATUS.md",
             "docs/POST-SOVEREIGNTY-ROADMAP.md",
-            "docs/releases/0.5.0-release-readiness.md",
+            "docs/releases/0.6.0-release-readiness.md",
             "docs/releases/sovereign-runtime-release-readiness.md",
             "README.md",
             "docs/guides",
@@ -334,10 +367,14 @@ class TramaiDocsGuardsPluginTest {
             "docs/modules",
         )
         // Restore minimal fixture build file (see positive version-alignment test).
-        writeFile(dir, "build.gradle.kts", """
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
             plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("0.5.0")
-        """.trimIndent())
+            version = providers.gradleProperty("tramaiVersion").orElse("0.6.0")
+            """.trimIndent(),
+        )
         writeFile(dir, "docs/guides/getting-started.md", "Use dev.tramai:tramai-core:0.5.0-SNAPSHOT now.\n")
         val result = runner(dir, "verifyVersionAlignment", "--no-build-cache").buildAndFail()
         assertContains(result.output, "still contains dev.tramai:*:0.5.0-SNAPSHOT dependency reference")
@@ -345,24 +382,27 @@ class TramaiDocsGuardsPluginTest {
 
     @Test
     fun `verifyExampleSelectionGuide fails when a required profile is removed`() {
-        val dir = fixture(
-            settingsModules = """
-                include("examples:support-agent")
-                include("examples:sovereign-document-intelligence")
-                include("examples:sovereign-offline-verification")
-                include("examples:spring-sovereign-starter")
-                include("examples:governed-workflow")
-                include("examples:approval-resume")
-            """.trimIndent(),
-            exampleDirs = listOf(
-                "examples/support-agent",
-                "examples/sovereign-document-intelligence",
-                "examples/sovereign-offline-verification",
-                "examples/spring-sovereign-starter",
-                "examples/governed-workflow",
-                "examples/approval-resume",
-            ),
-        )
+        val dir =
+            fixture(
+                settingsModules =
+                    """
+                    include("examples:support-agent")
+                    include("examples:sovereign-document-intelligence")
+                    include("examples:sovereign-offline-verification")
+                    include("examples:spring-sovereign-starter")
+                    include("examples:governed-workflow")
+                    include("examples:approval-resume")
+                    """.trimIndent(),
+                exampleDirs =
+                    listOf(
+                        "examples/support-agent",
+                        "examples/sovereign-document-intelligence",
+                        "examples/sovereign-offline-verification",
+                        "examples/spring-sovereign-starter",
+                        "examples/governed-workflow",
+                        "examples/approval-resume",
+                    ),
+            )
         copyFromRepo(
             dir,
             "examples/README.md",
@@ -400,16 +440,24 @@ class TramaiDocsGuardsPluginTest {
     @Test
     fun `task without verifierKind fails loud instead of passing vacuously`() {
         val dir = File(tempDir, "fixture-${System.nanoTime()}").apply { mkdirs() }
-        writeFile(dir, "settings.gradle.kts", """
+        writeFile(
+            dir,
+            "settings.gradle.kts",
+            """
             rootProject.name = "docs-guards-fixture"
-        """.trimIndent())
-        writeFile(dir, "build.gradle.kts", """
+            """.trimIndent(),
+        )
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
             plugins { id("tramai.docs-guards") }
             tasks.register<dev.tramai.build.docs.DocsContractVerifierTask>("verifyMisconfigured") {
                 contractId.set("verifyMisconfigured")
                 documents.from(layout.projectDirectory.file("docs/POST-SOVEREIGNTY-ROADMAP.md"))
             }
-        """.trimIndent())
+            """.trimIndent(),
+        )
         writeFile(dir, "docs/POST-SOVEREIGNTY-ROADMAP.md", "Sovereign Lab Evidence Handoff v1 is complete\n")
         val result = runner(dir, "verifyMisconfigured", "--no-build-cache").buildAndFail()
         assertContains(result.output, "verifyMisconfigured: verifierKind is not configured; register with an explicit DocGuardKind")

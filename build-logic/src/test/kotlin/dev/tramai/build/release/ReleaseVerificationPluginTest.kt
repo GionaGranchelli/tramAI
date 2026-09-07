@@ -997,15 +997,15 @@ class ReleaseVerificationPluginTest {
             )
         }
 
-        // 9.2d-b3: the release gate stays reachable via release tooling.
-        // Pin the workflow contract so a future cleanup cannot accidentally
-        // make verify050ReleaseReadiness unreachable from the release path.
+        // 12.4a: the authoritative 0.6.0 release gate stays reachable via
+        // release tooling. Pin the workflow contract so a future cleanup
+        // cannot accidentally bypass the final release authority.
         val publishWorkflow = File(prop, ".github/workflows/publish.yml")
         assertTrue(publishWorkflow.isFile, "publish workflow must exist")
         val publishText = publishWorkflow.readText()
         assertTrue(
-            publishText.contains("verify050ReleaseReadiness --no-configuration-cache"),
-            "publish workflow must invoke verify050ReleaseReadiness with --no-configuration-cache",
+            publishText.contains("verify060MaintainabilityRelease --no-configuration-cache"),
+            "publish workflow must invoke verify060MaintainabilityRelease with --no-configuration-cache",
         )
     }
 

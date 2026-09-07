@@ -6,11 +6,11 @@ It is the public credibility summary for the current release line, with older re
 
 ## Validation Snapshot
 
-Validated on: `2026-07-16`
+Validated on: `2026-09-06`
 
 The repository has been exercised through these concrete paths:
 
-- 0.5.0 release-readiness task verification
+- 0.6.0 release-readiness task verification
 - signed local publication to a file-based Maven repository
 - sovereign consumer dependency closure verification
 - release artifact manifest generation and verification
@@ -21,10 +21,10 @@ The repository has been exercised through these concrete paths:
 
 ## Concrete Proof Points
 
-### 0.5.0 Release Readiness
+### 0.6.0 Release Readiness
 
 ```bash
-./gradlew verify050ReleaseReadiness --no-configuration-cache --rerun-tasks
+./gradlew verify060MaintainabilityRelease --no-configuration-cache --rerun-tasks
 ```
 
 This aggregates:
@@ -34,7 +34,7 @@ This aggregates:
 - sovereign runtime API boundary verification
 - tool-governance example existence
 - release-readiness document presence
-- CHANGELOG 0.5.0 section presence
+- CHANGELOG 0.6.0 section presence
 - STATUS and roadmap state correctness
 - publish workflow version alignment check
 - no absolute /home/... paths in release docs
@@ -117,7 +117,7 @@ This validation note does not claim that the following are complete:
 
 ## Current Non-claims
 
-TramAI 0.5.0 does not:
+TramAI 0.6.0 does not:
 
 - Certify production readiness for every deployment configuration
 - Provide legal compliance, regulatory compliance, or EU AI Act conformity

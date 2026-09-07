@@ -123,7 +123,7 @@ These builds are not module-catalog modules and are excluded from module-card an
 
 **Demonstrates:** `@AiService` annotations, typed `Response` output with `@AiDescription` fields, tool calling, retry policies, and deterministic testing with `MockAiProvider`.
 
-**Does not demonstrate:** sovereign governance, durable approval, policy enforcement, audit evidence, or sovereign persistence. This is a core AI integration example consuming released 0.5.0 artifacts.
+**Does not demonstrate:** sovereign governance, durable approval, policy enforcement, audit evidence, or sovereign persistence. This is a core AI integration example consuming released 0.6.0 artifacts.
 
 **Next step:** [Kotlin Spring Boot Example](#kotlin-spring-boot-example) for a fuller application, or [Governed Workflow](#governed-workflow) for governance.
 

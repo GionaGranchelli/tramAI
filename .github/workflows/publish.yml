@@ -168,7 +168,7 @@ jobs:
             echo "Skipping local-dry-run: remote publish is configured and will run instead."
             exit 0
           fi
-          ./gradlew verify050ReleaseReadiness --no-configuration-cache
+          ./gradlew verify060MaintainabilityRelease --no-configuration-cache
           ./gradlew verifySovereignRuntimePublication --no-configuration-cache
           ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
           ./gradlew publishToMavenLocal --no-configuration-cache
@@ -184,7 +184,7 @@ jobs:
             echo "Skipping remote-release verification: remote publish credentials not configured."
             exit 0
           fi
-          ./gradlew verify050ReleaseReadiness --no-configuration-cache
+          ./gradlew verify060MaintainabilityRelease --no-configuration-cache
 
       - name: Run SonarQube analysis
         env:
