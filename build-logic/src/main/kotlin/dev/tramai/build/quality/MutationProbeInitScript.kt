@@ -107,7 +107,9 @@ object MutationProbeInitScript {
                     ext.outputFormats.set(['XML', 'HTML'] as Set)
                     ext.timestampedReports.set(false)
                     ext.failWhenNoMutations.set(true)
-                    ext.threads.set(2)
+                    // One worker keeps the baseline coverage run deterministic; the
+                    // mutation families are already executed sequentially by the authority.
+                    ext.threads.set(1)
                     ext.pitestVersion.set('$PIT_ENGINE_VERSION')
                     ext.timeoutConstInMillis.set($TIMEOUT_CONST_MILLIS)
                     ext.timeoutFactor.set($TIMEOUT_FACTOR)
