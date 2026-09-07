@@ -5,7 +5,7 @@
 - Last updated: 2026-05-13
 - Related roadmap milestone: M5 — Knowledge Augmentation and Provider Expansion
 - Related ADRs: ADR-008 (Provider SPI), ADR-010 (Provider Routing)
-- Related docs: [Architecture Overview](../architecture/overview.md), [Provider Integration](../specs/spec-003-provider-integration.md), [AGENTS.md](../AGENTS.md)
+- Related docs: [Architecture Overview](../architecture/overview.md), [Provider Integration](./spec-003-provider-integration.md), [AGENTS.md](../../AGENTS.md)
 
 ## Problem
 

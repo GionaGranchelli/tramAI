@@ -3,6 +3,7 @@ package dev.tramai.build.release
 import dev.tramai.build.publishing.TramaiPublishingRepositories
 import dev.tramai.build.quality.ModuleCatalog
 import dev.tramai.build.quality.ModuleManifest
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.register
@@ -14,6 +15,44 @@ import java.io.File
  * semantics are identical to the historical root build script.
  */
 class TramaiReleaseVerificationPlugin : Plugin<Project> {
+    private val releaseRequiredAuthorities =
+        listOf(
+            ":check",
+            ":spotlessCheck",
+            ":verifyStaticAnalysis",
+            ":verifyStaticSafetyGuards",
+            ":verifyCompilerWarnings",
+            ":verifyDependencyHygiene",
+            ":verifyCancellationSafety",
+            ":verify060Architecture",
+            ":apiCheck",
+            ":verifyMaintainabilityBaseline",
+            ":verifyModuleManifest",
+            ":verifyModuleMatrixDrift",
+            ":verifyCriticalCoverage",
+            ":verifyReleaseMutation",
+            ":verifyJUnitTestSignatures",
+            ":verifyChangePolicy",
+            ":verifyPublicationMetadata",
+            ":verifyPublishedLocalArtifacts",
+            ":verifyVersionAlignment",
+            ":verifySovereignRuntimeReleaseCandidate",
+            ":verifySovereignRuntimeVerificationRepoClosure",
+            ":verifySovereignRuntimeConsumerSmoke",
+            ":verifySovereignDocumentIntelligenceEvidenceRun",
+            ":examples:spring-sovereign-starter:e2eTest",
+            ":verifySovereignRuntimeApiBoundary",
+            ":verifySovereignRuntimeClosureDocs",
+            ":verifySovereignOpsObservabilityDocs",
+            ":verifySovereignEvidencePackContainsReleaseBundle",
+            ":prepareSovereignReleaseArtifacts",
+            ":verifySovereignReleaseManifest",
+            ":verifyReleaseDocumentationIntegrity",
+            ":verifyReleaseRequiredFiles",
+            ":verifyAuditClosure",
+            ":verify060ZeroEgress",
+        )
+
     override fun apply(project: Project) {
         registerVerifyPublicationMetadata(project)
         registerVerifyPublishedLocalArtifacts(project)
@@ -21,6 +60,28 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         registerVerifySignedPublicationBundle(project)
         registerVerifyReleaseReadiness(project)
         registerVerify050ReleaseReadiness(project)
+        registerRootApiCheckAggregator(project)
+        registerVerifyReleaseDocumentation(project)
+        registerVerifyReleaseRequiredFiles(project)
+        registerVerifyAuditClosure(project)
+        registerVerify060ZeroEgress(project)
+        registerVerify060MaintainabilityRelease(project)
+    }
+
+    private fun registerRootApiCheckAggregator(project: Project) {
+        project.plugins.withId("org.jetbrains.kotlinx.binary-compatibility-validator") {
+            if (project == project.rootProject && project.tasks.findByName("apiCheck") == null) {
+                project.tasks.register("apiCheck") {
+                    group = "verification"
+                    description = "Aggregates apiCheck across all subprojects with binary compatibility validation."
+                    project.subprojects.forEach { sub ->
+                        sub.tasks.matching { it.name == "apiCheck" }.all {
+                            this@register.dependsOn(this)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -363,5 +424,255 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         rootProject.logger.lifecycle("  - STATUS/roadmap: release-ready state verified")
         rootProject.logger.lifecycle("  - Publish workflow: version alignment check verified")
         rootProject.logger.lifecycle("  - Release docs: no absolute paths or stale claims")
+    }
+
+    private fun registerVerifyReleaseDocumentation(project: Project) {
+        project.tasks.register<VerifyReleaseDocumentationTask>("verifyReleaseDocumentationIntegrity") {
+            group = "verification"
+            description = "Verifies repository documentation link integrity and path hygiene."
+            rootDir.set(project.rootDir)
+            val docFiles =
+                project.fileTree(project.rootDir) {
+                    include("**/*.md")
+                    exclude(
+                        "build/**",
+                        "*/build/**",
+                        "examples/*/build/**",
+                        "build-logic/build/**",
+                        "**/.gradle/**",
+                        "**/node_modules/**",
+                        "**/vendor/**",
+                    )
+                }
+            documentationFiles.from(docFiles)
+        }
+    }
+
+    private fun registerVerifyReleaseRequiredFiles(project: Project) {
+        project.tasks.register<VerifyReleaseRequiredFilesTask>("verifyReleaseRequiredFiles") {
+            group = "verification"
+            description = "Verifies presence and required content markers of 0.6.0 release documents."
+            rootDir.set(project.rootDir)
+            expectedVersion.set("0.6.0")
+        }
+    }
+
+    private fun registerVerifyAuditClosure(project: Project) {
+        project.tasks.register<VerifyAuditClosureTask>("verifyAuditClosure") {
+            group = "verification"
+            description =
+                "Verifies that all P0/P1 audit findings from Epic 12.3 are CLOSED and all P2/P3 deferrals documented."
+            auditFindingsFile.set(
+                project.layout.projectDirectory.file("docs/evidence/12.3a-independent-review-findings.json"),
+            )
+            remediationClosureFile.set(
+                project.layout.projectDirectory.file("docs/evidence/12.3b-remediation-closure.json"),
+            )
+        }
+    }
+
+    private fun registerVerify060ZeroEgress(project: Project) {
+        project.tasks.register("verify060ZeroEgress") {
+            group = "verification"
+            description =
+                "Executes the zero-egress Docker harness and validates the resulting attestation report."
+            notCompatibleWithConfigurationCache("Zero-egress verification invokes a shell harness and Docker.")
+            doLast {
+                val rootDir = project.rootProject.layout.projectDirectory.asFile
+                val script = rootDir.resolve("scripts/verify-zero-egress.sh")
+                val manifest = rootDir.resolve("build/sovereign-release/release-artifacts-v1.json")
+                requireZeroEgressInputs(script, manifest)
+                val exitCode = runZeroEgressHarness(script, manifest, rootDir)
+                requireZeroEgressSuccess(exitCode, rootDir)
+                logger.lifecycle("verify060ZeroEgress: zero-egress attestation report present")
+            }
+        }
+        project.tasks.named("verify060ZeroEgress") {
+            dependsOn("prepareSovereignReleaseArtifacts", "verifySovereignReleaseManifest")
+        }
+        project.tasks.matching { it.name == "verifySovereignEvidencePackContainsReleaseBundle" }.configureEach {
+            mustRunAfter("verify060ZeroEgress")
+        }
+    }
+
+    private fun requireZeroEgressInputs(
+        script: File,
+        manifest: File,
+    ) {
+        if (!script.isFile) {
+            throw GradleException("verify060ZeroEgress: harness not found at ${script.absolutePath}")
+        }
+        if (!manifest.isFile) {
+            throw GradleException(
+                "verify060ZeroEgress: prepared sovereign release manifest missing at ${manifest.absolutePath}",
+            )
+        }
+    }
+
+    private fun requireZeroEgressSuccess(
+        exitCode: Int,
+        rootDir: File,
+    ) {
+        if (exitCode != 0) {
+            throw GradleException(
+                "verify060ZeroEgress: zero-egress harness exited with code $exitCode. " +
+                    "Inspect build/zero-egress-report/zero-egress-report.json for details.",
+            )
+        }
+        val report = rootDir.resolve("build/zero-egress-report/zero-egress-report.json")
+        if (!report.isFile) {
+            throw GradleException("verify060ZeroEgress: attestation report not produced at ${report.absolutePath}")
+        }
+    }
+
+    private fun runZeroEgressHarness(
+        script: java.io.File,
+        manifest: java.io.File,
+        workDir: java.io.File,
+    ): Int {
+        val env = System.getenv().toMutableMap()
+        env["TRAMAI_RELEASE_BUNDLE_MANIFEST"] = manifest.absolutePath
+        val process =
+            ProcessBuilder("bash", script.absolutePath)
+                .directory(workDir)
+                .inheritIO()
+                .apply { environment().putAll(env) }
+                .start()
+        return process.waitFor()
+    }
+
+    private fun registerVerify060MaintainabilityRelease(project: Project) {
+        project.tasks.register("verify060MaintainabilityRelease") {
+            group = "verification"
+            description =
+                "Authoritative, fail-closed TramAI 0.6.0 release verification command composing release contracts."
+            notCompatibleWithConfigurationCache(
+                "0.6.0 release verification aggregates execution-time verification tasks.",
+            )
+
+            wireCoreQualityAuthorities(this)
+            wireArchitectureAndMaintainabilityAuthorities(this)
+            wireSovereignAndConsumerAuthorities(this, project)
+            wireDocumentationAndAuditAuthorities(this, project)
+
+            doLast {
+                val publishable = publishableModuleNames(project)
+                if (publishable.isEmpty()) {
+                    throw GradleException("verify060MaintainabilityRelease: Publishable module set is empty.")
+                }
+                val unscheduled =
+                    releaseRequiredAuthorities.filterNot { authority ->
+                        project.gradle.taskGraph.hasTask(authority)
+                    }
+                requireAuthoritiesScheduled(unscheduled)
+                printReleaseSummary(publishable.size)
+            }
+        }
+    }
+
+    private fun requireAuthoritiesScheduled(unscheduled: List<String>) {
+        if (unscheduled.isNotEmpty()) {
+            throw GradleException(
+                "verify060MaintainabilityRelease: required authority task(s) were not executed: " +
+                    unscheduled.joinToString(", "),
+            )
+        }
+    }
+
+    private fun wireCoreQualityAuthorities(task: org.gradle.api.Task) {
+        task.dependsOn("check")
+        task.dependsOn("spotlessCheck")
+        task.dependsOn("verifyStaticAnalysis")
+        task.dependsOn("verifyStaticSafetyGuards")
+        task.dependsOn("verifyCompilerWarnings")
+        task.dependsOn("verifyDependencyHygiene")
+        task.dependsOn("verifyCancellationSafety")
+    }
+
+    private fun wireArchitectureAndMaintainabilityAuthorities(task: org.gradle.api.Task) {
+        task.dependsOn("verify060Architecture")
+        task.dependsOn("apiCheck")
+        task.dependsOn("verifyMaintainabilityBaseline")
+        task.dependsOn("verifyModuleManifest")
+        task.dependsOn("verifyModuleMatrixDrift")
+        task.dependsOn("verifyCriticalCoverage")
+        task.dependsOn("verifyReleaseMutation")
+        task.dependsOn("verifyJUnitTestSignatures")
+        task.dependsOn("verifyChangePolicy")
+        task.dependsOn("verifyPublicationMetadata")
+        task.dependsOn("verifyPublishedLocalArtifacts")
+        task.dependsOn("verifyVersionAlignment")
+    }
+
+    private fun wireSovereignAndConsumerAuthorities(
+        task: org.gradle.api.Task,
+        project: Project,
+    ) {
+        task.dependsOn("verifySovereignRuntimeReleaseCandidate")
+        task.dependsOn("verifySovereignRuntimeVerificationRepoClosure")
+        task.dependsOn("verifySovereignRuntimeConsumerSmoke")
+        task.dependsOn("verifySovereignDocumentIntelligenceEvidenceRun")
+        task.dependsOn("verifySovereignRuntimeApiBoundary")
+        task.dependsOn("verifySovereignRuntimeClosureDocs")
+        task.dependsOn("verifySovereignOpsObservabilityDocs")
+        task.dependsOn("verifySovereignEvidencePackContainsReleaseBundle")
+        task.dependsOn("prepareSovereignReleaseArtifacts")
+        task.dependsOn("verifySovereignReleaseManifest")
+
+        task.doFirst {
+            val springProject =
+                project.findProject(":examples:spring-sovereign-starter")
+                    ?: throw GradleException(
+                        "verify060MaintainabilityRelease: required project " +
+                            "':examples:spring-sovereign-starter' is missing",
+                    )
+            if (springProject.tasks.findByName("e2eTest") == null) {
+                throw GradleException(
+                    "verify060MaintainabilityRelease: required task " +
+                        "':examples:spring-sovereign-starter:e2eTest' is missing",
+                )
+            }
+        }
+        project.findProject(":examples:spring-sovereign-starter")?.let { springProject ->
+            task.dependsOn(springProject.tasks.matching { it.name == "e2eTest" })
+        }
+    }
+
+    private fun wireDocumentationAndAuditAuthorities(
+        task: org.gradle.api.Task,
+        project: Project,
+    ) {
+        task.dependsOn("verifyReleaseDocumentationIntegrity")
+        task.dependsOn("verifyReleaseRequiredFiles")
+        task.dependsOn("verifyAuditClosure")
+        task.dependsOn("verify060ZeroEgress")
+
+        val buildLogicTestTask =
+            project.gradle.includedBuilds
+                .firstOrNull { it.name == "build-logic" }
+                ?.task(":test")
+        if (buildLogicTestTask != null) {
+            task.dependsOn(buildLogicTestTask)
+        }
+    }
+
+    private fun org.gradle.api.Task.printReleaseSummary(publishableCount: Int) {
+        logger.lifecycle("================================================================================")
+        logger.lifecycle("TramAI 0.6.0 12.4a Verification Command: AUTHORITIES PASSED")
+        logger.lifecycle("  - Lifecycle & Tests: check, allSubprojectTestTasks")
+        logger.lifecycle("  - Formatting & Analysis: spotlessCheck, verifyStaticAnalysis, verifyStaticSafetyGuards")
+        logger.lifecycle("  - Compiler & Dependencies: verifyCompilerWarnings, verifyDependencyHygiene")
+        logger.lifecycle("  - Cancellation & Concurrency: verifyCancellationSafety, workflow state machines")
+        logger.lifecycle("  - Architecture & Contracts: verify060Architecture, ProviderTck, StoreTck")
+        logger.lifecycle("  - Binary Compatibility: apiCheck across $publishableCount publishable modules")
+        logger.lifecycle("  - Consumers: Kotlin & Java smoke, Spring sovereign starter E2E")
+        logger.lifecycle("  - Sovereign Runtime & Evidence: sovereign bundle dry-run, zero-egress, release manifest")
+        logger.lifecycle("  - Publication: Maven Local resolution, metadata, POMs, sources/javadoc JARs")
+        logger.lifecycle("  - Documentation & Audit: link integrity, 0.6.0 release artifacts, 12.3 audit closed")
+        logger.lifecycle(
+            "Verdict: 12.4a verification command completed successfully. " +
+                "Final release certification requires 12.4b.",
+        )
+        logger.lifecycle("================================================================================")
     }
 }

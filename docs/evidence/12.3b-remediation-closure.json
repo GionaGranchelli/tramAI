@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0",
+  "closure": {
+    "epic": "12.3b",
+    "title": "P0/P1 remediation closure — Epic 12.3b",
+    "auditRef": "12.3a-independent-review-findings.json",
+    "baseCommit": "2a44a1f3513ebeb4a62446ce6ce96616c9e480e4",
+    "closureCommit": "35845aca49c4119819f4ed6e81ed68f733085608",
+    "closureDate": "2026-09-06",
+    "status": "CLOSED",
+    "disposition": "REMEDIATION_CLOSED",
+    "remediationSummary": "All P0/P1 findings (R12-001, R12-002, R12-003) remediated and verified in PR #397 and PR #398. P2/P3 findings deferred with assigned owners and rationales.",
+    "verdictUpdate": {
+      "q4_security_boundaries": "PASS (after R12-001 remediation in PR #397)",
+      "q5_safe_failures": "PASS (after R12-002 remediation in PR #397)"
+    }
+  },
+  "closedFindings": [
+    {
+      "id": "R12-001",
+      "severity": "P0",
+      "status": "CLOSED",
+      "closurePr": 397,
+      "closureCommit": "35845aca",
+      "closureNotes": "Remediated via OutboundAddressSecurity: HTTP/HTTPS scheme enforcement, pre-connect DNS resolution, prohibited-address filtering (private RFC 1918, loopback, link-local, IPv6), redirect revalidation, user-info rejection, and deterministic connection/stream lifecycle management."
+    },
+    {
+      "id": "R12-002",
+      "severity": "P1",
+      "status": "CLOSED",
+      "closurePr": 397,
+      "closureCommit": "35845aca",
+      "closureNotes": "Remediated via JdbcSafeOperation sanitized database exception mapping across all JDBC store implementations."
+    },
+    {
+      "id": "R12-003",
+      "severity": "P1",
+      "status": "CLOSED",
+      "closurePr": 398,
+      "closureCommit": "31938b07",
+      "closureNotes": "Remediated via MaintainabilityBaselinePlugin ConsumerSmokeCompileTask explicit source file inputs."
+    }
+  ],
+  "deferredFindings": [
+    { "id": "R12-004", "severity": "P2", "status": "DEFERRED", "owner": "engine", "rationale": "Retained for 0.4.x standalone backwards compatibility; 0.6.0 documentation directs users to governedPolicyFor." },
+    { "id": "R12-005", "severity": "P2", "status": "DEFERRED", "owner": "security", "rationale": "DLP filters sanitize tool results before provider ingestion; PolicyEngine reinjection rules are scheduled for 0.7.0." },
+    { "id": "R12-006", "severity": "P2", "status": "DEFERRED", "owner": "observability", "rationale": "Sensitive headers and payloads are masked at the HTTP layer; exception-message redaction is scheduled for 0.7.0." },
+    { "id": "R12-007", "severity": "P2", "status": "DEFERRED", "owner": "testing", "rationale": "Official providers have dedicated exact-response tests; stricter shared ProviderTck content assertions are scheduled for 0.7.0." },
+    { "id": "R12-008", "severity": "P2", "status": "DEFERRED", "owner": "persistence", "rationale": "Roundtrip decryption is asserted in the current JDBC suite; raw ciphertext assertions are scheduled for 0.7.0." },
+    { "id": "R12-009", "severity": "P3", "status": "DEFERRED", "owner": "orchestration", "rationale": "Shell authorization fails closed at the executable boundary; argument-aware policies are an expressiveness enhancement for 0.7.0." },
+    { "id": "R12-010", "severity": "P3", "status": "DEFERRED", "owner": "persistence", "rationale": "The manifest test verifies deterministic canonical serialization; AST comparison is a resilience improvement for 0.7.0." },
+    { "id": "R12-011", "severity": "P3", "status": "DEFERRED", "owner": "orchestration", "rationale": "The shutdown test exercises graceful worker drain correctly; its historical class-name cleanup is scheduled for 0.7.0." },
+    { "id": "R12-012", "severity": "P3", "status": "DEFERRED", "owner": "docs", "rationale": "The provider change guide remains navigable and accurate; line-number refresh is scheduled for 0.7.0." },
+    { "id": "R12-013", "severity": "P3", "status": "DEFERRED", "owner": "docs", "rationale": "The store change guide remains accurate; line-number refresh is scheduled for 0.7.0." },
+    { "id": "R12-014", "severity": "P3", "status": "DEFERRED", "owner": "docs", "rationale": "The workflow-step change guide remains accurate; line-number refresh is scheduled for 0.7.0." },
+    { "id": "R12-015", "severity": "P3", "status": "DEFERRED", "owner": "docs", "rationale": "The structured-output change guide remains accurate; package-snippet refresh is scheduled for 0.7.0." }
+  ]
+}

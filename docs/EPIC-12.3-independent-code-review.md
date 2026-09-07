@@ -2,6 +2,8 @@
 
 **Status: AUDIT COMPLETE — DISPOSITION: READY_FOR_REMEDIATION**
 
+Remediation status is tracked separately in [`docs/evidence/12.3b-remediation-closure.json`](evidence/12.3b-remediation-closure.json).
+
 - **Audit Target:** `master` @ `2a44a1f3513ebeb4a62446ce6ce96616c9e480e4`
 - **Audit Date:** 2026-09-06
 - **Auditor Context:** Independent clean-slate audit team simulating the roadmap review profiles (Senior Kotlin/JVM Engineer, Distributed Systems Engineer, AppSec Engineer, Spring Boot Maintainer, OSS Contributor, Clean-Context AI Review Agent).
@@ -259,7 +261,7 @@ FINDINGS SUMMARY: 1 P0, 2 P1, 5 P2, 7 P3 (Total: 15 findings)
   FAILURE: Build failed with an exception.
   * What went wrong:
   A problem was found with the configuration of task ':examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility' (type 'ConsumerSmokeCompileTask').
-    - Gradle detected a problem with the following location: '/home/gionag/Development/tramai2/examples/kotlin-consumer-smoke'.
+    - Gradle detected a problem with the following location: '<repo-root>/examples/kotlin-consumer-smoke'.
       Reason: Task ':examples:kotlin-consumer-smoke:verifyKotlinConsumerCompatibility' uses this output of task ':examples:kotlin-consumer-smoke:compileKotlin' without declaring an explicit or implicit dependency. This can lead to incorrect results being produced, depending on what order the tasks are executed.
   ```
 - **Observable Risk:** Build validation and architecture verification fail when executed in strict mode or under clean Gradle 9.x daemon configurations.

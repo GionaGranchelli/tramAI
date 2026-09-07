@@ -112,6 +112,6 @@ fun myObserver(): SovereignOpsAuditOutboxWorkerObserver = MyObserver()
 
 ## See also
 
-- [Worker observability runbook](../../docs/operations/sovereign-ops-worker-observability-runbook.md) —
+- [Worker observability runbook](../docs/operations/sovereign-ops-worker-observability-runbook.md) —
   operator-facing documentation covering Actuator, Micrometer, and
   OpenTelemetry surfaces, PromQL queries, and troubleshooting flows.

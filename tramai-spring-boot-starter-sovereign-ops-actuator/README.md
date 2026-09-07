@@ -116,7 +116,7 @@ authorization layer (e.g., Spring Security).
 
 ## See also
 
-- [Worker observability runbook](../../docs/operations/sovereign-ops-worker-observability-runbook.md) —
+- [Worker observability runbook](../docs/operations/sovereign-ops-worker-observability-runbook.md) —
   operator-facing documentation covering the Actuator endpoint, Actuator
   health component, Micrometer metrics, OpenTelemetry metrics, PromQL queries, and
   troubleshooting flows.
