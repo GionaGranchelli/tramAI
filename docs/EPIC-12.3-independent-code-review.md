@@ -1,6 +1,8 @@
 # Epic 12.3 — Independent Code Review: Blind Release Audit
 
-**Status: AUDIT CLOSED — DISPOSITION: P0/P1 REMEDIATED, READY FOR 0.6.0 RELEASE**
+**Status: AUDIT COMPLETE — DISPOSITION: READY_FOR_REMEDIATION**
+
+Remediation status is tracked separately in [`docs/evidence/12.3b-remediation-closure.json`](evidence/12.3b-remediation-closure.json).
 
 - **Audit Target:** `master` @ `2a44a1f3513ebeb4a62446ce6ce96616c9e480e4`
 - **Audit Date:** 2026-09-06

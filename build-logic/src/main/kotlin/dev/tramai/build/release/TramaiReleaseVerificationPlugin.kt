@@ -17,39 +17,40 @@ import java.io.File
 class TramaiReleaseVerificationPlugin : Plugin<Project> {
     private val releaseRequiredAuthorities =
         listOf(
-            "check",
-            "spotlessCheck",
-            "verifyStaticAnalysis",
-            "verifyStaticSafetyGuards",
-            "verifyCompilerWarnings",
-            "verifyDependencyHygiene",
-            "verifyCancellationSafety",
-            "verify060Architecture",
-            "apiCheck",
-            "verifyMaintainabilityBaseline",
-            "verifyModuleManifest",
-            "verifyModuleMatrixDrift",
-            "verifyCriticalCoverage",
-            "verifyReleaseMutation",
-            "verifyJUnitTestSignatures",
-            "verifyChangePolicy",
-            "verifyPublicationMetadata",
-            "verifyPublishedLocalArtifacts",
-            "verifyVersionAlignment",
-            "verifySovereignRuntimeReleaseCandidate",
-            "verifySovereignRuntimeVerificationRepoClosure",
-            "verifySovereignRuntimeConsumerSmoke",
-            "verifySovereignDocumentIntelligenceEvidenceRun",
-            "verifySovereignRuntimeApiBoundary",
-            "verifySovereignRuntimeClosureDocs",
-            "verifySovereignOpsObservabilityDocs",
-            "verifySovereignEvidencePackContainsReleaseBundle",
-            "prepareSovereignReleaseArtifacts",
-            "verifySovereignReleaseManifest",
-            "verifyReleaseDocumentationIntegrity",
-            "verifyReleaseRequiredFiles",
-            "verifyAuditClosure",
-            "verify060ZeroEgress",
+            ":check",
+            ":spotlessCheck",
+            ":verifyStaticAnalysis",
+            ":verifyStaticSafetyGuards",
+            ":verifyCompilerWarnings",
+            ":verifyDependencyHygiene",
+            ":verifyCancellationSafety",
+            ":verify060Architecture",
+            ":apiCheck",
+            ":verifyMaintainabilityBaseline",
+            ":verifyModuleManifest",
+            ":verifyModuleMatrixDrift",
+            ":verifyCriticalCoverage",
+            ":verifyReleaseMutation",
+            ":verifyJUnitTestSignatures",
+            ":verifyChangePolicy",
+            ":verifyPublicationMetadata",
+            ":verifyPublishedLocalArtifacts",
+            ":verifyVersionAlignment",
+            ":verifySovereignRuntimeReleaseCandidate",
+            ":verifySovereignRuntimeVerificationRepoClosure",
+            ":verifySovereignRuntimeConsumerSmoke",
+            ":verifySovereignDocumentIntelligenceEvidenceRun",
+            ":examples:spring-sovereign-starter:e2eTest",
+            ":verifySovereignRuntimeApiBoundary",
+            ":verifySovereignRuntimeClosureDocs",
+            ":verifySovereignOpsObservabilityDocs",
+            ":verifySovereignEvidencePackContainsReleaseBundle",
+            ":prepareSovereignReleaseArtifacts",
+            ":verifySovereignReleaseManifest",
+            ":verifyReleaseDocumentationIntegrity",
+            ":verifyReleaseRequiredFiles",
+            ":verifyAuditClosure",
+            ":verify060ZeroEgress",
         )
 
     override fun apply(project: Project) {
@@ -561,7 +562,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                 }
                 val unscheduled =
                     releaseRequiredAuthorities.filterNot { authority ->
-                        project.gradle.taskGraph.hasTask(":$authority")
+                        project.gradle.taskGraph.hasTask(authority)
                     }
                 requireAuthoritiesScheduled(unscheduled)
                 printReleaseSummary(publishable.size)
@@ -618,8 +619,22 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
         task.dependsOn("prepareSovereignReleaseArtifacts")
         task.dependsOn("verifySovereignReleaseManifest")
 
-        if (project.findProject(":examples:spring-sovereign-starter") != null) {
-            task.dependsOn(":examples:spring-sovereign-starter:e2eTest")
+        task.doFirst {
+            val springProject =
+                project.findProject(":examples:spring-sovereign-starter")
+                    ?: throw GradleException(
+                        "verify060MaintainabilityRelease: required project " +
+                            "':examples:spring-sovereign-starter' is missing",
+                    )
+            if (springProject.tasks.findByName("e2eTest") == null) {
+                throw GradleException(
+                    "verify060MaintainabilityRelease: required task " +
+                        "':examples:spring-sovereign-starter:e2eTest' is missing",
+                )
+            }
+        }
+        project.findProject(":examples:spring-sovereign-starter")?.let { springProject ->
+            task.dependsOn(springProject.tasks.matching { it.name == "e2eTest" })
         }
     }
 

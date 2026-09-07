@@ -15,6 +15,7 @@ import java.io.IOException
 
 private const val EXACT_AUDIT_FINDINGS = 15
 private const val FINDING_ID_WIDTH = 3
+private const val HISTORICAL_AUDIT_TARGET_COMMIT = "2a44a1f3513ebeb4a62446ce6ce96616c9e480e4"
 private val P0P1_IDS = setOf("R12-001", "R12-002", "R12-003")
 private val EXPECTED_FINDING_IDS =
     (1..EXACT_AUDIT_FINDINGS).map { "R12-${it.toString().padStart(FINDING_ID_WIDTH, '0')}" }.toSet()
@@ -28,11 +29,32 @@ private fun validateAuditBlock(
             errors.add("12.3a findings: missing 'audit' block")
             return
         }
-    if (audit.get("status")?.asText().isNullOrBlank()) {
-        errors.add("12.3a audit.status must preserve a non-blank historical status")
+    val historicalFields =
+        mapOf(
+            "status" to "AUDIT_COMPLETE",
+            "disposition" to "READY_FOR_REMEDIATION",
+            "targetCommit" to HISTORICAL_AUDIT_TARGET_COMMIT,
+        )
+    historicalFields.forEach { (field, expected) ->
+        val actual = audit.get(field)?.asText().orEmpty()
+        if (actual != expected) {
+            errors.add("12.3a audit.$field must remain '$expected', found: '$actual'")
+        }
     }
-    if (audit.get("disposition")?.asText().isNullOrBlank()) {
-        errors.add("12.3a audit.disposition must preserve a non-blank historical disposition")
+
+    val verdicts =
+        root.get("verdicts") ?: run {
+            errors.add("12.3a findings: missing 'verdicts' block")
+            return
+        }
+    mapOf(
+        "q4_security_boundaries" to "PARTIAL",
+        "q5_safe_failures" to "PARTIAL",
+    ).forEach { (field, expected) ->
+        val actual = verdicts.get(field)?.asText().orEmpty()
+        if (actual != expected) {
+            errors.add("12.3a verdicts.$field must remain '$expected', found: '$actual'")
+        }
     }
 }
 

@@ -16,6 +16,10 @@ private val FIXTURE_AUDIT_FINDINGS =
         "disposition": "READY_FOR_REMEDIATION",
         "targetCommit": "2a44a1f3513ebeb4a62446ce6ce96616c9e480e4"
       },
+      "verdicts": {
+        "q4_security_boundaries": "PARTIAL",
+        "q5_safe_failures": "PARTIAL"
+      },
       "findings": [
         { "id": "R12-001", "severity": "P0", "releaseBlocking": true, "owner": "security" },
         { "id": "R12-002", "severity": "P1", "releaseBlocking": true, "owner": "persistence" },
@@ -122,6 +126,7 @@ class Release060VerificationTest {
             """
             rootProject.name = "sample-release"
             include("tramai-core")
+            include("examples:spring-sovereign-starter")
             """.trimIndent(),
         )
         writeFile(
@@ -147,6 +152,7 @@ class Release060VerificationTest {
             ),
         )
         seedFixtureCoreModule(dir)
+        seedFixtureSpringModule(dir)
     }
 
     private fun seedFixtureCoreModule(dir: File) {
@@ -184,6 +190,14 @@ class Release060VerificationTest {
             }
             tasks.register("publish")
             """.trimIndent(),
+        )
+    }
+
+    private fun seedFixtureSpringModule(dir: File) {
+        writeFile(
+            dir,
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            "",
         )
     }
 
@@ -303,11 +317,25 @@ class Release060VerificationTest {
             }
         }
 
+        project(":examples:spring-sovereign-starter").tasks.register("e2eTest") {
+            doLast { println("Executed stub: e2eTest") }
+        }
+
+        layout.buildDirectory.dir("fake-m2/repository/dev/tramai").get().asFile.mkdirs()
+
         // Isolate mavenLocal
         tasks.named<dev.tramai.build.sovereign.VerifySovereignSignedBundleTask>(
             "verifySovereignRuntimeSignedBundle",
         ) {
             mavenLocalRepositoryDirectory.set(
+                layout.buildDirectory.dir("fake-m2/repository/dev/tramai"),
+            )
+        }
+
+        tasks.named<dev.tramai.build.release.VerifyPublishedArtifactsTask>(
+            "verifyPublishedLocalArtifacts",
+        ) {
+            repositoryDirectory.set(
                 layout.buildDirectory.dir("fake-m2/repository/dev/tramai"),
             )
         }
@@ -340,6 +368,17 @@ class Release060VerificationTest {
         val file = File(dir, "docs/evidence/12.3b-remediation-closure.json")
         val original = file.readText()
         check(from in original) { "closure fixture mutation target not found: $from" }
+        file.writeText(original.replace(from, to))
+    }
+
+    private fun mutateAudit(
+        dir: File,
+        from: String,
+        to: String,
+    ) {
+        val file = File(dir, "docs/evidence/12.3a-independent-review-findings.json")
+        val original = file.readText()
+        check(from in original) { "audit fixture mutation target not found: $from" }
         file.writeText(original.replace(from, to))
     }
 
@@ -376,6 +415,7 @@ class Release060VerificationTest {
                 ":verifySovereignRuntimeVerificationRepoClosure",
                 ":verifySovereignRuntimeConsumerSmoke",
                 ":verifySovereignDocumentIntelligenceEvidenceRun",
+                ":examples:spring-sovereign-starter:e2eTest",
                 ":verifySovereignRuntimeApiBoundary",
                 ":verifySovereignRuntimeClosureDocs",
                 ":verifySovereignOpsObservabilityDocs",
@@ -463,6 +503,14 @@ class Release060VerificationTest {
     fun `V-AUDIT complete closure register passes with exact cross references`() {
         val result = runner(baseFixture(), "verifyAuditClosure").build()
         assertTrue(result.output.contains("verified all P0/P1 audit findings CLOSED"))
+    }
+
+    @Test
+    fun `M-AUDIT historical audit disposition mutation fails closed`() {
+        val dir = baseFixture()
+        mutateAudit(dir, "\"status\": \"AUDIT_COMPLETE\"", "\"status\": \"CLOSED\"")
+        val result = runner(dir, "verifyAuditClosure").buildAndFail()
+        assertTrue(result.output.contains("12.3a audit.status must remain 'AUDIT_COMPLETE'"))
     }
 
     @Test
@@ -862,6 +910,15 @@ class Release060VerificationTest {
                     }
                 }
             }
+            project(":examples:spring-sovereign-starter").tasks.named("e2eTest") {
+                setDependsOn(emptyList<String>())
+                actions.clear()
+                doLast {
+                    val marker = markerDir.get().asFile.resolve("spring-e2eTest.marker")
+                    marker.parentFile.mkdirs()
+                    marker.writeText("executed")
+                }
+            }
             $removal
             """.trimIndent()
     }
@@ -901,6 +958,7 @@ class Release060VerificationTest {
                 "verifySovereignRuntimeVerificationRepoClosure",
                 "verifySovereignRuntimeConsumerSmoke",
                 "verifySovereignDocumentIntelligenceEvidenceRun",
+                "spring-e2eTest",
                 "verifySovereignRuntimeApiBoundary",
                 "verifySovereignRuntimeClosureDocs",
                 "verifySovereignOpsObservabilityDocs",
