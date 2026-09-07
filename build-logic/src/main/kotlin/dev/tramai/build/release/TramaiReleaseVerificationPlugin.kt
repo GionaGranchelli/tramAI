@@ -439,6 +439,7 @@ class TramaiReleaseVerificationPlugin : Plugin<Project> {
                         "*/build/**",
                         "examples/*/build/**",
                         "build-logic/build/**",
+                        "tramai-dashboard/src/main/frontend/dist/**",
                         "**/.gradle/**",
                         "**/node_modules/**",
                         "**/vendor/**",
