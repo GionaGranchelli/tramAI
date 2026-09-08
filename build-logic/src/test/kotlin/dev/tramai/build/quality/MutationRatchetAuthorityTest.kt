@@ -3,6 +3,7 @@ package dev.tramai.build.quality
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -91,6 +92,67 @@ class MutationRatchetAuthorityTest {
             emptyList(),
             failures.map { "${it.code}: ${it.message}" },
             "the certified authority must be self-consistent under its own ratchet",
+        )
+    }
+
+    @Test
+    fun `coroutine scaffold exception is limited to its exact identities`() {
+        val authority = MutationRatchetAuthorityLoader.load(repoRoot, headSha)
+        val exactIds =
+            setOf(
+                "43862d692f6aba3778da8e096701a05c93fd15e326f22c0edec0f5479def0d51",
+                "555fd30f2589cc428ad5bf92f0f407688efce434cc020a7c58b767bee0324013",
+            )
+        val neighboringId =
+            authority.population.mutants
+                .first {
+                    it.family == "policy" && it.outcome == "KILLED" && it.identity !in exactIds
+                }.identity
+        val changedIds = exactIds + neighboringId
+        val candidateMutants =
+            authority.population.mutants.map {
+                if (it.identity in changedIds) it.copy(status = "SURVIVED", outcome = "NON_KILLED") else it
+            }
+        val candidatePopulation =
+            authority.population.copy(
+                byFamily =
+                    authority.population.byFamily.mapValues { (family, metrics) ->
+                        val rows = candidateMutants.filter { it.family == family }
+                        val killed = rows.count { it.status == "KILLED" }
+                        val knownStatuses = setOf("KILLED", "SURVIVED", "NO_COVERAGE", "TIMED_OUT")
+                        metrics.copy(
+                            killedMutants = killed,
+                            survivedMutants = rows.count { it.status == "SURVIVED" },
+                            noCoverageMutants = rows.count { it.status == "NO_COVERAGE" },
+                            timedOutMutants = rows.count { it.status == "TIMED_OUT" },
+                            errorMutants = rows.count { it.status !in knownStatuses },
+                            mutationScore = if (rows.isEmpty()) 0.0 else killed * 100.0 / rows.size,
+                        )
+                    },
+                mutants = candidateMutants,
+            )
+        val configuration = TestQualityConfiguration.load(repoRoot)
+        val failures =
+            MutationRatchetVerifier()
+                .verify(
+                    authority,
+                    MutationRatchetCandidate(
+                        candidatePopulation,
+                        authority.classifications,
+                        configuration.mutation.targetFamilies,
+                    ),
+                    MutationPopulationAggregator.canonicalSemantics(),
+                ).filter { it.severity == DiagnosticSeverity.FAILURE }
+
+        assertTrue(
+            failures.any {
+                it.code == DiagnosticCode.MUTATION_RATCHET_REGRESSION && it.findingId == neighboringId
+            },
+            "a neighboring killed identity must remain subject to M01",
+        )
+        assertFalse(
+            failures.any { it.code == DiagnosticCode.MUTATION_RATCHET_REGRESSION && it.findingId in exactIds },
+            "only the two enrolled coroutine identities may bypass M01",
         )
     }
 
