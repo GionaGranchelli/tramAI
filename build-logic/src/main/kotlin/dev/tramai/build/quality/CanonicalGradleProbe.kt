@@ -243,6 +243,7 @@ class CanonicalGradleProbe(
                     listOf(
                         "--init-script",
                         mutationInitScript.absolutePath,
+                        "--no-parallel",
                         "-PtramaiMutationFamily=$family",
                         "canonicalMutationProbe",
                     ),

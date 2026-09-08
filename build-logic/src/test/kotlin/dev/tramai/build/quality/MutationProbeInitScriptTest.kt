@@ -78,4 +78,18 @@ class MutationProbeInitScriptTest {
         assertContains(script, "classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:$pluginVersion'")
         assertContains(script, "rootProject.tasks.register('canonicalMutationProbe')")
     }
+
+    @Test
+    fun `canonical mutation invocations disable parallel execution`() {
+        val plugin = File("src/main/kotlin/dev/tramai/build/quality/MaintainabilityBaselinePlugin.kt").readText()
+        val probe = File("src/main/kotlin/dev/tramai/build/quality/CanonicalGradleProbe.kt").readText()
+
+        assertMutationInvocationIsNonParallel(plugin)
+        assertMutationInvocationIsNonParallel(probe)
+    }
+
+    private fun assertMutationInvocationIsNonParallel(source: String) {
+        val invocation = source.substringBefore("\"canonicalMutationProbe\"").substringAfterLast("listOf(")
+        assertContains(invocation, "\"--no-parallel\"")
+    }
 }

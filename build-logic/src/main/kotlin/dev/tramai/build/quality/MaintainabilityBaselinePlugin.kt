@@ -1505,6 +1505,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 request.project,
                 listOf(
                     "--rerun-tasks",
+                    "--no-parallel",
                     "--init-script",
                     initScript.absolutePath,
                     "-PtramaiMutationFamily=$family",
