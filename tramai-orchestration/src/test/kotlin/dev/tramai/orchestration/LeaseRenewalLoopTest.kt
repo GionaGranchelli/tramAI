@@ -1,12 +1,14 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -18,29 +20,42 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 
 class LeaseRenewalLoopTest {
-
-    private val config = WorkerConfig(
-        workerId = "renew-test",
-        poolName = "tests",
-        pollIntervalMillis = 20,
-        leaseDurationMillis = 60,
-        drainTimeoutMillis = 1_000,
-    )
+    private val config =
+        WorkerConfig(
+            workerId = "renew-test",
+            poolName = "tests",
+            pollIntervalMillis = 20,
+            leaseDurationMillis = 60,
+            drainTimeoutMillis = 1_000,
+        )
 
     private class RecordingObserver : TramaiWorkerObserver {
         val renewed = CopyOnWriteArrayList<String>()
         val expired = CopyOnWriteArrayList<String>()
         val renewalFailed = CopyOnWriteArrayList<String>()
+        val firstRenewal = CompletableDeferred<Unit>()
 
-        override fun onLeaseRenewed(workflowId: String, workerId: String, newExpiry: Long) {
+        override fun onLeaseRenewed(
+            workflowId: String,
+            workerId: String,
+            newExpiry: Long,
+        ) {
             renewed += workflowId
+            firstRenewal.complete(Unit)
         }
 
-        override fun onLeaseExpired(workflowId: String, workerId: String) {
+        override fun onLeaseExpired(
+            workflowId: String,
+            workerId: String,
+        ) {
             expired += workflowId
         }
 
-        override fun onLeaseRenewalFailed(workflowId: String, workerId: String, error: Throwable) {
+        override fun onLeaseRenewalFailed(
+            workflowId: String,
+            workerId: String,
+            error: Throwable,
+        ) {
             renewalFailed += workflowId
         }
     }
@@ -49,28 +64,33 @@ class LeaseRenewalLoopTest {
         store: WorkflowLeaseStore,
         observer: RecordingObserver,
         lease: WorkflowLease,
-    ): ActiveExecution = ActiveExecution(
-        workflowName = lease.workflowName,
-        workflowId = lease.workflowId,
-        lease = AtomicReference(lease),
-    )
+    ): ActiveExecution =
+        ActiveExecution(
+            workflowName = lease.workflowName,
+            workflowId = lease.workflowId,
+            lease = AtomicReference(lease),
+        )
 
-    private fun lease(): WorkflowLease = WorkflowLease(
-        workflowName = "wf",
-        workflowId = "w-1",
-        leaseId = "l-1",
-        ownerId = "renew-test",
-        checkpointRevision = 1L,
-        acquiredAtEpochMillis = 0L,
-        expiresAtEpochMillis = 60L,
-    )
+    private fun lease(): WorkflowLease =
+        WorkflowLease(
+            workflowName = "wf",
+            workflowId = "w-1",
+            leaseId = "l-1",
+            ownerId = "renew-test",
+            checkpointRevision = 1L,
+            acquiredAtEpochMillis = 0L,
+            expiresAtEpochMillis = 60L,
+        )
 
     private class RecordingLeaseStore(
         private val renewBehavior: (WorkflowLease, Long?) -> WorkflowLease,
     ) : WorkflowLeaseStore {
         val renewCalls = CopyOnWriteArrayList<Pair<String, Long?>>()
 
-        override suspend fun currentLease(workflowName: String, workflowId: String): WorkflowLease? = null
+        override suspend fun currentLease(
+            workflowName: String,
+            workflowId: String,
+        ): WorkflowLease? = null
 
         override suspend fun claim(
             workflowName: String,
@@ -101,13 +121,11 @@ class LeaseRenewalLoopTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val job = scope.launch { loop.renew(handle) }
         runBlocking {
-            withTimeout(5_000) {
-                while (observer.renewed.isEmpty()) delay(5)
-            }
+            withTimeout(5_000) { observer.firstRenewal.await() }
+            job.cancelAndJoin()
         }
         assertThat(handle.lease.get()?.expiresAtEpochMillis).isGreaterThan(60L)
         assertThat(observer.renewed).containsExactly("w-1")
-        job.cancel()
         scope.cancel()
     }
 
@@ -116,9 +134,10 @@ class LeaseRenewalLoopTest {
         val store = RecordingLeaseStore { lease, _ -> lease.copy(expiresAtEpochMillis = lease.expiresAtEpochMillis + 60) }
         val observer = RecordingObserver()
         val loop = LeaseRenewalLoop(config, store, observer)
-        val handle = handle(store, observer, lease()).apply {
-            lastRevision.set(42L)
-        }
+        val handle =
+            handle(store, observer, lease()).apply {
+                lastRevision.set(42L)
+            }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val job = scope.launch { loop.renew(handle) }
         runBlocking {
@@ -136,9 +155,10 @@ class LeaseRenewalLoopTest {
         val store = RecordingLeaseStore { lease, _ -> lease }
         val observer = RecordingObserver()
         val loop = LeaseRenewalLoop(config, store, observer)
-        val handle = handle(store, observer, lease()).apply {
-            lease.set(null)
-        }
+        val handle =
+            handle(store, observer, lease()).apply {
+                lease.set(null)
+            }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val job = scope.launch { loop.renew(handle) }
         runBlocking {
