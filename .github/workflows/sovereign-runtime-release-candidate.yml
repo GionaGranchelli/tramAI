@@ -181,8 +181,9 @@ jobs:
             --baseline config/quality/performance/0.6.0-performance-baseline.json \
             --runs '**/build/reports/benchmark/*.json' \
             --expected-commit "${{ github.sha }}" \
-            --repo-root . --summary \
-            > build/performance-regression-report.json 2>&1
+            --repo-root . \
+            > build/performance-regression-report.json \
+            2> build/performance-regression-verifier.stderr.log
           code=$?
           set -e
           python3 - <<'EOF'
@@ -207,7 +208,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: performance-regression-report
-          path: build/performance-regression-report.json
+          path: |
+            build/performance-regression-report.json
+            build/performance-regression-verifier.stderr.log
           if-no-files-found: warn
 
       - name: Write Summary

@@ -303,5 +303,18 @@ class EndToEndConfirmTest(unittest.TestCase):
             self.assertEqual(report["operations"]["B01-service-proxy-creation"]["classification"], v.INCONCLUSIVE)
 
 
+class ReleaseCandidateWorkflowOutputTest(unittest.TestCase):
+    def test_regression_report_redirects_only_verifier_json_stdout(self):
+        workflow = (Path(__file__).parents[1] /
+                    ".github/workflows/sovereign-runtime-release-candidate.yml").read_text()
+        start = workflow.index("python3 scripts/performance_regression_verifier.py verify")
+        command = workflow[start:workflow.index("code=$?", start)]
+
+        self.assertNotIn("--summary", command)
+        self.assertNotIn("2>&1", command)
+        self.assertIn("> build/performance-regression-report.json \\", command)
+        self.assertIn("2> build/performance-regression-verifier.stderr.log", command)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
