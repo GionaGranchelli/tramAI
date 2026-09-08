@@ -3,6 +3,7 @@ package dev.tramai.engine
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -14,6 +15,7 @@ class PolicyEnforcementHelperCoroutineTest {
     @Test
     fun `evaluate resumes a genuinely suspending policy engine`() {
         runBlocking {
+            var emittedDecision: PolicyDecision? = null
             val helper =
                 PolicyEnforcementHelper(
                     policyEngine =
@@ -22,9 +24,20 @@ class PolicyEnforcementHelperCoroutineTest {
                             PolicyDecision.Allow
                         },
                     migrationWarningGuard = AtomicBoolean(true),
+                    auditEmitter =
+                        object : PolicyDecisionAuditEmitter {
+                            override suspend fun emit(
+                                enforcementPoint: EnforcementPoint,
+                                context: PolicyContext,
+                                decision: PolicyDecision,
+                            ) {
+                                emittedDecision = decision
+                            }
+                        },
                 )
 
             assertThat(helper.evaluate(testContext())).isEqualTo(PolicyDecision.Allow)
+            assertThat(emittedDecision).isEqualTo(PolicyDecision.Allow)
         }
     }
 
