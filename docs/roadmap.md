@@ -1,7 +1,6 @@
 # Roadmap
 
-> **This page has moved.** The current project roadmap is at [ROADMAP.md](../ROADMAP.md) in the repository root. This page is preserved for historical reference only.
+> **Current roadmap:** [TramAI 0.7.0 → 0.10.0](LONG-TERM-ROADMAP-0.7-0.10.md)  
+> **Active release:** [TramAI 0.7.0 — Governed AI Control Plane](ROADMAP-0.7.0-RELEASE-CUT.md)
 
----
-
-*Below is the original roadmap from early development phases, superseded by the [Sovereign Milestone Roadmap](../ROADMAP.md).*
+The canonical roadmap index is [`ROADMAP.md`](../ROADMAP.md) in the repository root. Historical roadmap documents are retained for context but do not override the current release ownership defined there.
