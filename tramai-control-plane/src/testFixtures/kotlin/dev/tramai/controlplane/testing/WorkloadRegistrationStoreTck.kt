@@ -354,10 +354,11 @@ abstract class WorkloadRegistrationStoreTck {
 
 /**
  * Runs the contenders against each other on Dispatchers.Default, releasing
- * them simultaneously once all are parked. Two plain `async` calls inside
- * `runBlocking` do NOT run concurrently — runBlocking's event loop is
- * single-threaded — so the ready/release handshake is mandatory for a real
- * race.
+ * them simultaneously once all are parked. The ready/release handshake is
+ * mandatory for a REAL race: `async { ... }` inside `runBlocking` inherits the
+ * single-threaded runBlocking event loop and would serialize the contenders,
+ * but `async(Dispatchers.Default)` genuinely runs them on the shared pool —
+ * the release gate only guarantees they START together.
  */
 public suspend fun <T> runInParallel(vararg contenders: suspend () -> T): List<T> =
     coroutineScope {
