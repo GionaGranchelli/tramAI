@@ -90,7 +90,9 @@ class TramaiPublishingPlugin : Plugin<Project> {
                     snapshotRepositoryUrl,
                 )
 
-            if (catalogEntry?.publishability == ModulePublishability.PUBLISHED && !targetRepositoryUrl.isNullOrBlank()) {
+            if (catalogEntry?.publishability == ModulePublishability.PUBLISHED &&
+                !targetRepositoryUrl.isNullOrBlank()
+            ) {
                 repositories {
                     maven {
                         name = TramaiPublishingRepositories.TRAMAI_REMOTE_NAME

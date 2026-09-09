@@ -53,41 +53,7 @@ class TramaiPublishingPluginTest {
             group=dev.tramai
             """.trimIndent(),
         )
-        // The module catalog is the single publishability authority (9.2d-b1):
-        // publishability-sensitive fixtures must carry a minimal valid catalog
-        // instead of relying on production fail-open behavior. `:sample` is
-        // declared internal so the fixture keeps the no-sovereign-repo / no-
-        // description semantics of the original no-catalog fixtures. Tests
-        // that need a published `:sample` opt into it explicitly.
-        val catalogFile = File(dir, "config/quality/module-catalog.yml")
-        if (!catalogFile.isFile) {
-            val catalogDescription =
-                if (publishability == "published") {
-                    "description: \"Fixture published module.\""
-                } else {
-                    ""
-                }
-            writeFile(
-                dir,
-                "config/quality/module-catalog.yml",
-                """
-                schemaVersion: "3"
-                dependencyPolicies:
-                  core: { allowedLayers: [core-contracts, testing-support] }
-                entryDefaults:
-                  core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
-                  published: &published { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture published module." }
-                  internal: &internal { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: core, releaseInclusion: internal_only, rationale: "Fixture internal module." }
-                modules:
-                  - path: ":sample"
-                    <<: ${if (publishability == "published") "*published" else "*internal"}
-                    layer: core-contracts
-                    publishability: $publishability
-                    apiStability: ${if (publishability == "published") "stable" else "internal"}
-                    $catalogDescription
-                """.trimIndent(),
-            )
-        }
+        writeSingleProjectCatalog(dir, publishability)
         writeFile(
             dir,
             "build.gradle.kts",
@@ -108,6 +74,35 @@ class TramaiPublishingPluginTest {
             """.trimIndent(),
         )
         return dir
+    }
+
+    private fun writeSingleProjectCatalog(
+        dir: File,
+        publishability: String,
+    ) {
+        val catalogFile = File(dir, "config/quality/module-catalog.yml")
+        if (catalogFile.isFile) return
+        val catalogDescription = if (publishability == "published") "description: \"Fixture published module.\"" else ""
+        writeFile(
+            dir,
+            "config/quality/module-catalog.yml",
+            """
+            schemaVersion: "3"
+            dependencyPolicies:
+              core: { allowedLayers: [core-contracts, testing-support] }
+            entryDefaults:
+              core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
+              published: &published { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture published module." }
+              internal: &internal { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: core, releaseInclusion: internal_only, rationale: "Fixture internal module." }
+            modules:
+              - path: ":sample"
+                <<: ${if (publishability == "published") "*published" else "*internal"}
+                layer: core-contracts
+                publishability: $publishability
+                apiStability: ${if (publishability == "published") "stable" else "internal"}
+                $catalogDescription
+            """.trimIndent(),
+        )
     }
 
     private fun runner(
