@@ -42,7 +42,7 @@ See [`WAY-OF-WORKING.md`](WAY-OF-WORKING.md).
 
 | Epic | Outcome | Dependency | Status |
 |---|---|---|---|
-| [0.7.1](EPIC-0.7.1-CONTROL-PLANE-AUTHORITY.md) | Authoritative control-plane/workload identity boundary | — | ⚪ Planned |
+| [0.7.1](EPIC-0.7.1-CONTROL-PLANE-AUTHORITY.md) | Authoritative control-plane/workload identity boundary | — | 🟡 Active |
 | [0.7.2](EPIC-0.7.2-POLICY-TRUST-ZONES.md) | Classification-before-exposure, named trust topology, restrictive policy | 0.7.1 soft | ⚪ Planned |
 | [0.7.3](EPIC-0.7.3-AUTHORIZED-SELECTION.md) | Explainable authorized/viable/selected provider-model decision | 0.7.2 hard | ⚪ Planned |
 | [0.7.4](EPIC-0.7.4-EVIDENCE-PROJECTION.md) | Typed governance evidence + authoritative read model/query API | 0.7.1 hard; 0.7.2/3 soft | ⚪ Planned |

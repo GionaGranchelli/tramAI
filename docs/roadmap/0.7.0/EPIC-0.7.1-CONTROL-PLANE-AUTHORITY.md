@@ -1,7 +1,7 @@
 # Epic 0.7.1 — Control-Plane Authority & Workload Identity
 
 **Branch:** `epic/0.7.1-control-plane-authority`  
-**Status:** ⚪ Planned  
+**Status:** 🟡 Active — 0.7.1a audit recorded in [TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md](TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md)
 **Dependencies:** NONE
 
 ## Executive decision
