@@ -40,6 +40,7 @@ by this audit alone.
 | HTTP run record | `tramai-server` `WorkflowRunStore` | No; in-memory map | `workflowId` UUID, workflow name | Current server query/cancel authority is separate from durable checkpoint authority. |
 | Orchestration context | `tramai-orchestration` `WorkflowContext` | Only through checkpoint metadata where supplied | `workflowId` plus untyped attributes | Carries run identity, but no workload/configuration/environment/deployment identity. |
 | Worker execution | `WorkflowExecutionSupervisor`, leases, checkpoint store | Checkpoint/lease stores can be durable | checkpoint `workflowName` + `workflowId`, definition-version metadata | Worker fencing and revision protection exist; control-plane workload identity is absent. |
+| Scheduling | `WorkflowSchedulerStore` with JDBC/in-memory scheduler stores | Yes where JDBC-backed | `scheduleId`, `workflowName`, tick IDs, run IDs, delay-wakeup run/step IDs | Schedule/tick identity is not bound to authoritative workload/configuration/deployment identity; scheduled runs must inherit the workload identity contract rather than create a parallel identity. |
 | Engine invocation | `tramai-engine` `EngineExecutionIdentity` | Suspended invocation stores may be durable | `workflowRunId`, correlation ID, workflow digest, policy version, actor | Strong invocation/resume identity, but it is not linked to a registered workload or deployment. |
 | Approval authority | `ApprovalStore` and `ApprovalContinuationStore`; `ApprovalBinding` | Implementations vary; file/JDBC exist | workflow run, tool, argument digest, policy version, workflow digest | Binding is fail-closed and version-aware, but has no workload/configuration identity. |
 | Policy authority | `DefaultPolicyEngine` over `PolicyConfiguration` | Configuration only | model/provider/tool and classification context | Policy is runtime-authoritative, but scope is not workload/environment composable yet. |
@@ -118,10 +119,20 @@ Define and validate one minimal contract with these semantic fields:
 |---|---|
 | `workloadId` | Stable and non-blank; unique within the supported authority domain. |
 | `configurationId` / version | Identifies the governed configuration, not only a display name. |
-| `environmentId` / deployment identity | Prevents distinct deployments from collapsing into one workload. |
+| `environmentId` | Logical governance environment (e.g. dev/staging/production or tenant-specific environment). |
+| `deploymentId` | Identity of one independently distinguishable deployment of a workload/configuration in that environment; distinct deployments must not collapse to one identity even within the same environment. |
 | `runId` | One immutable run identity; resume reuses it. |
 | owner/purpose metadata | Safe, bounded, non-sensitive metadata required by the supported profile. |
-| lifecycle version | Monotonic authoritative version for stale command protection. |
+
+The monotonic lifecycle version required by 0.7.1 for stale-command protection is
+a property of the authoritative mutable state record, not of immutable run
+identity. It must therefore be derived only after 0.7.1c establishes the
+authoritative state owner and finalized through 0.7.1e — it is not part of the
+0.7.1b identity contract. Whether the lifecycle version lives on the identity
+record or on a separate authoritative lifecycle state is an 0.7.1c/e design
+decision; keeping identity immutable and versioned state separate avoids
+polluting evidence, approvals, and checkpoints with an unrelated concurrency
+counter.
 
 The exact names and module placement are deliberately left to 0.7.1b after
 checking public API and module-boundary impact. A nullable or arbitrary
@@ -149,10 +160,14 @@ These are real gaps but belong to later candidates or Epics:
   — checkpoint identity, optimistic revisions, generations, and persistence SPI.
 - `tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/WorkflowExecutionSupervisor.kt`
   — worker ownership, lease fencing, checkpoint resume, and active execution map.
+- `tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/WorkflowSchedulerStore.kt`
+  — schedule records, tick claims, delay wakeups, and the JDBC/in-memory store boundary.
 - `tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRegistry.kt`
   — process-local registration and definition-version lookup.
 - `tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRunStore.kt`
   — process-local run records, query, cancel, resume, and SSE state.
+- `tramai-server/src/main/kotlin/dev/tramai/server/ScheduleController.kt`
+  — exposed schedule query/control surface over the scheduler store.
 - `tramai-engine/src/main/kotlin/dev/tramai/engine/EngineExecutionIdentity.kt`
   — engine run/correlation/policy/actor identity.
 - `tramai-engine/src/main/kotlin/dev/tramai/engine/SuspendedInvocationStore.kt`
@@ -169,5 +184,5 @@ These are real gaps but belong to later candidates or Epics:
 - this audit is reviewed against the 0.7.1 Epic acceptance criteria;
 - 0.7.1b derives the identity contract from this map;
 - no implementation is started from an invented parallel authority;
-- no baseline, analyzer, deviation, or CI gate changes are required for this
+- no baseline, analyzer, deviation, or CI gate changes are expected for this
   documentation-only candidate.
