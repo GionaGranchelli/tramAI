@@ -54,7 +54,7 @@ Spring, Jackson, the dashboard and JDBC are all absent from the new module.
 
 The same store contract runs against both implementations via
 `WorkloadRegistrationStoreTck` (testFixtures of `tramai-control-plane`):
-17 contract cases per store, including the same-environment/different-deployment
+19 contract cases per store, including the same-environment/different-deployment
 invariant, global configuration-rebinding rejection, stale-CAS rejection and a
 real concurrency race (5 iterations, ready/release handshake on
 `Dispatchers.Default`). JDBC runners execute the full migration chain
@@ -73,9 +73,9 @@ or add arbitrary metadata maps.
 ## Verification
 
 - `./gradlew :tramai-control-plane:test` — passed (26 authority-rule tests,
-  17 InMemory TCK cases).
+  19 InMemory TCK cases).
 - `./gradlew :tramai-persistence-jdbc:test --tests "*WorkloadRegistration*"` —
-  passed (17 JDBC TCK cases + 5 JDBC-specific tests).
+  passed (19 JDBC TCK cases + 5 JDBC-specific tests).
 - `./gradlew :tramai-control-plane:apiDump :tramai-persistence-jdbc:apiDump` —
   additive.
 - `./gradlew spotlessApply` / `spotlessCheck` — passed.

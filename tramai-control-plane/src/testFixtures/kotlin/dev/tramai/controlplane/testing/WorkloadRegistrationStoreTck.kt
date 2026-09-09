@@ -307,6 +307,47 @@ abstract class WorkloadRegistrationStoreTck {
             assertThat(current(registration)).isEqualTo(updated)
         }
 
+    @Test
+    fun `compareAndSet rejects expected with a fabricated configuration for the scope`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            // Same scope + version, but the expected claims a DIFFERENT
+            // configuration than the stored authoritative record: the
+            // immutable witness must fail the CAS even though the version
+            // token matches.
+            val fabricatedConfiguration =
+                registration.copy(
+                    identity = WorkloadRegistrationFixtures.identity(configurationVersion = "18"),
+                )
+            val updated =
+                fabricatedConfiguration.copy(stateVersion = WorkloadStateVersion(2))
+
+            assertThat(store.compareAndSet(fabricatedConfiguration, updated)).isFalse()
+            assertThat(current(registration)).isEqualTo(registration)
+        }
+
+    @Test
+    fun `compareAndSet rejects expected with a fabricated fingerprint for the scope`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            // Same scope + version + configuration, but the expected claims a
+            // DIFFERENT fingerprint: the immutable witness must fail the CAS.
+            val fabricatedFingerprint =
+                registration.copy(
+                    configurationFingerprint =
+                        WorkloadRegistrationFixtures.fingerprint(value = "sha256:ffff"),
+                )
+            val updated =
+                fabricatedFingerprint.copy(stateVersion = WorkloadStateVersion(2))
+
+            assertThat(store.compareAndSet(fabricatedFingerprint, updated)).isFalse()
+            assertThat(current(registration)).isEqualTo(registration)
+        }
+
     // ── Concurrency ─────────────────────────────────────────────────
 
     @Test

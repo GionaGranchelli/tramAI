@@ -33,11 +33,19 @@ interface WorkloadRegistrationStore {
 
     /**
      * Atomically replaces the record stored at [expected]'s deployment scope
-     * with [updated] iff the stored record still carries [expected]'s state
-     * version — deployment scope + state version are the CAS concurrency
-     * token. Mutable fields carried by [expected] (metadata, lifecycle) are
-     * not re-verified; only the token is. Returns false when the scope is
-     * absent or the stored version has moved on.
+     * with [updated] iff:
+     *
+     * - the stored record still carries [expected]'s state version
+     *   (deployment scope + state version are the CAS concurrency token), AND
+     * - the stored immutable authority matches the witness carried by
+     *   [expected] — identity and configuration fingerprint. A caller that
+     *   fabricated a different configuration or fingerprint for the scope
+     *   must not gain mutation authority merely by guessing the version.
+     *
+     * Mutable fields carried by [expected] (metadata, lifecycle) are not
+     * re-verified; only the token and the immutable witness are. Returns
+     * false when the scope is absent, the stored version has moved on, or the
+     * stored immutable authority differs from [expected]'s.
      *
      * The immutable portion — identity and configuration fingerprint — must
      * match between [expected] and [updated]; implementations reject a

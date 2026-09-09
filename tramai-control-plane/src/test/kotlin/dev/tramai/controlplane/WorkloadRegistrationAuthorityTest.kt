@@ -452,7 +452,7 @@ class WorkloadRegistrationAuthorityTest {
      * ever calling next(); only a genuine mutation may attempt (and fail
      * closed on) the overflow.
      */
-    private suspend fun seedAtMaxVersion(lifecycle: WorkloadLifecycleState = WorkloadLifecycleState.ACTIVE): RegisteredWorkload {
+    private suspend fun seedAtMax(lifecycle: WorkloadLifecycleState): RegisteredWorkload {
         val seeded =
             WorkloadRegistrationFixtures.registration(
                 identity = identity,
@@ -468,7 +468,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `metadata update at MAX version with identical metadata is unchanged and does not overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion()
+            seedAtMax(WorkloadLifecycleState.ACTIVE)
 
             val outcome =
                 authority.updateMetadata(
@@ -486,7 +486,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `metadata update at MAX version with stale expected version is stale and does not overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion()
+            seedAtMax(WorkloadLifecycleState.ACTIVE)
 
             val outcome =
                 authority.updateMetadata(
@@ -508,7 +508,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `metadata update at MAX version with a genuine change fails closed on overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion()
+            seedAtMax(WorkloadLifecycleState.ACTIVE)
 
             val failure =
                 runCatching {
@@ -530,7 +530,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `lifecycle transition at MAX version to the same state is unchanged and does not overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion()
+            seedAtMax(WorkloadLifecycleState.ACTIVE)
 
             val outcome =
                 authority.transitionLifecycle(
@@ -548,7 +548,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `lifecycle transition at MAX version from RETIRED is invalid and does not overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion(lifecycle = WorkloadLifecycleState.RETIRED)
+            seedAtMax(WorkloadLifecycleState.RETIRED)
 
             val outcome =
                 authority.transitionLifecycle(
@@ -571,7 +571,7 @@ class WorkloadRegistrationAuthorityTest {
     @Test
     fun `lifecycle transition at MAX version with a genuine change fails closed on overflow`() =
         runBlocking<Unit> {
-            seedAtMaxVersion()
+            seedAtMax(WorkloadLifecycleState.ACTIVE)
 
             val failure =
                 runCatching {

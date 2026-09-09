@@ -210,7 +210,10 @@ class JdbcWorkloadRegistrationStore(
                     statement.setString(index++, expected.identity.workloadId.value)
                     statement.setString(index++, expected.identity.environmentId.value)
                     statement.setString(index++, expected.identity.deploymentId.value)
-                    statement.setLong(index, expected.stateVersion.value)
+                    statement.setString(index++, expected.identity.configuration.id.value)
+                    statement.setString(index++, expected.identity.configuration.version.value)
+                    statement.setLong(index++, expected.stateVersion.value)
+                    statement.setString(index, expected.configurationFingerprint.value)
                     statement.executeUpdate() == 1
                 }
             }
@@ -317,7 +320,15 @@ private const val UPDATE_WORKLOAD_REGISTRATION =
     UPDATE tramai_workload_registration
     SET owner = ?, purpose = ?, lifecycle_state = ?, state_version = ?
     WHERE workload_id = ? AND environment_id = ? AND deployment_id = ?
+      AND configuration_id = ? AND configuration_version = ?
       AND state_version = ?
+      AND EXISTS (
+          SELECT 1
+          FROM tramai_configuration_revision cr
+          WHERE cr.configuration_id = tramai_workload_registration.configuration_id
+            AND cr.configuration_version = tramai_workload_registration.configuration_version
+            AND cr.fingerprint = ?
+      )
     """
 
 private const val SELECT_REGISTRATION_WHERE_SCOPE =

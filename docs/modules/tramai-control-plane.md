@@ -55,7 +55,7 @@ authoritative mutation and never changes identity.
 
 ### Contract tests / TCKs
 
-- `WorkloadRegistrationStoreTck` (17 cases) runs against BOTH `InMemoryWorkloadRegistrationStore` and `JdbcWorkloadRegistrationStore`
+- `WorkloadRegistrationStoreTck` (19 cases) runs against BOTH `InMemoryWorkloadRegistrationStore` and `JdbcWorkloadRegistrationStore`
   (runners: `InMemoryWorkloadRegistrationStoreTckTest`, `JdbcWorkloadRegistrationStoreTckTest`).
 - `WorkloadRegistrationAuthorityTest` (26 cases) pins registration idempotency/conflict semantics, the lifecycle graph, version semantics and
   concurrent-writer races.
