@@ -10,7 +10,7 @@
 - 20 characterization scenarios across 3 suites (happy path → cancellation), each compared against an approved `.trace` fixture via `containsExactlyElementsOf` (no snapshot lib)
 - 20 approved trace fixtures under `src/test/resources/characterization/`, captured verbatim from real engine output
 - Security-sensitive ordering asserted explicitly (deny ⇒ no provider; tool policy before execute; DLP before reinjection; no retry/circuit after cancellation)
-- Docs: `0.6.0-characterization-matrix.md` (12 rows now characterized), `ROADMAP-0.6.0.md` (Epic 3.1 ✅ Complete + ongoing requirement for extraction PRs)
+- Docs: `0.6.0-characterization-matrix.md` (12 rows now characterized), `archive/ROADMAP-0.6.0.md` (Epic 3.1 ✅ Complete + ongoing requirement for extraction PRs)
 
 ## Process Notes
 

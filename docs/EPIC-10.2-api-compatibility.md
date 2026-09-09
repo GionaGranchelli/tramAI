@@ -300,7 +300,7 @@ gate does not over-fire. B6/B7 pin the taxonomy. B9/B10 protect the fixtures.
 - `build-logic/.../ApiBaselineVerifier.kt` — VALID_STABILITIES + EXPERIMENTAL
 - `build-logic/.../MaintainabilityBaselinePlugin.kt` — wire api-architecture evidence source (apiBuild deps, git-show base dumps, registry parse), register `verifyJavaConsumerCompatibility` / `verifyKotlinConsumerCompatibility`
 - `config/quality/module-catalog.yml` — add the two new example fixture entries (excluded, like other examples)
-- `docs/ROADMAP-0.6.0.md` — mark 10.2 tasks complete after merge
+- `docs/archive/ROADMAP-0.6.0.md` — mark 10.2 tasks complete after merge
 
 ### Do NOT touch
 - Any `tramai-*/src/main/**` runtime production file

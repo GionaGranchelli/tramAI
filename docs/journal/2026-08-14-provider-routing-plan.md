@@ -10,7 +10,7 @@ PR #229: **refactor(routing): introduce authoritative provider routing plan** (E
 - Standalone `Tramai.Builder` mutates the canonical plan builder; validates+freezes once at build.
 - Sovereign shadow state deleted (`registeredProviders`, `primaryModelRoutes`, `fallbackRoutes`, `defaultProviderName`, `FallbackRoute`); `SovereignRoutingValidationPolicy` validates the shared plan (incl. offline LOCAL constraints); artifact-verification targets derive from the plan.
 - Spring merges property providers + `ModelProvider` beans into one unique set (bean overrides same-id property provider) before the plan builder; genuine duplicate user beans fail deterministically. No Spring-side route validator.
-- Docs: ROADMAP-0.6.0.md (Epic 2.2 ✅ Complete), CHANGELOG.md, tramai-spring.md, tramai-sovereign.md.
+- Docs: archive/ROADMAP-0.6.0.md (Epic 2.2 ✅ Complete), CHANGELOG.md, tramai-spring.md, tramai-sovereign.md.
 
 ## What's Missing / Blocked
 

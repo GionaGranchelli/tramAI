@@ -41,7 +41,7 @@ This comparison:
 |---|---|---|
 | Spring AI | 2.0.0 stable docs | Broad Spring-native AI integration project |
 | LangChain4j | 1.17.2 stable release | Core stable; guardrails and agentic module explicitly experimental |
-| TramAI | 0.4.0 published core plus master governance boundary | Sovereign runtime RC+/enterprise proof; no stable 1.0 API |
+| TramAI | 0.6.0 published quality and governance baseline | Sovereign runtime RC+/enterprise proof; no stable 1.0 API |
 
 ### Official sources reviewed
 

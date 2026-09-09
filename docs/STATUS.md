@@ -108,14 +108,16 @@ Summary:
 
 | Version | Date | Notes |
 |---|---|---|
-| 0.4.0 | 2026-07-06 | Latest published release. Sovereign Runtime and evidence-handoff milestone. |
+| 0.6.0 | 2026-09-06 | Current release. Quality, architecture, maintainability, and Sovereign Runtime RC milestone. |
+| 0.5.0 | 2026-07-18 | Previous stable release and migration baseline. |
+| 0.4.0 | 2026-07-06 | Previous published release; Latest published release before 0.6.0. Sovereign Runtime and evidence-handoff milestone. |
 | 0.3.1 | 2026-05-24 | Previous stable core release. |
 | 0.3.0 | — | Typed AI services, structured output, full provider suite. |
 | 0.2.0 | — | Orchestration, scheduling, server, platform modules introduced. |
 
 ## Current Development Train
 
-The `master` branch has been prepared for **TramAI 0.6.0** release.
+The `master` branch contains the released **TramAI 0.6.0** baseline.
 
 The 0.6.0 train contains the post-sovereignty roadmap: workflow API stability, structured-output hardening, workflow and approval ergonomics, runtime evidence export, tool governance, and product adoption work.
 
@@ -134,13 +136,13 @@ The 0.6.0 train contains the post-sovereignty roadmap: workflow API stability, s
 
 ### 0.6.0 Release Status
 
-- 0.6.0 release candidate prepared — publication pending
-- Remote publication pending tag and Central Portal acceptance
-- 0.4.0 remains the latest confirmed published version until publication completes
+- 0.6.0 released from tag `v0.6.0`
+- Published artifacts are available from Maven Central
+- 0.6.x is frozen except for bug and security fixes; feature work targets 0.7.0
 
 ## Sovereign Runtime
 
-**Status: Release Candidate boundary declared / active development**
+**Status: Release Candidate boundary declared and published in 0.6.0**
 
 The Sovereign Runtime RC boundary is now documented and locally verifiable through:
 
@@ -152,7 +154,7 @@ This includes governed runtime execution, sovereign routing, DLP, replay-safe ap
 
 For the full RC boundary declaration, see [docs/releases/sovereign-runtime-rc-boundary.md](./releases/sovereign-runtime-rc-boundary.md).
 
-Not yet included: stable 1.0 API, Maven Central release, key rotation, and cloud-provider production certification.
+Not yet included: stable 1.0 API, key rotation, and cloud-provider production certification.
 
 ## Planned / Not Complete
 

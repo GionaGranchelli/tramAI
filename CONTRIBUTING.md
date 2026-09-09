@@ -10,7 +10,7 @@ Read the relevant documents first:
 
 - [PLAN.md](./PLAN.md)
 - [DESIGN.md](./DESIGN.md)
-- [docs/ROADMAP-0.6.0.md](./docs/ROADMAP-0.6.0.md)
+- [docs/archive/ROADMAP-0.6.0.md](./docs/archive/ROADMAP-0.6.0.md)
 - [docs/specs](./docs/specs)
 - [docs/adr](./docs/adr)
 - [docs/architecture](./docs/architecture)
@@ -159,4 +159,4 @@ If you change:
 - release workflows
 - public setup or quickstart documentation
 
-also update the release-facing docs under `docs/releases/` and `docs/reference/`, especially the current release readiness document and the [release runbook](./docs/reference/releasing.md). Check `docs/ROADMAP-0.6.0.md` for the current release train — version-specific scope/checklist documents become stale as soon as the train moves, so prefer the stable pointers above.
+also update the release-facing docs under `docs/releases/` and `docs/reference/`, especially the current release readiness document and the [release runbook](./docs/reference/releasing.md). Check the active 0.7.0 roadmap for the current release train — version-specific scope/checklist documents become stale as soon as the train moves, so prefer the stable pointers above.

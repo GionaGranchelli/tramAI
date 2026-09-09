@@ -52,7 +52,7 @@ No legacy branch-protection rule exists (`/branches/master/protection` → 404);
 
 ## Reconciliations
 
-- `docs/ROADMAP-0.6.0.md` §Epic 10.5 — status line added (this doc).
+- `docs/archive/ROADMAP-0.6.0.md` §Epic 10.5 — status line added (this doc).
 - `docs/specs/ci-parallelization-p0-p1.md` — P0/P1 architecture landed; P2 (config cache) deferred by measured evidence (no config-dominated bottleneck remains; see P3-E Q5); the PR-scoped sovereign aggregate is the P0.2 "single sovereign authority" made non-duplicating.
 - Configuration-cache enablement (CI-wide) was **evaluated and declined**: it does not attack any measured bottleneck (RC runs `--no-configuration-cache` by design; compiler-warnings cost is real compilation). Revisit only if a configuration-dominated job appears.
 - Cross-workflow cache-write policy on CI/RC lanes was **evaluated and declined** for the per-PR path (same-commit race + base-sensitive gate inputs not demonstrably in cache keys); MB lanes already write (#370) — evidenced by the 2.1-min MB re-run.

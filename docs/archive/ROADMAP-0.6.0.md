@@ -1,4 +1,6 @@
-# TramAI 0.6.0 — Code Quality, Architecture, and Maintainability Roadmap
+# Archived: TramAI 0.6.0 — Code Quality, Architecture, and Maintainability Roadmap
+
+> **Status:** Completed and archived after the `v0.6.0` release on 2026-09-06. This document is historical; new feature work belongs on the 0.7.0 roadmap.
 
 > **Status:** Draft release roadmap  
 > **Target release:** TramAI 0.6.0  
@@ -1452,7 +1454,7 @@ status line was stale: the eight-family target list was completed by #310.
 
 **Goal:** Make Gradle configuration modular, typed, testable, and mostly declarative.
 
-> **Slicing:** see [docs/EPIC-9.2-build-logic.md](./EPIC-9.2-build-logic.md).
+> **Slicing:** see [docs/EPIC-9.2-build-logic.md](../EPIC-9.2-build-logic.md).
 > 9.2a–9.2d complete.
 
 ### Status: ✅ Complete (9.2a, 9.2b, 9.2c, 9.2d)

@@ -192,7 +192,7 @@ cited by file, test name, or CI line number.
 | R08 | Discriminator tests for all 20 failure modes | **COMPLETE** | M01–M20 covered by 38 tests in `MutationRatchetDiscriminatorTest` (25) + `MutationRatchetClassificationDiscriminatorTest` (13). M01–M20 measurement pipeline covered by 29 tests in `MutationMeasurementDiscriminatorTest`. |
 | R09 | CI non-vacuity guards | **COMPLETE** | `maintainability-baseline.yml` policy-maintainability lane: 302 tests (pinned). scanners-coverage lane: 253 tests (pinned). Python assertions enforce exact counts after every CI run. |
 | R10 | Mutation reports available for release review | **COMPLETE** | `maintainability-full.yml` (weekly + manual) runs `verifyFullMaintainabilityBaseline`, generating `mutation-summary.json` and PITest HTML reports as CI artifacts. |
-| R11 | Docs and roadmap reconciled | **COMPLETE** | This document + ROADMAP-0.6.0.md updated. |
+| R11 | Docs and roadmap reconciled | **COMPLETE** | This document + archived ROADMAP-0.6.0.md updated. |
 
 ### 9.2. Adversarial gate mapping
 
@@ -266,4 +266,3 @@ The mutation system operates in two distinct trust modes:
    operation run during enrollment/audit; it never runs on PR CI.
 
 The boundary is crisp: no PR CI step ever invokes PITest.
-

@@ -138,7 +138,7 @@ These builds are not module-catalog modules and are excluded from module-card an
 ./gradlew -p examples/kotlin-springboot-example bootRun
 ```
 
-**Requires:** a separate Gradle build (not part of the root project), released TramAI dependencies (0.4.0 is the latest published release; version overridable via `-PtramaiVersion`), Ollama, and the configured models:
+**Requires:** a separate Gradle build (not part of the root project), released TramAI 0.6.0 dependencies (version overridable via `-PtramaiVersion`), Ollama, and the configured models:
 
 ```bash
 ollama pull gemma4:e4b
