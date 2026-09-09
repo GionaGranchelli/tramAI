@@ -47,6 +47,57 @@ cd tramAI
 
 ---
 
+## Use TramAI in an Application
+
+TramAI 0.6.0 is published to Maven Central. Add the BOM and the smallest runtime/provider modules your application needs:
+
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.6.0"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-openai")
+}
+```
+
+Define a typed service instead of assembling prompts in application code:
+
+```kotlin
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+
+@AiService
+interface GreetingService {
+    @Operation(
+        prompt = "Greet the user warmly in one sentence based on their name.",
+        model = "gpt-4o",
+    )
+    suspend fun greet(name: String): String
+}
+```
+
+Configure the provider at the composition boundary and invoke the typed service:
+
+```kotlin
+import dev.tramai.openai.OpenAiProvider
+import dev.tramai.standalone.Tramai
+
+suspend fun main() {
+    val tramai = Tramai {
+        provider(OpenAiProvider(apiKey = System.getenv("OPENAI_API_KEY")), name = "openai")
+        model("gpt-4o", "openai")
+    }
+
+    val greetingService = tramai.create<GreetingService>()
+    println(greetingService.greet("Ada"))
+}
+```
+
+This path requires an `OPENAI_API_KEY`. For Spring Boot, Maven, structured outputs, testing, and provider-specific setup, see the [30-Minute Quickstart](docs/guides/quickstart.md).
+
+> TramAI remains under active development. The 0.6.x line is frozen except for bug and security fixes; new features target 0.7.0.
+
+---
+
 ## The Governed Execution Model
 
 ```
@@ -128,7 +179,7 @@ See the [Architecture Overview](docs/architecture/overview.md) and [Sovereign Ru
 | Boundary | Status |
 |---|---|
 | Typed services and structured output | Released / evolving |
-| Governance and sovereign capabilities on master | Implemented / evolving |
+| Governance and sovereign capabilities | Released / evolving |
 | Sovereign runtime | RC+ enterprise proof milestone |
 | Stable sovereign 1.0 API | Not yet available |
 | Compliance or certification | Not claimed |
