@@ -8,11 +8,12 @@ package dev.tramai.core.identity
  * meaning (e.g. `customer-support-agent`, `fraud-review-policy`) but must not
  * be parsed by consumers.
  */
-@JvmInline
-value class ConfigurationId(
+data class ConfigurationId(
     val value: String,
 ) {
     init {
         validateIdentity("ConfigurationId", value)
     }
+
+    override fun toString(): String = value
 }

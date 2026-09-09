@@ -16,11 +16,12 @@ package dev.tramai.core.identity
  * diagnostic/cross-operation correlation id, which TramAI already models in
  * `EngineExecutionIdentity.correlationId`.
  */
-@JvmInline
-value class RunId(
+data class RunId(
     val value: String,
 ) {
     init {
         validateIdentity("RunId", value)
     }
+
+    override fun toString(): String = value
 }

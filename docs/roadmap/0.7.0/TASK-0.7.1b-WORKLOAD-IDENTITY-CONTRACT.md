@@ -45,6 +45,16 @@ imposed (`claims`, `org.example.claims`, `production/eu`, `urn:...`, `Payments`
 vs `payments` are all legal distinct values). No silent normalization: inputs
 that differ must never canonicalize to the same key.
 
+All identity types are plain JVM classes, not `@JvmInline` value classes.
+The vocabulary is the canonical public tramai-core contract that 0.7.1d will
+push to execution boundaries, and TramAI is Kotlin-first but Java-friendly:
+`new WorkloadId("claims")`, getters, and equality must work naturally from
+Java. Inline value classes would make the contract Kotlin-only or dependent on
+experimental boxed exposure (`@JvmExposeBoxed`) — rejected for a stable public
+surface. Enforced by `JavaIdentityInteropTest` (compiles and runs in
+`:tramai-core:test`) and by identity usage in the `java-consumer-smoke`
+example.
+
 ### Composition
 
 ```text

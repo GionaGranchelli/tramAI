@@ -8,11 +8,12 @@ package dev.tramai.core.identity
  * workload/configuration can both legitimately live in `production` and must
  * remain distinguishable through [DeploymentId].
  */
-@JvmInline
-value class EnvironmentId(
+data class EnvironmentId(
     val value: String,
 ) {
     init {
         validateIdentity("EnvironmentId", value)
     }
+
+    override fun toString(): String = value
 }

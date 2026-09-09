@@ -1029,130 +1029,112 @@ public final class dev/tramai/core/exception/TramaiExceptionKt {
 }
 
 public final class dev/tramai/core/identity/ConfigurationId {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/ConfigurationId;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/ConfigurationId;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/ConfigurationId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/ConfigurationId;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/ConfigurationVersion {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/ConfigurationVersion;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/ConfigurationVersion;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/ConfigurationVersion;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/ConfigurationVersion;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/DeploymentId {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/DeploymentId;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/DeploymentId;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/DeploymentId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/DeploymentId;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/EnvironmentId {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/EnvironmentId;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/EnvironmentId;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/EnvironmentId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/EnvironmentId;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/GovernedRunIdentity {
-	public synthetic fun <init> (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/identity/RunId;)V
 	public final fun component1 ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
-	public final fun component2-QHadeyo ()Ljava/lang/String;
-	public final fun copy-o08grzM (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;)Ldev/tramai/core/identity/GovernedRunIdentity;
-	public static synthetic fun copy-o08grzM$default (Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun component2 ()Ldev/tramai/core/identity/RunId;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/identity/RunId;)Ldev/tramai/core/identity/GovernedRunIdentity;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/identity/RunId;ILjava/lang/Object;)Ldev/tramai/core/identity/GovernedRunIdentity;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getDeployment ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
-	public final fun getRunId-QHadeyo ()Ljava/lang/String;
+	public final fun getRunId ()Ldev/tramai/core/identity/RunId;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/RunId {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/RunId;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/RunId;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/RunId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/RunId;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/WorkloadConfigurationIdentity {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1-Ubl22ak ()Ljava/lang/String;
-	public final fun component2-ICV4KlY ()Ljava/lang/String;
-	public final fun copy-3TpVCTg (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
-	public static synthetic fun copy-3TpVCTg$default (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
+	public fun <init> (Ldev/tramai/core/identity/ConfigurationId;Ldev/tramai/core/identity/ConfigurationVersion;)V
+	public final fun component1 ()Ldev/tramai/core/identity/ConfigurationId;
+	public final fun component2 ()Ldev/tramai/core/identity/ConfigurationVersion;
+	public final fun copy (Ldev/tramai/core/identity/ConfigurationId;Ldev/tramai/core/identity/ConfigurationVersion;)Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ldev/tramai/core/identity/ConfigurationId;Ldev/tramai/core/identity/ConfigurationVersion;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getId-Ubl22ak ()Ljava/lang/String;
-	public final fun getVersion-ICV4KlY ()Ljava/lang/String;
+	public final fun getId ()Ldev/tramai/core/identity/ConfigurationId;
+	public final fun getVersion ()Ldev/tramai/core/identity/ConfigurationVersion;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/WorkloadDeploymentIdentity {
-	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1-KobOwN0 ()Ljava/lang/String;
+	public fun <init> (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadId;
 	public final fun component2 ()Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
-	public final fun component3-ITz9WHM ()Ljava/lang/String;
-	public final fun component4-dUXjPS0 ()Ljava/lang/String;
-	public final fun copy-VLa-PRA (Ljava/lang/String;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
-	public static synthetic fun copy-VLa-PRA$default (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun component3 ()Ldev/tramai/core/identity/EnvironmentId;
+	public final fun component4 ()Ldev/tramai/core/identity/DeploymentId;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/WorkloadConfigurationIdentity;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getConfiguration ()Ldev/tramai/core/identity/WorkloadConfigurationIdentity;
-	public final fun getDeploymentId-dUXjPS0 ()Ljava/lang/String;
-	public final fun getEnvironmentId-ITz9WHM ()Ljava/lang/String;
-	public final fun getWorkloadId-KobOwN0 ()Ljava/lang/String;
+	public final fun getDeploymentId ()Ldev/tramai/core/identity/DeploymentId;
+	public final fun getEnvironmentId ()Ldev/tramai/core/identity/EnvironmentId;
+	public final fun getWorkloadId ()Ldev/tramai/core/identity/WorkloadId;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/WorkloadId {
-	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/identity/WorkloadId;
-	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/identity/WorkloadId;
+	public static synthetic fun copy$default (Ldev/tramai/core/identity/WorkloadId;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/identity/WorkloadId;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class dev/tramai/core/identity/WorkloadMetadata {

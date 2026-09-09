@@ -2,7 +2,6 @@ package dev.tramai.core.identity
 
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import kotlin.jvm.internal.DefaultConstructorMarker
 import kotlin.test.Test
 
 /**
@@ -49,30 +48,39 @@ class WorkloadMetadataTest {
 
     @Test
     fun `identity composition types do not embed metadata`() {
-        // Value-class parameters erase to their underlying type (String) at the
-        // JVM level; the synthetic default-argument constructor carries a
-        // marker. The guard asserts slot count/shape and the absence of
-        // WorkloadMetadata rather than erased parameter names.
-        val deploymentParams = primaryParameters(WorkloadDeploymentIdentity::class.java)
-        assertThat(deploymentParams).hasSize(4)
-        assertThat(deploymentParams).doesNotContain(WorkloadMetadata::class.java)
-        assertThat(deploymentParams).contains(WorkloadConfigurationIdentity::class.java)
+        // Plain JVM classes expose their real parameter types — no value-class
+        // erasure. The guard asserts the exact constructor shape and the
+        // absence of WorkloadMetadata: ownership can never alter identity.
+        val deploymentParams =
+            WorkloadDeploymentIdentity::class.java.constructors
+                .single()
+                .parameterTypes
+                .toList()
+        assertThat(deploymentParams).containsExactly(
+            WorkloadId::class.java,
+            WorkloadConfigurationIdentity::class.java,
+            EnvironmentId::class.java,
+            DeploymentId::class.java,
+        )
 
-        val runParams = primaryParameters(GovernedRunIdentity::class.java)
-        assertThat(runParams).hasSize(2)
-        assertThat(runParams).doesNotContain(WorkloadMetadata::class.java)
-        assertThat(runParams).contains(WorkloadDeploymentIdentity::class.java)
+        val runParams =
+            GovernedRunIdentity::class.java.constructors
+                .single()
+                .parameterTypes
+                .toList()
+        assertThat(runParams).containsExactly(
+            WorkloadDeploymentIdentity::class.java,
+            RunId::class.java,
+        )
 
-        val configurationParams = primaryParameters(WorkloadConfigurationIdentity::class.java)
-        assertThat(configurationParams).hasSize(2)
-        assertThat(configurationParams).doesNotContain(WorkloadMetadata::class.java)
-    }
-
-    private fun primaryParameters(clazz: Class<*>): List<Class<*>> {
-        val constructors = clazz.constructors
-        val primary = constructors.maxBy { it.parameterCount }
-        return primary.parameterTypes
-            .filter { it != DefaultConstructorMarker::class.java }
-            .toList()
+        val configurationParams =
+            WorkloadConfigurationIdentity::class.java.constructors
+                .single()
+                .parameterTypes
+                .toList()
+        assertThat(configurationParams).containsExactly(
+            ConfigurationId::class.java,
+            ConfigurationVersion::class.java,
+        )
     }
 }

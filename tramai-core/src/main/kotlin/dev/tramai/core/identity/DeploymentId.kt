@@ -10,11 +10,12 @@ package dev.tramai.core.identity
  * (`eu-west-amsterdam-01` vs `eu-central-frankfurt-01`) are different
  * [WorkloadDeploymentIdentity] values.
  */
-@JvmInline
-value class DeploymentId(
+data class DeploymentId(
     val value: String,
 ) {
     init {
         validateIdentity("DeploymentId", value)
     }
+
+    override fun toString(): String = value
 }

@@ -8,11 +8,12 @@ package dev.tramai.core.identity
  * (`sha256:abcd...`) and monotonic counters. Together with its
  * [ConfigurationId] it names one exact governed configuration.
  */
-@JvmInline
-value class ConfigurationVersion(
+data class ConfigurationVersion(
     val value: String,
 ) {
     init {
         validateIdentity("ConfigurationVersion", value)
     }
+
+    override fun toString(): String = value
 }
