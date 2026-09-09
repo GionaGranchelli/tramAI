@@ -98,11 +98,15 @@ class InMemoryWorkloadRegistrationStore : WorkloadRegistrationStore {
             require(updated.configurationFingerprint == expected.configurationFingerprint) {
                 "compareAndSet must not change configuration fingerprint"
             }
-            val current = registrations[expected.identity.toScope()]
-            if (current != expected) {
+            val scope = expected.identity.toScope()
+            // CAS concurrency token = deployment scope + stateVersion, the same
+            // guard as the JDBC UPDATE. Immutable identity/fingerprint are
+            // enforced by the requires above, not by record equality.
+            val current = registrations[scope]
+            if (current == null || current.stateVersion != expected.stateVersion) {
                 false
             } else {
-                registrations[expected.identity.toScope()] = updated
+                registrations[scope] = updated
                 true
             }
         }

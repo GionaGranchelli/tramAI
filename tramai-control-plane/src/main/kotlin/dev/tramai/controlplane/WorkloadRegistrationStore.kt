@@ -32,9 +32,16 @@ interface WorkloadRegistrationStore {
     suspend fun create(registration: RegisteredWorkload): CreateResult
 
     /**
-     * Atomically replaces [expected] with [updated] iff the stored record is
-     * still exactly [expected] (same deployment scope and state version).
-     * Returns false when the stored record has moved on.
+     * Atomically replaces the record stored at [expected]'s deployment scope
+     * with [updated] iff the stored record still carries [expected]'s state
+     * version — deployment scope + state version are the CAS concurrency
+     * token. Mutable fields carried by [expected] (metadata, lifecycle) are
+     * not re-verified; only the token is. Returns false when the scope is
+     * absent or the stored version has moved on.
+     *
+     * The immutable portion — identity and configuration fingerprint — must
+     * match between [expected] and [updated]; implementations reject a
+     * violation with [IllegalArgumentException].
      */
     suspend fun compareAndSet(
         expected: RegisteredWorkload,

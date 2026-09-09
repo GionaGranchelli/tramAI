@@ -283,6 +283,30 @@ abstract class WorkloadRegistrationStoreTck {
             assertThat(current(registration)).isEqualTo(winner)
         }
 
+    @Test
+    fun `compareAndSet token is deployment scope plus state version, not the whole mutable record`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            // Expected carries the same scope + version but STALE metadata:
+            // the CAS concurrency token is (deployment scope, stateVersion).
+            // Both implementations must agree — a full-record comparison in
+            // one store would let InMemory and JDBC drift apart.
+            val staleMetadataExpected =
+                registration.copy(
+                    metadata = WorkloadRegistrationFixtures.metadata(owner = "Stale Owner"),
+                )
+            val updated =
+                registration.copy(
+                    metadata = WorkloadRegistrationFixtures.metadata(owner = "New Owner"),
+                    stateVersion = WorkloadStateVersion(2),
+                )
+
+            assertThat(store.compareAndSet(staleMetadataExpected, updated)).isTrue()
+            assertThat(current(registration)).isEqualTo(updated)
+        }
+
     // ── Concurrency ─────────────────────────────────────────────────
 
     @Test

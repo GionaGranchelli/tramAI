@@ -444,6 +444,152 @@ class WorkloadRegistrationAuthorityTest {
             assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(2))
         }
 
+    // ── Version overflow boundary (rejected commands never advance) ─
+
+    /**
+     * Seeds the store at Long.MAX_VALUE — the last representable version.
+     * Authority commands must classify stale/no-op/invalid requests without
+     * ever calling next(); only a genuine mutation may attempt (and fail
+     * closed on) the overflow.
+     */
+    private suspend fun seedAtMaxVersion(lifecycle: WorkloadLifecycleState = WorkloadLifecycleState.ACTIVE): RegisteredWorkload {
+        val seeded =
+            WorkloadRegistrationFixtures.registration(
+                identity = identity,
+                configurationFingerprint = fingerprint,
+                metadata = metadata,
+                lifecycle = lifecycle,
+                stateVersion = WorkloadStateVersion(Long.MAX_VALUE),
+            )
+        assertThat(store.create(seeded)).isInstanceOf(CreateResult.Created::class.java)
+        return seeded
+    }
+
+    @Test
+    fun `metadata update at MAX version with identical metadata is unchanged and does not overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion()
+
+            val outcome =
+                authority.updateMetadata(
+                    identity.workloadId,
+                    identity.environmentId,
+                    identity.deploymentId,
+                    WorkloadStateVersion(Long.MAX_VALUE),
+                    metadata,
+                )
+
+            assertThat(outcome).isInstanceOf(MetadataUpdateOutcome.Unchanged::class.java)
+            assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+        }
+
+    @Test
+    fun `metadata update at MAX version with stale expected version is stale and does not overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion()
+
+            val outcome =
+                authority.updateMetadata(
+                    identity.workloadId,
+                    identity.environmentId,
+                    identity.deploymentId,
+                    WorkloadStateVersion.INITIAL,
+                    WorkloadRegistrationFixtures.metadata(owner = "Stale Team"),
+                )
+
+            assertThat(outcome).isInstanceOf(MetadataUpdateOutcome.Stale::class.java)
+            (outcome as MetadataUpdateOutcome.Stale).let {
+                assertThat(it.currentVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+                assertThat(it.expectedVersion).isEqualTo(WorkloadStateVersion.INITIAL)
+            }
+            assertThat(current()?.metadata).isEqualTo(metadata)
+        }
+
+    @Test
+    fun `metadata update at MAX version with a genuine change fails closed on overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion()
+
+            val failure =
+                runCatching {
+                    authority.updateMetadata(
+                        identity.workloadId,
+                        identity.environmentId,
+                        identity.deploymentId,
+                        WorkloadStateVersion(Long.MAX_VALUE),
+                        WorkloadRegistrationFixtures.metadata(owner = "New Team"),
+                    )
+                }.exceptionOrNull()
+
+            assertThat(failure).isInstanceOf(IllegalStateException::class.java)
+            assertThat(failure?.message).contains("overflow")
+            assertThat(current()?.metadata).isEqualTo(metadata)
+            assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+        }
+
+    @Test
+    fun `lifecycle transition at MAX version to the same state is unchanged and does not overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion()
+
+            val outcome =
+                authority.transitionLifecycle(
+                    identity.workloadId,
+                    identity.environmentId,
+                    identity.deploymentId,
+                    WorkloadStateVersion(Long.MAX_VALUE),
+                    WorkloadLifecycleState.ACTIVE,
+                )
+
+            assertThat(outcome).isInstanceOf(LifecycleTransitionOutcome.Unchanged::class.java)
+            assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+        }
+
+    @Test
+    fun `lifecycle transition at MAX version from RETIRED is invalid and does not overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion(lifecycle = WorkloadLifecycleState.RETIRED)
+
+            val outcome =
+                authority.transitionLifecycle(
+                    identity.workloadId,
+                    identity.environmentId,
+                    identity.deploymentId,
+                    WorkloadStateVersion(Long.MAX_VALUE),
+                    WorkloadLifecycleState.ACTIVE,
+                )
+
+            assertThat(outcome).isInstanceOf(LifecycleTransitionOutcome.InvalidTransition::class.java)
+            (outcome as LifecycleTransitionOutcome.InvalidTransition).let {
+                assertThat(it.from).isEqualTo(WorkloadLifecycleState.RETIRED)
+                assertThat(it.to).isEqualTo(WorkloadLifecycleState.ACTIVE)
+            }
+            assertThat(current()?.lifecycle).isEqualTo(WorkloadLifecycleState.RETIRED)
+            assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+        }
+
+    @Test
+    fun `lifecycle transition at MAX version with a genuine change fails closed on overflow`() =
+        runBlocking<Unit> {
+            seedAtMaxVersion()
+
+            val failure =
+                runCatching {
+                    authority.transitionLifecycle(
+                        identity.workloadId,
+                        identity.environmentId,
+                        identity.deploymentId,
+                        WorkloadStateVersion(Long.MAX_VALUE),
+                        WorkloadLifecycleState.SUSPENDED,
+                    )
+                }.exceptionOrNull()
+
+            assertThat(failure).isInstanceOf(IllegalStateException::class.java)
+            assertThat(failure?.message).contains("overflow")
+            assertThat(current()?.lifecycle).isEqualTo(WorkloadLifecycleState.ACTIVE)
+            assertThat(current()?.stateVersion).isEqualTo(WorkloadStateVersion(Long.MAX_VALUE))
+        }
+
     // ── Concurrency ─────────────────────────────────────────────────
 
     @Test
