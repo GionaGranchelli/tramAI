@@ -82,21 +82,36 @@ class WorkloadRegistrationAuthority(
         val current =
             store.find(workloadId, environmentId, deploymentId)
                 ?: return MetadataUpdateOutcome.NotFound
-        if (current.stateVersion != expectedVersion) {
-            return MetadataUpdateOutcome.Stale(current.stateVersion, expectedVersion)
-        }
-        if (current.metadata == metadata) {
-            return MetadataUpdateOutcome.Unchanged(current)
-        }
         val updated =
             current.copy(
                 metadata = metadata,
                 stateVersion = current.stateVersion.next(),
             )
-        return if (store.compareAndSet(current, updated)) {
-            MetadataUpdateOutcome.Applied(updated)
-        } else {
-            MetadataUpdateOutcome.Stale(current.stateVersion, expectedVersion)
+        return when {
+            current.stateVersion != expectedVersion -> {
+                MetadataUpdateOutcome.Stale(current.stateVersion, expectedVersion)
+            }
+
+            current.metadata == metadata -> {
+                MetadataUpdateOutcome.Unchanged(current)
+            }
+
+            store.compareAndSet(current, updated) -> {
+                MetadataUpdateOutcome.Applied(updated)
+            }
+
+            else -> {
+                // Lost the race: report the CURRENT authoritative version, not
+                // the version observed before the race (0.7.1e command
+                // preconditions will consume exactly this value).
+                val latest =
+                    store.find(workloadId, environmentId, deploymentId)
+                if (latest != null) {
+                    MetadataUpdateOutcome.Stale(latest.stateVersion, expectedVersion)
+                } else {
+                    MetadataUpdateOutcome.NotFound
+                }
+            }
         }
     }
 
@@ -114,24 +129,38 @@ class WorkloadRegistrationAuthority(
         val current =
             store.find(workloadId, environmentId, deploymentId)
                 ?: return LifecycleTransitionOutcome.NotFound
-        if (current.stateVersion != expectedVersion) {
-            return LifecycleTransitionOutcome.Stale(current.stateVersion, expectedVersion)
-        }
-        if (current.lifecycle == target) {
-            return LifecycleTransitionOutcome.Unchanged(current)
-        }
-        if (!current.lifecycle.canTransitionTo(target)) {
-            return LifecycleTransitionOutcome.InvalidTransition(current.lifecycle, target)
-        }
         val updated =
             current.copy(
                 lifecycle = target,
                 stateVersion = current.stateVersion.next(),
             )
-        return if (store.compareAndSet(current, updated)) {
-            LifecycleTransitionOutcome.Applied(updated)
-        } else {
-            LifecycleTransitionOutcome.Stale(current.stateVersion, expectedVersion)
+        return when {
+            current.stateVersion != expectedVersion -> {
+                LifecycleTransitionOutcome.Stale(current.stateVersion, expectedVersion)
+            }
+
+            current.lifecycle == target -> {
+                LifecycleTransitionOutcome.Unchanged(current)
+            }
+
+            !current.lifecycle.canTransitionTo(target) -> {
+                LifecycleTransitionOutcome.InvalidTransition(current.lifecycle, target)
+            }
+
+            store.compareAndSet(current, updated) -> {
+                LifecycleTransitionOutcome.Applied(updated)
+            }
+
+            else -> {
+                // Lost the race: report the CURRENT authoritative version.
+                val latest =
+                    store.find(workloadId, environmentId, deploymentId)
+                if (latest != null) {
+                    LifecycleTransitionOutcome.Stale(latest.stateVersion, expectedVersion)
+                } else {
+                    LifecycleTransitionOutcome.NotFound
+                }
+            }
         }
     }
 }

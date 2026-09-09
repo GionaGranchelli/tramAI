@@ -26,7 +26,15 @@ import org.junit.jupiter.api.Test
  * authority test suite).
  *
  * Each test gets a FRESH store from [harness].
+ *
+ * Suppressed rules: JUnit human-readable backtick test names are treated as
+ * production function names by Detekt because testFixtures sources are not on
+ * the ordinary test path, and the iteration literals of the race probes are
+ * intentional. The TramAI Detekt policy keeps one repository-wide
+ * configuration; these are narrow, documented class-level suppressions for a
+ * reusable TCK, not global config changes.
  */
+@Suppress("FunctionNaming", "MagicNumber", "TooManyFunctions")
 abstract class WorkloadRegistrationStoreTck {
     abstract val harness: WorkloadRegistrationStoreTckHarness
 
@@ -40,6 +48,13 @@ abstract class WorkloadRegistrationStoreTck {
     @AfterEach
     fun tearDown() = runBlocking<Unit> { harness.closeStore(store) }
 
+    private suspend fun current(registration: RegisteredWorkload): RegisteredWorkload? =
+        store.find(
+            registration.identity.workloadId,
+            registration.identity.environmentId,
+            registration.identity.deploymentId,
+        )
+
     // ── Creation / read ─────────────────────────────────────────────
 
     @Test
@@ -50,13 +65,7 @@ abstract class WorkloadRegistrationStoreTck {
             val result = store.create(registration)
 
             assertThat(result).isEqualTo(CreateResult.Created(registration))
-            assertThat(
-                store.find(
-                    registration.identity.workloadId,
-                    registration.identity.environmentId,
-                    registration.identity.deploymentId,
-                ),
-            ).isEqualTo(registration)
+            assertThat(current(registration)).isEqualTo(registration)
         }
 
     @Test
@@ -130,11 +139,8 @@ abstract class WorkloadRegistrationStoreTck {
                     identity = WorkloadRegistrationFixtures.identity(deployment = "eu-central-frankfurt-01"),
                 )
 
-            val amsterdamResult = store.create(amsterdam)
-            val frankfurtResult = store.create(frankfurt)
-
-            assertThat(amsterdamResult).isInstanceOf(CreateResult.Created::class.java)
-            assertThat(frankfurtResult).isInstanceOf(CreateResult.Created::class.java)
+            assertThat(store.create(amsterdam)).isInstanceOf(CreateResult.Created::class.java)
+            assertThat(store.create(frankfurt)).isInstanceOf(CreateResult.Created::class.java)
         }
 
     @Test
@@ -161,8 +167,8 @@ abstract class WorkloadRegistrationStoreTck {
             val original = WorkloadRegistrationFixtures.registration()
             store.create(original)
 
-            // Same (configurationId=claims-prod, version=17), different fingerprint,
-            // DIFFERENT deployment scope: must still fail — the binding is global.
+            // Same (configurationId, version), different fingerprint, DIFFERENT
+            // deployment scope: must still fail — the binding is global.
             val rebindingAttempt =
                 WorkloadRegistrationFixtures.registration(
                     identity = WorkloadRegistrationFixtures.identity(deployment = "eu-central-frankfurt-01"),
@@ -187,9 +193,7 @@ abstract class WorkloadRegistrationStoreTck {
                     identity = WorkloadRegistrationFixtures.identity(deployment = "eu-central-frankfurt-01"),
                 )
 
-            val result = store.create(sameConfiguration)
-
-            assertThat(result).isInstanceOf(CreateResult.Created::class.java)
+            assertThat(store.create(sameConfiguration)).isInstanceOf(CreateResult.Created::class.java)
         }
 
     // ── compareAndSet ───────────────────────────────────────────────
@@ -203,13 +207,62 @@ abstract class WorkloadRegistrationStoreTck {
             val updated = registration.copy(stateVersion = WorkloadStateVersion(2))
 
             assertThat(store.compareAndSet(registration, updated)).isTrue()
+            assertThat(current(registration)).isEqualTo(updated)
+        }
+
+    @Test
+    fun `compareAndSet cannot change registration identity`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            val identityChange =
+                registration.copy(
+                    identity = WorkloadRegistrationFixtures.identity(deployment = "eu-central-frankfurt-01"),
+                    stateVersion = WorkloadStateVersion(2),
+                )
+
             assertThat(
-                store.find(
-                    registration.identity.workloadId,
-                    registration.identity.environmentId,
-                    registration.identity.deploymentId,
-                ),
-            ).isEqualTo(updated)
+                runCatching { store.compareAndSet(registration, identityChange) }.exceptionOrNull(),
+            ).isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(current(registration)).isEqualTo(registration)
+        }
+
+    @Test
+    fun `compareAndSet cannot change the configuration inside identity`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            val configurationChange =
+                registration.copy(
+                    identity = WorkloadRegistrationFixtures.identity(configurationVersion = "18"),
+                    stateVersion = WorkloadStateVersion(2),
+                )
+
+            assertThat(
+                runCatching { store.compareAndSet(registration, configurationChange) }.exceptionOrNull(),
+            ).isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(current(registration)).isEqualTo(registration)
+        }
+
+    @Test
+    fun `compareAndSet cannot change the configuration fingerprint`() =
+        runBlocking<Unit> {
+            val registration = WorkloadRegistrationFixtures.registration()
+            store.create(registration)
+
+            val fingerprintChange =
+                registration.copy(
+                    configurationFingerprint = WorkloadRegistrationFixtures.fingerprint(value = "sha256:ffff"),
+                    stateVersion = WorkloadStateVersion(2),
+                )
+
+            assertThat(
+                runCatching { store.compareAndSet(registration, fingerprintChange) }.exceptionOrNull(),
+            ).isInstanceOf(IllegalArgumentException::class.java)
+            // The CAS never applied, so the record — and its fingerprint — are untouched.
+            assertThat(current(registration)).isEqualTo(registration)
         }
 
     @Test
@@ -221,32 +274,13 @@ abstract class WorkloadRegistrationStoreTck {
             assertThat(store.compareAndSet(registration, winner)).isTrue()
 
             // A stale writer still holds the original version-1 snapshot.
-            val staleWriter = registration.copy(metadata = WorkloadRegistrationFixtures.metadata(owner = "Stale Team"))
-
-            assertThat(store.compareAndSet(registration, staleWriter)).isFalse()
-            assertThat(
-                store.find(
-                    registration.identity.workloadId,
-                    registration.identity.environmentId,
-                    registration.identity.deploymentId,
-                ),
-            ).isEqualTo(winner)
-        }
-
-    @Test
-    fun `compareAndSet must not change the deployment scope`() =
-        runBlocking<Unit> {
-            val registration = WorkloadRegistrationFixtures.registration()
-            store.create(registration)
-
-            val scopeChange =
+            val staleWriter =
                 registration.copy(
-                    identity = WorkloadRegistrationFixtures.identity(deployment = "eu-central-frankfurt-01"),
+                    metadata = WorkloadRegistrationFixtures.metadata(owner = "Stale Team"),
                 )
 
-            assertThat(
-                runCatching { store.compareAndSet(registration, scopeChange) }.exceptionOrNull(),
-            ).isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(store.compareAndSet(registration, staleWriter)).isFalse()
+            assertThat(current(registration)).isEqualTo(winner)
         }
 
     // ── Concurrency ─────────────────────────────────────────────────
@@ -254,12 +288,12 @@ abstract class WorkloadRegistrationStoreTck {
     @Test
     fun `two concurrent creates for one scope yield exactly one authoritative outcome`() =
         runBlocking<Unit> {
-            repeat(5) { iteration ->
+            repeat(RACE_ITERATIONS) { iteration ->
                 val registration =
                     WorkloadRegistrationFixtures.registration(
                         identity =
                             WorkloadRegistrationFixtures.identity(
-                                deployment = "race-$iteration",
+                                deployment = "create-race-$iteration",
                             ),
                     )
 
@@ -273,15 +307,49 @@ abstract class WorkloadRegistrationStoreTck {
                 val idempotent = results.filterIsInstance<CreateResult.Idempotent>()
                 assertThat(created.size + idempotent.size).isEqualTo(2)
                 assertThat(created.size).isEqualTo(1)
-                assertThat(
-                    store.find(
-                        registration.identity.workloadId,
-                        registration.identity.environmentId,
-                        registration.identity.deploymentId,
-                    ),
-                ).isEqualTo(registration)
+                assertThat(current(registration)).isEqualTo(registration)
             }
         }
+
+    @Test
+    fun `two concurrent CAS writers yield exactly one winner and final version 2`() =
+        runBlocking<Unit> {
+            repeat(RACE_ITERATIONS) { iteration ->
+                val registration =
+                    WorkloadRegistrationFixtures.registration(
+                        identity =
+                            WorkloadRegistrationFixtures.identity(
+                                deployment = "cas-race-$iteration",
+                            ),
+                    )
+                store.create(registration)
+                val winnerUpdate =
+                    registration.copy(
+                        metadata = WorkloadRegistrationFixtures.metadata(owner = "Winner"),
+                        stateVersion = WorkloadStateVersion(2),
+                    )
+                val loserUpdate =
+                    registration.copy(
+                        metadata = WorkloadRegistrationFixtures.metadata(owner = "Loser"),
+                        stateVersion = WorkloadStateVersion(2),
+                    )
+
+                val results =
+                    runInParallel(
+                        { store.compareAndSet(registration, winnerUpdate) },
+                        { store.compareAndSet(registration, loserUpdate) },
+                    )
+
+                assertThat(results.filter { it }.size).isEqualTo(1)
+                assertThat(results.filter { !it }.size).isEqualTo(1)
+                assertThat(current(registration)?.stateVersion).isEqualTo(WorkloadStateVersion(2))
+            }
+        }
+
+    companion object {
+        /** How many times each concurrency race runs on fresh deployment scopes. */
+        private const val RACE_ITERATIONS: Int = 5
+    }
 }
 
 /**

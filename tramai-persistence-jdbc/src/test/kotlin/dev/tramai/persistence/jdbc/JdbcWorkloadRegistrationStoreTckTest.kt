@@ -75,7 +75,7 @@ class JdbcWorkloadRegistrationStoreTckTest : WorkloadRegistrationStoreTck() {
                         JdbcWorkloadRegistrationStoreTckTest::class.java.classLoader
                             .getResource("tramai/persistence/jdbc/postgres/$migration")
                             ?.readText()
-                            ?: throw IllegalStateException("Schema SQL resource not found: $migration")
+                            ?: error("Schema SQL resource not found: $migration")
                     conn.createStatement().use { stmt -> stmt.execute(sql) }
                 }
             }

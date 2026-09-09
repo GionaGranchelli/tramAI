@@ -16,6 +16,7 @@ import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.identity.WorkloadMetadata
 import java.sql.Connection
+import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
 import javax.sql.DataSource
@@ -40,7 +41,12 @@ import javax.sql.DataSource
  *
  * The store never implements authority rules; it only stores what
  * [dev.tramai.controlplane.WorkloadRegistrationAuthority] decides.
+ *
+ * TooManyFunctions: the class carries the persistence-SPI surface plus small
+ * per-query resource/row helpers; splitting them into a separate helper class
+ * would spread one storage concern across files.
  */
+@Suppress("TooManyFunctions")
 class JdbcWorkloadRegistrationStore(
     private val dataSource: DataSource,
 ) : WorkloadRegistrationStore {
@@ -58,126 +64,99 @@ class JdbcWorkloadRegistrationStore(
         environmentId: EnvironmentId,
         deploymentId: DeploymentId,
     ): RegisteredWorkload? =
-        dataSource.connection.use { conn ->
-            conn
-                .prepareStatement(
-                    """
-                    SELECT r.workload_id, r.environment_id, r.deployment_id,
-                           r.configuration_id, r.configuration_version,
-                           cr.fingerprint,
-                           r.owner, r.purpose, r.lifecycle_state, r.state_version
-                    FROM tramai_workload_registration r
-                    JOIN tramai_configuration_revision cr
-                      ON cr.configuration_id = r.configuration_id
-                     AND cr.configuration_version = r.configuration_version
-                    WHERE r.workload_id = ? AND r.environment_id = ? AND r.deployment_id = ?
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, workloadId.value)
-                    statement.setString(2, environmentId.value)
-                    statement.setString(3, deploymentId.value)
-                    statement.executeQuery().use { rs ->
-                        if (rs.next()) rs.toRegisteredWorkload() else null
-                    }
-                }
+        queryRegistration(SELECT_REGISTRATION_WHERE_SCOPE) { statement ->
+            var index = 1
+            statement.setString(index++, workloadId.value)
+            statement.setString(index++, environmentId.value)
+            statement.setString(index, deploymentId.value)
         }
 
     override suspend fun create(registration: RegisteredWorkload): CreateResult =
         withSafeJdbc(
             {
                 "Database operation failed while registering workload " +
-                    "${registration.identity.workloadId.value} in " +
+                    "${registration.identity.workloadId.value}/" +
                     "${registration.identity.environmentId.value}/${registration.identity.deploymentId.value}"
             },
         ) {
-            var connection: Connection? = null
+            val connection = dataSource.connection
             try {
-                connection = dataSource.connection
                 connection.autoCommit = false
-                createWithinTransaction(connection, registration)
+                ensureConfigurationBinding(connection, registration)?.let { return@withSafeJdbc it }
+                insertRegistration(connection, registration)
+                connection.commit()
+                CreateResult.Created(registration)
             } catch (e: SQLException) {
-                connection?.rollbackQuietly()
+                connection.rollbackQuietly()
                 if (isUniqueViolation(e)) {
                     // Scope already registered — classify on a fresh connection.
-                    return@withSafeJdbc classifyExisting(registration)
+                    classifyExisting(registration)
+                } else {
+                    throw e
                 }
-                throw e
             } finally {
-                connection?.closeQuietly()
+                connection.closeQuietly()
             }
         }
 
-    private fun createWithinTransaction(
+    /**
+     * Establishes the global configuration binding (insert-if-absent) and
+     * verifies it cannot be rebound. Returns a [CreateResult.Conflicting]
+     * when the pair is already bound to a different fingerprint; null when the
+     * binding matches and registration may proceed.
+     */
+    private fun ensureConfigurationBinding(
         conn: Connection,
         registration: RegisteredWorkload,
-    ): CreateResult {
+    ): CreateResult? {
         val configurationId = registration.identity.configuration.id.value
         val configurationVersion = registration.identity.configuration.version.value
+        val requestedFingerprint = registration.configurationFingerprint.value
 
-        // 1) Establish the global configuration binding if absent.
-        conn
-            .prepareStatement(
-                """
-                INSERT INTO tramai_configuration_revision (configuration_id, configuration_version, fingerprint)
-                VALUES (?, ?, ?)
-                ON CONFLICT (configuration_id, configuration_version) DO NOTHING
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, configurationId)
-                statement.setString(2, configurationVersion)
-                statement.setString(3, registration.configurationFingerprint.value)
-                statement.executeUpdate()
-            }
+        conn.prepareStatement(INSERT_CONFIGURATION_REVISION).use { statement ->
+            var index = 1
+            statement.setString(index++, configurationId)
+            statement.setString(index++, configurationVersion)
+            statement.setString(index, requestedFingerprint)
+            statement.executeUpdate()
+        }
 
-        // 2) Verify the binding: a (configurationId, version) pair can never be
-        //    rebound to a different fingerprint.
-        conn
-            .prepareStatement(
-                """
-                SELECT fingerprint FROM tramai_configuration_revision
-                WHERE configuration_id = ? AND configuration_version = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, configurationId)
-                statement.setString(2, configurationVersion)
+        val boundFingerprint =
+            conn.prepareStatement(SELECT_CONFIGURATION_FINGERPRINT).use { statement ->
+                var index = 1
+                statement.setString(index++, configurationId)
+                statement.setString(index, configurationVersion)
                 statement.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        val boundFingerprint = rs.getString(1)
-                        if (boundFingerprint != registration.configurationFingerprint.value) {
-                            conn.rollbackQuietly()
-                            return CreateResult.Conflicting(
-                                existing = boundRegistrationFor(configurationId, configurationVersion),
-                                reason = RegistrationConflictReason.CONFIGURATION_REBINDING,
-                            )
-                        }
-                    }
+                    if (rs.next()) rs.getString(1) else requestedFingerprint
                 }
             }
+        if (boundFingerprint != requestedFingerprint) {
+            conn.rollbackQuietly()
+            return CreateResult.Conflicting(
+                existing = boundRegistrationFor(configurationId, configurationVersion),
+                reason = RegistrationConflictReason.CONFIGURATION_REBINDING,
+            )
+        }
+        return null
+    }
 
-        // 3) Insert the registration for the deployment scope.
-        conn
-            .prepareStatement(
-                """
-                INSERT INTO tramai_workload_registration (
-                    workload_id, environment_id, deployment_id,
-                    configuration_id, configuration_version,
-                    owner, purpose, lifecycle_state, state_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, registration.identity.workloadId.value)
-                statement.setString(2, registration.identity.environmentId.value)
-                statement.setString(3, registration.identity.deploymentId.value)
-                statement.setString(4, configurationId)
-                statement.setString(5, configurationVersion)
-                statement.setString(6, registration.metadata.owner)
-                statement.setString(7, registration.metadata.purpose)
-                statement.setString(8, registration.lifecycle.name)
-                statement.setLong(9, registration.stateVersion.value)
-                statement.executeUpdate()
-            }
-        conn.commit()
-        return CreateResult.Created(registration)
+    private fun insertRegistration(
+        conn: Connection,
+        registration: RegisteredWorkload,
+    ) {
+        conn.prepareStatement(INSERT_WORKLOAD_REGISTRATION).use { statement ->
+            var index = 1
+            statement.setString(index++, registration.identity.workloadId.value)
+            statement.setString(index++, registration.identity.environmentId.value)
+            statement.setString(index++, registration.identity.deploymentId.value)
+            statement.setString(index++, registration.identity.configuration.id.value)
+            statement.setString(index++, registration.identity.configuration.version.value)
+            statement.setString(index++, registration.metadata.owner)
+            statement.setString(index++, registration.metadata.purpose)
+            statement.setString(index++, registration.lifecycle.name)
+            statement.setLong(index, registration.stateVersion.value)
+            statement.executeUpdate()
+        }
     }
 
     /** Runs on a fresh connection (the failed transaction is aborted). */
@@ -196,75 +175,81 @@ class JdbcWorkloadRegistrationStore(
     private fun boundRegistrationFor(
         configurationId: String,
         configurationVersion: String,
-    ): RegisteredWorkload =
-        dataSource.connection.use { conn ->
-            conn
-                .prepareStatement(
-                    """
-                    SELECT r.workload_id, r.environment_id, r.deployment_id,
-                           r.configuration_id, r.configuration_version,
-                           cr.fingerprint,
-                           r.owner, r.purpose, r.lifecycle_state, r.state_version
-                    FROM tramai_workload_registration r
-                    JOIN tramai_configuration_revision cr
-                      ON cr.configuration_id = r.configuration_id
-                     AND cr.configuration_version = r.configuration_version
-                    WHERE r.configuration_id = ? AND r.configuration_version = ?
-                    ORDER BY r.workload_id, r.environment_id, r.deployment_id
-                    LIMIT 1
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, configurationId)
-                    statement.setString(2, configurationVersion)
-                    statement.executeQuery().use { rs ->
-                        if (rs.next()) {
-                            rs.toRegisteredWorkload()
-                        } else {
-                            error("Configuration binding exists without an owning registration")
-                        }
-                    }
-                }
+    ): RegisteredWorkload {
+        val registration =
+            queryRegistration(SELECT_REGISTRATION_WHERE_CONFIGURATION) { statement ->
+                var index = 1
+                statement.setString(index++, configurationId)
+                statement.setString(index, configurationVersion)
+            }
+        return checkNotNull(registration) {
+            "Configuration binding exists without an owning registration"
         }
+    }
 
     override suspend fun compareAndSet(
         expected: RegisteredWorkload,
         updated: RegisteredWorkload,
-    ): Boolean =
-        withSafeJdbc(
-            {
-                "Database operation failed while updating workload registration " +
-                    "${expected.identity.workloadId.value}/${expected.identity.environmentId.value}/${expected.identity.deploymentId.value}"
-            },
+    ): Boolean {
+        require(updated.identity == expected.identity) {
+            "compareAndSet must not change registration identity"
+        }
+        require(updated.configurationFingerprint == expected.configurationFingerprint) {
+            "compareAndSet must not change configuration fingerprint"
+        }
+        return withSafeJdbc(
+            { "Database operation failed while updating workload registration " + expected.identity.scopeKey() },
         ) {
-            val scope = expected.identity
-            require(updated.identity == scope) {
-                "compareAndSet must not change the deployment scope of a registration"
-            }
             dataSource.connection.use { conn ->
-                conn
-                    .prepareStatement(
-                        """
-                        UPDATE tramai_workload_registration
-                        SET configuration_id = ?, configuration_version = ?,
-                            owner = ?, purpose = ?, lifecycle_state = ?, state_version = ?
-                        WHERE workload_id = ? AND environment_id = ? AND deployment_id = ?
-                          AND state_version = ?
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setString(1, updated.identity.configuration.id.value)
-                        statement.setString(2, updated.identity.configuration.version.value)
-                        statement.setString(3, updated.metadata.owner)
-                        statement.setString(4, updated.metadata.purpose)
-                        statement.setString(5, updated.lifecycle.name)
-                        statement.setLong(6, updated.stateVersion.value)
-                        statement.setString(7, scope.workloadId.value)
-                        statement.setString(8, scope.environmentId.value)
-                        statement.setString(9, scope.deploymentId.value)
-                        statement.setLong(10, expected.stateVersion.value)
-                        statement.executeUpdate() == 1
-                    }
+                conn.prepareStatement(UPDATE_WORKLOAD_REGISTRATION).use { statement ->
+                    var index = 1
+                    statement.setString(index++, updated.metadata.owner)
+                    statement.setString(index++, updated.metadata.purpose)
+                    statement.setString(index++, updated.lifecycle.name)
+                    statement.setLong(index++, updated.stateVersion.value)
+                    statement.setString(index++, expected.identity.workloadId.value)
+                    statement.setString(index++, expected.identity.environmentId.value)
+                    statement.setString(index++, expected.identity.deploymentId.value)
+                    statement.setLong(index, expected.stateVersion.value)
+                    statement.executeUpdate() == 1
+                }
             }
         }
+    }
+
+    /**
+     * Executes a registration SELECT with the given parameter binder and maps
+     * the first row, or null when no row matches. Resource handling is
+     * sequential try/finally so nesting stays flat.
+     */
+    private fun queryRegistration(
+        selectSql: String,
+        bind: (PreparedStatement) -> Unit,
+    ): RegisteredWorkload? {
+        val connection = dataSource.connection
+        connection.use { conn ->
+            return queryOnConnection(conn, selectSql, bind)
+        }
+    }
+
+    private fun queryOnConnection(
+        conn: Connection,
+        selectSql: String,
+        bind: (PreparedStatement) -> Unit,
+    ): RegisteredWorkload? =
+        conn.prepareStatement(selectSql).use { statement ->
+            bind(statement)
+            statement.executeQuery().use { rs ->
+                if (rs.next()) rs.toRegisteredWorkload() else null
+            }
+        }
+
+    private fun WorkloadDeploymentIdentity.scopeKey(): String {
+        val workload = workloadId.value
+        val environment = environmentId.value
+        val deployment = deploymentId.value
+        return "$workload/$environment/$deployment"
+    }
 
     private fun ResultSet.toRegisteredWorkload(): RegisteredWorkload =
         RegisteredWorkload(
@@ -304,3 +289,61 @@ class JdbcWorkloadRegistrationStore(
             configurationFingerprint == other.configurationFingerprint &&
             metadata == other.metadata
 }
+
+private const val INSERT_CONFIGURATION_REVISION =
+    """
+    INSERT INTO tramai_configuration_revision (configuration_id, configuration_version, fingerprint)
+    VALUES (?, ?, ?)
+    ON CONFLICT (configuration_id, configuration_version) DO NOTHING
+    """
+
+private const val SELECT_CONFIGURATION_FINGERPRINT =
+    """
+    SELECT fingerprint FROM tramai_configuration_revision
+    WHERE configuration_id = ? AND configuration_version = ?
+    """
+
+private const val INSERT_WORKLOAD_REGISTRATION =
+    """
+    INSERT INTO tramai_workload_registration (
+        workload_id, environment_id, deployment_id,
+        configuration_id, configuration_version,
+        owner, purpose, lifecycle_state, state_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+private const val UPDATE_WORKLOAD_REGISTRATION =
+    """
+    UPDATE tramai_workload_registration
+    SET owner = ?, purpose = ?, lifecycle_state = ?, state_version = ?
+    WHERE workload_id = ? AND environment_id = ? AND deployment_id = ?
+      AND state_version = ?
+    """
+
+private const val SELECT_REGISTRATION_WHERE_SCOPE =
+    """
+    SELECT r.workload_id, r.environment_id, r.deployment_id,
+           r.configuration_id, r.configuration_version,
+           cr.fingerprint,
+           r.owner, r.purpose, r.lifecycle_state, r.state_version
+    FROM tramai_workload_registration r
+    JOIN tramai_configuration_revision cr
+      ON cr.configuration_id = r.configuration_id
+     AND cr.configuration_version = r.configuration_version
+    WHERE r.workload_id = ? AND r.environment_id = ? AND r.deployment_id = ?
+    """
+
+private const val SELECT_REGISTRATION_WHERE_CONFIGURATION =
+    """
+    SELECT r.workload_id, r.environment_id, r.deployment_id,
+           r.configuration_id, r.configuration_version,
+           cr.fingerprint,
+           r.owner, r.purpose, r.lifecycle_state, r.state_version
+    FROM tramai_workload_registration r
+    JOIN tramai_configuration_revision cr
+      ON cr.configuration_id = r.configuration_id
+     AND cr.configuration_version = r.configuration_version
+    WHERE r.configuration_id = ? AND r.configuration_version = ?
+    ORDER BY r.workload_id, r.environment_id, r.deployment_id
+    LIMIT 1
+    """

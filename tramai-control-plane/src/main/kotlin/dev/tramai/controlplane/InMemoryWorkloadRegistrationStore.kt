@@ -26,7 +26,11 @@ class InMemoryWorkloadRegistrationStore : WorkloadRegistrationStore {
         val configurationVersion: String,
     )
 
-    private fun WorkloadConfigurationIdentity.toBindingKey(): ConfigurationBindingKey = ConfigurationBindingKey(id.value, version.value)
+    private fun WorkloadConfigurationIdentity.toBindingKey(): ConfigurationBindingKey =
+        ConfigurationBindingKey(
+            configurationId = id.value,
+            configurationVersion = version.value,
+        )
 
     override suspend fun find(
         workloadId: WorkloadId,
@@ -53,8 +57,16 @@ class InMemoryWorkloadRegistrationStore : WorkloadRegistrationStore {
                                     it.value.identity.configuration
                                         .toBindingKey() == bindingKey
                                 }?.value
-                            ?: error("Corrupt in-memory store: configuration binding exists without an owning registration")
-                    return@synchronized CreateResult.Conflicting(context, RegistrationConflictReason.CONFIGURATION_REBINDING)
+                    if (context == null) {
+                        throw IllegalStateException(
+                            "Corrupt in-memory store: configuration binding exists " +
+                                "without an owning registration",
+                        )
+                    }
+                    return@synchronized CreateResult.Conflicting(
+                        context,
+                        RegistrationConflictReason.CONFIGURATION_REBINDING,
+                    )
                 }
             }
 
@@ -80,15 +92,17 @@ class InMemoryWorkloadRegistrationStore : WorkloadRegistrationStore {
         updated: RegisteredWorkload,
     ): Boolean =
         synchronized(lock) {
-            val scope = expected.identity.toScope()
-            require(updated.identity.toScope() == scope) {
-                "compareAndSet must not change the deployment scope of a registration"
+            require(updated.identity == expected.identity) {
+                "compareAndSet must not change registration identity"
             }
-            val current = registrations[scope]
+            require(updated.configurationFingerprint == expected.configurationFingerprint) {
+                "compareAndSet must not change configuration fingerprint"
+            }
+            val current = registrations[expected.identity.toScope()]
             if (current != expected) {
                 false
             } else {
-                registrations[scope] = updated
+                registrations[expected.identity.toScope()] = updated
                 true
             }
         }

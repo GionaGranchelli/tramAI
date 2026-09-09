@@ -27,7 +27,12 @@ class WorkloadRegistrationAuthorityTest {
     private val fingerprint = WorkloadRegistrationFixtures.fingerprint()
     private val metadata = WorkloadRegistrationFixtures.metadata()
 
-    private suspend fun current(): RegisteredWorkload? = store.find(identity.workloadId, identity.environmentId, identity.deploymentId)
+    private suspend fun current(): RegisteredWorkload? =
+        store.find(
+            identity.workloadId,
+            identity.environmentId,
+            identity.deploymentId,
+        )
 
     // ── Registration ────────────────────────────────────────────────
 
@@ -474,9 +479,14 @@ class WorkloadRegistrationAuthorityTest {
                     )
 
                 assertThat(outcomes.filterIsInstance<MetadataUpdateOutcome.Applied>()).hasSize(1)
-                assertThat(outcomes.filterIsInstance<MetadataUpdateOutcome.Stale>()).hasSize(1)
+                val stale = outcomes.filterIsInstance<MetadataUpdateOutcome.Stale>().single()
+                // The loser must report the TRUTHFUL current version (2), not
+                // the version it read before the race (1) — 0.7.1e command
+                // preconditions will consume exactly this value.
+                assertThat(stale.expectedVersion).isEqualTo(WorkloadStateVersion.INITIAL)
+                assertThat(stale.currentVersion).isEqualTo(WorkloadStateVersion(2))
                 val finalRecord = store.find(scope.workloadId, scope.environmentId, scope.deploymentId)
-                assertThat(finalRecord?.stateVersion).isEqualTo(WorkloadStateVersion(2))
+                assertThat(finalRecord?.stateVersion).isEqualTo(stale.currentVersion)
                 assertThat(finalRecord?.metadata?.owner).isIn("Writer A", "Writer B")
             }
         }
