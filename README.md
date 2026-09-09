@@ -7,7 +7,7 @@
 
 TramAI is a **Kotlin-first JVM runtime for governed AI workflows**, combining typed AI contracts with runtime policy, human approval, controlled model routing, and verifiable execution evidence.
 
-> **TramAI 0.6.0 is the current release.** The 0.6.x line is frozen except for bug and security fixes. New feature work targets the 0.7.0 roadmap. See [Project Status](docs/STATUS.md), the [0.6.0 release notes](docs/releases/0.6.0-release-notes.md), and the [0.6.0 migration guide](docs/releases/0.6.0-migration-guide.md). The canonical [Product Positioning](docs/product/positioning.md) defines audiences, pillars, boundaries, and messaging.
+> **TramAI 0.6.0 is the current release.** The 0.6.x line is frozen except for bug and security fixes. New feature work targets the [0.7.0 roadmap](ROADMAP.md). See [Project Status](docs/STATUS.md), the [0.6.0 release notes](docs/releases/0.6.0-release-notes.md), and the [0.6.0 migration guide](docs/releases/0.6.0-migration-guide.md). The canonical [Product Positioning](docs/product/positioning.md) defines audiences, pillars, boundaries, and messaging.
 
 ---
 
@@ -210,7 +210,7 @@ TramAI targets JVM 21+. Building the repository requires a JDK 21 toolchain.
 - [Example Selection Guide](examples/README.md) — choose a demo, integration sample, reference workflow, or verification harness
 - [Product Positioning](docs/product/positioning.md) — canonical positioning, audiences, pillars, claim boundaries
 - [Project Status](docs/STATUS.md) — detailed implementation and maturity tracking
-- [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) — current and planned development phases
+- [Roadmap](ROADMAP.md) — current 0.7.0–0.10.0 product sequence and authoritative release scopes
 - [Guides](docs/guides/) — quickstart, governed workflows, testing, approval taxonomy
 - [Security Model](docs/security/SECURITY-MODEL.md) — threat model and abuse scenarios
 - [Runtime Evidence](docs/evidence/runtime-evidence-export-model.md) — evidence record shape and export
