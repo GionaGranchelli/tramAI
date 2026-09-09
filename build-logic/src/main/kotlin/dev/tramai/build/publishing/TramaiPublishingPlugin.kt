@@ -49,6 +49,7 @@ class TramaiPublishingPlugin : Plugin<Project> {
         componentName: String,
     ) {
         val metadata = TramaiPublicationMetadata.from(project)
+        val catalogEntry = moduleCatalogEntry(project)
 
         project.extensions.configure(PublishingExtension::class.java) {
             val publication = publications.create("maven", MavenPublication::class.java)
@@ -57,7 +58,7 @@ class TramaiPublishingPlugin : Plugin<Project> {
 
             publication.pom {
                 name.set(project.name)
-                catalogDescription(project)?.let { description.set(it) }
+                catalogDescription(project, catalogEntry)?.let { description.set(it) }
                 url.set(metadata.projectUrl)
 
                 licenses {
@@ -89,7 +90,7 @@ class TramaiPublishingPlugin : Plugin<Project> {
                     snapshotRepositoryUrl,
                 )
 
-            if (!targetRepositoryUrl.isNullOrBlank()) {
+            if (catalogEntry?.publishability == ModulePublishability.PUBLISHED && !targetRepositoryUrl.isNullOrBlank()) {
                 repositories {
                     maven {
                         name = TramaiPublishingRepositories.TRAMAI_REMOTE_NAME
@@ -126,9 +127,10 @@ class TramaiPublishingPlugin : Plugin<Project> {
      * entry at all (TestKit fixtures, internal/excluded modules) returns null
      * and the POM omits the description element.
      */
-    private fun catalogDescription(project: Project): String? {
-        val catalog = ModuleCatalog.fromRootDir(project.rootProject.projectDir).parse()
-        val entry = catalog.modules[":${project.name}"]
+    private fun catalogDescription(
+        project: Project,
+        entry: ModuleCatalog.ModuleEntry?,
+    ): String? {
         val description = entry?.description?.takeIf { it.isNotBlank() }
         if (entry?.publishability == ModulePublishability.PUBLISHED && description == null) {
             throw GradleException(
@@ -138,6 +140,12 @@ class TramaiPublishingPlugin : Plugin<Project> {
         }
         return description
     }
+
+    private fun moduleCatalogEntry(project: Project): ModuleCatalog.ModuleEntry? =
+        ModuleCatalog
+            .fromRootDir(project.rootProject.projectDir)
+            .parse()
+            .modules[":${project.name}"]
 
     private fun configureSovereignBundleLocalRepo(project: Project) {
         val sovereignBundleModules = TramaiPublishingRepositories.sovereignBundleModuleNames(project.rootProject)

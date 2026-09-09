@@ -36,6 +36,7 @@ class TramaiPublishingPluginTest {
         plugins: String = "java-library",
         probeBody: String = "",
         version: String = "0.6.0",
+        publishability: String = "internal",
     ): File {
         writeFile(
             dir,
@@ -57,9 +58,15 @@ class TramaiPublishingPluginTest {
         // instead of relying on production fail-open behavior. `:sample` is
         // declared internal so the fixture keeps the no-sovereign-repo / no-
         // description semantics of the original no-catalog fixtures. Tests
-        // that need a published `:sample` (D6/D7) write their catalog first.
+        // that need a published `:sample` opt into it explicitly.
         val catalogFile = File(dir, "config/quality/module-catalog.yml")
         if (!catalogFile.isFile) {
+            val catalogDescription =
+                if (publishability == "published") {
+                    "description: \"Fixture published module.\""
+                } else {
+                    ""
+                }
             writeFile(
                 dir,
                 "config/quality/module-catalog.yml",
@@ -69,13 +76,15 @@ class TramaiPublishingPluginTest {
                   core: { allowedLayers: [core-contracts, testing-support] }
                 entryDefaults:
                   core: &core { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture module." }
+                  published: &published { maturity: stable, visibility: public, owner: core, dependencyPolicy: core, releaseInclusion: included, rationale: "Fixture published module." }
                   internal: &internal { maturity: internal, visibility: internal, owner: testing, dependencyPolicy: core, releaseInclusion: internal_only, rationale: "Fixture internal module." }
                 modules:
                   - path: ":sample"
-                    <<: *internal
+                    <<: ${if (publishability == "published") "*published" else "*internal"}
                     layer: core-contracts
-                    publishability: internal
-                    apiStability: internal
+                    publishability: $publishability
+                    apiStability: ${if (publishability == "published") "stable" else "internal"}
+                    $catalogDescription
                 """.trimIndent(),
             )
         }
@@ -109,7 +118,13 @@ class TramaiPublishingPluginTest {
             .create()
             .withProjectDir(dir)
             .withPluginClasspath()
-            .withArguments(*args)
+            .withEnvironment(
+                System.getenv().filterKeys {
+                    !it.startsWith("TRAMAI_PUBLISH_") &&
+                        !it.startsWith("TRAMAI_SIGNING_") &&
+                        !it.startsWith("ORG_GRADLE_PROJECT_")
+                },
+            ).withArguments(*args)
 
     private fun runProbe(
         dir: File,
@@ -131,7 +146,7 @@ class TramaiPublishingPluginTest {
         val repos = publishing.repositories.map { repo ->
             val artifactRepo = repo as MavenArtifactRepository
             artifactRepo.name + "|" + artifactRepo.url
-        }.sorted().joinToString(",")
+        }.filter { it.startsWith("tramaiRemote|") }.sorted().joinToString(",")
         println("PROBE:repos=" + repos)
         """.trimIndent()
 
@@ -201,7 +216,12 @@ class TramaiPublishingPluginTest {
     ) {
         val dir = File(tempDir, "p3")
         dir.mkdirs()
-        singleProjectFixture(dir, version = "0.6.0", probeBody = probeRepositoriesBody())
+        singleProjectFixture(
+            dir,
+            version = "0.6.0",
+            publishability = "published",
+            probeBody = probeRepositoriesBody(),
+        )
 
         // Both URLs present → release URL wins.
         val both =
@@ -232,7 +252,12 @@ class TramaiPublishingPluginTest {
     ) {
         val dir = File(tempDir, "p4")
         dir.mkdirs()
-        singleProjectFixture(dir, version = "0.6.1-SNAPSHOT", probeBody = probeRepositoriesBody())
+        singleProjectFixture(
+            dir,
+            version = "0.6.1-SNAPSHOT",
+            publishability = "published",
+            probeBody = probeRepositoriesBody(),
+        )
 
         // Both URLs present → snapshot URL wins.
         val both =
@@ -285,6 +310,7 @@ class TramaiPublishingPluginTest {
         singleProjectFixture(
             dir,
             version = "0.6.0",
+            publishability = "published",
             probeBody =
                 """
                 val repo = publishing.repositories.getByName("tramaiRemote") as MavenArtifactRepository
@@ -306,6 +332,56 @@ class TramaiPublishingPluginTest {
         assertEquals("file:/tmp/repo", probe["repoUrl"], "file repository URL must remain file-based")
         assertEquals("NULL", probe["credUser"], "file repository must never receive credentials")
         assertEquals("NULL", probe["credPass"], "file repository must never receive credentials")
+    }
+
+    @Test
+    fun `P6b published catalog entry owns remote publication surface and POM description`(
+        @TempDir tempDir: File,
+    ) {
+        val dir = File(tempDir, "p6b")
+        dir.mkdirs()
+        singleProjectFixture(
+            dir,
+            publishability = "published",
+            probeBody =
+                """
+                println("PROBE:publication=" + publishing.publications.names.contains("maven"))
+                println("PROBE:remote=" + publishing.repositories.names.contains("tramaiRemote"))
+                println("PROBE:remoteTask=" + tasks.names.contains("publishMavenPublicationToTramaiRemoteRepository"))
+                """.trimIndent(),
+        )
+        val probe = runProbe(dir, args = arrayOf("-PtramaiPublishReleaseUrl=https://release.example.com/repo"))
+        assertEquals("true", probe["publication"])
+        assertEquals("true", probe["remote"])
+        assertEquals("true", probe["remoteTask"])
+
+        runner(dir, "generatePomFileForMavenPublication", "--quiet").build()
+        val pom = File(dir, "build/publications/maven/pom-default.xml").readText()
+        assertTrue(
+            pom.contains("<description>Fixture published module.</description>"),
+            "published POM must carry the catalog description",
+        )
+    }
+
+    @Test
+    fun `P6c internal catalog entry keeps local publication but has no remote surface`(
+        @TempDir tempDir: File,
+    ) {
+        val dir = File(tempDir, "p6c")
+        dir.mkdirs()
+        singleProjectFixture(
+            dir,
+            probeBody =
+                """
+                println("PROBE:publication=" + publishing.publications.names.contains("maven"))
+                println("PROBE:remote=" + publishing.repositories.names.contains("tramaiRemote"))
+                println("PROBE:remoteTask=" + tasks.names.contains("publishMavenPublicationToTramaiRemoteRepository"))
+                """.trimIndent(),
+        )
+        val probe = runProbe(dir, args = arrayOf("-PtramaiPublishReleaseUrl=https://release.example.com/repo"))
+        assertEquals("true", probe["publication"])
+        assertEquals("false", probe["remote"])
+        assertEquals("false", probe["remoteTask"])
     }
 
     // ── P7 — signing is optional ─────────────────────────────────────────────
