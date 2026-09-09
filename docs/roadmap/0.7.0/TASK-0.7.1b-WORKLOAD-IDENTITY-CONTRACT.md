@@ -92,11 +92,15 @@ Invariants encoded by the types:
 
 ## Verification
 
-- `./gradlew :tramai-core:test` — 328 tests passed (identity suites:
+- `./gradlew :tramai-core:test` — passed (identity suites:
   `IdentityIdValidationTest`, `WorkloadIdentityCompositionTest`,
-  `WorkloadMetadataTest`).
+  `WorkloadMetadataTest`, and the Java-source `JavaIdentityInteropTest`).
 - `./gradlew spotlessApply` / `spotlessCheck` — no changes required, passed.
-- `./gradlew :tramai-core:apiDump` — `tramai-core.api` +140 lines, additive only.
+- `./gradlew :tramai-core:apiDump` — regenerated; additive only (net +122 lines
+  vs epic base), with plain JVM `<init>`/getter surface after the Java-interop
+  review fix.
+- `./gradlew :examples:java-consumer-smoke:compileJava` — passed with identity
+  vocabulary usage.
 - `./gradlew verifyPr -PchangeClass=public-api` — see completion report.
 
 ## Mutation expectations
