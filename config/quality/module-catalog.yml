@@ -114,6 +114,15 @@ modules:
     publishability: published
     apiStability: stable
 
+  - path: ":tramai-control-plane"
+    description: "Authoritative control-plane registration and lifecycle state boundary for governed workloads."
+    <<: *core
+    rationale: "Canonical mutable authority binding workload identity to governed configuration, metadata and lifecycle; consumed by persistence adapters and later 0.7 control-plane candidates."
+    maturity: preview
+    layer: core-contracts
+    publishability: published
+    apiStability: preview
+
   - path: ":tramai-core"
     description: "Core annotations, request models, provider registry, and exception types for Tramai."
     <<: *core

@@ -1,7 +1,7 @@
 # Epic 0.7.1 — Control-Plane Authority & Workload Identity
 
 **Branch:** `epic/0.7.1-control-plane-authority`  
-**Status:** 🟡 Active — 0.7.1a audit recorded in [TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md](TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md); 0.7.1b identity contract implemented in [TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md](TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md)
+**Status:** 🟡 Active — 0.7.1a audit recorded in [TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md](TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md); 0.7.1b identity contract implemented in [TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md](TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md); 0.7.1c authoritative registration/state boundary implemented in [TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md](TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md)
 **Dependencies:** NONE
 
 ## Executive decision
