@@ -11,11 +11,13 @@ dependencies {
     api(project(":tramai-core"))
     api(project(":tramai-engine"))
     api(project(":tramai-security"))
+    api(project(":tramai-control-plane"))
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.jackson.datatype.jsr310)
 
     testImplementation(testFixtures(project(":tramai-testing")))
+    testImplementation(testFixtures(project(":tramai-control-plane")))
         testImplementation(platform(libs.testcontainers.bom))
             testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(libs.testcontainers.postgresql)

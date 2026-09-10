@@ -17,6 +17,7 @@
 | tramai-azure-openai | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-bedrock | provider-adapters | preview | preview | Yes | providers | included |
 | tramai-bom | core-contracts | stable | stable | Yes | core | included |
+| tramai-control-plane | core-contracts | preview | preview | Yes | core | included |
 | tramai-core | core-contracts | stable | stable | Yes | core | included |
 | tramai-dashboard | operations-observability | internal | internal | No | runtime | internal_only |
 | tramai-deepseek | provider-adapters | preview | preview | Yes | providers | included |
