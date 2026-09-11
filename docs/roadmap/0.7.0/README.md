@@ -15,9 +15,11 @@ The roadmap defines **what** ships. This directory defines **how 0.7.0 is execut
 Supported-profile loop:
 
 ```text
-identify → classify → constrain → authorize → select → execute
+identify → classify → constrain → authorize → select → release → execute
         → evidence → observe → control → reconstruct
 ```
+
+`release` is the provider-input data-release decision: what exact provider-bound representation may cross into the selected provider deployment. It is separate from provider authorization.
 
 ## Working model
 
@@ -43,7 +45,7 @@ See [`WAY-OF-WORKING.md`](WAY-OF-WORKING.md).
 | Epic | Outcome | Dependency | Status |
 |---|---|---|---|
 | [0.7.1](EPIC-0.7.1-CONTROL-PLANE-AUTHORITY.md) | Authoritative control-plane/workload identity boundary | — | 🟡 Active |
-| [0.7.2](EPIC-0.7.2-POLICY-TRUST-ZONES.md) | Classification-before-exposure, named trust topology, restrictive policy | 0.7.1 soft | ⚪ Planned |
+| [0.7.2](EPIC-0.7.2-POLICY-TRUST-ZONES.md) | Classification-before-exposure, named trust topology, restrictive policy, governed provider-input release/minimization | 0.7.1 soft | ⚪ Planned |
 | [0.7.3](EPIC-0.7.3-AUTHORIZED-SELECTION.md) | Explainable authorized/viable/selected provider-model decision | 0.7.2 hard | ⚪ Planned |
 | [0.7.4](EPIC-0.7.4-EVIDENCE-PROJECTION.md) | Typed governance evidence + authoritative read model/query API | 0.7.1 hard; 0.7.2/3 soft | ⚪ Planned |
 | [0.7.5](EPIC-0.7.5-TIMELINE-RECONSTRUCTION.md) | Semantic timeline + side-effect-free forensic reconstruction | 0.7.4 hard | ⚪ Planned |
@@ -57,7 +59,7 @@ Status values: `⚪ Planned` · `🟡 Active` · `🟣 Review` · `✅ Complete`
 
 ### Wave A — Governance foundations
 - 0.7.1 Control-plane authority & workload identity
-- 0.7.2 Classification, trust zones & restrictive policy
+- 0.7.2 Classification, trust zones, restrictive policy & provider-input release/minimization
 
 ### Wave B — Authoritative decisions
 - 0.7.3 Authorized provider/model selection
@@ -80,6 +82,11 @@ classification before provider exposure
 organization ∩ environment ∩ workload = effective policy
 selected ∈ viable
 viable ⊆ authorized
+provider invocation requires explicit data-release outcome
+providerBoundInput = projection(canonicalInput, selectedDeployment, effectivePolicy)
+provider-specific transformation never mutates canonicalInput
+provider-changing fallback => recompute providerBoundInput
+required minimization/inspection failure => no provider invocation
 cancelled(run) => no subsequent authoritative execution(run)
 reconstruction != re-execution
 Dashboard != policy authority
@@ -92,7 +99,7 @@ Dashboard != policy authority
 1. all eight Epic specs are satisfied;
 2. all Epic acceptance/adversarial proofs are green;
 3. [`QUALITY-GATES.md`](QUALITY-GATES.md) is green at the exact release head;
-4. the reference control-plane scenario and persisted-cancellation scenario pass end to end;
+4. the reference control-plane scenario, provider-input release/minimization scenario, and persisted-cancellation scenario pass end to end;
 5. no deferred 0.8/0.9/0.10 scope has leaked into the release without an explicit release-cut change;
 6. `release/0.7.0 → master` is a certification/promotion PR, not a first-time integration event.
 

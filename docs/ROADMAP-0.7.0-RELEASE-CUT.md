@@ -20,9 +20,11 @@ After 0.7, an authorized operator can **see, understand, control, and reconstruc
 0.7.0 is successful when the following story is coherent end to end:
 
 ```text
-identify → classify → constrain → authorize → select → execute
+identify → classify → constrain → authorize → select → release → execute
         → evidence → observe → control → reconstruct
 ```
+
+Here `release` means the explicit governed decision about what exact provider-bound representation may cross the selected provider-deployment boundary. It is distinct from provider authorization: an otherwise authorized provider may still require input minimization before invocation.
 
 ---
 
@@ -51,13 +53,42 @@ Every independently governed execution surface in control-plane mode has authori
 
 Distinct deployments must not silently collapse into one authoritative identity.
 
-## P0.2 Classification before provider exposure
+## P0.2 Classification and governed provider-input release before provider exposure
 
 Classification is resolved before provider/model eligibility is finalized.
 
 Explicit stronger classifications cannot be silently downgraded by weaker signals.
 
 Unknown/missing classification state must not be interpreted as permissive where policy requires classification.
+
+For every selected provider deployment, TramAI must make an explicit provider-input data-release decision before invoking that provider. Provider authorization and data release are separate concerns:
+
+```text
+provider authorization: may this deployment/model be used?
+provider data release:  what exact representation may cross into it?
+```
+
+0.7.0 requires a narrow provider-request release/minimization boundary with typed semantics equivalent to at least:
+
+```text
+DENY
+ALLOW_RAW
+ALLOW_WITH_MINIMIZATION
+```
+
+The exact public API shape is an implementation decision, but the semantics are release-authoritative.
+
+Provider-specific minimization/redaction must derive a provider-bound projection from authoritative/canonical execution input. It must not mutate the authoritative/canonical workload input in place.
+
+```text
+providerBoundInput = projection(canonicalInput, selectedDeployment, effectivePolicy)
+```
+
+If retry/fallback changes the concrete provider deployment, TramAI must recompute the release decision and provider-bound projection for that deployment. A projection authorized or minimized for one trust boundary must not be silently reused for another.
+
+Where policy requires minimization/inspection, inability to perform it is fail-closed before provider invocation. Safe evidence may record rule/reason identifiers, counts, digests, or equivalent non-sensitive metadata, but must not persist raw matched sensitive values.
+
+This P0 slice does not require a generalized enterprise DLP platform across every tool, telemetry, persistence, or learning boundary. It establishes the missing provider-request enforcement point and an architecture seam that later releases can generalize without creating a second policy engine.
 
 ## P0.3 Named trust zones and provider-deployment identity
 
@@ -76,6 +107,8 @@ organization ∩ environment ∩ workload = effective policy
 ```
 
 A lower scope cannot silently widen a higher-level denial.
+
+Provider-input release/minimization obligations are derived from the same effective governance authority; they must not be implemented as a parallel policy system.
 
 ## P0.5 Policy-aware provider/model authorization and selection
 
@@ -111,10 +144,11 @@ The runtime emits typed evidence sufficient to explain supported decisions, incl
 - named zone/category;
 - authorization/rejection reason;
 - selected route and reason;
+- provider-input data-release/minimization outcome and safe rule/reason metadata;
 - relevant tool/approval decisions;
 - actor/control correlation.
 
-Raw sensitive payloads remain excluded by default.
+Raw sensitive payloads and raw DLP/minimization matches remain excluded by default.
 
 ## P0.7 Control-plane projection and query API
 
@@ -183,6 +217,7 @@ Minimum supported surface:
 - workload inventory/detail;
 - effective governance posture;
 - provider/model authorization and selection reasons where supported;
+- provider-input data-release/minimization outcome where supported, using safe metadata only;
 - semantic timeline;
 - approval/runtime state where applicable;
 - authorized lifecycle/control actions;
@@ -197,6 +232,10 @@ P0 behavior is protected by deterministic tests, compatibility/TCK coverage wher
 0.7.0 must not ship with a known bypass through:
 
 - classification timing;
+- provider-input release/minimization timing;
+- required minimization failure falling through to raw provider invocation;
+- reuse of a provider-bound projection after fallback/retry changes the selected deployment;
+- mutation of canonical input by provider-specific transformation;
 - policy composition;
 - provider selection/fallback;
 - stale projection presented as authority;
@@ -217,7 +256,7 @@ The following do **not** block 0.7.0 unless implementation proves that a narrow 
 ## Targeted primarily at 0.8.0 — Governance DX & Intelligence
 
 - Workflow DSL 2.0 and broad state/context ergonomics;
-- policy simulation / decision preview;
+- policy simulation / decision preview, including preview of the provider-bound representation a deployment would receive;
 - public deterministic policy replay;
 - developer-local governance debugger;
 - governance contract-testing UX;
@@ -236,6 +275,8 @@ See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE
 - Entra/Okta/Keycloak productized compatibility beyond generic OIDC;
 - native/direct SAML stack;
 - key rotation engine and broad KMS/Vault/HSM adapters;
+- enterprise DLP-vendor adapters and organization-wide DLP/control-plane integrations;
+- vault-backed/reversible tokenization services or enterprise secret-substitution infrastructure beyond the narrow P0 provider-input transformation contract;
 - Docker Compose reference product profile;
 - Helm packaging;
 - Kubernetes operator;
@@ -247,6 +288,7 @@ See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE
 - governed learning traces;
 - raw-content dataset capture/export;
 - evaluation/training dataset productization;
+- generalized learning-capture data-release/minimization policy beyond preserving the architecture seam in 0.7;
 - rich adaptive routing/FinOps optimization;
 - broad cost/latency/quality/capacity/budget strategies;
 - machine-learned routing;
@@ -294,6 +336,14 @@ Authorization, viability, and optimization remain semantically distinct so later
 
 Every P0 control-plane capability remains usable without Dashboard 2.0.
 
+## I. Trust-boundary data-release continuity
+
+0.7 provider-input minimization is modeled as a source → destination data-release decision bound to effective policy and concrete deployment identity, not as a one-off prompt sanitizer.
+
+The canonical/authoritative execution input remains distinct from provider-specific projections. Later tool-invocation, observability, learning-capture, and enterprise DLP capabilities may reuse/generalize this semantic boundary, but must not introduce a second governance authority.
+
+Existing model-output/tool-result DLP remains valid; 0.7 must preserve compatibility or provide an explicit migration path if implementation changes its public contracts.
+
 ---
 
 # 6. Critical dependency graph
@@ -316,19 +366,24 @@ E. AUTHORIZED CANDIDATE SET + REASON PATHS
 F. POLICY-CONSTRAINED SELECTION
                 │
                 ▼
-G. EXECUTION + AUTHORITATIVE EVIDENCE
+G. PROVIDER-INPUT DATA RELEASE / MINIMIZATION
                 │
                 ▼
-H. CONTROL-PLANE PROJECTION + QUERY API
+H. EXECUTION + AUTHORITATIVE EVIDENCE
+                │
+                ▼
+I. CONTROL-PLANE PROJECTION + QUERY API
                 │
         ┌───────┼───────────┐
         ▼       ▼           ▼
-I. TIMELINE  J. CONTROL  K. RECONSTRUCTION
+J. TIMELINE  K. CONTROL  L. RECONSTRUCTION
         │       │           │
         └───────┼───────────┘
                 ▼
-L. DASHBOARD 2.0 CORE
+M. DASHBOARD 2.0 CORE
 ```
+
+Classification/policy work may define provider-input release obligations before selection implementation is complete, but the concrete provider-bound projection is derived for the selected deployment immediately before invocation.
 
 ---
 
@@ -340,13 +395,15 @@ L. DASHBOARD 2.0 CORE
 2. Named trust zones/provider-deployment identity.
 3. Restrictive policy composition.
 4. Classification-before-exposure integration.
+5. Provider-input data-release/minimization contract: canonical input, provider-bound projection, typed release outcomes, fail-closed transformation semantics, safe evidence.
 
 ## Wave B — authoritative decisions
 
 1. Authorized candidate model.
 2. Stable rejection/selection reason families.
 3. Policy-constrained selection/fallback.
-4. Decision/configuration identity/digest where required for evidence.
+4. Provider-specific release/minimization integration immediately before invocation, including recomputation on provider-changing fallback/retry.
+5. Decision/configuration identity/digest where required for evidence.
 
 ## Wave C — evidence and control plane
 
@@ -385,7 +442,15 @@ Organization/environment/workload constraints composed
         ↓
 Authorized provider/model set calculated with reason paths
         ↓
-Only authorized routes may be selected/executed
+Only authorized routes may be selected
+        ↓
+Selected deployment receives an explicit data-release decision
+        ↓
+Required minimization derives a provider-bound projection
+without mutating canonical input
+        ↓
+Only the authorized provider-bound representation may cross
+into the provider invocation
         ↓
 Authoritative decision/evidence emitted
         ↓
@@ -415,6 +480,8 @@ Any proposal to add work to 0.7.0 must answer:
 3. Why is an architecture commitment insufficient?
 4. Why can implementation not move to 0.8.0 or later?
 
+For provider-input data release, the answer is that classification/routing alone can authorize a provider while still allowing raw sensitive values to cross that provider boundary. Because the current DLP contract is output/tool-result oriented, deferring the provider-request enforcement point would freeze an incomplete trust-boundary model into the 0.7 control-plane contract.
+
 If those questions do not have strong answers, the work does not belong in 0.7.0.
 
 ---
@@ -431,6 +498,7 @@ IDENTITY
   → EFFECTIVE POLICY
   → AUTHORIZED CANDIDATES
   → POLICY-CONSTRAINED SELECTION
+  → PROVIDER-INPUT DATA RELEASE / MINIMIZATION
   → EXECUTION
   → EVIDENCE
   → CONTROL PLANE
@@ -441,4 +509,4 @@ IDENTITY
   → DASHBOARD 2.0
 ```
 
-> **0.7.0 proves that governed AI execution can be operated, explained, controlled, and reconstructed. It does not attempt to finish every future governance capability.**
+> **0.7.0 proves that governed AI execution can be operated, explained, controlled, reconstructed, and prevented from crossing a provider trust boundary with an unauthorized data representation. It does not attempt to finish every future governance capability.**
