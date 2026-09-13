@@ -8,6 +8,12 @@
 --       deployment scope (workload_id, environment_id, deployment_id), bound
 --       to the exact governed configuration revision.
 
+-- Column bounds mirror the Kotlin identity/metadata contracts (tramai-core
+-- identity validation): a hand-written or corrupted row cannot enter a state
+-- whose reconstruction into validated types would fail on read. The database
+-- defends the bounds; richer grammar (blank, whitespace, control characters)
+-- stays owned by the typed values.
+
 CREATE TABLE IF NOT EXISTS tramai_configuration_revision (
     configuration_id      TEXT NOT NULL,
     configuration_version TEXT NOT NULL,
@@ -15,6 +21,10 @@ CREATE TABLE IF NOT EXISTS tramai_configuration_revision (
     PRIMARY KEY (configuration_id, configuration_version),
     CONSTRAINT ck_configuration_revision_fingerprint CHECK (
         length(fingerprint) BETWEEN 1 AND 128
+    ),
+    CONSTRAINT ck_configuration_revision_identity_lengths CHECK (
+        length(configuration_id) BETWEEN 1 AND 128
+        AND length(configuration_version) BETWEEN 1 AND 128
     )
 );
 
@@ -37,6 +47,17 @@ CREATE TABLE IF NOT EXISTS tramai_workload_registration (
     ),
     CONSTRAINT ck_workload_registration_state_version CHECK (
         state_version >= 1
+    ),
+    CONSTRAINT ck_workload_registration_identity_lengths CHECK (
+        length(workload_id) BETWEEN 1 AND 128
+        AND length(environment_id) BETWEEN 1 AND 128
+        AND length(deployment_id) BETWEEN 1 AND 128
+        AND length(configuration_id) BETWEEN 1 AND 128
+        AND length(configuration_version) BETWEEN 1 AND 128
+    ),
+    CONSTRAINT ck_workload_registration_metadata_lengths CHECK (
+        length(owner) BETWEEN 1 AND 256
+        AND length(purpose) BETWEEN 1 AND 512
     )
 );
 

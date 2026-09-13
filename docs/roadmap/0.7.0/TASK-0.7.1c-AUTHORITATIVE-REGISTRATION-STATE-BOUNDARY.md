@@ -49,6 +49,11 @@ Spring, Jackson, the dashboard and JDBC are all absent from the new module.
   atomic `compareAndSet`) implemented by `InMemoryWorkloadRegistrationStore`
   (reference) and `JdbcWorkloadRegistrationStore` (durable, Postgres
   migrations `V8__control_plane_workload_registration.sql`).
+- Persisted rows obey the same bounds as the typed values: the migration
+  constrains identity columns and `owner`/`purpose` lengths, so a hand-written
+  or corrupted row cannot exist in a shape that fails typed reconstruction on
+  read (the database defends the bounds; character grammar stays owned by the
+  typed values).
 
 ## Shared contract test
 
@@ -59,8 +64,9 @@ invariant, global configuration-rebinding rejection, stale-CAS rejection and a
 real concurrency race (5 iterations, ready/release handshake on
 `Dispatchers.Default`). JDBC runners execute the full migration chain
 V1→V8 against `postgres:17-alpine`; a second suite proves durability across
-store instances (restart), cross-instance rebinding rejection and DB-level
-atomic create races.
+store instances (restart), cross-instance rebinding rejection, DB-level
+atomic create races and migration-level rejection (SQLSTATE 23514) of rows
+outside the bounded identity/metadata contracts.
 
 ## Non-goals
 
