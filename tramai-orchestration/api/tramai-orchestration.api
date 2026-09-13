@@ -227,7 +227,12 @@ public final class dev/tramai/orchestration/GovernedRun {
 
 public final class dev/tramai/orchestration/GovernedRun$Companion {
 	public final fun resume (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;)Ldev/tramai/orchestration/GovernedRun;
-	public final fun start (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;)Ldev/tramai/orchestration/GovernedRun;
+	public final fun start (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/util/Map;)Ldev/tramai/orchestration/GovernedRun;
+	public static synthetic fun start$default (Ldev/tramai/orchestration/GovernedRun$Companion;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/GovernedRun;
+}
+
+public final class dev/tramai/orchestration/GovernedRunKt {
+	public static final fun recoverGovernedRun (Ldev/tramai/orchestration/WorkflowPersistence;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class dev/tramai/orchestration/HermesStepConfig {

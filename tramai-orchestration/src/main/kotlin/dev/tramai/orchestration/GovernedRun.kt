@@ -5,6 +5,27 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 
 /**
+ * Recovers the governed execution envelope of an ALREADY EXISTING run (0.7.1d).
+ *
+ * Continuation paths recover identity; they never recreate it. The deployment identity
+ * is therefore read from the run's own durable checkpoint — never rebuilt from whatever
+ * schedule, registration or binding happens to exist at continuation time, which could
+ * have changed after the run was created.
+ *
+ * Returns null for an intentionally ungoverned (legacy) run, and fails closed (throws)
+ * when persisted attribution is partial or malformed: a run that was governed must never
+ * continue un-attributed.
+ */
+suspend fun <S> WorkflowPersistence<S>.recoverGovernedRun(
+    workflowName: String,
+    workflowId: String,
+): GovernedRun? {
+    val checkpoint = checkpointStore.load(workflowName, workflowId) ?: return null
+    val identity = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata) ?: return null
+    return GovernedRun(context = WorkflowContext(workflowId = checkpoint.workflowId), identity = identity)
+}
+
+/**
  * Additive governed execution envelope (0.7.1d).
  *
  * Carries the canonical [GovernedRunIdentity] ALONGSIDE the existing
@@ -37,8 +58,11 @@ class GovernedRun(
          * The canonical identity is established exactly once, here: the generated
          * workflow id becomes the run id, so identity and run cannot drift apart.
          */
-        fun start(deployment: WorkloadDeploymentIdentity): GovernedRun {
-            val context = WorkflowContext()
+        fun start(
+            deployment: WorkloadDeploymentIdentity,
+            attributes: Map<String, Any?> = emptyMap(),
+        ): GovernedRun {
+            val context = WorkflowContext(attributes = attributes)
             return GovernedRun(
                 context = context,
                 identity = GovernedRunIdentity(deployment = deployment, runId = RunId(context.workflowId)),

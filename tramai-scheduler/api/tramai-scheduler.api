@@ -131,10 +131,29 @@ public final class dev/tramai/scheduler/CronScheduleKt {
 	public static synthetic fun every$default (JLjava/time/temporal/ChronoUnit;Ljava/time/ZoneId;Ljava/util/List;ZILjava/lang/Object;)Ldev/tramai/scheduler/CronSchedule;
 }
 
-public final class dev/tramai/scheduler/InMemoryWorkflowSchedulerStore : dev/tramai/scheduler/WorkflowSchedulerStore {
+public final class dev/tramai/scheduler/GovernedScheduleBinding {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;)Ldev/tramai/scheduler/GovernedScheduleBinding;
+	public static synthetic fun copy$default (Ldev/tramai/scheduler/GovernedScheduleBinding;Ljava/lang/String;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;ILjava/lang/Object;)Ldev/tramai/scheduler/GovernedScheduleBinding;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentIdentity ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun getScheduleId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/scheduler/GovernedScheduleBindingStore {
+	public abstract fun getGovernedScheduleBinding (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun putGovernedScheduleBinding (Ldev/tramai/scheduler/GovernedScheduleBinding;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/scheduler/InMemoryWorkflowSchedulerStore : dev/tramai/scheduler/GovernedScheduleBindingStore, dev/tramai/scheduler/WorkflowSchedulerStore {
 	public fun <init> ()V
 	public fun claimDueDelayWakeups (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimDueTicks (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getGovernedScheduleBinding (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun getSchedule (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listScheduleStatus (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markDelayWakeupCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -142,18 +161,20 @@ public final class dev/tramai/scheduler/InMemoryWorkflowSchedulerStore : dev/tra
 	public fun markTickMisfired (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markTickSkipped (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markTickStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun putGovernedScheduleBinding (Ldev/tramai/scheduler/GovernedScheduleBinding;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun releaseDelayWakeupClaim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun releaseTickClaim (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun scheduleDelayWakeup (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun upsertSchedule (Ldev/tramai/scheduler/ScheduleRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
-public final class dev/tramai/scheduler/JdbcWorkflowSchedulerStore : dev/tramai/scheduler/WorkflowSchedulerStore {
+public final class dev/tramai/scheduler/JdbcWorkflowSchedulerStore : dev/tramai/scheduler/GovernedScheduleBindingStore, dev/tramai/scheduler/WorkflowSchedulerStore {
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/WorkflowObserver;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/WorkflowObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun claimDueDelayWakeups (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun claimDueTicks (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun createTableSql ()Ljava/util/List;
+	public fun getGovernedScheduleBinding (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun getSchedule (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listScheduleStatus (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markDelayWakeupCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -161,6 +182,7 @@ public final class dev/tramai/scheduler/JdbcWorkflowSchedulerStore : dev/tramai/
 	public fun markTickMisfired (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markTickSkipped (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markTickStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun putGovernedScheduleBinding (Ldev/tramai/scheduler/GovernedScheduleBinding;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recover (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun recover$default (Ldev/tramai/scheduler/JdbcWorkflowSchedulerStore;Ljava/time/Instant;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public fun releaseDelayWakeupClaim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -223,6 +245,7 @@ public final class dev/tramai/scheduler/ScheduledWorkflowTimer : java/lang/AutoC
 	public synthetic fun <init> (Ldev/tramai/scheduler/WorkflowSchedulerStore;Ljava/lang/String;Ljava/time/Clock;Ljava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;ILdev/tramai/orchestration/WorkflowObserver;Lkotlinx/coroutines/CoroutineScope;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public final fun pollOnce (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun register (Ldev/tramai/orchestration/Workflow;Lkotlin/jvm/functions/Function2;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun register (Ldev/tramai/orchestration/Workflow;Lkotlin/jvm/functions/Function2;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun register$default (Ldev/tramai/scheduler/ScheduledWorkflowTimer;Ldev/tramai/orchestration/Workflow;Lkotlin/jvm/functions/Function2;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun start ()Lkotlinx/coroutines/Job;
