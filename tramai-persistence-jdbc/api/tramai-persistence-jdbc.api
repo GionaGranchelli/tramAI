@@ -120,3 +120,10 @@ public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore : de
 public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore$Companion {
 }
 
+public final class dev/tramai/persistence/jdbc/JdbcWorkloadRegistrationStore : dev/tramai/controlplane/WorkloadRegistrationStore {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public fun compareAndSet (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun find (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+

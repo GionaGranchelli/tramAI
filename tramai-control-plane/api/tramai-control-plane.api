@@ -1,0 +1,284 @@
+public final class dev/tramai/controlplane/ConfigurationFingerprint {
+	public static final field Companion Ldev/tramai/controlplane/ConfigurationFingerprint$Companion;
+	public static final field FINGERPRINT_MAX_LENGTH I
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/controlplane/ConfigurationFingerprint;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/ConfigurationFingerprint;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/controlplane/ConfigurationFingerprint;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/ConfigurationFingerprint$Companion {
+}
+
+public abstract interface class dev/tramai/controlplane/CreateResult {
+}
+
+public final class dev/tramai/controlplane/CreateResult$Conflicting : dev/tramai/controlplane/CreateResult {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun component2 ()Ldev/tramai/controlplane/RegistrationConflictReason;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;)Ldev/tramai/controlplane/CreateResult$Conflicting;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/CreateResult$Conflicting;Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;ILjava/lang/Object;)Ldev/tramai/controlplane/CreateResult$Conflicting;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExisting ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun getReason ()Ldev/tramai/controlplane/RegistrationConflictReason;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/CreateResult$Created : dev/tramai/controlplane/CreateResult {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/CreateResult$Created;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/CreateResult$Created;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/CreateResult$Created;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/CreateResult$Idempotent : dev/tramai/controlplane/CreateResult {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/CreateResult$Idempotent;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/CreateResult$Idempotent;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/CreateResult$Idempotent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/InMemoryWorkloadRegistrationStore : dev/tramai/controlplane/WorkloadRegistrationStore {
+	public fun <init> ()V
+	public fun compareAndSet (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun find (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/controlplane/LifecycleTransitionOutcome {
+}
+
+public final class dev/tramai/controlplane/LifecycleTransitionOutcome$Applied : dev/tramai/controlplane/LifecycleTransitionOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Applied;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/LifecycleTransitionOutcome$Applied;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Applied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/LifecycleTransitionOutcome$InvalidTransition : dev/tramai/controlplane/LifecycleTransitionOutcome {
+	public fun <init> (Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadLifecycleState;)V
+	public final fun component1 ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun component2 ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun copy (Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadLifecycleState;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$InvalidTransition;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/LifecycleTransitionOutcome$InvalidTransition;Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadLifecycleState;ILjava/lang/Object;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$InvalidTransition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFrom ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun getTo ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/LifecycleTransitionOutcome$NotFound : dev/tramai/controlplane/LifecycleTransitionOutcome {
+	public static final field INSTANCE Ldev/tramai/controlplane/LifecycleTransitionOutcome$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/LifecycleTransitionOutcome$Stale : dev/tramai/controlplane/LifecycleTransitionOutcome {
+	public fun <init> (Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;)V
+	public final fun component1 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun component2 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun copy (Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Stale;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/LifecycleTransitionOutcome$Stale;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;ILjava/lang/Object;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Stale;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun getExpectedVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/LifecycleTransitionOutcome$Unchanged : dev/tramai/controlplane/LifecycleTransitionOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Unchanged;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/LifecycleTransitionOutcome$Unchanged;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/LifecycleTransitionOutcome$Unchanged;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/controlplane/MetadataUpdateOutcome {
+}
+
+public final class dev/tramai/controlplane/MetadataUpdateOutcome$Applied : dev/tramai/controlplane/MetadataUpdateOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Applied;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/MetadataUpdateOutcome$Applied;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Applied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/MetadataUpdateOutcome$NotFound : dev/tramai/controlplane/MetadataUpdateOutcome {
+	public static final field INSTANCE Ldev/tramai/controlplane/MetadataUpdateOutcome$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/MetadataUpdateOutcome$Stale : dev/tramai/controlplane/MetadataUpdateOutcome {
+	public fun <init> (Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;)V
+	public final fun component1 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun component2 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun copy (Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Stale;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/MetadataUpdateOutcome$Stale;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadStateVersion;ILjava/lang/Object;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Stale;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun getExpectedVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/MetadataUpdateOutcome$Unchanged : dev/tramai/controlplane/MetadataUpdateOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Unchanged;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/MetadataUpdateOutcome$Unchanged;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/MetadataUpdateOutcome$Unchanged;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/controlplane/RegisterOutcome {
+}
+
+public final class dev/tramai/controlplane/RegisterOutcome$AlreadyRegistered : dev/tramai/controlplane/RegisterOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/RegisterOutcome$AlreadyRegistered;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/RegisterOutcome$AlreadyRegistered;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/RegisterOutcome$AlreadyRegistered;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/RegisterOutcome$Created : dev/tramai/controlplane/RegisterOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;)Ldev/tramai/controlplane/RegisterOutcome$Created;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/RegisterOutcome$Created;Ldev/tramai/controlplane/RegisteredWorkload;ILjava/lang/Object;)Ldev/tramai/controlplane/RegisterOutcome$Created;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/RegisterOutcome$Rejected : dev/tramai/controlplane/RegisterOutcome {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun component2 ()Ldev/tramai/controlplane/RegistrationConflictReason;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;)Ldev/tramai/controlplane/RegisterOutcome$Rejected;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/RegisterOutcome$Rejected;Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegistrationConflictReason;ILjava/lang/Object;)Ldev/tramai/controlplane/RegisterOutcome$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExisting ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun getReason ()Ldev/tramai/controlplane/RegistrationConflictReason;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/RegisteredWorkload {
+	public fun <init> (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadStateVersion;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun component2 ()Ldev/tramai/controlplane/ConfigurationFingerprint;
+	public final fun component3 ()Ldev/tramai/core/identity/WorkloadMetadata;
+	public final fun component4 ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun component5 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadStateVersion;)Ldev/tramai/controlplane/RegisteredWorkload;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Ldev/tramai/controlplane/WorkloadLifecycleState;Ldev/tramai/controlplane/WorkloadStateVersion;ILjava/lang/Object;)Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConfigurationFingerprint ()Ldev/tramai/controlplane/ConfigurationFingerprint;
+	public final fun getIdentity ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun getLifecycle ()Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun getMetadata ()Ldev/tramai/core/identity/WorkloadMetadata;
+	public final fun getStateVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/RegistrationConflictReason : java/lang/Enum {
+	public static final field CONFIGURATION_REBINDING Ldev/tramai/controlplane/RegistrationConflictReason;
+	public static final field CONFLICTING_REGISTRATION Ldev/tramai/controlplane/RegistrationConflictReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/controlplane/RegistrationConflictReason;
+	public static fun values ()[Ldev/tramai/controlplane/RegistrationConflictReason;
+}
+
+public final class dev/tramai/controlplane/WorkloadDeploymentScope {
+	public fun <init> (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadId;
+	public final fun component2 ()Ldev/tramai/core/identity/EnvironmentId;
+	public final fun component3 ()Ldev/tramai/core/identity/DeploymentId;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)Ldev/tramai/controlplane/WorkloadDeploymentScope;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/WorkloadDeploymentScope;Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;ILjava/lang/Object;)Ldev/tramai/controlplane/WorkloadDeploymentScope;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentId ()Ldev/tramai/core/identity/DeploymentId;
+	public final fun getEnvironmentId ()Ldev/tramai/core/identity/EnvironmentId;
+	public final fun getWorkloadId ()Ldev/tramai/core/identity/WorkloadId;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/WorkloadLifecycleState : java/lang/Enum {
+	public static final field ACTIVE Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public static final field RETIRED Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public static final field SUSPENDED Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public final fun canTransitionTo (Ldev/tramai/controlplane/WorkloadLifecycleState;)Z
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/controlplane/WorkloadLifecycleState;
+	public static fun values ()[Ldev/tramai/controlplane/WorkloadLifecycleState;
+}
+
+public final class dev/tramai/controlplane/WorkloadRegistrationAuthority {
+	public fun <init> (Ldev/tramai/controlplane/WorkloadRegistrationStore;)V
+	public final fun register (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun transitionLifecycle (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadLifecycleState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun updateMetadata (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/controlplane/WorkloadRegistrationStore {
+	public abstract fun compareAndSet (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun create (Ldev/tramai/controlplane/RegisteredWorkload;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun find (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/controlplane/WorkloadStateVersion {
+	public static final field Companion Ldev/tramai/controlplane/WorkloadStateVersion$Companion;
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Ldev/tramai/controlplane/WorkloadStateVersion;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/WorkloadStateVersion;JILjava/lang/Object;)Ldev/tramai/controlplane/WorkloadStateVersion;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()J
+	public fun hashCode ()I
+	public final fun next ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/controlplane/WorkloadStateVersion$Companion {
+	public final fun getINITIAL ()Ldev/tramai/controlplane/WorkloadStateVersion;
+}
+
