@@ -1,16 +1,44 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.engine.approval
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
-import dev.tramai.core.approval.*
+import dev.tramai.core.approval.ApprovalContinuation
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.exception.*
+import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalTokenRejectedException
+import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.core.exception.NestedApprovalNotSupportedException
+import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.ResolvedTool
-import dev.tramai.engine.*
-import kotlinx.coroutines.CancellationException
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
+import dev.tramai.engine.ReplayEnvelopeFactory
+import dev.tramai.engine.ReplayPayload
+import dev.tramai.engine.ResumeApprovalCommand
+import dev.tramai.engine.ResumeToolDeclarationDigestHelper
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.ToolRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 
 /**
  * Orchestrates the resume state machine for a suspended approval.
@@ -43,8 +71,20 @@ internal class ApprovalResumeCoordinator(
             throw ApprovalTokenRejectedException(command.approvalId)
         }
 
-        val metadata = suspendedInvocationStore.get(command.approvalId)
-            ?: throw ApprovalNotFoundException(command.approvalId)
+        val metadata =
+            suspendedInvocationStore.get(command.approvalId)
+                ?: throw ApprovalNotFoundException(command.approvalId)
+        // 0.7.1d: a continuation RECOVERS identity from the durable suspension witness; a
+        // caller-supplied identity is only a consistency precondition. Rejected here, before
+        // the continuation is claimed and before any execution.
+        val persistedGoverned =
+            (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
+                ?.governedRunIdentity(command.approvalId)
+        requireGovernedContinuity(
+            approvalId = command.approvalId,
+            persisted = persistedGoverned,
+            requested = GovernedRunScope.resolve(currentCoroutineContext()),
+        )
         val registered = resumeOperationRegistry.resolve(metadata.operationReference)
         val existingContinuation = claimService.loadPendingForResume(store, command, metadata, registered)
         val resolvedTool = resolveAndValidateResumeTool(command, metadata, existingContinuation)
@@ -63,12 +103,25 @@ internal class ApprovalResumeCoordinator(
         val context = ResumeExecutionContext(command, metadata, registered, resolvedTool, uncertainOutcome)
 
         return try {
-            executeClaimedResume(context, claimed, store)
+            if (persistedGoverned == null) {
+                executeClaimedResume(context, claimed, store)
+            } else {
+                // Install the RECOVERED identity around the resumed execution, so the engine
+                // invocation that continues this run carries its canonical run id.
+                withContext(GovernedRunScope(persistedGoverned)) {
+                    executeClaimedResume(context, claimed, store)
+                }
+            }
         } catch (e: NestedApprovalNotSupportedException) {
             emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported")
             throw e
         } catch (e: StructuredOutputException) {
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "structured-parse-failed: ${e::class.simpleName ?: "unknown"}")
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                metadata,
+                "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
+            )
             throw e
         } catch (e: CancellationException) {
             throw e
@@ -87,26 +140,32 @@ internal class ApprovalResumeCoordinator(
         val command = context.command
         val metadata = context.metadata
         val replayPayload = revealAndValidateReplayPayload(context.uncertainOutcome, command, metadata)
-        val expectedArgsDigest = validateClaimedResumeArguments(
-            context.uncertainOutcome, command, metadata, claimed, requireToolArgumentsDigester(),
-        )
+        val expectedArgsDigest =
+            validateClaimedResumeArguments(
+                context.uncertainOutcome,
+                command,
+                metadata,
+                claimed,
+                requireToolArgumentsDigester(),
+            )
         val validatedInput = claimed.arguments.reveal()
         val rehydratedPayload = ReplayEnvelopeFactory.rehydrateAfterClaim(replayPayload, metadata, validatedInput)
         val emitter: suspend (String) -> Unit = { reason ->
             emitResumeUncertainOutcomeOnce(context.uncertainOutcome, command, metadata, reason)
         }
-        val result = context.registered.resumeExecutor.execute(
-            ClaimedResumeExecutionRequest(
-                command,
-                metadata,
-                context.registered,
-                context.resolvedTool,
-                rehydratedPayload,
-                validatedInput,
-                expectedArgsDigest,
-                emitter,
-            ),
-        )
+        val result =
+            context.registered.resumeExecutor.execute(
+                ClaimedResumeExecutionRequest(
+                    command,
+                    metadata,
+                    context.registered,
+                    context.resolvedTool,
+                    rehydratedPayload,
+                    validatedInput,
+                    expectedArgsDigest,
+                    emitter,
+                ),
+            )
         completeClaimedResume(command, metadata, claimed, store)
         return result
     }
@@ -116,8 +175,9 @@ internal class ApprovalResumeCoordinator(
         command: ResumeApprovalCommand,
         metadata: SuspendedInvocationMetadata,
     ): ReplayPayload {
-        val replayEnvelope = suspendedInvocationStore.revealReplayEnvelope(command.approvalId)
-            ?: throw ConfigurationException("replay-envelope-not-found")
+        val replayEnvelope =
+            suspendedInvocationStore.revealReplayEnvelope(command.approvalId)
+                ?: throw ConfigurationException("replay-envelope-not-found")
         val replayPayload = replayEnvelope.revealForResume()
         val actualDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, replayPayload.messages)
         if (actualDigest != metadata.replayEnvelopeDigest) {
@@ -253,8 +313,9 @@ internal class ApprovalResumeCoordinator(
         metadata: SuspendedInvocationMetadata,
         continuation: ApprovalContinuation,
     ): ResolvedTool {
-        val resolvedTool = toolRegistry.resolve(metadata.toolName)
-            ?: throw ConfigurationException("approved-tool-not-registered")
+        val resolvedTool =
+            toolRegistry.resolve(metadata.toolName)
+                ?: throw ConfigurationException("approved-tool-not-registered")
         require(ResumeToolDeclarationDigestHelper.compute(resolvedTool) == metadata.toolReference.declarationDigest) {
             "resume-tool-declaration-drift"
         }

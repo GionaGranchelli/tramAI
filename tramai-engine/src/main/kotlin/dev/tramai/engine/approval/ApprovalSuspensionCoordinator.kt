@@ -1,17 +1,42 @@
 package dev.tramai.engine.approval
 
-import dev.tramai.core.approval.*
+import dev.tramai.core.approval.ApprovalContinuation
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
-import dev.tramai.core.model.*
+import dev.tramai.core.exception.StructuredOutputException
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.policy.PolicyDecision
-import dev.tramai.engine.*
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
+import dev.tramai.engine.ReplayEnvelopeFactory
+import dev.tramai.engine.ReplayPayload
+import dev.tramai.engine.ResumeApprovalCommand
+import dev.tramai.engine.ResumeToolDeclarationDigestHelper
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.planning.ServiceDefinition
 import dev.tramai.engine.tool.ToolApprovalGate
 import dev.tramai.engine.tool.ToolExecutionRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import java.time.Clock
 
 /**
@@ -35,7 +60,6 @@ internal class ApprovalSuspensionCoordinator(
     private val clock: Clock,
     private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
 ) : ToolApprovalGate {
-
     override suspend fun requireApproval(
         request: ToolExecutionRequest,
         policyDecision: PolicyDecision.RequireApproval,
@@ -78,8 +102,9 @@ internal class ApprovalSuspensionCoordinator(
             )
         }
         val requirement = policyDecision.requirement
-        val digester = toolArgumentsDigester
-            ?: throw ConfigurationException("ToolArgumentsDigester is required for renewed approval validation")
+        val digester =
+            toolArgumentsDigester
+                ?: throw ConfigurationException("ToolArgumentsDigester is required for renewed approval validation")
         val renewedDigest = digester.digest(SensitiveToolArguments.of(input))
         require(requirement.toolName == request.tool.name) {
             "Renewed approval requirement tool name mismatch: '${requirement.toolName}' != '${request.tool.name}'"
@@ -99,8 +124,9 @@ internal class ApprovalSuspensionCoordinator(
         require(requirement.toolName == request.tool.name) {
             "Approval requirement tool binding mismatch: expected '${request.tool.name}', got '${requirement.toolName}'"
         }
-        val digester = toolArgumentsDigester
-            ?: throw ConfigurationException("ToolArgumentsDigester is required for approval binding validation")
+        val digester =
+            toolArgumentsDigester
+                ?: throw ConfigurationException("ToolArgumentsDigester is required for approval binding validation")
         val rawDigest = digester.digest(SensitiveToolArguments.of(input))
         if (requirement.argumentsDigest.isNotEmpty()) {
             require(Sha256Digest.of(requirement.argumentsDigest) == rawDigest) {
@@ -112,58 +138,84 @@ internal class ApprovalSuspensionCoordinator(
     }
 
     private suspend fun suspendToolExecution(request: SuspendToolExecutionRequest): Nothing {
-        val approvalGateCoordinator = approvalGateCoordinator
-            ?: throw ConfigurationException("ApprovalGateCoordinator is required for tool execution suspension")
-        val approvalContinuationStore = approvalContinuationStore
-            ?: throw ConfigurationException("ApprovalContinuationStore is required for tool execution suspension")
+        val approvalGateCoordinator =
+            approvalGateCoordinator
+                ?: throw ConfigurationException("ApprovalGateCoordinator is required for tool execution suspension")
+        val approvalContinuationStore =
+            approvalContinuationStore
+                ?: throw ConfigurationException("ApprovalContinuationStore is required for tool execution suspension")
+        // 0.7.1d: a governed execution must not degrade to run-id-only attribution at the
+        // approval boundary. The capability is resolved BEFORE any approval or continuation
+        // state is created, so an unsupported store fails closed instead of leaving a
+        // half-governed suspension behind.
+        val governedRunIdentity = GovernedRunScope.resolve(currentCoroutineContext())
+        val governedStore =
+            if (governedRunIdentity == null) {
+                null
+            } else {
+                suspendedInvocationStore as? GovernedSuspendedInvocationStore
+                    ?: throw ConfigurationException(
+                        "Governed approval suspension requires a SuspendedInvocationStore implementing " +
+                            "GovernedSuspendedInvocationStore; the configured store " +
+                            "'${suspendedInvocationStore::class.simpleName}' does not",
+                    )
+            }
         val sensitiveArgs = SensitiveToolArguments.of(request.input)
         val expiresAt = clock.instant().plusMillis(request.timeoutMillis)
         var createdChallengeId: String? = null
         var createdContinuationVersion = 0L
         try {
-            val challenge = approvalGateCoordinator.createApproval(
-                CreateApprovalCommand(
-                    workflowRunId = request.identity.workflowRunId,
-                    toolName = request.tool.name,
-                    argumentsDigest = request.argumentsDigest,
-                    policyVersion = request.identity.policyVersion,
-                    workflowDigest = request.identity.workflowDigest,
-                    requestedBy = request.identity.actorId,
-                    expiresAt = expiresAt,
-                ),
-            )
+            val challenge =
+                approvalGateCoordinator.createApproval(
+                    CreateApprovalCommand(
+                        workflowRunId = request.identity.workflowRunId,
+                        toolName = request.tool.name,
+                        argumentsDigest = request.argumentsDigest,
+                        policyVersion = request.identity.policyVersion,
+                        workflowDigest = request.identity.workflowDigest,
+                        requestedBy = request.identity.actorId,
+                        expiresAt = expiresAt,
+                    ),
+                )
             createdChallengeId = challenge.approvalId
-            val continuation = approvalContinuationStore.create(
-                ApprovalContinuation(
-                    approvalId = challenge.approvalId,
-                    workflowRunId = request.identity.workflowRunId,
-                    correlationId = request.correlationId,
-                    toolCallId = request.toolCall.id,
-                    toolName = request.tool.name,
-                    argumentsDigest = request.argumentsDigest,
-                    policyVersion = request.identity.policyVersion,
-                    workflowDigest = request.identity.workflowDigest,
-                    status = ApprovalContinuationStatus.PENDING,
-                    createdAt = clock.instant(),
-                    approvalExpiresAt = challenge.expiresAt,
-                    claimedBy = null,
-                    claimedAt = null,
-                    completedAt = null,
-                    version = 0L,
-                ),
-                sensitiveArgs,
-            )
+            val continuation =
+                approvalContinuationStore.create(
+                    ApprovalContinuation(
+                        approvalId = challenge.approvalId,
+                        workflowRunId = request.identity.workflowRunId,
+                        correlationId = request.correlationId,
+                        toolCallId = request.toolCall.id,
+                        toolName = request.tool.name,
+                        argumentsDigest = request.argumentsDigest,
+                        policyVersion = request.identity.policyVersion,
+                        workflowDigest = request.identity.workflowDigest,
+                        status = ApprovalContinuationStatus.PENDING,
+                        createdAt = clock.instant(),
+                        approvalExpiresAt = challenge.expiresAt,
+                        claimedBy = null,
+                        claimedAt = null,
+                        completedAt = null,
+                        version = 0L,
+                    ),
+                    sensitiveArgs,
+                )
             createdContinuationVersion = continuation.version
             val budgetSnapshot = request.tokenBudgetTracker?.snapshot()
             val opRef = resumeOperationRegistry.register(serviceDefinition, request.operation, resumeExecutor)
-            val prepared = ReplayEnvelopeFactory.prepareForSuspension(
-                opRef, request.messages, request.toolCall.id, request.tool.name, request.toolCallIndex,
-            )
-            val toolRef = ResumeToolReference(
-                request.tool.name,
-                ResumeToolDeclarationDigestHelper.compute(request.tool),
-            )
-            suspendedInvocationStore.create(
+            val prepared =
+                ReplayEnvelopeFactory.prepareForSuspension(
+                    opRef,
+                    request.messages,
+                    request.toolCall.id,
+                    request.tool.name,
+                    request.toolCallIndex,
+                )
+            val toolRef =
+                ResumeToolReference(
+                    request.tool.name,
+                    ResumeToolDeclarationDigestHelper.compute(request.tool),
+                )
+            val suspendedMetadata =
                 SuspendedInvocationMetadata(
                     approvalId = challenge.approvalId,
                     toolCallId = request.toolCall.id,
@@ -179,9 +231,16 @@ internal class ApprovalSuspensionCoordinator(
                     tokenBudgetSnapshot = budgetSnapshot,
                     toolReference = toolRef,
                     toolSecurity = request.tool.security,
-                ),
-                prepared.envelope,
-            )
+                )
+            if (governedRunIdentity != null && governedStore != null) {
+                // ONE durable record: metadata + replay envelope + canonical identity.
+                governedStore.createGoverned(
+                    GovernedSuspendedInvocation(metadata = suspendedMetadata, runIdentity = governedRunIdentity),
+                    prepared.envelope,
+                )
+            } else {
+                suspendedInvocationStore.create(suspendedMetadata, prepared.envelope)
+            }
             approvalLifecycleAuditEmitter.onToolExecutionSuspended(
                 challenge.approvalId,
                 request.identity.workflowRunId,
