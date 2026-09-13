@@ -1085,6 +1085,16 @@ public final class dev/tramai/core/identity/GovernedRunIdentity {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/core/identity/GovernedRunScope : kotlin/coroutines/AbstractCoroutineContextElement {
+	public static final field Key Ldev/tramai/core/identity/GovernedRunScope$Key;
+	public fun <init> (Ldev/tramai/core/identity/GovernedRunIdentity;)V
+	public final fun getIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun getRunId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/identity/GovernedRunScope$Key : kotlin/coroutines/CoroutineContext$Key {
+}
+
 public final class dev/tramai/core/identity/RunId {
 	public fun <init> (Ljava/lang/String;)V
 	public final fun component1 ()Ljava/lang/String;

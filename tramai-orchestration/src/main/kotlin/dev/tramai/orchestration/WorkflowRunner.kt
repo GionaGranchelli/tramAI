@@ -4,6 +4,7 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
@@ -107,6 +108,7 @@ internal class WorkflowRunner<S, R>(
                     stepCounter = stepCounter,
                     persistenceSession = persistenceSession,
                     resumedCheckpointMetadata = null,
+                    governedRunIdentity = governedRunIdentity,
                 )
             persistenceSession?.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
@@ -217,6 +219,7 @@ internal class WorkflowRunner<S, R>(
                         ),
                     persistenceSession = persistenceSession,
                     resumedCheckpointMetadata = checkpoint.metadata,
+                    governedRunIdentity = governedRunIdentity,
                 )
             persistenceSession.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
@@ -253,6 +256,7 @@ internal class WorkflowRunner<S, R>(
         stepCounter: StepCounter,
         persistenceSession: WorkflowPersistenceSession<S>?,
         resumedCheckpointMetadata: Map<String, String>?,
+        governedRunIdentity: GovernedRunIdentity?,
     ): S {
         var currentState = state
         val services = executionServices()
@@ -280,7 +284,19 @@ internal class WorkflowRunner<S, R>(
                         )
                     },
                 )
-            when (val result = stepExecutor.executeStep(step, request)) {
+            val stepResult =
+                if (governedRunIdentity == null) {
+                    stepExecutor.executeStep(step, request)
+                } else {
+                    // 0.7.1d: the canonical governed identity is established for the whole
+                    // step execution, so subsystems invoked from application step code (the
+                    // engine, evidence emitters) read the same run identity instead of
+                    // minting their own. Nested steps inherit this coroutine context.
+                    withContext(GovernedRunScope(governedRunIdentity)) {
+                        stepExecutor.executeStep(step, request)
+                    }
+                }
+            when (val result = stepResult) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
 
                 WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
