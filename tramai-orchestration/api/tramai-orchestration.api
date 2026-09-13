@@ -218,6 +218,18 @@ public final class dev/tramai/orchestration/GateDecision$Companion {
 	public final fun reject (Ljava/lang/String;)Ldev/tramai/orchestration/GateDecision;
 }
 
+public final class dev/tramai/orchestration/GovernedRun {
+	public static final field Companion Ldev/tramai/orchestration/GovernedRun$Companion;
+	public fun <init> (Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/core/identity/GovernedRunIdentity;)V
+	public final fun getContext ()Ldev/tramai/orchestration/WorkflowContext;
+	public final fun getIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+}
+
+public final class dev/tramai/orchestration/GovernedRun$Companion {
+	public final fun resume (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/lang/String;)Ldev/tramai/orchestration/GovernedRun;
+	public final fun start (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;)Ldev/tramai/orchestration/GovernedRun;
+}
+
 public final class dev/tramai/orchestration/HermesStepConfig {
 	public fun <init> ()V
 	public fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;)V
@@ -1107,9 +1119,13 @@ public final class dev/tramai/orchestration/Workflow {
 	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
 	public final fun getStateType ()Lkotlin/reflect/KType;
 	public final fun requiredExternalStepTypes ()Ljava/util/Set;
+	public final fun resume (Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun resume (Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun resume$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun resume$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun run$default (Ldev/tramai/orchestration/Workflow;Ljava/lang/Object;Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun run$default (Ldev/tramai/orchestration/Workflow;Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 

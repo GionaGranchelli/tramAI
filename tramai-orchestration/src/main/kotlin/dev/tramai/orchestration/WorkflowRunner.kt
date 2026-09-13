@@ -1,12 +1,13 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.orchestration
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
-import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -72,6 +73,7 @@ internal class WorkflowRunner<S, R>(
         context: WorkflowContext,
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>?,
+        governedRunIdentity: GovernedRunIdentity? = null,
     ): R {
         // Epic 5.3: the isolated observer is the single failure boundary for
         // every workflow telemetry callback. A throwing observer can never
@@ -81,28 +83,31 @@ internal class WorkflowRunner<S, R>(
         var persistenceSession: WorkflowPersistenceSession<S>? = null
         return try {
             val stepCounter = StepCounter(stopPolicy)
-            persistenceSession = persistence?.session(
-                workflowName = name,
-                context = context,
-                observer = isolatedObserver,
-                workflowDefinitionCompatibility = definitionCompatibility,
-                clock = clock,
-            )
+            persistenceSession =
+                persistence?.session(
+                    workflowName = name,
+                    context = context,
+                    observer = isolatedObserver,
+                    workflowDefinitionCompatibility = definitionCompatibility,
+                    clock = clock,
+                    governedRunIdentity = governedRunIdentity,
+                )
             persistenceSession?.saveCheckpoint(
                 state = initialState,
                 nextStepIndex = 0,
                 lastCompletedStepName = null,
                 stepExecutions = stepCounter.stepExecutions,
             )
-            val finalState = executeTopLevelSteps(
-                startIndex = 0,
-                state = initialState,
-                context = context,
-                observer = isolatedObserver,
-                stepCounter = stepCounter,
-                persistenceSession = persistenceSession,
-                resumedCheckpointMetadata = null,
-            )
+            val finalState =
+                executeTopLevelSteps(
+                    startIndex = 0,
+                    state = initialState,
+                    context = context,
+                    observer = isolatedObserver,
+                    stepCounter = stepCounter,
+                    persistenceSession = persistenceSession,
+                    resumedCheckpointMetadata = null,
+                )
             persistenceSession?.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
@@ -111,9 +116,10 @@ internal class WorkflowRunner<S, R>(
             isolatedObserver.emitWorkflowEvent(
                 workflowName = name,
                 context = context,
-                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
-                    set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
-                },
+                event =
+                    RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
+                        set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
+                    },
             )
             throw suspended
         } catch (error: CancellationException) {
@@ -133,12 +139,22 @@ internal class WorkflowRunner<S, R>(
         context: WorkflowContext,
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>,
+        governedRunIdentity: GovernedRunIdentity? = null,
     ): R {
         val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
-        val checkpoint = persistence.checkpointStore.load(name, context.workflowId)
-            ?: throw WorkflowResumeException(
-                "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
-            )
+        val checkpoint =
+            persistence.checkpointStore.load(name, context.workflowId)
+                ?: throw WorkflowResumeException(
+                    "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
+                )
+        // Identity gate before any other resume validation: whole-identity continuity
+        // (never run-id-only) and fail-closed decoding of partial attribution.
+        requireGovernedRunAttributionContinuity(
+            workflowName = name,
+            workflowId = context.workflowId,
+            persisted = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata),
+            requested = governedRunIdentity,
+        )
         if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
             throw WorkflowRecoveryStateException(
                 "Workflow '$name'/'${context.workflowId}' is in Required recovery state and cannot be resumed",
@@ -149,10 +165,11 @@ internal class WorkflowRunner<S, R>(
                 "Checkpoint for workflow '$name' and workflowId='${context.workflowId}' has invalid nextStepIndex=${checkpoint.nextStepIndex}; valid range is 0..${steps.size}",
             )
         }
-        val persistedDefinitionCompatibility = checkpoint.requireWorkflowDefinitionCompatibility(
-            workflowName = name,
-            workflowId = context.workflowId,
-        )
+        val persistedDefinitionCompatibility =
+            checkpoint.requireWorkflowDefinitionCompatibility(
+                workflowName = name,
+                workflowId = context.workflowId,
+            )
         requireCompatibleDefinition(
             workflowName = name,
             workflowId = context.workflowId,
@@ -163,39 +180,44 @@ internal class WorkflowRunner<S, R>(
         isolatedObserver.emitWorkflowEvent(
             workflowName = name,
             context = context,
-            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_LOADED) {
-                set(RuntimeAttributes.WORKFLOW_ID_BARE, checkpoint.workflowId)
-                set(RuntimeAttributes.NEXT_STEP_INDEX, checkpoint.nextStepIndex.toLong())
-                set(RuntimeAttributes.STEP_EXECUTIONS, checkpoint.stepExecutions.toLong())
-                set(RuntimeAttributes.REVISION, checkpoint.revision)
-                set(RuntimeAttributes.HAS_LAST_COMPLETED_STEP, checkpoint.lastCompletedStepName != null)
-                set(RuntimeAttributes.DEFINITION_VERSION, persistedDefinitionCompatibility.version)
-                set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, persistedDefinitionCompatibility.digestAlgorithm)
-            },
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_LOADED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, checkpoint.workflowId)
+                    set(RuntimeAttributes.NEXT_STEP_INDEX, checkpoint.nextStepIndex.toLong())
+                    set(RuntimeAttributes.STEP_EXECUTIONS, checkpoint.stepExecutions.toLong())
+                    set(RuntimeAttributes.REVISION, checkpoint.revision)
+                    set(RuntimeAttributes.HAS_LAST_COMPLETED_STEP, checkpoint.lastCompletedStepName != null)
+                    set(RuntimeAttributes.DEFINITION_VERSION, persistedDefinitionCompatibility.version)
+                    set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, persistedDefinitionCompatibility.digestAlgorithm)
+                },
         )
-        val persistenceSession: WorkflowPersistenceSession<S> = persistence.session(
-            workflowName = name,
-            context = context,
-            observer = isolatedObserver,
-            clock = clock,
-            initialRevision = checkpoint.revision,
-            initialGeneration = checkpoint.checkpointGeneration,
-            workflowDefinitionCompatibility = definitionCompatibility,
-        )
-        return try {
-            val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
-            val finalState = executeTopLevelSteps(
-                startIndex = checkpoint.nextStepIndex,
-                state = resumedState,
+        val persistenceSession: WorkflowPersistenceSession<S> =
+            persistence.session(
+                workflowName = name,
                 context = context,
                 observer = isolatedObserver,
-                stepCounter = StepCounter(
-                    stopPolicy = stopPolicy,
-                    initialStepExecutions = checkpoint.stepExecutions,
-                ),
-                persistenceSession = persistenceSession,
-                resumedCheckpointMetadata = checkpoint.metadata,
+                clock = clock,
+                initialRevision = checkpoint.revision,
+                initialGeneration = checkpoint.checkpointGeneration,
+                workflowDefinitionCompatibility = definitionCompatibility,
+                governedRunIdentity = governedRunIdentity,
             )
+        return try {
+            val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
+            val finalState =
+                executeTopLevelSteps(
+                    startIndex = checkpoint.nextStepIndex,
+                    state = resumedState,
+                    context = context,
+                    observer = isolatedObserver,
+                    stepCounter =
+                        StepCounter(
+                            stopPolicy = stopPolicy,
+                            initialStepExecutions = checkpoint.stepExecutions,
+                        ),
+                    persistenceSession = persistenceSession,
+                    resumedCheckpointMetadata = checkpoint.metadata,
+                )
             persistenceSession.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
@@ -204,9 +226,10 @@ internal class WorkflowRunner<S, R>(
             isolatedObserver.emitWorkflowEvent(
                 workflowName = name,
                 context = context,
-                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
-                    set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
-                },
+                event =
+                    RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
+                        set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
+                    },
             )
             throw suspended
         } catch (error: CancellationException) {
@@ -235,29 +258,31 @@ internal class WorkflowRunner<S, R>(
         val services = executionServices()
         for (index in startIndex until steps.size) {
             val step = steps[index]
-            val request = WorkflowStepExecutionRequest(
-                workflowName = name,
-                state = currentState,
-                context = context,
-                observer = observer,
-                stepCounter = stepCounter,
-                persistenceSession = persistenceSession,
-                topLevelStepIndex = index,
-                resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
-                services = services,
-                executeNestedSteps = { nestedSteps, nestedState ->
-                    executeSteps(
-                        steps = nestedSteps,
-                        state = nestedState,
-                        context = context,
-                        observer = observer,
-                        stepCounter = stepCounter,
-                        services = services,
-                    )
-                },
-            )
+            val request =
+                WorkflowStepExecutionRequest(
+                    workflowName = name,
+                    state = currentState,
+                    context = context,
+                    observer = observer,
+                    stepCounter = stepCounter,
+                    persistenceSession = persistenceSession,
+                    topLevelStepIndex = index,
+                    resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
+                    services = services,
+                    executeNestedSteps = { nestedSteps, nestedState ->
+                        executeSteps(
+                            steps = nestedSteps,
+                            state = nestedState,
+                            context = context,
+                            observer = observer,
+                            stepCounter = stepCounter,
+                            services = services,
+                        )
+                    },
+                )
             when (val result = stepExecutor.executeStep(step, request)) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
+
                 WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
                     "Workflow '$name' suspended at step '${step.name}' for workflowId='${context.workflowId}'",
                 )
@@ -282,29 +307,31 @@ internal class WorkflowRunner<S, R>(
     ): S {
         var currentState = state
         for (step in steps) {
-            val request = WorkflowStepExecutionRequest(
-                workflowName = name,
-                state = currentState,
-                context = context,
-                observer = observer,
-                stepCounter = stepCounter,
-                persistenceSession = null,
-                topLevelStepIndex = null,
-                resumedCheckpointMetadata = null,
-                services = services,
-                executeNestedSteps = { nestedSteps, nestedState ->
-                    executeSteps(
-                        steps = nestedSteps,
-                        state = nestedState,
-                        context = context,
-                        observer = observer,
-                        stepCounter = stepCounter,
-                        services = services,
-                    )
-                },
-            )
+            val request =
+                WorkflowStepExecutionRequest(
+                    workflowName = name,
+                    state = currentState,
+                    context = context,
+                    observer = observer,
+                    stepCounter = stepCounter,
+                    persistenceSession = null,
+                    topLevelStepIndex = null,
+                    resumedCheckpointMetadata = null,
+                    services = services,
+                    executeNestedSteps = { nestedSteps, nestedState ->
+                        executeSteps(
+                            steps = nestedSteps,
+                            state = nestedState,
+                            context = context,
+                            observer = observer,
+                            stepCounter = stepCounter,
+                            services = services,
+                        )
+                    },
+                )
             when (val result = stepExecutor.executeStep(step, request)) {
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
+
                 WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
                     "Workflow '$name' suspended at nested step '${step.name}', but nested checkpoint suspension is not supported",
                 )
@@ -313,11 +340,12 @@ internal class WorkflowRunner<S, R>(
         return currentState
     }
 
-    private fun executionServices(): WorkflowStepExecutionServices = WorkflowStepExecutionServices(
-        clock = clock,
-        httpTransport = httpTransport ?: JdkHttpTransport(httpClient),
-        outboundNetworkPolicy = outboundNetworkPolicy,
-        externalStepExecutorResolver = externalStepExecutorResolver,
-        failureDiagnosticObserver = failureDiagnosticObserver,
-    )
+    private fun executionServices(): WorkflowStepExecutionServices =
+        WorkflowStepExecutionServices(
+            clock = clock,
+            httpTransport = httpTransport ?: JdkHttpTransport(httpClient),
+            outboundNetworkPolicy = outboundNetworkPolicy,
+            externalStepExecutorResolver = externalStepExecutorResolver,
+            failureDiagnosticObserver = failureDiagnosticObserver,
+        )
 }

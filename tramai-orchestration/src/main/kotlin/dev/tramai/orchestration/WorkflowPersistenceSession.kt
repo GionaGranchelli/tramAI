@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvent
 import dev.tramai.core.observation.event.RuntimeEvents
@@ -20,6 +21,7 @@ internal class WorkflowPersistenceSession<S>(
     private val observer: WorkflowObserver,
     private val workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
     private val clock: Clock,
+    private val governedRunIdentity: GovernedRunIdentity?,
     private var lease: WorkflowLease?,
     initialRevision: Long?,
     initialGeneration: String?,
@@ -34,34 +36,42 @@ internal class WorkflowPersistenceSession<S>(
         stepExecutions: Int,
         extraMetadata: Map<String, String> = emptyMap(),
     ) {
-        val persisted = persistence.checkpointStore.save(
-            checkpoint = WorkflowCheckpoint(
-                workflowName = workflowName,
-                workflowId = context.workflowId,
-                nextStepIndex = nextStepIndex,
-                stepExecutions = stepExecutions,
-                lastCompletedStepName = lastCompletedStepName,
-                statePayload = persistence.stateCodec.encode(state),
-                metadata = workflowDefinitionCompatibility.toCheckpointMetadata() + extraMetadata,
-                savedAtEpochMillis = clock.millis(),
-                checkpointGeneration = currentGeneration,
-            ),
-            expectedRevision = currentRevision,
-        )
+        val persisted =
+            persistence.checkpointStore.save(
+                checkpoint =
+                    WorkflowCheckpoint(
+                        workflowName = workflowName,
+                        workflowId = context.workflowId,
+                        nextStepIndex = nextStepIndex,
+                        stepExecutions = stepExecutions,
+                        lastCompletedStepName = lastCompletedStepName,
+                        statePayload = persistence.stateCodec.encode(state),
+                        // Framework attribution is written LAST so application/step metadata can
+                        // never override the reserved identity keys.
+                        metadata =
+                            workflowDefinitionCompatibility.toCheckpointMetadata() +
+                                extraMetadata +
+                                encodeGovernedRunAttribution(governedRunIdentity),
+                        savedAtEpochMillis = clock.millis(),
+                        checkpointGeneration = currentGeneration,
+                    ),
+                expectedRevision = currentRevision,
+            )
         currentRevision = persisted.revision
         currentGeneration = persisted.checkpointGeneration
         observer.emitWorkflowEvent(
             workflowName = workflowName,
             context = context,
-            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_SAVED) {
-                set(RuntimeAttributes.WORKFLOW_ID_BARE, persisted.workflowId)
-                set(RuntimeAttributes.NEXT_STEP_INDEX, persisted.nextStepIndex.toLong())
-                set(RuntimeAttributes.STEP_EXECUTIONS, persisted.stepExecutions.toLong())
-                set(RuntimeAttributes.REVISION, persisted.revision)
-                set(RuntimeAttributes.HAS_LAST_COMPLETED_STEP, persisted.lastCompletedStepName != null)
-                set(RuntimeAttributes.DEFINITION_VERSION, workflowDefinitionCompatibility.version)
-                set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, workflowDefinitionCompatibility.digestAlgorithm)
-            },
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_CHECKPOINT_SAVED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, persisted.workflowId)
+                    set(RuntimeAttributes.NEXT_STEP_INDEX, persisted.nextStepIndex.toLong())
+                    set(RuntimeAttributes.STEP_EXECUTIONS, persisted.stepExecutions.toLong())
+                    set(RuntimeAttributes.REVISION, persisted.revision)
+                    set(RuntimeAttributes.HAS_LAST_COMPLETED_STEP, persisted.lastCompletedStepName != null)
+                    set(RuntimeAttributes.DEFINITION_VERSION, workflowDefinitionCompatibility.version)
+                    set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, workflowDefinitionCompatibility.digestAlgorithm)
+                },
         )
         renewLeaseIfPresent()
     }
@@ -100,11 +110,12 @@ internal class WorkflowPersistenceSession<S>(
         val currentLease = lease ?: return
         val policy = persistence.leasePolicy ?: return
         val store = persistence.leaseStore ?: return
-        lease = store.renew(
-            lease = currentLease,
-            checkpointRevision = currentRevision,
-            leaseDurationMillis = policy.leaseDurationMillis,
-        )
+        lease =
+            store.renew(
+                lease = currentLease,
+                checkpointRevision = currentRevision,
+                leaseDurationMillis = policy.leaseDurationMillis,
+            )
         val renewedLease = lease ?: return
         observer.emitWorkflowEvent(
             workflowName = workflowName,
@@ -129,14 +140,15 @@ internal class WorkflowPersistenceSession<S>(
     private fun leaseAttributes(
         definition: dev.tramai.core.observation.event.RuntimeEventDefinition,
         lease: WorkflowLease,
-    ): RuntimeEvent = RuntimeEvent.of(definition) {
-        set(RuntimeAttributes.WORKFLOW_ID_BARE, lease.workflowId)
-        set(RuntimeAttributes.LEASE_ID, lease.leaseId)
-        set(RuntimeAttributes.OWNER_ID, lease.ownerId)
-        set(RuntimeAttributes.CHECKPOINT_REVISION, lease.checkpointRevision ?: 0L)
-        set(RuntimeAttributes.ACQUIRED_AT_EPOCH_MILLIS, lease.acquiredAtEpochMillis)
-        set(RuntimeAttributes.EXPIRES_AT_EPOCH_MILLIS, lease.expiresAtEpochMillis)
-    }
+    ): RuntimeEvent =
+        RuntimeEvent.of(definition) {
+            set(RuntimeAttributes.WORKFLOW_ID_BARE, lease.workflowId)
+            set(RuntimeAttributes.LEASE_ID, lease.leaseId)
+            set(RuntimeAttributes.OWNER_ID, lease.ownerId)
+            set(RuntimeAttributes.CHECKPOINT_REVISION, lease.checkpointRevision ?: 0L)
+            set(RuntimeAttributes.ACQUIRED_AT_EPOCH_MILLIS, lease.acquiredAtEpochMillis)
+            set(RuntimeAttributes.EXPIRES_AT_EPOCH_MILLIS, lease.expiresAtEpochMillis)
+        }
 }
 
 internal suspend fun <S> WorkflowPersistence<S>.session(
@@ -147,23 +159,27 @@ internal suspend fun <S> WorkflowPersistence<S>.session(
     clock: Clock,
     initialRevision: Long? = null,
     initialGeneration: String? = null,
-): WorkflowPersistenceSession<S> = WorkflowPersistenceSession(
-    persistence = this,
-    workflowName = workflowName,
-    context = context,
-    observer = observer,
-    workflowDefinitionCompatibility = workflowDefinitionCompatibility,
-    clock = clock,
-    lease = acquireLeaseIfConfigured(
+    governedRunIdentity: GovernedRunIdentity? = null,
+): WorkflowPersistenceSession<S> =
+    WorkflowPersistenceSession(
+        persistence = this,
         workflowName = workflowName,
-        workflowId = context.workflowId,
-        observer = observer,
         context = context,
-        checkpointRevision = initialRevision,
-    ),
-    initialRevision = initialRevision,
-    initialGeneration = initialGeneration,
-)
+        observer = observer,
+        workflowDefinitionCompatibility = workflowDefinitionCompatibility,
+        clock = clock,
+        governedRunIdentity = governedRunIdentity,
+        lease =
+            acquireLeaseIfConfigured(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+                observer = observer,
+                context = context,
+                checkpointRevision = initialRevision,
+            ),
+        initialRevision = initialRevision,
+        initialGeneration = initialGeneration,
+    )
 
 internal suspend fun <S> WorkflowPersistence<S>.acquireLeaseIfConfigured(
     workflowName: String,
@@ -175,44 +191,45 @@ internal suspend fun <S> WorkflowPersistence<S>.acquireLeaseIfConfigured(
     val store = leaseStore ?: return null
     val policy = leasePolicy ?: return null
     return try {
-        store.claim(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            ownerId = policy.ownerId,
-            checkpointRevision = checkpointRevision,
-            leaseDurationMillis = policy.leaseDurationMillis,
-        ).also { lease ->
-            observer.emitWorkflowEvent(
+        store
+            .claim(
                 workflowName = workflowName,
-                context = context,
-                event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_LEASE_CLAIMED) {
-                    set(RuntimeAttributes.WORKFLOW_ID_BARE, lease.workflowId)
-                    set(RuntimeAttributes.LEASE_ID, lease.leaseId)
-                    set(RuntimeAttributes.OWNER_ID, lease.ownerId)
-                    set(RuntimeAttributes.CHECKPOINT_REVISION, lease.checkpointRevision ?: 0L)
-                    set(RuntimeAttributes.ACQUIRED_AT_EPOCH_MILLIS, lease.acquiredAtEpochMillis)
-                    set(RuntimeAttributes.EXPIRES_AT_EPOCH_MILLIS, lease.expiresAtEpochMillis)
-                },
-            )
-        }
+                workflowId = workflowId,
+                ownerId = policy.ownerId,
+                checkpointRevision = checkpointRevision,
+                leaseDurationMillis = policy.leaseDurationMillis,
+            ).also { lease ->
+                observer.emitWorkflowEvent(
+                    workflowName = workflowName,
+                    context = context,
+                    event =
+                        RuntimeEvent.of(RuntimeEvents.WORKFLOW_LEASE_CLAIMED) {
+                            set(RuntimeAttributes.WORKFLOW_ID_BARE, lease.workflowId)
+                            set(RuntimeAttributes.LEASE_ID, lease.leaseId)
+                            set(RuntimeAttributes.OWNER_ID, lease.ownerId)
+                            set(RuntimeAttributes.CHECKPOINT_REVISION, lease.checkpointRevision ?: 0L)
+                            set(RuntimeAttributes.ACQUIRED_AT_EPOCH_MILLIS, lease.acquiredAtEpochMillis)
+                            set(RuntimeAttributes.EXPIRES_AT_EPOCH_MILLIS, lease.expiresAtEpochMillis)
+                        },
+                )
+            }
     } catch (error: WorkflowLeaseConflictException) {
         observer.emitWorkflowEvent(
             workflowName = workflowName,
             context = context,
-            event = RuntimeEvent.of(RuntimeEvents.WORKFLOW_LEASE_CONFLICT) {
-                set(RuntimeAttributes.WORKFLOW_ID_BARE, workflowId)
-                set(RuntimeAttributes.OWNER_ID, policy.ownerId)
-                set(RuntimeAttributes.CHECKPOINT_REVISION, checkpointRevision ?: 0L)
-                set(RuntimeAttributes.ERROR_TYPE, error::class.simpleName ?: "Throwable")
-            },
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_LEASE_CONFLICT) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, workflowId)
+                    set(RuntimeAttributes.OWNER_ID, policy.ownerId)
+                    set(RuntimeAttributes.CHECKPOINT_REVISION, checkpointRevision ?: 0L)
+                    set(RuntimeAttributes.ERROR_TYPE, error::class.simpleName ?: "Throwable")
+                },
         )
         throw error
     }
 }
 
-internal suspend fun <S> WorkflowPersistenceSession<S>.runCatchingAbort(
-    error: Throwable,
-) {
+internal suspend fun <S> WorkflowPersistenceSession<S>.runCatchingAbort(error: Throwable) {
     runCatching { abort() }
         .onFailure { error.addSuppressed(it) }
 }
