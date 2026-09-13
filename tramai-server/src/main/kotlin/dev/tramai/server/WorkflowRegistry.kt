@@ -1,5 +1,6 @@
 package dev.tramai.server
 
+import dev.tramai.orchestration.GovernedRun
 import dev.tramai.orchestration.JdbcWorkflowCheckpointStore
 import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.WorkflowContext
@@ -30,35 +31,34 @@ class WorkflowRegistry(
         require(!entries.containsKey(workflow.name)) {
             "Workflow '${workflow.name}' is already registered"
         }
-        entries[workflow.name] = WorkflowEntry(
-            workflow = workflow,
-            stateCodec = stateCodec,
-            stateType = workflow.stateType,
-            resultType = workflow.resultType,
-            persistenceFactory = defaultPersistence,
-        )
+        entries[workflow.name] =
+            WorkflowEntry(
+                workflow = workflow,
+                stateCodec = stateCodec,
+                stateType = workflow.stateType,
+                resultType = workflow.resultType,
+                persistenceFactory = defaultPersistence,
+            )
     }
 
-    fun get(workflowName: String): WorkflowEntry<*, *> =
-        entries[workflowName] ?: throw WorkflowNotRegisteredException(workflowName)
+    fun get(workflowName: String): WorkflowEntry<*, *> = entries[workflowName] ?: throw WorkflowNotRegisteredException(workflowName)
 
     fun list(): List<WorkflowEntry<*, *>> = entries.values.toList()
 
-    private fun <S> defaultPersistenceFactory(
-        stateCodec: WorkflowStateCodec<S>,
-    ): (String) -> WorkflowPersistence<S>? = { _ ->
-        val source = dataSource
-        if (source == null) {
-            null
-        } else {
-            createJdbcTablesIfNeeded(source)
-            WorkflowPersistence(
-                checkpointStore = JdbcWorkflowCheckpointStore(source),
-                stateCodec = stateCodec,
-                delayWakeupScheduler = schedulerStore ?: JdbcWorkflowSchedulerStore(source),
-            )
+    private fun <S> defaultPersistenceFactory(stateCodec: WorkflowStateCodec<S>): (String) -> WorkflowPersistence<S>? =
+        { _ ->
+            val source = dataSource
+            if (source == null) {
+                null
+            } else {
+                createJdbcTablesIfNeeded(source)
+                WorkflowPersistence(
+                    checkpointStore = JdbcWorkflowCheckpointStore(source),
+                    stateCodec = stateCodec,
+                    delayWakeupScheduler = schedulerStore ?: JdbcWorkflowSchedulerStore(source),
+                )
+            }
         }
-    }
 
     @Synchronized
     private fun createJdbcTablesIfNeeded(source: DataSource) {
@@ -78,11 +78,12 @@ class WorkflowRegistry(
                         logger.debug("Workflow checkpoint table already exists", error)
                     }
                 }
-                val schedulerSchemaStore = when (val store = schedulerStore) {
-                    is JdbcWorkflowSchedulerStore -> store
-                    null -> JdbcWorkflowSchedulerStore(source)
-                    else -> null
-                }
+                val schedulerSchemaStore =
+                    when (val store = schedulerStore) {
+                        is JdbcWorkflowSchedulerStore -> store
+                        null -> JdbcWorkflowSchedulerStore(source)
+                        else -> null
+                    }
                 schedulerSchemaStore?.createTableSql()?.forEach { sql ->
                     connection.createStatement().use { statement ->
                         statement.execute(sql)
@@ -111,27 +112,57 @@ data class WorkflowEntry<S, R>(
         context: WorkflowContext,
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>?,
-    ): R = workflow.run(
-        initialState = initialState,
-        context = context,
-        observer = observer,
-        persistence = persistence,
-    )
+    ): R =
+        workflow.run(
+            initialState = initialState,
+            context = context,
+            observer = observer,
+            persistence = persistence,
+        )
 
     suspend fun resume(
         context: WorkflowContext,
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>,
-    ): R = workflow.resume(
-        context = context,
-        observer = observer,
-        persistence = persistence,
-    )
+    ): R =
+        workflow.resume(
+            context = context,
+            observer = observer,
+            persistence = persistence,
+        )
+
+    /**
+     * Governed execution entry point (0.7.1d): the canonical identity travels alongside the
+     * unchanged public [WorkflowContext] contract. Legacy callers keep using the overload above.
+     */
+    suspend fun run(
+        initialState: S,
+        run: GovernedRun,
+        observer: WorkflowObserver,
+        persistence: WorkflowPersistence<S>?,
+    ): R =
+        workflow.run(
+            initialState = initialState,
+            run = run,
+            observer = observer,
+            persistence = persistence,
+        )
+
+    /** Governed continuation: the identity was RECOVERED from the run's own checkpoint. */
+    suspend fun resume(
+        run: GovernedRun,
+        observer: WorkflowObserver,
+        persistence: WorkflowPersistence<S>,
+    ): R =
+        workflow.resume(
+            run = run,
+            observer = observer,
+            persistence = persistence,
+        )
 }
 
 class WorkflowNotRegisteredException(
     workflowName: String,
 ) : RuntimeException("Workflow '$workflowName' is not registered")
 
-private fun SQLException.isTableAlreadyExists(): Boolean =
-    sqlState == "42S01" || errorCode == 42101
+private fun SQLException.isTableAlreadyExists(): Boolean = sqlState == "42S01" || errorCode == 42101

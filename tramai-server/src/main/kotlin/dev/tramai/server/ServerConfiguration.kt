@@ -1,5 +1,10 @@
 package dev.tramai.server
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.controlplane.WorkloadRegistrationAuthority
+import dev.tramai.orchestration.NoOpWorkflowObserver
+import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
+import dev.tramai.scheduler.WorkflowSchedulerStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -9,10 +14,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.orchestration.NoOpWorkflowObserver
-import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
-import dev.tramai.scheduler.WorkflowSchedulerStore
 import java.time.Duration
 
 fun interface WorkflowRegistration {
@@ -32,15 +33,35 @@ data class WebhookConfiguration(
 class ServerConfiguration {
     @Bean
     @ConditionalOnMissingBean
+    fun serverGovernance(
+        authority: ObjectProvider<WorkloadRegistrationAuthority>,
+        @Value("\${tramai.server.governed.workload-id:}") workloadId: String,
+        @Value("\${tramai.server.governed.configuration-id:}") configurationId: String,
+        @Value("\${tramai.server.governed.configuration-version:}") configurationVersion: String,
+        @Value("\${tramai.server.governed.environment-id:}") environmentId: String,
+        @Value("\${tramai.server.governed.deployment-id:}") deploymentId: String,
+    ): ServerGovernance =
+        ServerGovernance.fromProperties(
+            workloadId = workloadId,
+            configurationId = configurationId,
+            configurationVersion = configurationVersion,
+            environmentId = environmentId,
+            deploymentId = deploymentId,
+            authority = authority.ifAvailable,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
     fun workflowRegistry(
         registrations: List<WorkflowRegistration>,
         dataSource: ObjectProvider<javax.sql.DataSource>,
         schedulerStore: ObjectProvider<WorkflowSchedulerStore>,
     ): WorkflowRegistry {
-        val registry = WorkflowRegistry(
-            dataSource = dataSource.ifAvailable,
-            schedulerStore = schedulerStore.ifAvailable,
-        )
+        val registry =
+            WorkflowRegistry(
+                dataSource = dataSource.ifAvailable,
+                schedulerStore = schedulerStore.ifAvailable,
+            )
         registrations.forEach { it.register(registry) }
         return registry
     }
@@ -60,37 +81,39 @@ class ServerConfiguration {
     @ConditionalOnMissingBean
     fun webhookConfiguration(
         @Value("\${tramai.server.webhooks.secret:}") secret: String,
-        @Value("\${tramai.server.webhooks.max-request-body-bytes:\${tramai.server.max-request-body-bytes:1048576}}") maxRequestBodyBytes: Long,
-    ): WebhookConfiguration = WebhookConfiguration(
-        secret = secret,
-        maxRequestBodyBytes = maxRequestBodyBytes,
-    )
+        @Value("\${tramai.server.webhooks.max-request-body-bytes:\${tramai.server.max-request-body-bytes:1048576}}") maxRequestBodyBytes:
+            Long,
+    ): WebhookConfiguration =
+        WebhookConfiguration(
+            secret = secret,
+            maxRequestBodyBytes = maxRequestBodyBytes,
+        )
 
     @Bean
     @ConditionalOnMissingBean
     fun webhookSignatureVerifier(
         webhookConfiguration: WebhookConfiguration,
         @Value("\${tramai.server.webhooks.replay-max-age:PT5M}") replayMaxAge: Duration,
-    ): WebhookSignatureVerifier = GitHubWebhookSignatureVerifier(
-        secret = webhookConfiguration.secret,
-        replayCache = ReplayCache(maxAge = replayMaxAge),
-    )
+    ): WebhookSignatureVerifier =
+        GitHubWebhookSignatureVerifier(
+            secret = webhookConfiguration.secret,
+            replayCache = ReplayCache(maxAge = replayMaxAge),
+        )
 
     @Bean
     @ConditionalOnMissingBean
     fun requestBodySizeLimitFilter(
         @Value("\${tramai.server.max-request-body-bytes:1048576}") maxRequestBodyBytes: Long,
         webhookConfiguration: WebhookConfiguration,
-    ): RequestBodySizeLimitFilter = RequestBodySizeLimitFilter(
-        workflowMaxRequestBodyBytes = maxRequestBodyBytes,
-        webhookMaxRequestBodyBytes = webhookConfiguration.maxRequestBodyBytes,
-    )
+    ): RequestBodySizeLimitFilter =
+        RequestBodySizeLimitFilter(
+            workflowMaxRequestBodyBytes = maxRequestBodyBytes,
+            webhookMaxRequestBodyBytes = webhookConfiguration.maxRequestBodyBytes,
+        )
 
     @Bean
     @ConditionalOnMissingBean
-    fun workerRegistry(
-        objectMapper: ObjectMapper,
-    ): InMemoryWorkerRegistry = InMemoryWorkerRegistry(objectMapper = objectMapper)
+    fun workerRegistry(objectMapper: ObjectMapper): InMemoryWorkerRegistry = InMemoryWorkerRegistry(objectMapper = objectMapper)
 
     @Bean
     @ConditionalOnMissingBean
@@ -104,14 +127,14 @@ class ServerConfiguration {
     fun workflowSchedulerStore(
         dataSource: javax.sql.DataSource,
         scheduleEventObserver: ObjectProvider<ScheduleEventObserver>,
-    ): WorkflowSchedulerStore = JdbcWorkflowSchedulerStore(
-        dataSource = dataSource,
-        observer = scheduleEventObserver.ifAvailable ?: NoOpWorkflowObserver,
-    )
+    ): WorkflowSchedulerStore =
+        JdbcWorkflowSchedulerStore(
+            dataSource = dataSource,
+            observer = scheduleEventObserver.ifAvailable ?: NoOpWorkflowObserver,
+        )
 
     @Bean
     @ConditionalOnMissingBean
-    fun scheduleEventObserver(
-        scheduleController: ObjectProvider<ScheduleController>,
-    ): ScheduleEventObserver = ScheduleEventObserver(scheduleController)
+    fun scheduleEventObserver(scheduleController: ObjectProvider<ScheduleController>): ScheduleEventObserver =
+        ScheduleEventObserver(scheduleController)
 }
