@@ -186,7 +186,13 @@ class GovernedRunAttributionTest {
 
     @Test
     fun `partial attribution fails closed instead of resuming un-attributed`() {
-        val partial = encodeGovernedRunAttribution(GovernedRunIdentity(deployment(), RunId("run-2"))).minus(GOVERNED_RUN_DEPLOYMENT_KEY)
+        val partial =
+            encodeGovernedRunAttribution(
+                GovernedRunIdentity(
+                    deployment(),
+                    RunId("run-2"),
+                ),
+            ).minus(GOVERNED_RUN_DEPLOYMENT_KEY)
 
         assertThatThrownBy { decodeGovernedRunAttribution("run-2", partial) }
             .isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
@@ -198,7 +204,10 @@ class GovernedRunAttributionTest {
         val identity = GovernedRunIdentity(deployment(), RunId("run-3"))
 
         assertThatThrownBy {
-            decodeGovernedRunAttribution("run-3", encodeGovernedRunAttribution(identity) + (GOVERNED_RUN_WORKLOAD_KEY to "  padded  "))
+            decodeGovernedRunAttribution(
+                "run-3",
+                encodeGovernedRunAttribution(identity) + (GOVERNED_RUN_WORKLOAD_KEY to "  padded  "),
+            )
         }.isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
             .hasMessageContaining("invalid")
     }
@@ -253,7 +262,12 @@ class GovernedRunAttributionTest {
         val substituted = GovernedRunIdentity(deployment(deploymentId = "eu-central-frankfurt-01"), RunId("run-7"))
 
         assertThatThrownBy {
-            requireGovernedRunAttributionContinuity(WORKFLOW_NAME, "run-7", persisted = persisted, requested = substituted)
+            requireGovernedRunAttributionContinuity(
+                WORKFLOW_NAME,
+                "run-7",
+                persisted = persisted,
+                requested = substituted,
+            )
         }.isInstanceOf(WorkflowResumeException::class.java)
             .hasMessageContaining("deploymentId 'eu-west-amsterdam-01' != 'eu-central-frankfurt-01'")
     }
@@ -449,7 +463,17 @@ class GovernedRunAttributionTest {
 
             workflow.run(initialState = "seed", context = context, persistence = persistence)
 
-            assertThat(decodeGovernedRunAttribution("legacy-run", store.load(WORKFLOW_NAME, "legacy-run")!!.metadata)).isNull()
+            assertThat(
+                decodeGovernedRunAttribution(
+                    "legacy-run",
+                    store
+                        .load(
+                            WORKFLOW_NAME,
+                            "legacy-run",
+                        )!!
+                        .metadata,
+                ),
+            ).isNull()
             rewind(store, "legacy-run", nextStepIndex = 1)
 
             assertThat(workflow.resume(context = context, persistence = persistence)).isEqualTo("seed-one-two")

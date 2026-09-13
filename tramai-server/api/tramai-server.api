@@ -166,7 +166,6 @@ public final class dev/tramai/server/ServerConfiguration {
 	public final fun auditLogStore (I)Ldev/tramai/server/InMemoryAuditLogStore;
 	public final fun requestBodySizeLimitFilter (JLdev/tramai/server/WebhookConfiguration;)Ldev/tramai/server/RequestBodySizeLimitFilter;
 	public final fun scheduleEventObserver (Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/server/ScheduleEventObserver;
-	public final fun serverGovernance (Lorg/springframework/beans/factory/ObjectProvider;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/ServerGovernance;
 	public final fun webhookConfiguration (Ljava/lang/String;J)Ldev/tramai/server/WebhookConfiguration;
 	public final fun webhookSignatureVerifier (Ldev/tramai/server/WebhookConfiguration;Ljava/time/Duration;)Ldev/tramai/server/WebhookSignatureVerifier;
 	public final fun workerRegistry (Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/server/InMemoryWorkerRegistry;
@@ -174,20 +173,6 @@ public final class dev/tramai/server/ServerConfiguration {
 	public final fun workflowRegistry (Ljava/util/List;Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/server/WorkflowRegistry;
 	public final fun workflowRunStore (II)Ldev/tramai/server/WorkflowRunStore;
 	public final fun workflowSchedulerStore (Ljavax/sql/DataSource;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/scheduler/WorkflowSchedulerStore;
-}
-
-public final class dev/tramai/server/ServerGovernance {
-	public static final field Companion Ldev/tramai/server/ServerGovernance$Companion;
-	public final fun authorizeContinuation (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;)V
-	public final fun authorizeNewRun (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun getConfiguredIdentity ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
-	public final fun isGoverned ()Z
-}
-
-public final class dev/tramai/server/ServerGovernance$Companion {
-	public final fun fromProperties (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/controlplane/WorkloadRegistrationAuthority;)Ldev/tramai/server/ServerGovernance;
-	public final fun getUNSET ()Ldev/tramai/server/ServerGovernance;
-	public final fun of (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/WorkloadRegistrationAuthority;)Ldev/tramai/server/ServerGovernance;
 }
 
 public final class dev/tramai/server/SseEvent {

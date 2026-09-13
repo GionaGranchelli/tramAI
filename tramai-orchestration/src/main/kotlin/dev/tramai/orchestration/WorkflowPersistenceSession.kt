@@ -16,16 +16,17 @@ import java.time.Instant
  */
 internal class WorkflowPersistenceSession<S>(
     private val persistence: WorkflowPersistence<S>,
-    private val workflowName: String,
-    private val context: WorkflowContext,
-    private val observer: WorkflowObserver,
-    private val workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
-    private val clock: Clock,
-    private val governedRunIdentity: GovernedRunIdentity?,
+    private val inputs: WorkflowSessionInputs,
     private var lease: WorkflowLease?,
     initialRevision: Long?,
     initialGeneration: String?,
 ) {
+    private val workflowName = inputs.workflowName
+    private val context = inputs.context
+    private val observer = inputs.observer
+    private val workflowDefinitionCompatibility = inputs.workflowDefinitionCompatibility
+    private val clock = inputs.clock
+    private val governedRunIdentity = inputs.governedRunIdentity
     private var currentRevision: Long? = initialRevision
     private var currentGeneration: String? = initialGeneration
 
@@ -152,29 +153,19 @@ internal class WorkflowPersistenceSession<S>(
 }
 
 internal suspend fun <S> WorkflowPersistence<S>.session(
-    workflowName: String,
-    context: WorkflowContext,
-    observer: WorkflowObserver,
-    workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
-    clock: Clock,
+    inputs: WorkflowSessionInputs,
     initialRevision: Long? = null,
     initialGeneration: String? = null,
-    governedRunIdentity: GovernedRunIdentity? = null,
 ): WorkflowPersistenceSession<S> =
     WorkflowPersistenceSession(
         persistence = this,
-        workflowName = workflowName,
-        context = context,
-        observer = observer,
-        workflowDefinitionCompatibility = workflowDefinitionCompatibility,
-        clock = clock,
-        governedRunIdentity = governedRunIdentity,
+        inputs = inputs,
         lease =
             acquireLeaseIfConfigured(
-                workflowName = workflowName,
-                workflowId = context.workflowId,
-                observer = observer,
-                context = context,
+                workflowName = inputs.workflowName,
+                workflowId = inputs.context.workflowId,
+                observer = inputs.observer,
+                context = inputs.context,
                 checkpointRevision = initialRevision,
             ),
         initialRevision = initialRevision,
@@ -233,3 +224,18 @@ internal suspend fun <S> WorkflowPersistenceSession<S>.runCatchingAbort(error: T
     runCatching { abort() }
         .onFailure { error.addSuppressed(it) }
 }
+
+/**
+ * Immutable inputs of one run's persistence session: which run it is, who observes it,
+ * the clock and definition compatibility it was built with, and its governed attribution
+ * when it has one. Bundled rather than threaded field by field so a new input cannot be
+ * added at one construction site and silently missed at another.
+ */
+internal data class WorkflowSessionInputs(
+    val workflowName: String,
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+    val workflowDefinitionCompatibility: WorkflowDefinitionCompatibility,
+    val clock: Clock,
+    val governedRunIdentity: GovernedRunIdentity?,
+)

@@ -138,28 +138,9 @@ internal class ApprovalSuspensionCoordinator(
     }
 
     private suspend fun suspendToolExecution(request: SuspendToolExecutionRequest): Nothing {
-        val approvalGateCoordinator =
-            approvalGateCoordinator
-                ?: throw ConfigurationException("ApprovalGateCoordinator is required for tool execution suspension")
-        val approvalContinuationStore =
-            approvalContinuationStore
-                ?: throw ConfigurationException("ApprovalContinuationStore is required for tool execution suspension")
-        // 0.7.1d: a governed execution must not degrade to run-id-only attribution at the
-        // approval boundary. The capability is resolved BEFORE any approval or continuation
-        // state is created, so an unsupported store fails closed instead of leaving a
-        // half-governed suspension behind.
-        val governedRunIdentity = GovernedRunScope.resolve(currentCoroutineContext())
-        val governedStore =
-            if (governedRunIdentity == null) {
-                null
-            } else {
-                suspendedInvocationStore as? GovernedSuspendedInvocationStore
-                    ?: throw ConfigurationException(
-                        "Governed approval suspension requires a SuspendedInvocationStore implementing " +
-                            "GovernedSuspendedInvocationStore; the configured store " +
-                            "'${suspendedInvocationStore::class.simpleName}' does not",
-                    )
-            }
+        val approvalGateCoordinator = requireApprovalGateCoordinator()
+        val approvalContinuationStore = requireApprovalContinuationStore()
+        val governedSuspension = resolveGovernedSuspension()
         val sensitiveArgs = SensitiveToolArguments.of(request.input)
         val expiresAt = clock.instant().plusMillis(request.timeoutMillis)
         var createdChallengeId: String? = null
@@ -232,15 +213,7 @@ internal class ApprovalSuspensionCoordinator(
                     toolReference = toolRef,
                     toolSecurity = request.tool.security,
                 )
-            if (governedRunIdentity != null && governedStore != null) {
-                // ONE durable record: metadata + replay envelope + canonical identity.
-                governedStore.createGoverned(
-                    GovernedSuspendedInvocation(metadata = suspendedMetadata, runIdentity = governedRunIdentity),
-                    prepared.envelope,
-                )
-            } else {
-                suspendedInvocationStore.create(suspendedMetadata, prepared.envelope)
-            }
+            persistSuspendedInvocation(governedSuspension, suspendedMetadata, prepared.envelope)
             approvalLifecycleAuditEmitter.onToolExecutionSuspended(
                 challenge.approvalId,
                 request.identity.workflowRunId,
@@ -261,32 +234,78 @@ internal class ApprovalSuspensionCoordinator(
         } catch (failure: Exception) {
             failure.rethrowIfCancellation()
             if (failure is ApprovalSuspendedException) throw failure
-            createdChallengeId?.let { approvalId ->
-                try {
-                    suspendedInvocationStore.remove(approvalId)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                }
-                try {
-                    approvalContinuationStore.cancel(approvalId, createdContinuationVersion)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    // best-effort cleanup
-                }
-                try {
-                    approvalGateCoordinator.cancelApproval(approvalId, 0L, "suspension-compensation")
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    // best-effort cleanup
-                }
-            }
+            compensateSuspension(
+                createdChallengeId,
+                createdContinuationVersion,
+                approvalContinuationStore,
+                approvalGateCoordinator,
+            )
             throw failure
         }
     }
+
+    private fun requireApprovalGateCoordinator(): ApprovalGateCoordinator =
+        approvalGateCoordinator
+            ?: throw ConfigurationException("ApprovalGateCoordinator is required for tool execution suspension")
+
+    private fun requireApprovalContinuationStore(): ApprovalContinuationStore =
+        approvalContinuationStore
+            ?: throw ConfigurationException("ApprovalContinuationStore is required for tool execution suspension")
+
+    private suspend fun resolveGovernedSuspension(): GovernedSuspension {
+        val identity =
+            GovernedRunScope.resolve(currentCoroutineContext())
+                ?: return GovernedSuspension(null, null)
+        val store =
+            suspendedInvocationStore as? GovernedSuspendedInvocationStore
+                ?: throw ConfigurationException(
+                    "Governed approval suspension requires a SuspendedInvocationStore implementing " +
+                        "GovernedSuspendedInvocationStore; the configured store " +
+                        "'${suspendedInvocationStore::class.simpleName}' does not",
+                )
+        return GovernedSuspension(identity, store)
+    }
+
+    private suspend fun persistSuspendedInvocation(
+        governedSuspension: GovernedSuspension,
+        metadata: SuspendedInvocationMetadata,
+        envelope: SensitiveReplayEnvelope,
+    ) {
+        val identity = governedSuspension.identity
+        val store = governedSuspension.store
+        if (identity != null && store != null) {
+            // ONE durable record: metadata + replay envelope + canonical identity.
+            store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope)
+        } else {
+            suspendedInvocationStore.create(metadata, envelope)
+        }
+    }
+
+    private suspend fun compensateSuspension(
+        approvalId: String?,
+        continuationVersion: Long,
+        continuationStore: ApprovalContinuationStore,
+        gateCoordinator: ApprovalGateCoordinator,
+    ) {
+        approvalId?.let { id ->
+            compensateStep { suspendedInvocationStore.remove(id) }
+            compensateStep { continuationStore.cancel(id, continuationVersion) }
+            compensateStep { gateCoordinator.cancelApproval(id, 0L, "suspension-compensation") }
+        }
+    }
+
+    private suspend fun compensateStep(action: suspend () -> Unit) {
+        try {
+            action()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+        }
+    }
+
+    private data class GovernedSuspension(
+        val identity: dev.tramai.core.identity.GovernedRunIdentity?,
+        val store: GovernedSuspendedInvocationStore?,
+    )
 }

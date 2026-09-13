@@ -2,6 +2,7 @@
 
 package dev.tramai.engine.approval
 
+import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
@@ -61,22 +62,70 @@ internal class ApprovalResumeCoordinator(
     private val authorizationService: ReplayAuthorizationService,
 ) {
     suspend fun resume(command: ResumeApprovalCommand): Any? {
+        val prepared = prepareResume(command)
+        val authorization = authorizeResume(command, prepared)
+        authorizationService.emitAuthorizationReplayed(authorization.replayed, command, prepared.metadata)
+        val claimed = claimService.claim(command.approvalId, command.continuationExpectedVersion, command.resumedBy)
+        val uncertainOutcome = ResumeUncertainOutcome()
+        val context =
+            ResumeExecutionContext(
+                command,
+                prepared.metadata,
+                prepared.registered,
+                prepared.resolvedTool,
+                uncertainOutcome,
+            )
+
+        return try {
+            if (prepared.persistedGoverned == null) {
+                executeClaimedResume(context, claimed, prepared.store)
+            } else {
+                // Install the RECOVERED identity around the resumed execution, so the engine
+                // invocation that continues this run carries its canonical run id.
+                withContext(GovernedRunScope(prepared.persistedGoverned)) {
+                    executeClaimedResume(context, claimed, prepared.store)
+                }
+            }
+        } catch (e: NestedApprovalNotSupportedException) {
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "nested-approval-not-supported",
+            )
+            throw e
+        } catch (e: StructuredOutputException) {
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
+            )
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            emitResumeUncertainOutcomeOnce(
+                uncertainOutcome,
+                command,
+                prepared.metadata,
+                "resume-failed: ${e::class.simpleName ?: "unknown"}",
+            )
+            throw e
+        }
+    }
+
+    private suspend fun prepareResume(command: ResumeApprovalCommand): ResumePreparation {
         val store = requireApprovalContinuationStore()
         val continuationSnapshot = store.get(command.approvalId)
-
-        if (
-            continuationSnapshot != null &&
-            continuationSnapshot.status == ApprovalContinuationStatus.COMPLETED
-        ) {
+        if (continuationSnapshot != null && continuationSnapshot.status == ApprovalContinuationStatus.COMPLETED) {
             throw ApprovalTokenRejectedException(command.approvalId)
         }
-
         val metadata =
             suspendedInvocationStore.get(command.approvalId)
                 ?: throw ApprovalNotFoundException(command.approvalId)
-        // 0.7.1d: a continuation RECOVERS identity from the durable suspension witness; a
-        // caller-supplied identity is only a consistency precondition. Rejected here, before
-        // the continuation is claimed and before any execution.
+        // 0.7.1d: recover the persisted identity before claim or execution.
         val persistedGoverned =
             (suspendedInvocationStore as? GovernedSuspendedInvocationStore)
                 ?.governedRunIdentity(command.approvalId)
@@ -86,51 +135,41 @@ internal class ApprovalResumeCoordinator(
             requested = GovernedRunScope.resolve(currentCoroutineContext()),
         )
         val registered = resumeOperationRegistry.resolve(metadata.operationReference)
-        val existingContinuation = claimService.loadPendingForResume(store, command, metadata, registered)
-        val resolvedTool = resolveAndValidateResumeTool(command, metadata, existingContinuation)
-
-        authorizationService.validateToken(command, metadata, existingContinuation)
-        when (val decision = authorizationService.decideResumePolicy(command, metadata, resolvedTool)) {
-            is ReplayAuthorizationDecision.Denied -> authorizationService.denyAndCancel(command, metadata, decision.decision, store)
-            ReplayAuthorizationDecision.RequiresNestedApproval -> authorizationService.cancelForNestedApproval(command, metadata, store)
-            is ReplayAuthorizationDecision.Allowed -> Unit
-        }
-
-        val authorization = authorizationService.authorize(command, metadata, existingContinuation)
-        authorizationService.emitAuthorizationReplayed(authorization.replayed, command, metadata)
-        val claimed = claimService.claim(command.approvalId, command.continuationExpectedVersion, command.resumedBy)
-        val uncertainOutcome = ResumeUncertainOutcome()
-        val context = ResumeExecutionContext(command, metadata, registered, resolvedTool, uncertainOutcome)
-
-        return try {
-            if (persistedGoverned == null) {
-                executeClaimedResume(context, claimed, store)
-            } else {
-                // Install the RECOVERED identity around the resumed execution, so the engine
-                // invocation that continues this run carries its canonical run id.
-                withContext(GovernedRunScope(persistedGoverned)) {
-                    executeClaimedResume(context, claimed, store)
-                }
-            }
-        } catch (e: NestedApprovalNotSupportedException) {
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported")
-            throw e
-        } catch (e: StructuredOutputException) {
-            emitResumeUncertainOutcomeOnce(
-                uncertainOutcome,
-                command,
-                metadata,
-                "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
-            )
-            throw e
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
-            throw e
-        }
+        val continuation = claimService.loadPendingForResume(store, command, metadata, registered)
+        val resolvedTool = resolveAndValidateResumeTool(command, metadata, continuation)
+        authorizationService.validateToken(command, metadata, continuation)
+        return ResumePreparation(store, metadata, persistedGoverned, registered, continuation, resolvedTool)
     }
+
+    private suspend fun authorizeResume(
+        command: ResumeApprovalCommand,
+        prepared: ResumePreparation,
+    ): ApprovalAuthorization {
+        val decision = authorizationService.decideResumePolicy(command, prepared.metadata, prepared.resolvedTool)
+        when (decision) {
+            is ReplayAuthorizationDecision.Denied -> {
+                authorizationService.denyAndCancel(command, prepared.metadata, decision.decision, prepared.store)
+            }
+
+            ReplayAuthorizationDecision.RequiresNestedApproval -> {
+                authorizationService.cancelForNestedApproval(command, prepared.metadata, prepared.store)
+            }
+
+            is ReplayAuthorizationDecision.Allowed -> {
+                Unit
+            }
+        }
+        return authorizationService.authorize(command, prepared.metadata, prepared.continuation)
+    }
+
+    private data class ResumePreparation(
+        val store: ApprovalContinuationStore,
+        val metadata: SuspendedInvocationMetadata,
+        val persistedGoverned: dev.tramai.core.identity.GovernedRunIdentity?,
+        val registered: RegisteredResumeOperation,
+        val continuation: ApprovalContinuation,
+        val resolvedTool: ResolvedTool,
+    )
 
     private suspend fun executeClaimedResume(
         context: ResumeExecutionContext,

@@ -50,8 +50,8 @@ class ServerGovernedRunAttributionTest {
         const val CONFIG_VERSION = "17"
         const val DEPLOYMENT = "eu-west-amsterdam-01"
 
-        val FAST_WAIT_MS = 10_000L
-        val DELAY_MS = 200L
+        const val FAST_WAIT_MS = 10_000L
+        const val DELAY_MS = 200L
     }
 
     private object StringStateCodec : WorkflowStateCodec<String> {
@@ -150,7 +150,8 @@ class ServerGovernedRunAttributionTest {
                 Thread.sleep(10)
             }
             throw AssertionError(
-                "run $workflowId of $workflowName did not reach $expected (was ${runStore.get(workflowName, workflowId).status})",
+                "run $workflowId of $workflowName did not reach $expected " +
+                    "(was ${runStore.get(workflowName, workflowId).status})",
             )
         }
 
@@ -393,10 +394,15 @@ class ServerGovernedRunAttributionTest {
         val authority = registered()
         val (_, runId) = startDelayed(fixture, ServerGovernance.of(deployment(), authority))
 
-        val other = fixture.controller(ServerGovernance.of(deployment(deploymentId = "eu-central-frankfurt-01"), authority))
-        other.resumeWorkflow(DELAYED, runId)
+        val other =
+            fixture.controller(
+                ServerGovernance.of(deployment(deploymentId = "eu-central-frankfurt-01"), authority),
+            )
 
-        fixture.waitForStatus(DELAYED, runId, WorkflowRunStatus.FAILED)
+        // Rejected synchronously, before any mutation: the run is still resumable afterwards.
+        assertThrows<WorkflowConflictException> { other.resumeWorkflow(DELAYED, runId) }
+
+        assertThat(fixture.runStore.get(DELAYED, runId).status).isEqualTo(WorkflowRunStatus.DELAYED)
         assertThat(fixture.delayedSteps).isEmpty()
     }
 
@@ -406,10 +412,48 @@ class ServerGovernedRunAttributionTest {
         val (_, runId) = startDelayed(fixture, ServerGovernance.of(deployment(), registered()))
 
         val ungoverned = fixture.controller(ServerGovernance.UNSET)
-        ungoverned.resumeWorkflow(DELAYED, runId)
 
-        fixture.waitForStatus(DELAYED, runId, WorkflowRunStatus.FAILED)
+        assertThrows<WorkflowConflictException> { ungoverned.resumeWorkflow(DELAYED, runId) }
+
+        assertThat(fixture.runStore.get(DELAYED, runId).status).isEqualTo(WorkflowRunStatus.DELAYED)
         assertThat(fixture.delayedSteps).isEmpty()
+    }
+
+    @Test
+    fun `concurrent resumes admit exactly one winner`() {
+        val fixture = Fixture()
+        val (controller, runId) = startDelayed(fixture, ServerGovernance.of(deployment(), registered()))
+        // Let the delay elapse first: otherwise the winner's resume legitimately re-suspends.
+        Thread.sleep(DELAY_MS + 50)
+
+        val threads = 2
+        val ready = CountDownLatch(threads)
+        val go = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(threads)
+        val outcomes = CopyOnWriteArrayList<String>()
+        try {
+            repeat(threads) {
+                executor.submit {
+                    ready.countDown()
+                    go.await()
+                    val outcome = runCatching { controller.resumeWorkflow(DELAYED, runId) }
+                    outcomes += outcome.fold({ "admitted" }, { it::class.simpleName ?: "failure" })
+                }
+            }
+            ready.await()
+            go.countDown()
+            executor.shutdown()
+            assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue()
+        } finally {
+            executor.shutdownNow()
+        }
+
+        // Authorization and recovery mutate nothing, so both callers reach them; only one may
+        // win the admitted-resume transition, and the run executes exactly once.
+        assertThat(outcomes.count { it == "admitted" }).isEqualTo(1)
+        assertThat(outcomes).anyMatch { it == "WorkflowConflictException" }
+        fixture.waitForStatus(DELAYED, runId, WorkflowRunStatus.COMPLETED)
+        assertThat(fixture.delayedSteps).containsExactly("seed")
     }
 
     @Test
@@ -433,12 +477,15 @@ class ServerGovernedRunAttributionTest {
     @Test
     fun `an ungoverned server stays byte-identical and partial configuration fails closed`() {
         assertThat(
-            ServerGovernance.fromProperties(
-                workloadId = null,
-                configurationId = null,
-                configurationVersion = null,
-                environmentId = null,
-                deploymentId = null,
+            serverGovernanceFrom(
+                properties =
+                    ServerGovernanceProperties(
+                        workloadId = null,
+                        configurationId = null,
+                        configurationVersion = null,
+                        environmentId = null,
+                        deploymentId = null,
+                    ),
                 authority = null,
             ),
         ).isSameAs(ServerGovernance.UNSET)
@@ -446,24 +493,30 @@ class ServerGovernedRunAttributionTest {
         // Partial configuration is a typo, not a choice: starting ungoverned would silently
         // strip attribution from every run of this server.
         assertThrows<IllegalArgumentException> {
-            ServerGovernance.fromProperties(
-                workloadId = "claims",
-                configurationId = null,
-                configurationVersion = null,
-                environmentId = "production",
-                deploymentId = DEPLOYMENT,
+            serverGovernanceFrom(
+                properties =
+                    ServerGovernanceProperties(
+                        workloadId = "claims",
+                        configurationId = null,
+                        configurationVersion = null,
+                        environmentId = "production",
+                        deploymentId = DEPLOYMENT,
+                    ),
                 authority = registered(),
             )
         }
 
         // Governed configuration without an authoritative registration source cannot be trusted.
         assertThrows<IllegalStateException> {
-            ServerGovernance.fromProperties(
-                workloadId = "claims",
-                configurationId = "claims-prod",
-                configurationVersion = CONFIG_VERSION,
-                environmentId = "production",
-                deploymentId = DEPLOYMENT,
+            serverGovernanceFrom(
+                properties =
+                    ServerGovernanceProperties(
+                        workloadId = "claims",
+                        configurationId = "claims-prod",
+                        configurationVersion = CONFIG_VERSION,
+                        environmentId = "production",
+                        deploymentId = DEPLOYMENT,
+                    ),
                 authority = null,
             )
         }

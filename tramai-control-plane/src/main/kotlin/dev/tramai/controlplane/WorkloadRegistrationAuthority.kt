@@ -53,14 +53,27 @@ class WorkloadRegistrationAuthority(
                 expectedIdentity.deploymentId,
             ) ?: throw WorkloadAdmissionRejectedException("workload-deployment-not-registered")
 
-        if (registered.identity != expectedIdentity) {
-            throw WorkloadAdmissionRejectedException("workload-deployment-configuration-mismatch")
-        }
-        if (registered.lifecycle != WorkloadLifecycleState.ACTIVE) {
-            throw WorkloadAdmissionRejectedException("workload-deployment-not-active")
+        val rejection = admissionRejection(registered, expectedIdentity)
+        if (rejection != null) {
+            throw WorkloadAdmissionRejectedException(rejection)
         }
         return registered.identity
     }
+
+    /**
+     * Why an existing registration may not admit this deployment, or null when it may.
+     * Returned rather than thrown so the reason codes stay in one place and the admission
+     * path keeps a single failure surface.
+     */
+    private fun admissionRejection(
+        registered: RegisteredWorkload,
+        expectedIdentity: WorkloadDeploymentIdentity,
+    ): String? =
+        when {
+            registered.identity != expectedIdentity -> "workload-deployment-configuration-mismatch"
+            registered.lifecycle != WorkloadLifecycleState.ACTIVE -> "workload-deployment-not-active"
+            else -> null
+        }
 
     /**
      * Registers a workload deployment as ACTIVE at state version 1.

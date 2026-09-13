@@ -1,6 +1,7 @@
 package dev.tramai.persistence.file
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.core.JsonProcessingException
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
@@ -423,56 +424,54 @@ private const val GOVERNED_SUSPENDED_INVOCATION_UNSUPPORTED = "unsupported-suspe
  * claims to be governed.
  */
 internal fun decodeSuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
-    val version =
-        try {
-            FILE_STORE_JSON.readTree(json)?.get("schemaVersion")?.asInt()
-                ?: throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED)
-        } catch (e: FileStoreCorruptionException) {
-            throw e
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
-        }
+    val version = decodeSuspendedInvocationSchemaVersion(json)
     return when (version) {
         1 -> {
-            val record =
-                try {
-                    PersistedSuspendedInvocationRecordV1.fromJson(json)
-                } catch (e: Exception) {
-                    throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
-                }
-            DecodedSuspendedInvocationRecord(
-                schemaVersion = 1,
-                metadata = record.metadata,
-                replayEnvelope = record.replayEnvelope,
-                governedRunIdentity = null,
-            )
+            decodeLegacySuspendedInvocationRecord(json)
         }
 
         2 -> {
-            val record =
-                try {
-                    PersistedSuspendedInvocationRecordV2.fromJson(json)
-                } catch (e: Exception) {
-                    throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
-                }
-            val identity = record.governedRunIdentity.toDomain()
-            // Bidirectional invariant, checked on decode as well as on create: a persisted
-            // governed suspension whose engine identity names another run is corruption.
-            if (identity.runId.value != record.metadata.identity.workflowRunId) {
-                throw FileStoreCorruptionException("suspended-invocation-governed-identity-mismatch")
-            }
-            DecodedSuspendedInvocationRecord(
-                schemaVersion = 2,
-                metadata = record.metadata,
-                replayEnvelope = record.replayEnvelope,
-                governedRunIdentity = identity,
-            )
+            decodeGovernedSuspendedInvocationRecord(json)
         }
 
         else -> {
             throw FileStoreUnsupportedFormatException(GOVERNED_SUSPENDED_INVOCATION_UNSUPPORTED)
         }
     }
+}
+
+private fun decodeSuspendedInvocationSchemaVersion(json: String): Int =
+    try {
+        FILE_STORE_JSON.readTree(json)?.get("schemaVersion")?.asInt()
+            ?: throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED)
+    } catch (e: FileStoreCorruptionException) {
+        throw e
+    } catch (e: JsonProcessingException) {
+        throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+    }
+
+private fun decodeLegacySuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val record =
+        try {
+            PersistedSuspendedInvocationRecordV1.fromJson(json)
+        } catch (e: IllegalArgumentException) {
+            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+        }
+    return DecodedSuspendedInvocationRecord(1, record.metadata, record.replayEnvelope, null)
+}
+
+private fun decodeGovernedSuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val record =
+        try {
+            PersistedSuspendedInvocationRecordV2.fromJson(json)
+        } catch (e: IllegalArgumentException) {
+            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+        }
+    val identity = record.governedRunIdentity.toDomain()
+    if (identity.runId.value != record.metadata.identity.workflowRunId) {
+        throw FileStoreCorruptionException("suspended-invocation-governed-identity-mismatch")
+    }
+    return DecodedSuspendedInvocationRecord(2, record.metadata, record.replayEnvelope, identity)
 }
 
 internal fun PersistedGovernedRunIdentityV1.toDomain(): GovernedRunIdentity =
@@ -807,7 +806,10 @@ internal fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadata
         compatibilityMode = compatibilityMode.name,
     )
 
-internal fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope = SensitiveReplayEnvelope.of(messages.map { it.toDomain() })
+internal fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope {
+    val domainMessages = messages.map { it.toDomain() }
+    return SensitiveReplayEnvelope.of(domainMessages)
+}
 
 internal fun PersistedMessageV1.toDomain(): Message =
     Message(

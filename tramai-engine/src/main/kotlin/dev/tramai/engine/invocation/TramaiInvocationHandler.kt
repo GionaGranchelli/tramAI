@@ -109,7 +109,10 @@ internal class TramaiInvocationHandler(
         @Suppress("UNCHECKED_CAST")
         val continuation =
             args.lastOrNull() as? Continuation<Any?>
-                ?: throw ConfigurationException("Suspend invocation for ${context.plan.definition.method.name} is missing its continuation")
+                ?: throw ConfigurationException(
+                    "Suspend invocation for ${context.plan.definition.method.name} is missing " +
+                        "its continuation",
+                )
 
         val callArguments = args.dropLast(1)
         // Launch as a child of the CALLER's job (continuation.context, with the
@@ -138,7 +141,10 @@ internal class TramaiInvocationHandler(
                         continuation.context.minusKey(kotlin.coroutines.ContinuationInterceptor) +
                             engineThreadMarker.asContextElement(true),
                     ) {
-                        var result = runCatching { executionCoordinator.execute(context.copy(arguments = callArguments)) }
+                        var result =
+                            runCatching {
+                                executionCoordinator.execute(context.copy(arguments = callArguments))
+                            }
                         // Never deliver a success computed against a closed engine: the
                         // engine may have closed while the invocation was in flight.
                         // The caller sees the fixed lifecycle error instead (mirrors

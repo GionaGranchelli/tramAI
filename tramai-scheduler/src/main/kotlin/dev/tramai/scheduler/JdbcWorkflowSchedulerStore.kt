@@ -1,10 +1,10 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
-
 package dev.tramai.scheduler
 
-import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.orchestration.FailureIsolatingWorkflowObserver
+import dev.tramai.core.observation.event.RuntimeAttributes
+
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
@@ -30,8 +30,7 @@ import javax.sql.DataSource
 class JdbcWorkflowSchedulerStore(
     private val dataSource: DataSource,
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
-) : WorkflowSchedulerStore,
-    GovernedScheduleBindingStore {
+) : WorkflowSchedulerStore {
     private var claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource
 
     internal constructor(
@@ -41,105 +40,100 @@ class JdbcWorkflowSchedulerStore(
     ) : this(dataSource, observer) {
         this.claimTokenSource = claimTokenSource
     }
-
     // Epic 5.3: the store invokes tick callbacks during startup recovery and
     // next-fire computation; wrap at the boundary so a throwing observer can
     // never abort a durable scheduler transition.
     private val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
-
     override suspend fun upsertSchedule(schedule: ScheduleRecord) {
         val cronSchedule = cronSchedule(schedule.schedule, "JdbcWorkflowSchedulerStore")
         transaction { connection ->
-            connection
-                .prepareStatement(
-                    upsertScheduleSql(connection),
-                ).use { statement ->
-                    statement.setString(1, schedule.scheduleId)
-                    statement.setString(2, schedule.workflowName)
-                    statement.setString(3, cronSchedule.expression)
-                    statement.setString(4, cronSchedule.zoneId.id)
-                    statement.setTimestamp(5, timestamp(schedule.nextFireAt))
-                    statement.setBoolean(6, schedule.enabled)
-                    statement.setString(7, encodeCalendarRules(schedule.skipCalendar))
-                    statement.setBoolean(8, schedule.businessHoursOnly)
-                    statement.executeUpdate()
-                }
+            connection.prepareStatement(
+                upsertScheduleSql(connection),
+            ).use { statement ->
+                statement.setString(1, schedule.scheduleId)
+                statement.setString(2, schedule.workflowName)
+                statement.setString(3, cronSchedule.expression)
+                statement.setString(4, cronSchedule.zoneId.id)
+                statement.setTimestamp(5, timestamp(schedule.nextFireAt))
+                statement.setBoolean(6, schedule.enabled)
+                statement.setString(7, encodeCalendarRules(schedule.skipCalendar))
+                statement.setBoolean(8, schedule.businessHoursOnly)
+                statement.executeUpdate()
+            }
         }
     }
 
     override suspend fun getSchedule(scheduleId: String): ScheduleRecord? =
         transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, enabled, skip_calendar, business_hours_only
-                    FROM workflow_schedules
-                    WHERE schedule_id = ?
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, scheduleId)
-                    statement.executeQuery().use { resultSet ->
-                        if (!resultSet.next()) {
-                            null
-                        } else {
-                            resultSet.toScheduleRecord()
-                        }
+            connection.prepareStatement(
+                """
+                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, enabled, skip_calendar, business_hours_only
+                FROM workflow_schedules
+                WHERE schedule_id = ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, scheduleId)
+                statement.executeQuery().use { resultSet ->
+                    if (!resultSet.next()) {
+                        null
+                    } else {
+                        resultSet.toScheduleRecord()
                     }
                 }
+            }
         }
 
     override suspend fun listScheduleStatus(): List<ScheduleStatusView> =
         transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    SELECT
-                        schedules.schedule_id,
-                        schedules.workflow_name,
-                        schedules.cron_expression,
-                        schedules.next_fire_at,
-                        latest_tick.scheduled_fire_at AS last_tick_at,
-                        latest_tick.status AS last_run_status,
-                        latest_tick.workflow_run_id AS last_run_id,
-                        COALESCE(misfires.misfire_count, 0) AS misfire_count
-                    FROM workflow_schedules schedules
-                    LEFT JOIN workflow_schedule_ticks latest_tick
-                        ON latest_tick.tick_id = (
-                            SELECT ticks.tick_id
-                            FROM workflow_schedule_ticks ticks
-                            WHERE ticks.schedule_id = schedules.schedule_id
-                            ORDER BY ticks.scheduled_fire_at DESC, ticks.tick_id DESC
-                            LIMIT 1
-                        )
-                    LEFT JOIN (
-                        SELECT schedule_id, COUNT(*) AS misfire_count
-                        FROM workflow_schedule_ticks
-                        WHERE status = 'MISFIRED'
-                        GROUP BY schedule_id
-                    ) misfires
-                        ON misfires.schedule_id = schedules.schedule_id
-                    ORDER BY schedules.workflow_name, schedules.schedule_id
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.executeQuery().use { resultSet ->
-                        buildList {
-                            while (resultSet.next()) {
-                                add(
-                                    ScheduleStatusView(
-                                        scheduleId = resultSet.getString("schedule_id"),
-                                        workflowName = resultSet.getString("workflow_name"),
-                                        cronExpression = resultSet.getString("cron_expression"),
-                                        nextTick = resultSet.instantOrNull("next_fire_at"),
-                                        lastTick = resultSet.instantOrNull("last_tick_at"),
-                                        lastRunStatus = resultSet.getString("last_run_status")?.lowercase(),
-                                        lastRunId = resultSet.getString("last_run_id"),
-                                        misfireCount = resultSet.getInt("misfire_count"),
-                                    ),
-                                )
-                            }
+            connection.prepareStatement(
+                """
+                SELECT
+                    schedules.schedule_id,
+                    schedules.workflow_name,
+                    schedules.cron_expression,
+                    schedules.next_fire_at,
+                    latest_tick.scheduled_fire_at AS last_tick_at,
+                    latest_tick.status AS last_run_status,
+                    latest_tick.workflow_run_id AS last_run_id,
+                    COALESCE(misfires.misfire_count, 0) AS misfire_count
+                FROM workflow_schedules schedules
+                LEFT JOIN workflow_schedule_ticks latest_tick
+                    ON latest_tick.tick_id = (
+                        SELECT ticks.tick_id
+                        FROM workflow_schedule_ticks ticks
+                        WHERE ticks.schedule_id = schedules.schedule_id
+                        ORDER BY ticks.scheduled_fire_at DESC, ticks.tick_id DESC
+                        LIMIT 1
+                    )
+                LEFT JOIN (
+                    SELECT schedule_id, COUNT(*) AS misfire_count
+                    FROM workflow_schedule_ticks
+                    WHERE status = 'MISFIRED'
+                    GROUP BY schedule_id
+                ) misfires
+                    ON misfires.schedule_id = schedules.schedule_id
+                ORDER BY schedules.workflow_name, schedules.schedule_id
+                """.trimIndent(),
+            ).use { statement ->
+                statement.executeQuery().use { resultSet ->
+                    buildList {
+                        while (resultSet.next()) {
+                            add(
+                                ScheduleStatusView(
+                                    scheduleId = resultSet.getString("schedule_id"),
+                                    workflowName = resultSet.getString("workflow_name"),
+                                    cronExpression = resultSet.getString("cron_expression"),
+                                    nextTick = resultSet.instantOrNull("next_fire_at"),
+                                    lastTick = resultSet.instantOrNull("last_tick_at"),
+                                    lastRunStatus = resultSet.getString("last_run_status")?.lowercase(),
+                                    lastRunId = resultSet.getString("last_run_id"),
+                                    misfireCount = resultSet.getInt("misfire_count"),
+                                ),
+                            )
                         }
                     }
                 }
+            }
         }
 
     override suspend fun claimDueTicks(
@@ -156,23 +150,21 @@ class JdbcWorkflowSchedulerStore(
         val claimExpiresAt = now.plus(claimDuration)
         return transaction { connection ->
             val claimed = mutableListOf<ClaimedScheduledTick>()
-            claimed +=
-                reclaimExpiredTicks(
+            claimed += reclaimExpiredTicks(
+                connection = connection,
+                now = now,
+                ownerId = ownerId,
+                claimExpiresAt = claimExpiresAt,
+                limit = limit,
+            )
+            if (claimed.size < limit) {
+                claimed += createAndClaimDueTicks(
                     connection = connection,
                     now = now,
                     ownerId = ownerId,
                     claimExpiresAt = claimExpiresAt,
-                    limit = limit,
+                    limit = limit - claimed.size,
                 )
-            if (claimed.size < limit) {
-                claimed +=
-                    createAndClaimDueTicks(
-                        connection = connection,
-                        now = now,
-                        ownerId = ownerId,
-                        claimExpiresAt = claimExpiresAt,
-                        limit = limit - claimed.size,
-                    )
             }
             claimed
         }
@@ -186,15 +178,14 @@ class JdbcWorkflowSchedulerStore(
         updateClaimedTick(
             tickId = tickId,
             terminalAction = "start",
-            sql =
-                """
+            sql = """
                 UPDATE workflow_schedule_ticks
                 SET status = 'STARTED',
                     workflow_run_id = ?
                 WHERE tick_id = ?
                     AND claim_token = ?
                     AND status IN ('CLAIMED', 'STARTED')
-                """.trimIndent(),
+            """.trimIndent(),
         ) { statement ->
             statement.setString(1, runId)
             statement.setString(2, tickId)
@@ -215,8 +206,7 @@ class JdbcWorkflowSchedulerStore(
         updateClaimedTick(
             tickId = tickId,
             terminalAction = "release",
-            sql =
-                """
+            sql = """
                 UPDATE workflow_schedule_ticks
                 SET status = 'CLAIMED',
                     owner_id = NULL,
@@ -226,7 +216,7 @@ class JdbcWorkflowSchedulerStore(
                 WHERE tick_id = ?
                     AND claim_token = ?
                     AND status IN ('CLAIMED', 'STARTED')
-                """.trimIndent(),
+            """.trimIndent(),
         ) { statement ->
             statement.setTimestamp(1, timestamp(Instant.EPOCH))
             statement.setString(2, tickId)
@@ -265,45 +255,43 @@ class JdbcWorkflowSchedulerStore(
         require(runId.isNotBlank()) { "Delay wakeup runId must not be blank" }
         require(stepId.isNotBlank()) { "Delay wakeup stepId must not be blank" }
         transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    UPDATE workflow_delay_wakeups
-                    SET resume_at = ?,
-                        status = 'PENDING',
-                        owner_id = NULL,
-                        claim_token = NULL,
-                        claim_expires_at = NULL
-                    WHERE run_id = ?
-                        AND step_id = ?
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setTimestamp(1, timestamp(resumeAt))
-                    statement.setString(2, runId)
-                    statement.setString(3, stepId)
-                    if (statement.executeUpdate() > 0) {
-                        return@transaction
-                    }
+            connection.prepareStatement(
+                """
+                UPDATE workflow_delay_wakeups
+                SET resume_at = ?,
+                    status = 'PENDING',
+                    owner_id = NULL,
+                    claim_token = NULL,
+                    claim_expires_at = NULL
+                WHERE run_id = ?
+                    AND step_id = ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setTimestamp(1, timestamp(resumeAt))
+                statement.setString(2, runId)
+                statement.setString(3, stepId)
+                if (statement.executeUpdate() > 0) {
+                    return@transaction
                 }
-            connection
-                .prepareStatement(
-                    """
-                    INSERT INTO workflow_delay_wakeups (
-                        run_id,
-                        step_id,
-                        resume_at,
-                        status,
-                        owner_id,
-                        claim_token,
-                        claim_expires_at
-                    ) VALUES (?, ?, ?, 'PENDING', NULL, NULL, NULL)
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, runId)
-                    statement.setString(2, stepId)
-                    statement.setTimestamp(3, timestamp(resumeAt))
-                    statement.executeUpdate()
-                }
+            }
+            connection.prepareStatement(
+                """
+                INSERT INTO workflow_delay_wakeups (
+                    run_id,
+                    step_id,
+                    resume_at,
+                    status,
+                    owner_id,
+                    claim_token,
+                    claim_expires_at
+                ) VALUES (?, ?, ?, 'PENDING', NULL, NULL, NULL)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, runId)
+                statement.setString(2, stepId)
+                statement.setTimestamp(3, timestamp(resumeAt))
+                statement.executeUpdate()
+            }
         }
     }
 
@@ -320,51 +308,49 @@ class JdbcWorkflowSchedulerStore(
         }
         val claimExpiresAt = now.plus(claimDuration)
         return transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    SELECT run_id, step_id, resume_at
-                    FROM workflow_delay_wakeups
-                    WHERE resume_at <= ?
-                        AND (
-                            status = 'PENDING'
-                            OR (status = 'CLAIMED' AND claim_expires_at <= ?)
+            connection.prepareStatement(
+                """
+                SELECT run_id, step_id, resume_at
+                FROM workflow_delay_wakeups
+                WHERE resume_at <= ?
+                    AND (
+                        status = 'PENDING'
+                        OR (status = 'CLAIMED' AND claim_expires_at <= ?)
+                    )
+                ORDER BY resume_at, run_id, step_id
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setTimestamp(1, timestamp(now))
+                statement.setTimestamp(2, timestamp(now))
+                statement.setInt(3, limit)
+                statement.executeQuery().use { resultSet ->
+                    val wakeups = mutableListOf<ClaimedDelayWakeup>()
+                    while (resultSet.next()) {
+                        val runId = resultSet.getString("run_id")
+                        val stepId = resultSet.getString("step_id")
+                        val resumeAt = resultSet.instant("resume_at")
+                        val claimToken = claimTokenSource.newClaimToken()
+                        updateDelayWakeupClaim(
+                            connection = connection,
+                            runId = runId,
+                            stepId = stepId,
+                            ownerId = ownerId,
+                            claimToken = claimToken,
+                            claimExpiresAt = claimExpiresAt,
                         )
-                    ORDER BY resume_at, run_id, step_id
-                    LIMIT ?
-                    FOR UPDATE SKIP LOCKED
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setTimestamp(1, timestamp(now))
-                    statement.setTimestamp(2, timestamp(now))
-                    statement.setInt(3, limit)
-                    statement.executeQuery().use { resultSet ->
-                        val wakeups = mutableListOf<ClaimedDelayWakeup>()
-                        while (resultSet.next()) {
-                            val runId = resultSet.getString("run_id")
-                            val stepId = resultSet.getString("step_id")
-                            val resumeAt = resultSet.instant("resume_at")
-                            val claimToken = claimTokenSource.newClaimToken()
-                            updateDelayWakeupClaim(
-                                connection = connection,
-                                runId = runId,
-                                stepId = stepId,
-                                ownerId = ownerId,
-                                claimToken = claimToken,
-                                claimExpiresAt = claimExpiresAt,
-                            )
-                            wakeups +=
-                                ClaimedDelayWakeup(
-                                    runId = runId,
-                                    stepId = stepId,
-                                    resumeAt = resumeAt,
-                                    claimToken = claimToken,
-                                    claimExpiresAt = claimExpiresAt,
-                                )
-                        }
-                        wakeups
+                        wakeups += ClaimedDelayWakeup(
+                            runId = runId,
+                            stepId = stepId,
+                            resumeAt = resumeAt,
+                            claimToken = claimToken,
+                            claimExpiresAt = claimExpiresAt,
+                        )
                     }
+                    wakeups
                 }
+            }
         }
     }
 
@@ -377,8 +363,7 @@ class JdbcWorkflowSchedulerStore(
             runId = runId,
             stepId = stepId,
             action = "release",
-            sql =
-                """
+            sql = """
                 UPDATE workflow_delay_wakeups
                 SET status = 'PENDING',
                     owner_id = NULL,
@@ -388,7 +373,7 @@ class JdbcWorkflowSchedulerStore(
                     AND step_id = ?
                     AND claim_token = ?
                     AND status = 'CLAIMED'
-                """.trimIndent(),
+            """.trimIndent(),
         ) { statement ->
             statement.setString(1, runId)
             statement.setString(2, stepId)
@@ -405,15 +390,14 @@ class JdbcWorkflowSchedulerStore(
             runId = runId,
             stepId = stepId,
             action = "complete",
-            sql =
-                """
+            sql = """
                 UPDATE workflow_delay_wakeups
                 SET status = 'COMPLETED'
                 WHERE run_id = ?
                     AND step_id = ?
                     AND claim_token = ?
                     AND status = 'CLAIMED'
-                """.trimIndent(),
+            """.trimIndent(),
         ) { statement ->
             statement.setString(1, runId)
             statement.setString(2, stepId)
@@ -434,209 +418,114 @@ class JdbcWorkflowSchedulerStore(
     ): Int {
         require(limit > 0) { "JdbcWorkflowSchedulerStore.recover limit must be greater than zero" }
         return transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, version, skip_calendar, business_hours_only
-                    FROM workflow_schedules
-                    WHERE enabled = TRUE
-                        AND next_fire_at <= ?
-                    ORDER BY next_fire_at, schedule_id
-                    LIMIT ?
-                    FOR UPDATE SKIP LOCKED
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setTimestamp(1, timestamp(now))
-                    statement.setInt(2, limit)
-                    statement.executeQuery().use { resultSet ->
-                        var recovered = 0
-                        while (resultSet.next()) {
-                            val scheduleId = resultSet.getString("schedule_id")
-                            val workflowName = resultSet.getString("workflow_name")
-                            val schedule =
-                                CronSchedule.parse(
-                                    expression = resultSet.getString("cron_expression"),
-                                    zoneId = ZoneId.of(resultSet.getString("timezone")),
-                                    skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
-                                    businessHoursOnly = resultSet.getBoolean("business_hours_only"),
-                                )
-                            val scheduledFireAt = resultSet.instant("next_fire_at")
-                            val inserted =
-                                insertTickIfAbsent(
-                                    connection = connection,
+            connection.prepareStatement(
+                """
+                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, version, skip_calendar, business_hours_only
+                FROM workflow_schedules
+                WHERE enabled = TRUE
+                    AND next_fire_at <= ?
+                ORDER BY next_fire_at, schedule_id
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setTimestamp(1, timestamp(now))
+                statement.setInt(2, limit)
+                statement.executeQuery().use { resultSet ->
+                    var recovered = 0
+                    while (resultSet.next()) {
+                        val scheduleId = resultSet.getString("schedule_id")
+                        val workflowName = resultSet.getString("workflow_name")
+                        val schedule = CronSchedule.parse(
+                            expression = resultSet.getString("cron_expression"),
+                            zoneId = ZoneId.of(resultSet.getString("timezone")),
+                            skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
+                            businessHoursOnly = resultSet.getBoolean("business_hours_only"),
+                        )
+                        val scheduledFireAt = resultSet.instant("next_fire_at")
+                        val inserted = insertTickIfAbsent(
+                            connection = connection,
+                            tickId = tickId(scheduleId, scheduledFireAt),
+                            scheduleId = scheduleId,
+                            workflowName = workflowName,
+                            scheduledFireAt = scheduledFireAt,
+                        )
+                        advanceSchedule(
+                            connection = connection,
+                            scheduleId = scheduleId,
+                            nextFireAt = observedNextFireAfter(
+                                schedule = schedule,
+                                scheduleId = scheduleId,
+                                workflowName = workflowName,
+                                after = scheduledFireAt,
+                            ),
+                        )
+                        if (inserted) {
+                            recovered += 1
+                            isolatedObserver.onMissedTick(
+                                workflowName = workflowName,
+                                scheduledFireAt = scheduledFireAt,
+                                reason = "scheduler_startup_recovery",
+                                context = scheduledTickContext(
                                     tickId = tickId(scheduleId, scheduledFireAt),
                                     scheduleId = scheduleId,
-                                    workflowName = workflowName,
                                     scheduledFireAt = scheduledFireAt,
-                                )
-                            advanceSchedule(
-                                connection = connection,
-                                scheduleId = scheduleId,
-                                nextFireAt =
-                                    observedNextFireAfter(
-                                        schedule = schedule,
-                                        scheduleId = scheduleId,
-                                        workflowName = workflowName,
-                                        after = scheduledFireAt,
-                                    ),
-                            )
-                            if (inserted) {
-                                recovered += 1
-                                isolatedObserver.onMissedTick(
-                                    workflowName = workflowName,
-                                    scheduledFireAt = scheduledFireAt,
-                                    reason = "scheduler_startup_recovery",
-                                    context =
-                                        scheduledTickContext(
-                                            tickId = tickId(scheduleId, scheduledFireAt),
-                                            scheduleId = scheduleId,
-                                            scheduledFireAt = scheduledFireAt,
-                                        ),
-                                )
-                            }
-                        }
-                        recovered
-                    }
-                }
-        }
-    }
-
-    /**
-     * Durable governed schedule binding (0.7.1d). Stored as one row per schedule so a
-     * schedule's governed declaration survives restart; the run identity is never stored
-     * here — a schedule is not a run, and each tick creates a fresh run id.
-     */
-    override suspend fun putGovernedScheduleBinding(binding: GovernedScheduleBinding) {
-        transaction { connection ->
-            connection
-                .prepareStatement("DELETE FROM workflow_schedule_governance WHERE schedule_id = ?")
-                .use { statement ->
-                    statement.setString(1, binding.scheduleId)
-                    statement.executeUpdate()
-                }
-            connection
-                .prepareStatement(
-                    """
-                    INSERT INTO workflow_schedule_governance
-                        (schedule_id, workload_id, configuration_id, configuration_version, environment_id, deployment_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, binding.scheduleId)
-                    statement.setString(2, binding.deploymentIdentity.workloadId.value)
-                    statement.setString(3, binding.deploymentIdentity.configuration.id.value)
-                    statement.setString(4, binding.deploymentIdentity.configuration.version.value)
-                    statement.setString(5, binding.deploymentIdentity.environmentId.value)
-                    statement.setString(6, binding.deploymentIdentity.deploymentId.value)
-                    statement.executeUpdate()
-                }
-        }
-    }
-
-    override suspend fun getGovernedScheduleBinding(scheduleId: String): GovernedScheduleBinding? =
-        transaction { connection ->
-            connection
-                .prepareStatement(
-                    """
-                    SELECT schedule_id, workload_id, configuration_id, configuration_version, environment_id, deployment_id
-                    FROM workflow_schedule_governance
-                    WHERE schedule_id = ?
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, scheduleId)
-                    statement.executeQuery().use { resultSet ->
-                        if (!resultSet.next()) {
-                            null
-                        } else {
-                            GovernedScheduleBinding(
-                                scheduleId = resultSet.getString("schedule_id"),
-                                deploymentIdentity =
-                                    dev.tramai.core.identity.WorkloadDeploymentIdentity(
-                                        workloadId =
-                                            dev.tramai.core.identity
-                                                .WorkloadId(resultSet.getString("workload_id")),
-                                        configuration =
-                                            dev.tramai.core.identity.WorkloadConfigurationIdentity(
-                                                id =
-                                                    dev.tramai.core.identity
-                                                        .ConfigurationId(resultSet.getString("configuration_id")),
-                                                version =
-                                                    dev.tramai.core.identity.ConfigurationVersion(
-                                                        resultSet.getString("configuration_version"),
-                                                    ),
-                                            ),
-                                        environmentId =
-                                            dev.tramai.core.identity
-                                                .EnvironmentId(resultSet.getString("environment_id")),
-                                        deploymentId =
-                                            dev.tramai.core.identity
-                                                .DeploymentId(resultSet.getString("deployment_id")),
-                                    ),
+                                ),
                             )
                         }
                     }
+                    recovered
                 }
+            }
         }
+    }
 
-    fun createTableSql(): List<String> =
-        listOf(
-            """
-            CREATE TABLE IF NOT EXISTS workflow_schedules (
-                schedule_id VARCHAR(255) PRIMARY KEY,
-                workflow_name VARCHAR(255) NOT NULL,
-                cron_expression VARCHAR(255) NOT NULL,
-                timezone VARCHAR(255) DEFAULT 'UTC',
-                next_fire_at TIMESTAMP NOT NULL,
-                enabled BOOLEAN DEFAULT TRUE,
-                skip_calendar TEXT,
-                business_hours_only BOOLEAN DEFAULT FALSE,
-                version BIGINT DEFAULT 0
-            )
-            """.trimIndent(),
-            """
-            CREATE TABLE IF NOT EXISTS workflow_schedule_ticks (
-                tick_id VARCHAR(64) PRIMARY KEY,
-                schedule_id VARCHAR(255) NOT NULL,
-                workflow_name VARCHAR(255) NOT NULL,
-                scheduled_fire_at TIMESTAMP NOT NULL,
-                occurrence_index BIGINT NOT NULL DEFAULT 0,
-                owner_id VARCHAR(255),
-                claim_token VARCHAR(255),
-                claim_expires_at TIMESTAMP,
-                status VARCHAR(32) NOT NULL,
-                workflow_run_id VARCHAR(255),
-                terminal_reason VARCHAR(1024),
-                CONSTRAINT fk_workflow_schedule_ticks_schedule
-                    FOREIGN KEY (schedule_id) REFERENCES workflow_schedules(schedule_id),
-                CONSTRAINT uq_workflow_schedule_tick_occurrence
-                    UNIQUE(schedule_id, scheduled_fire_at, occurrence_index)
-            )
-            """.trimIndent(),
-            """
-            CREATE TABLE IF NOT EXISTS workflow_schedule_governance (
-                schedule_id VARCHAR(255) PRIMARY KEY,
-                workload_id VARCHAR(255) NOT NULL,
-                configuration_id VARCHAR(255) NOT NULL,
-                configuration_version VARCHAR(255) NOT NULL,
-                environment_id VARCHAR(255) NOT NULL,
-                deployment_id VARCHAR(255) NOT NULL,
-                CONSTRAINT fk_workflow_schedule_governance_schedule
-                    FOREIGN KEY (schedule_id) REFERENCES workflow_schedules(schedule_id)
-            )
-            """.trimIndent(),
-            """
-            CREATE TABLE IF NOT EXISTS workflow_delay_wakeups (
-                run_id VARCHAR(255) NOT NULL,
-                step_id VARCHAR(255) NOT NULL,
-                resume_at TIMESTAMP NOT NULL,
-                status VARCHAR(32) NOT NULL,
-                owner_id VARCHAR(255),
-                claim_token VARCHAR(255),
-                claim_expires_at TIMESTAMP,
-                PRIMARY KEY(run_id, step_id)
-            )
-            """.trimIndent(),
+    fun createTableSql(): List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_schedules (
+            schedule_id VARCHAR(255) PRIMARY KEY,
+            workflow_name VARCHAR(255) NOT NULL,
+            cron_expression VARCHAR(255) NOT NULL,
+            timezone VARCHAR(255) DEFAULT 'UTC',
+            next_fire_at TIMESTAMP NOT NULL,
+            enabled BOOLEAN DEFAULT TRUE,
+            skip_calendar TEXT,
+            business_hours_only BOOLEAN DEFAULT FALSE,
+            version BIGINT DEFAULT 0
         )
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS workflow_schedule_ticks (
+            tick_id VARCHAR(64) PRIMARY KEY,
+            schedule_id VARCHAR(255) NOT NULL,
+            workflow_name VARCHAR(255) NOT NULL,
+            scheduled_fire_at TIMESTAMP NOT NULL,
+            occurrence_index BIGINT NOT NULL DEFAULT 0,
+            owner_id VARCHAR(255),
+            claim_token VARCHAR(255),
+            claim_expires_at TIMESTAMP,
+            status VARCHAR(32) NOT NULL,
+            workflow_run_id VARCHAR(255),
+            terminal_reason VARCHAR(1024),
+            CONSTRAINT fk_workflow_schedule_ticks_schedule
+                FOREIGN KEY (schedule_id) REFERENCES workflow_schedules(schedule_id),
+            CONSTRAINT uq_workflow_schedule_tick_occurrence
+                UNIQUE(schedule_id, scheduled_fire_at, occurrence_index)
+        )
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS workflow_delay_wakeups (
+            run_id VARCHAR(255) NOT NULL,
+            step_id VARCHAR(255) NOT NULL,
+            resume_at TIMESTAMP NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            owner_id VARCHAR(255),
+            claim_token VARCHAR(255),
+            claim_expires_at TIMESTAMP,
+            PRIMARY KEY(run_id, step_id)
+        )
+        """.trimIndent(),
+    )
 
     private fun reclaimExpiredTicks(
         connection: Connection,
@@ -645,45 +534,43 @@ class JdbcWorkflowSchedulerStore(
         claimExpiresAt: Instant,
         limit: Int,
     ): List<ClaimedScheduledTick> =
-        connection
-            .prepareStatement(
-                """
-                SELECT tick_id, schedule_id, workflow_name, scheduled_fire_at
-                FROM workflow_schedule_ticks
-                WHERE status IN ('CLAIMED', 'STARTED')
-                    AND claim_expires_at <= ?
-                ORDER BY scheduled_fire_at, tick_id
-                LIMIT ?
-                FOR UPDATE SKIP LOCKED
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setTimestamp(1, timestamp(now))
-                statement.setInt(2, limit)
-                statement.executeQuery().use { resultSet ->
-                    val ticks = mutableListOf<ClaimedScheduledTick>()
-                    while (resultSet.next()) {
-                        val tickId = resultSet.getString("tick_id")
-                        val claimToken = claimTokenSource.newClaimToken()
-                        updateTickClaim(
-                            connection = connection,
-                            tickId = tickId,
-                            ownerId = ownerId,
-                            claimToken = claimToken,
-                            claimExpiresAt = claimExpiresAt,
-                        )
-                        ticks +=
-                            ClaimedScheduledTick(
-                                tickId = tickId,
-                                scheduleId = resultSet.getString("schedule_id"),
-                                workflowName = resultSet.getString("workflow_name"),
-                                scheduledFireAt = resultSet.instant("scheduled_fire_at"),
-                                claimToken = claimToken,
-                                claimExpiresAt = claimExpiresAt,
-                            )
-                    }
-                    ticks
+        connection.prepareStatement(
+            """
+            SELECT tick_id, schedule_id, workflow_name, scheduled_fire_at
+            FROM workflow_schedule_ticks
+            WHERE status IN ('CLAIMED', 'STARTED')
+                AND claim_expires_at <= ?
+            ORDER BY scheduled_fire_at, tick_id
+            LIMIT ?
+            FOR UPDATE SKIP LOCKED
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setTimestamp(1, timestamp(now))
+            statement.setInt(2, limit)
+            statement.executeQuery().use { resultSet ->
+                val ticks = mutableListOf<ClaimedScheduledTick>()
+                while (resultSet.next()) {
+                    val tickId = resultSet.getString("tick_id")
+                    val claimToken = claimTokenSource.newClaimToken()
+                    updateTickClaim(
+                        connection = connection,
+                        tickId = tickId,
+                        ownerId = ownerId,
+                        claimToken = claimToken,
+                        claimExpiresAt = claimExpiresAt,
+                    )
+                    ticks += ClaimedScheduledTick(
+                        tickId = tickId,
+                        scheduleId = resultSet.getString("schedule_id"),
+                        workflowName = resultSet.getString("workflow_name"),
+                        scheduledFireAt = resultSet.instant("scheduled_fire_at"),
+                        claimToken = claimToken,
+                        claimExpiresAt = claimExpiresAt,
+                    )
                 }
+                ticks
             }
+        }
 
     private fun upsertScheduleSql(connection: Connection): String =
         if (connection.metaData.databaseProductName.equals("H2", ignoreCase = true)) {
@@ -765,76 +652,71 @@ class JdbcWorkflowSchedulerStore(
         claimExpiresAt: Instant,
         limit: Int,
     ): List<ClaimedScheduledTick> =
-        connection
-            .prepareStatement(
-                """
-                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, skip_calendar, business_hours_only
-                FROM workflow_schedules
-                WHERE enabled = TRUE
-                    AND next_fire_at <= ?
-                ORDER BY next_fire_at, schedule_id
-                LIMIT ?
-                FOR UPDATE SKIP LOCKED
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setTimestamp(1, timestamp(now))
-                statement.setInt(2, limit)
-                statement.executeQuery().use { resultSet ->
-                    val claimed = mutableListOf<ClaimedScheduledTick>()
-                    while (resultSet.next()) {
-                        val scheduleId = resultSet.getString("schedule_id")
-                        val workflowName = resultSet.getString("workflow_name")
-                        val schedule =
-                            CronSchedule.parse(
-                                expression = resultSet.getString("cron_expression"),
-                                zoneId = ZoneId.of(resultSet.getString("timezone")),
-                                skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
-                                businessHoursOnly = resultSet.getBoolean("business_hours_only"),
-                            )
-                        val scheduledFireAt = resultSet.instant("next_fire_at")
-                        val tickId = tickId(scheduleId, scheduledFireAt)
-                        val inserted =
-                            insertTickIfAbsent(
-                                connection = connection,
-                                tickId = tickId,
-                                scheduleId = scheduleId,
-                                workflowName = workflowName,
-                                scheduledFireAt = scheduledFireAt,
-                            )
-                        advanceSchedule(
-                            connection = connection,
+        connection.prepareStatement(
+            """
+            SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, skip_calendar, business_hours_only
+            FROM workflow_schedules
+            WHERE enabled = TRUE
+                AND next_fire_at <= ?
+            ORDER BY next_fire_at, schedule_id
+            LIMIT ?
+            FOR UPDATE SKIP LOCKED
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setTimestamp(1, timestamp(now))
+            statement.setInt(2, limit)
+            statement.executeQuery().use { resultSet ->
+                val claimed = mutableListOf<ClaimedScheduledTick>()
+                while (resultSet.next()) {
+                    val scheduleId = resultSet.getString("schedule_id")
+                    val workflowName = resultSet.getString("workflow_name")
+                    val schedule = CronSchedule.parse(
+                        expression = resultSet.getString("cron_expression"),
+                        zoneId = ZoneId.of(resultSet.getString("timezone")),
+                        skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
+                        businessHoursOnly = resultSet.getBoolean("business_hours_only"),
+                    )
+                    val scheduledFireAt = resultSet.instant("next_fire_at")
+                    val tickId = tickId(scheduleId, scheduledFireAt)
+                    val inserted = insertTickIfAbsent(
+                        connection = connection,
+                        tickId = tickId,
+                        scheduleId = scheduleId,
+                        workflowName = workflowName,
+                        scheduledFireAt = scheduledFireAt,
+                    )
+                    advanceSchedule(
+                        connection = connection,
+                        scheduleId = scheduleId,
+                        nextFireAt = observedNextFireAfter(
+                            schedule = schedule,
                             scheduleId = scheduleId,
-                            nextFireAt =
-                                observedNextFireAfter(
-                                    schedule = schedule,
-                                    scheduleId = scheduleId,
-                                    workflowName = workflowName,
-                                    after = scheduledFireAt,
-                                ),
+                            workflowName = workflowName,
+                            after = scheduledFireAt,
+                        ),
+                    )
+                    if (inserted) {
+                        val claimToken = claimTokenSource.newClaimToken()
+                        updateTickClaim(
+                            connection = connection,
+                            tickId = tickId,
+                            ownerId = ownerId,
+                            claimToken = claimToken,
+                            claimExpiresAt = claimExpiresAt,
                         )
-                        if (inserted) {
-                            val claimToken = claimTokenSource.newClaimToken()
-                            updateTickClaim(
-                                connection = connection,
-                                tickId = tickId,
-                                ownerId = ownerId,
-                                claimToken = claimToken,
-                                claimExpiresAt = claimExpiresAt,
-                            )
-                            claimed +=
-                                ClaimedScheduledTick(
-                                    tickId = tickId,
-                                    scheduleId = scheduleId,
-                                    workflowName = workflowName,
-                                    scheduledFireAt = scheduledFireAt,
-                                    claimToken = claimToken,
-                                    claimExpiresAt = claimExpiresAt,
-                                )
-                        }
+                        claimed += ClaimedScheduledTick(
+                            tickId = tickId,
+                            scheduleId = scheduleId,
+                            workflowName = workflowName,
+                            scheduledFireAt = scheduledFireAt,
+                            claimToken = claimToken,
+                            claimExpiresAt = claimExpiresAt,
+                        )
                     }
-                    claimed
                 }
+                claimed
             }
+        }
 
     private fun insertTickIfAbsent(
         connection: Connection,
@@ -843,39 +725,38 @@ class JdbcWorkflowSchedulerStore(
         workflowName: String,
         scheduledFireAt: Instant,
     ): Boolean =
-        connection
-            .prepareStatement(
-                """
-                INSERT INTO workflow_schedule_ticks (
-                    tick_id,
-                    schedule_id,
-                    workflow_name,
-                    scheduled_fire_at,
-                    occurrence_index,
-                    owner_id,
-                    claim_token,
-                    claim_expires_at,
-                    status,
-                    workflow_run_id,
-                    terminal_reason
-                ) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, 'CLAIMED', NULL, NULL)
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, tickId)
-                statement.setString(2, scheduleId)
-                statement.setString(3, workflowName)
-                statement.setTimestamp(4, timestamp(scheduledFireAt))
-                statement.setTimestamp(5, timestamp(Instant.EPOCH))
-                try {
-                    statement.executeUpdate() > 0
-                } catch (error: SQLException) {
-                    if (error.isUniqueConstraintViolation()) {
-                        false
-                    } else {
-                        throw error
-                    }
+        connection.prepareStatement(
+            """
+            INSERT INTO workflow_schedule_ticks (
+                tick_id,
+                schedule_id,
+                workflow_name,
+                scheduled_fire_at,
+                occurrence_index,
+                owner_id,
+                claim_token,
+                claim_expires_at,
+                status,
+                workflow_run_id,
+                terminal_reason
+            ) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, 'CLAIMED', NULL, NULL)
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, tickId)
+            statement.setString(2, scheduleId)
+            statement.setString(3, workflowName)
+            statement.setTimestamp(4, timestamp(scheduledFireAt))
+            statement.setTimestamp(5, timestamp(Instant.EPOCH))
+            try {
+                statement.executeUpdate() > 0
+            } catch (error: SQLException) {
+                if (error.isUniqueConstraintViolation()) {
+                    false
+                } else {
+                    throw error
                 }
             }
+        }
 
     private fun updateTickClaim(
         connection: Connection,
@@ -884,24 +765,23 @@ class JdbcWorkflowSchedulerStore(
         claimToken: String,
         claimExpiresAt: Instant,
     ) {
-        connection
-            .prepareStatement(
-                """
-                UPDATE workflow_schedule_ticks
-                SET status = 'CLAIMED',
-                    owner_id = ?,
-                    claim_token = ?,
-                    claim_expires_at = ?,
-                    workflow_run_id = NULL
-                WHERE tick_id = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, ownerId)
-                statement.setString(2, claimToken)
-                statement.setTimestamp(3, timestamp(claimExpiresAt))
-                statement.setString(4, tickId)
-                statement.executeUpdate()
-            }
+        connection.prepareStatement(
+            """
+            UPDATE workflow_schedule_ticks
+            SET status = 'CLAIMED',
+                owner_id = ?,
+                claim_token = ?,
+                claim_expires_at = ?,
+                workflow_run_id = NULL
+            WHERE tick_id = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, ownerId)
+            statement.setString(2, claimToken)
+            statement.setTimestamp(3, timestamp(claimExpiresAt))
+            statement.setString(4, tickId)
+            statement.executeUpdate()
+        }
     }
 
     private fun updateDelayWakeupClaim(
@@ -912,25 +792,24 @@ class JdbcWorkflowSchedulerStore(
         claimToken: String,
         claimExpiresAt: Instant,
     ) {
-        connection
-            .prepareStatement(
-                """
-                UPDATE workflow_delay_wakeups
-                SET status = 'CLAIMED',
-                    owner_id = ?,
-                    claim_token = ?,
-                    claim_expires_at = ?
-                WHERE run_id = ?
-                    AND step_id = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, ownerId)
-                statement.setString(2, claimToken)
-                statement.setTimestamp(3, timestamp(claimExpiresAt))
-                statement.setString(4, runId)
-                statement.setString(5, stepId)
-                statement.executeUpdate()
-            }
+        connection.prepareStatement(
+            """
+            UPDATE workflow_delay_wakeups
+            SET status = 'CLAIMED',
+                owner_id = ?,
+                claim_token = ?,
+                claim_expires_at = ?
+            WHERE run_id = ?
+                AND step_id = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, ownerId)
+            statement.setString(2, claimToken)
+            statement.setTimestamp(3, timestamp(claimExpiresAt))
+            statement.setString(4, runId)
+            statement.setString(5, stepId)
+            statement.executeUpdate()
+        }
     }
 
     private fun advanceSchedule(
@@ -938,19 +817,18 @@ class JdbcWorkflowSchedulerStore(
         scheduleId: String,
         nextFireAt: Instant,
     ) {
-        connection
-            .prepareStatement(
-                """
-                UPDATE workflow_schedules
-                SET next_fire_at = ?,
-                    version = version + 1
-                WHERE schedule_id = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setTimestamp(1, timestamp(nextFireAt))
-                statement.setString(2, scheduleId)
-                statement.executeUpdate()
-            }
+        connection.prepareStatement(
+            """
+            UPDATE workflow_schedules
+            SET next_fire_at = ?,
+                version = version + 1
+            WHERE schedule_id = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setTimestamp(1, timestamp(nextFireAt))
+            statement.setString(2, scheduleId)
+            statement.executeUpdate()
+        }
     }
 
     private fun observedNextFireAfter(
@@ -958,20 +836,18 @@ class JdbcWorkflowSchedulerStore(
         scheduleId: String,
         workflowName: String,
         after: Instant,
-    ): Instant =
-        schedule.nextFireAfter(after) { skippedFireAt, reason ->
-            isolatedObserver.onSkippedTick(
-                workflowName = workflowName,
+    ): Instant = schedule.nextFireAfter(after) { skippedFireAt, reason ->
+        isolatedObserver.onSkippedTick(
+            workflowName = workflowName,
+            scheduledFireAt = skippedFireAt,
+            reason = reason,
+            context = scheduledTickContext(
+                tickId = tickId(scheduleId, skippedFireAt),
+                scheduleId = scheduleId,
                 scheduledFireAt = skippedFireAt,
-                reason = reason,
-                context =
-                    scheduledTickContext(
-                        tickId = tickId(scheduleId, skippedFireAt),
-                        scheduleId = scheduleId,
-                        scheduledFireAt = skippedFireAt,
-                    ),
-            )
-        }
+            ),
+        )
+    }
 
     private fun markTerminalTick(
         tickId: String,
@@ -982,15 +858,14 @@ class JdbcWorkflowSchedulerStore(
         updateClaimedTick(
             tickId = tickId,
             terminalAction = status.lowercase(),
-            sql =
-                """
+            sql = """
                 UPDATE workflow_schedule_ticks
                 SET status = ?,
                     terminal_reason = ?
                 WHERE tick_id = ?
                     AND claim_token = ?
                     AND status IN ('CLAIMED', 'STARTED')
-                """.trimIndent(),
+            """.trimIndent(),
         ) { statement ->
             statement.setString(1, status)
             statement.setString(2, reason)
@@ -1066,13 +941,12 @@ class JdbcWorkflowSchedulerStore(
         return ScheduleRecord(
             scheduleId = getString("schedule_id"),
             workflowName = getString("workflow_name"),
-            schedule =
-                CronSchedule.parse(
-                    expression = expression,
-                    zoneId = zoneId,
-                    skipCalendar = skipCalendar,
-                    businessHoursOnly = businessHoursOnly,
-                ),
+            schedule = CronSchedule.parse(
+                expression = expression,
+                zoneId = zoneId,
+                skipCalendar = skipCalendar,
+                businessHoursOnly = businessHoursOnly,
+            ),
             nextFireAt = instant("next_fire_at"),
             enabled = getBoolean("enabled"),
             skipCalendar = skipCalendar,
@@ -1084,39 +958,31 @@ class JdbcWorkflowSchedulerStore(
         tickId: String,
         scheduleId: String,
         scheduledFireAt: Instant,
-    ): WorkflowContext =
-        WorkflowContext(
-            attributes =
-                mapOf(
-                    RuntimeAttributes.SCHEDULE_TICK_ID.name to tickId,
-                    RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to scheduleId,
-                    RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to scheduledFireAt.toEpochMilli(),
-                ),
-        )
+    ): WorkflowContext = WorkflowContext(
+        attributes = mapOf(
+            RuntimeAttributes.SCHEDULE_TICK_ID.name to tickId,
+            RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to scheduleId,
+            RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to scheduledFireAt.toEpochMilli(),
+        ),
+    )
 }
 
 private fun cronSchedule(
     schedule: WorkflowScheduleDefinition,
     owner: String,
-): CronSchedule =
-    schedule as? CronSchedule
-        ?: throw IllegalArgumentException("$owner only supports CronSchedule records; got kind='${schedule.kind}'")
+): CronSchedule = schedule as? CronSchedule
+    ?: throw IllegalArgumentException("$owner only supports CronSchedule records; got kind='${schedule.kind}'")
 
 private fun tickId(
     scheduleId: String,
     scheduledFireAt: Instant,
     occurrenceIndex: Long = 0,
-): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest("$scheduleId:${scheduledFireAt.toEpochMilli()}:$occurrenceIndex".toByteArray())
-        .joinToString(separator = "") { byte ->
-            byte
-                .toInt()
-                .and(0xff)
-                .toString(16)
-                .padStart(2, '0')
-        }
+): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest("$scheduleId:${scheduledFireAt.toEpochMilli()}:$occurrenceIndex".toByteArray())
+    .joinToString(separator = "") { byte ->
+        byte.toInt().and(0xff).toString(16).padStart(2, '0')
+    }
 
 private fun delayWakeupId(
     runId: String,
@@ -1129,22 +995,18 @@ private fun ResultSet.instant(column: String): Instant = getTimestamp(column).to
 
 private fun ResultSet.instantOrNull(column: String): Instant? = getTimestamp(column)?.toInstant()
 
-private fun SQLException.isUniqueConstraintViolation(): Boolean = sqlState == "23505"
+private fun SQLException.isUniqueConstraintViolation(): Boolean =
+    sqlState == "23505"
 
 private fun encodeCalendarRules(rules: List<CalendarRule>): String =
     rules.joinToString(prefix = "[", postfix = "]") { rule ->
         when (rule) {
-            is CalendarRule.FixedDate -> {
+            is CalendarRule.FixedDate ->
                 """{"type":"fixed_date","month":${rule.month},"dayOfMonth":${rule.dayOfMonth}}"""
-            }
-
-            is CalendarRule.NthWeekdayOfMonth -> {
+            is CalendarRule.NthWeekdayOfMonth ->
                 """{"type":"nth_weekday_of_month","month":${rule.month},"nth":${rule.nth},"dayOfWeek":${rule.dayOfWeek.value}}"""
-            }
-
-            is CalendarRule.DateRange -> {
+            is CalendarRule.DateRange ->
                 """{"type":"date_range","startMonth":${rule.startMonth},"startDayOfMonth":${rule.startDayOfMonth},"endMonth":${rule.endMonth},"endDayOfMonth":${rule.endDayOfMonth}}"""
-            }
         }
     }
 
@@ -1163,33 +1025,22 @@ private fun decodeCalendarRules(payload: String?): List<CalendarRule> {
     return splitJsonObjects(body).map { objectPayload ->
         val fields = parseCalendarRuleObject(objectPayload)
         when (fields["type"]) {
-            "fixed_date" -> {
-                CalendarRule.FixedDate(
-                    month = fields.requiredInt("month"),
-                    dayOfMonth = fields.requiredInt("dayOfMonth"),
-                )
-            }
-
-            "nth_weekday_of_month" -> {
-                CalendarRule.NthWeekdayOfMonth(
-                    month = fields.requiredInt("month"),
-                    nth = fields.requiredInt("nth"),
-                    dayOfWeek = DayOfWeek.of(fields.requiredInt("dayOfWeek")),
-                )
-            }
-
-            "date_range" -> {
-                CalendarRule.DateRange(
-                    startMonth = fields.requiredInt("startMonth"),
-                    startDayOfMonth = fields.requiredInt("startDayOfMonth"),
-                    endMonth = fields.requiredInt("endMonth"),
-                    endDayOfMonth = fields.requiredInt("endDayOfMonth"),
-                )
-            }
-
-            else -> {
-                throw IllegalArgumentException("Unknown calendar rule type '${fields["type"]}'")
-            }
+            "fixed_date" -> CalendarRule.FixedDate(
+                month = fields.requiredInt("month"),
+                dayOfMonth = fields.requiredInt("dayOfMonth"),
+            )
+            "nth_weekday_of_month" -> CalendarRule.NthWeekdayOfMonth(
+                month = fields.requiredInt("month"),
+                nth = fields.requiredInt("nth"),
+                dayOfWeek = DayOfWeek.of(fields.requiredInt("dayOfWeek")),
+            )
+            "date_range" -> CalendarRule.DateRange(
+                startMonth = fields.requiredInt("startMonth"),
+                startDayOfMonth = fields.requiredInt("startDayOfMonth"),
+                endMonth = fields.requiredInt("endMonth"),
+                endDayOfMonth = fields.requiredInt("endDayOfMonth"),
+            )
+            else -> throw IllegalArgumentException("Unknown calendar rule type '${fields["type"]}'")
         }.also { it.validate() }
     }
 }
@@ -1198,10 +1049,7 @@ private fun Map<String, String>.requiredInt(name: String): Int =
     this[name]?.toIntOrNull()
         ?: throw IllegalArgumentException("Calendar rule field '$name' must be an integer")
 
-@Suppress("kotlin:S3776")
-// Manual JSON character-level parser — each step depends on shared state (index, inString,
-// escaped, depth). Extracting would add more complexity than it removes, and cannot change
-// the behavior without risking regressions.
+@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped, depth). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions.
 private fun splitJsonObjects(body: String): List<String> {
     val objects = mutableListOf<String>()
     var index = 0
@@ -1220,22 +1068,10 @@ private fun splitJsonObjects(body: String): List<String> {
         while (index < body.length) {
             val char = body[index]
             when {
-                escaped -> {
-                    escaped = false
-                }
-
-                char == '\\' && inString -> {
-                    escaped = true
-                }
-
-                char == '"' -> {
-                    inString = !inString
-                }
-
-                !inString && char == '{' -> {
-                    depth++
-                }
-
+                escaped -> escaped = false
+                char == '\\' && inString -> escaped = true
+                char == '"' -> inString = !inString
+                !inString && char == '{' -> depth++
                 !inString && char == '}' -> {
                     depth--
                     if (depth == 0) {
@@ -1267,10 +1103,7 @@ private fun splitJsonObjects(body: String): List<String> {
     return objects
 }
 
-@Suppress("kotlin:S3776")
-// Manual JSON character-level parser — each step depends on shared state (index, inString,
-// escaped). Extracting would add more complexity than it removes, and cannot change the
-// behavior without risking regressions.
+@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions.
 private fun parseCalendarRuleObject(payload: String): Map<String, String> {
     val trimmed = payload.trim()
     require(trimmed.startsWith("{") && trimmed.endsWith("}")) {
@@ -1298,24 +1131,23 @@ private fun parseCalendarRuleObject(payload: String): Map<String, String> {
         while (index < body.length && body[index].isWhitespace()) {
             index++
         }
-        val value =
-            if (index < body.length && body[index] == '"') {
-                val stringValue = readJsonString(body, index, "Calendar rule field '${key.value}'")
-                index = stringValue.nextIndex
-                stringValue.value
-            } else {
-                val start = index
-                if (index < body.length && body[index] == '-') {
-                    index++
-                }
-                while (index < body.length && body[index].isDigit()) {
-                    index++
-                }
-                require(index > start && body.substring(start, index) != "-") {
-                    "Calendar rule field '${key.value}' must be a string or integer"
-                }
-                body.substring(start, index)
+        val value = if (index < body.length && body[index] == '"') {
+            val stringValue = readJsonString(body, index, "Calendar rule field '${key.value}'")
+            index = stringValue.nextIndex
+            stringValue.value
+        } else {
+            val start = index
+            if (index < body.length && body[index] == '-') {
+                index++
             }
+            while (index < body.length && body[index].isDigit()) {
+                index++
+            }
+            require(index > start && body.substring(start, index) != "-") {
+                "Calendar rule field '${key.value}' must be a string or integer"
+            }
+            body.substring(start, index)
+        }
         require(fields.put(key.value, value) == null) {
             "Calendar rule field '${key.value}' is duplicated"
         }

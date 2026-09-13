@@ -41,7 +41,11 @@ class WorkflowRegistry(
             )
     }
 
-    fun get(workflowName: String): WorkflowEntry<*, *> = entries[workflowName] ?: throw WorkflowNotRegisteredException(workflowName)
+    fun get(workflowName: String): WorkflowEntry<
+        *,
+        *,
+    > =
+        entries[workflowName] ?: throw WorkflowNotRegisteredException(workflowName)
 
     fun list(): List<WorkflowEntry<*, *>> = entries.values.toList()
 

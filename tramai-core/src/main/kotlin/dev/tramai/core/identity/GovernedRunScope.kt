@@ -61,7 +61,13 @@ class GovernedRunScope(
          * Returns null — never a regenerated identity — when no governed execution is in
          * force.
          */
-        fun resolve(context: CoroutineContext): GovernedRunIdentity? = context[GovernedRunScope]?.identity ?: threadBridge.get()
+        fun resolve(context: CoroutineContext): GovernedRunIdentity? =
+            run {
+                val identity = contextIdentity(context)
+                identity ?: threadBridge.get()
+            }
+
+        private fun contextIdentity(context: CoroutineContext) = context[GovernedRunScope]?.identity
 
         /**
          * Identity of the governed execution currently running on THIS thread, if any.

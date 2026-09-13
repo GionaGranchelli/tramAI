@@ -20,7 +20,6 @@ import dev.tramai.core.policy.DataClassification
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.GovernedSuspendedInvocation
-import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
@@ -1135,4 +1134,43 @@ class JdbcSuspendedInvocationStoreTest {
             assertTrue(ex.message?.contains("already-exists", ignoreCase = true) == true)
         }
     }
+
+    @Test
+    fun `the governed wrapper is one row with no stale attribution`() {
+        val wrapper = GovernedJdbcSuspendedInvocationStore(store())
+        val identity = governedIdentity("governed-wrapper-run")
+        val approvalId = "approval-wrapper-1"
+
+        runBlocking {
+            wrapper.createGoverned(
+                GovernedSuspendedInvocation(governedMetadata(approvalId, "governed-wrapper-run"), identity),
+                sampleEnvelope(),
+            )
+        }
+
+        // One row: the wrapper writes through the same insert, never a second durable authority.
+        assertEquals(1, rowCount(approvalId))
+        assertTrue(rowColumnStrings(approvalId).none { it.contains("governed-wrapper-run") })
+        assertEquals(identity, runBlocking { wrapper.governedRunIdentity(approvalId) })
+        assertNotNull(runBlocking { wrapper.get(approvalId) })
+
+        // A fresh wrapper over the same database recovers the exact whole identity.
+        assertEquals(identity, runBlocking { GovernedJdbcSuspendedInvocationStore(store()).governedRunIdentity(approvalId) })
+
+        // Removal leaves no stale attribution, and an absent record is never fabricated.
+        assertNotNull(runBlocking { wrapper.remove(approvalId) })
+        assertNull(runBlocking { wrapper.governedRunIdentity(approvalId) })
+        assertNull(runBlocking { wrapper.governedRunIdentity("approval-never-persisted") })
+    }
+
+    private fun rowCount(approvalId: String): Int =
+        createDataSource().connection.use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM suspended_invocations WHERE invocation_id = ?").use { st ->
+                st.setString(1, approvalId)
+                st.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
 }

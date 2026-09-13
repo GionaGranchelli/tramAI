@@ -6,68 +6,50 @@ import java.time.Instant
 
 class InMemoryWorkflowSchedulerStore internal constructor(
     private val claimTokenSource: ClaimTokenSource = DefaultClaimTokenSource,
-) : WorkflowSchedulerStore,
-    GovernedScheduleBindingStore {
+) : WorkflowSchedulerStore {
     constructor() : this(DefaultClaimTokenSource)
-
     private val schedules = linkedMapOf<String, MutableScheduleRecord>()
     private val ticks = linkedMapOf<String, MutableTickRecord>()
     private val delayWakeups = linkedMapOf<String, MutableDelayWakeupRecord>()
-    private val governedBindings = linkedMapOf<String, GovernedScheduleBinding>()
 
     override suspend fun upsertSchedule(schedule: ScheduleRecord) {
         synchronized(this) {
-            schedules[schedule.scheduleId] =
-                MutableScheduleRecord(
-                    scheduleId = schedule.scheduleId,
-                    workflowName = schedule.workflowName,
-                    schedule = schedule.schedule,
-                    nextFireAt = schedule.nextFireAt,
-                    enabled = schedule.enabled,
-                    skipCalendar = schedule.skipCalendar,
-                    businessHoursOnly = schedule.businessHoursOnly,
-                )
+            schedules[schedule.scheduleId] = MutableScheduleRecord(
+                scheduleId = schedule.scheduleId,
+                workflowName = schedule.workflowName,
+                schedule = schedule.schedule,
+                nextFireAt = schedule.nextFireAt,
+                enabled = schedule.enabled,
+                skipCalendar = schedule.skipCalendar,
+                businessHoursOnly = schedule.businessHoursOnly,
+            )
         }
     }
 
-    override suspend fun getSchedule(scheduleId: String): ScheduleRecord? =
-        synchronized(this) {
-            schedules[scheduleId]?.toRecord()
-        }
-
-    override suspend fun putGovernedScheduleBinding(binding: GovernedScheduleBinding) {
-        synchronized(this) {
-            governedBindings[binding.scheduleId] = binding
-        }
+    override suspend fun getSchedule(scheduleId: String): ScheduleRecord? = synchronized(this) {
+        schedules[scheduleId]?.toRecord()
     }
 
-    override suspend fun getGovernedScheduleBinding(scheduleId: String): GovernedScheduleBinding? =
-        synchronized(this) {
-            governedBindings[scheduleId]
+    override suspend fun listScheduleStatus(): List<ScheduleStatusView> = synchronized(this) {
+        schedules.values.map { schedule ->
+            val scheduleTicks = ticks.values
+                .asSequence()
+                .filter { it.scheduleId == schedule.scheduleId }
+                .sortedByDescending { it.scheduledFireAt }
+                .toList()
+            val latestTick = scheduleTicks.firstOrNull()
+            ScheduleStatusView(
+                scheduleId = schedule.scheduleId,
+                workflowName = schedule.workflowName,
+                cronExpression = schedule.schedule.expression,
+                nextTick = schedule.nextFireAt,
+                lastTick = latestTick?.scheduledFireAt,
+                lastRunStatus = latestTick?.status?.wireName,
+                lastRunId = latestTick?.workflowRunId,
+                misfireCount = scheduleTicks.count { it.status == TickStatus.MISFIRED },
+            )
         }
-
-    override suspend fun listScheduleStatus(): List<ScheduleStatusView> =
-        synchronized(this) {
-            schedules.values.map { schedule ->
-                val scheduleTicks =
-                    ticks.values
-                        .asSequence()
-                        .filter { it.scheduleId == schedule.scheduleId }
-                        .sortedByDescending { it.scheduledFireAt }
-                        .toList()
-                val latestTick = scheduleTicks.firstOrNull()
-                ScheduleStatusView(
-                    scheduleId = schedule.scheduleId,
-                    workflowName = schedule.workflowName,
-                    cronExpression = schedule.schedule.expression,
-                    nextTick = schedule.nextFireAt,
-                    lastTick = latestTick?.scheduledFireAt,
-                    lastRunStatus = latestTick?.status?.wireName,
-                    lastRunId = latestTick?.workflowRunId,
-                    misfireCount = scheduleTicks.count { it.status == TickStatus.MISFIRED },
-                )
-            }
-        }
+    }
 
     override suspend fun claimDueTicks(
         now: Instant,
@@ -79,21 +61,19 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         require(!claimDuration.isNegative && !claimDuration.isZero) {
             "WorkflowSchedulerStore.claimDueTicks claimDuration must be positive"
         }
-        val reclaimed =
-            synchronized(this) {
-                val reclaimed =
-                    ticks.values
-                        .asSequence()
-                        .filter { it.status.isClaimed && !it.claimExpiresAt.isAfter(now) }
-                        .sortedBy { it.scheduledFireAt }
-                        .take(limit)
-                        .map { tick -> tick.reclaim(claimTokenSource, ownerId, now.plus(claimDuration)) }
-                        .toList()
-                if (reclaimed.size == limit) {
-                    return reclaimed
-                }
-                reclaimed
+        val reclaimed = synchronized(this) {
+            val reclaimed = ticks.values
+                .asSequence()
+                .filter { it.status.isClaimed && !it.claimExpiresAt.isAfter(now) }
+                .sortedBy { it.scheduledFireAt }
+                .take(limit)
+                .map { tick -> tick.reclaim(claimTokenSource, ownerId, now.plus(claimDuration)) }
+                .toList()
+            if (reclaimed.size == limit) {
+                return reclaimed
             }
+            reclaimed
+        }
         val remaining = limit - reclaimed.size
         return reclaimed + claimDueScheduleTicks(now, ownerId, claimDuration, remaining)
     }
@@ -108,64 +88,60 @@ class InMemoryWorkflowSchedulerStore internal constructor(
             return emptyList()
         }
         while (true) {
-            val dueSchedules =
-                synchronized(this) {
-                    schedules.values
-                        .asSequence()
-                        .filter { it.enabled && !it.nextFireAt.isAfter(now) }
-                        .sortedBy { it.nextFireAt }
-                        .take(limit)
-                        .map { it.snapshot() }
-                        .toList()
-                }
+            val dueSchedules = synchronized(this) {
+                schedules.values
+                    .asSequence()
+                    .filter { it.enabled && !it.nextFireAt.isAfter(now) }
+                    .sortedBy { it.nextFireAt }
+                    .take(limit)
+                    .map { it.snapshot() }
+                    .toList()
+            }
             if (dueSchedules.isEmpty()) {
                 return emptyList()
             }
-            val claims =
-                dueSchedules.map { schedule ->
-                    PendingScheduleClaim(
-                        schedule = schedule,
-                        tickId = tickId(schedule.scheduleId, schedule.nextFireAt),
-                        claimToken = claimTokenSource.newClaimToken(),
-                        claimExpiresAt = now.plus(claimDuration),
-                        nextFireAt = nextFireAfter(schedule.schedule, schedule.nextFireAt),
-                    )
-                }
-            val claimed =
-                synchronized(this) {
-                    claims.mapNotNull { pending ->
-                        val current = schedules[pending.schedule.scheduleId]
-                        if (
-                            current == null ||
-                            !current.enabled ||
-                            current.nextFireAt != pending.schedule.nextFireAt ||
-                            ticks.containsKey(pending.tickId)
-                        ) {
-                            null
-                        } else {
-                            ticks[pending.tickId] =
-                                MutableTickRecord(
-                                    tickId = pending.tickId,
-                                    scheduleId = pending.schedule.scheduleId,
-                                    workflowName = pending.schedule.workflowName,
-                                    scheduledFireAt = pending.schedule.nextFireAt,
-                                    ownerId = ownerId,
-                                    claimToken = pending.claimToken,
-                                    claimExpiresAt = pending.claimExpiresAt,
-                                    status = TickStatus.CLAIMED,
-                                )
-                            current.nextFireAt = pending.nextFireAt
-                            ClaimedScheduledTick(
-                                tickId = pending.tickId,
-                                scheduleId = pending.schedule.scheduleId,
-                                workflowName = pending.schedule.workflowName,
-                                scheduledFireAt = pending.schedule.nextFireAt,
-                                claimToken = pending.claimToken,
-                                claimExpiresAt = pending.claimExpiresAt,
-                            )
-                        }
+            val claims = dueSchedules.map { schedule ->
+                PendingScheduleClaim(
+                    schedule = schedule,
+                    tickId = tickId(schedule.scheduleId, schedule.nextFireAt),
+                    claimToken = claimTokenSource.newClaimToken(),
+                    claimExpiresAt = now.plus(claimDuration),
+                    nextFireAt = nextFireAfter(schedule.schedule, schedule.nextFireAt),
+                )
+            }
+            val claimed = synchronized(this) {
+                claims.mapNotNull { pending ->
+                    val current = schedules[pending.schedule.scheduleId]
+                    if (
+                        current == null ||
+                        !current.enabled ||
+                        current.nextFireAt != pending.schedule.nextFireAt ||
+                        ticks.containsKey(pending.tickId)
+                    ) {
+                        null
+                    } else {
+                        ticks[pending.tickId] = MutableTickRecord(
+                            tickId = pending.tickId,
+                            scheduleId = pending.schedule.scheduleId,
+                            workflowName = pending.schedule.workflowName,
+                            scheduledFireAt = pending.schedule.nextFireAt,
+                            ownerId = ownerId,
+                            claimToken = pending.claimToken,
+                            claimExpiresAt = pending.claimExpiresAt,
+                            status = TickStatus.CLAIMED,
+                        )
+                        current.nextFireAt = pending.nextFireAt
+                        ClaimedScheduledTick(
+                            tickId = pending.tickId,
+                            scheduleId = pending.schedule.scheduleId,
+                            workflowName = pending.schedule.workflowName,
+                            scheduledFireAt = pending.schedule.nextFireAt,
+                            claimToken = pending.claimToken,
+                            claimExpiresAt = pending.claimExpiresAt,
+                        )
                     }
                 }
+            }
             if (claimed.isNotEmpty()) {
                 return claimed
             }
@@ -250,13 +226,12 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         require(runId.isNotBlank()) { "Delay wakeup runId must not be blank" }
         require(stepId.isNotBlank()) { "Delay wakeup stepId must not be blank" }
         synchronized(this) {
-            delayWakeups[delayWakeupId(runId, stepId)] =
-                MutableDelayWakeupRecord(
-                    runId = runId,
-                    stepId = stepId,
-                    resumeAt = resumeAt,
-                    status = WakeupStatus.PENDING,
-                )
+            delayWakeups[delayWakeupId(runId, stepId)] = MutableDelayWakeupRecord(
+                runId = runId,
+                stepId = stepId,
+                resumeAt = resumeAt,
+                status = WakeupStatus.PENDING,
+            )
         }
     }
 
@@ -277,7 +252,8 @@ class InMemoryWorkflowSchedulerStore internal constructor(
                 .filter {
                     !it.resumeAt.isAfter(now) &&
                         (it.status == WakeupStatus.PENDING || (it.status == WakeupStatus.CLAIMED && !it.claimExpiresAt!!.isAfter(now)))
-                }.sortedBy { it.resumeAt }
+                }
+                .sortedBy { it.resumeAt }
                 .take(limit)
                 .map { wakeup ->
                     val claimToken = claimTokenSource.newClaimToken()
@@ -293,7 +269,8 @@ class InMemoryWorkflowSchedulerStore internal constructor(
                         claimToken = claimToken,
                         claimExpiresAt = claimExpiresAt,
                     )
-                }.toList()
+                }
+                .toList()
         }
     }
 
@@ -329,9 +306,8 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         update: MutableTickRecord.() -> Unit,
     ) {
         synchronized(this) {
-            val tick =
-                ticks[tickId]
-                    ?: throw IllegalArgumentException("Unknown scheduled tick '$tickId'")
+            val tick = ticks[tickId]
+                ?: throw IllegalArgumentException("Unknown scheduled tick '$tickId'")
             require(tick.claimToken == claimToken && tick.status.isClaimed) {
                 "Scheduled tick '$tickId' claim token does not match"
             }
@@ -357,9 +333,8 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         update: MutableDelayWakeupRecord.() -> Unit,
     ) {
         val wakeupId = delayWakeupId(runId, stepId)
-        val wakeup =
-            delayWakeups[wakeupId]
-                ?: throw IllegalArgumentException("Unknown delay wakeup '$wakeupId'")
+        val wakeup = delayWakeups[wakeupId]
+            ?: throw IllegalArgumentException("Unknown delay wakeup '$wakeupId'")
         require(wakeup.claimToken == claimToken && wakeup.status == WakeupStatus.CLAIMED) {
             "Delay wakeup '$wakeupId' claim token does not match"
         }
@@ -369,14 +344,12 @@ class InMemoryWorkflowSchedulerStore internal constructor(
     private fun nextFireAfter(
         schedule: dev.tramai.orchestration.WorkflowScheduleDefinition,
         after: Instant,
-    ): Instant =
-        when (schedule) {
-            is CronSchedule -> schedule.nextFireAfter(after)
-
-            else -> throw IllegalArgumentException(
-                "InMemoryWorkflowSchedulerStore only supports CronSchedule records; got kind='${schedule.kind}'",
-            )
-        }
+    ): Instant = when (schedule) {
+        is CronSchedule -> schedule.nextFireAfter(after)
+        else -> throw IllegalArgumentException(
+            "InMemoryWorkflowSchedulerStore only supports CronSchedule records; got kind='${schedule.kind}'",
+        )
+    }
 
     private data class MutableScheduleRecord(
         val scheduleId: String,
@@ -387,24 +360,22 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         val skipCalendar: List<CalendarRule>,
         val businessHoursOnly: Boolean,
     ) {
-        fun snapshot(): ScheduleSnapshot =
-            ScheduleSnapshot(
-                scheduleId = scheduleId,
-                workflowName = workflowName,
-                schedule = schedule,
-                nextFireAt = nextFireAt,
-            )
+        fun snapshot(): ScheduleSnapshot = ScheduleSnapshot(
+            scheduleId = scheduleId,
+            workflowName = workflowName,
+            schedule = schedule,
+            nextFireAt = nextFireAt,
+        )
 
-        fun toRecord(): ScheduleRecord =
-            ScheduleRecord(
-                scheduleId = scheduleId,
-                workflowName = workflowName,
-                schedule = schedule,
-                nextFireAt = nextFireAt,
-                enabled = enabled,
-                skipCalendar = skipCalendar,
-                businessHoursOnly = businessHoursOnly,
-            )
+        fun toRecord(): ScheduleRecord = ScheduleRecord(
+            scheduleId = scheduleId,
+            workflowName = workflowName,
+            schedule = schedule,
+            nextFireAt = nextFireAt,
+            enabled = enabled,
+            skipCalendar = skipCalendar,
+            businessHoursOnly = businessHoursOnly,
+        )
     }
 
     private data class MutableTickRecord(
@@ -419,11 +390,7 @@ class InMemoryWorkflowSchedulerStore internal constructor(
         var workflowRunId: String? = null,
         var terminalReason: String? = null,
     ) {
-        fun reclaim(
-            claimTokenSource: ClaimTokenSource,
-            ownerId: String,
-            claimExpiresAt: Instant,
-        ): ClaimedScheduledTick {
+        fun reclaim(claimTokenSource: ClaimTokenSource, ownerId: String, claimExpiresAt: Instant): ClaimedScheduledTick {
             val claimToken = claimTokenSource.newClaimToken()
             this.ownerId = ownerId
             this.claimToken = claimToken
@@ -476,17 +443,12 @@ class InMemoryWorkflowSchedulerStore internal constructor(
 private fun tickId(
     scheduleId: String,
     scheduledFireAt: Instant,
-): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest("$scheduleId:${scheduledFireAt.toEpochMilli()}".toByteArray())
-        .joinToString(separator = "") { byte ->
-            byte
-                .toInt()
-                .and(0xff)
-                .toString(16)
-                .padStart(2, '0')
-        }
+): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest("$scheduleId:${scheduledFireAt.toEpochMilli()}".toByteArray())
+    .joinToString(separator = "") { byte ->
+        byte.toInt().and(0xff).toString(16).padStart(2, '0')
+    }
 
 private fun delayWakeupId(
     runId: String,

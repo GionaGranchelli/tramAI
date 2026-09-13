@@ -86,12 +86,14 @@ internal class WorkflowRunner<S, R>(
             val stepCounter = StepCounter(stopPolicy)
             persistenceSession =
                 persistence?.session(
-                    workflowName = name,
-                    context = context,
-                    observer = isolatedObserver,
-                    workflowDefinitionCompatibility = definitionCompatibility,
-                    clock = clock,
-                    governedRunIdentity = governedRunIdentity,
+                    WorkflowSessionInputs(
+                        workflowName = name,
+                        context = context,
+                        observer = isolatedObserver,
+                        workflowDefinitionCompatibility = definitionCompatibility,
+                        clock = clock,
+                        governedRunIdentity = governedRunIdentity,
+                    ),
                 )
             persistenceSession?.saveCheckpoint(
                 state = initialState,
@@ -103,27 +105,21 @@ internal class WorkflowRunner<S, R>(
                 executeTopLevelSteps(
                     startIndex = 0,
                     state = initialState,
-                    context = context,
-                    observer = isolatedObserver,
                     stepCounter = stepCounter,
-                    persistenceSession = persistenceSession,
-                    resumedCheckpointMetadata = null,
-                    governedRunIdentity = governedRunIdentity,
+                    frame =
+                        WorkflowExecutionFrame(
+                            context = context,
+                            observer = isolatedObserver,
+                            persistenceSession = persistenceSession,
+                            resumedCheckpointMetadata = null,
+                            governedRunIdentity = governedRunIdentity,
+                        ),
                 )
             persistenceSession?.complete(workflowName = name, context = context)
             isolatedObserver.onWorkflowCompleted(name, context)
             resultSelector(finalState)
         } catch (suspended: WorkflowSuspendedException) {
-            persistenceSession?.abort()
-            isolatedObserver.emitWorkflowEvent(
-                workflowName = name,
-                context = context,
-                event =
-                    RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
-                        set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
-                    },
-            )
-            throw suspended
+            failSuspended(suspended, persistenceSession, isolatedObserver, context)
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 persistenceSession?.runCatchingAbort(error)
@@ -131,9 +127,7 @@ internal class WorkflowRunner<S, R>(
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            persistenceSession?.runCatchingAbort(error)
-            isolatedObserver.onWorkflowFailed(name, error, context)
-            throw error
+            failRun(error, persistenceSession, isolatedObserver, context)
         }
     }
 
@@ -144,42 +138,75 @@ internal class WorkflowRunner<S, R>(
         governedRunIdentity: GovernedRunIdentity? = null,
     ): R {
         val isolatedObserver = FailureIsolatingWorkflowObserver(observer)
-        val checkpoint =
-            persistence.checkpointStore.load(name, context.workflowId)
-                ?: throw WorkflowResumeException(
-                    "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
+        // Phases 1-2: load the run's own checkpoint and validate every continuity
+        // precondition. Read-only — a failure here has mutated nothing.
+        val (checkpoint, persistedDefinitionCompatibility) =
+            loadResumeCheckpoint(
+                context = context,
+                persistence = persistence,
+                governedRunIdentity = governedRunIdentity,
+            )
+        emitResumeStarted(context, isolatedObserver, checkpoint, persistedDefinitionCompatibility)
+        // Phase 3: establish the session that will checkpoint the resumed run.
+        val persistenceSession: WorkflowPersistenceSession<S> =
+            persistence.session(
+                WorkflowSessionInputs(
+                    workflowName = name,
+                    context = context,
+                    observer = isolatedObserver,
+                    workflowDefinitionCompatibility = definitionCompatibility,
+                    clock = clock,
+                    governedRunIdentity = governedRunIdentity,
+                ),
+                initialRevision = checkpoint.revision,
+                initialGeneration = checkpoint.checkpointGeneration,
+            )
+        // Phase 4: execute the remaining steps.
+        return try {
+            val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
+            val finalState =
+                executeTopLevelSteps(
+                    startIndex = checkpoint.nextStepIndex,
+                    state = resumedState,
+                    stepCounter =
+                        StepCounter(
+                            stopPolicy = stopPolicy,
+                            initialStepExecutions = checkpoint.stepExecutions,
+                        ),
+                    frame =
+                        WorkflowExecutionFrame(
+                            context = context,
+                            observer = isolatedObserver,
+                            persistenceSession = persistenceSession,
+                            resumedCheckpointMetadata = checkpoint.metadata,
+                            governedRunIdentity = governedRunIdentity,
+                        ),
                 )
-        // Identity gate before any other resume validation: whole-identity continuity
-        // (never run-id-only) and fail-closed decoding of partial attribution.
-        requireGovernedRunAttributionContinuity(
-            workflowName = name,
-            workflowId = context.workflowId,
-            persisted = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata),
-            requested = governedRunIdentity,
-        )
-        if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
-            throw WorkflowRecoveryStateException(
-                "Workflow '$name'/'${context.workflowId}' is in Required recovery state and cannot be resumed",
-            )
+            persistenceSession.complete(workflowName = name, context = context)
+            isolatedObserver.onWorkflowCompleted(name, context)
+            resultSelector(finalState)
+        } catch (suspended: WorkflowSuspendedException) {
+            failSuspended(suspended, persistenceSession, isolatedObserver, context)
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                persistenceSession.runCatchingAbort(error)
+            }
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            failRun(error, persistenceSession, isolatedObserver, context)
         }
-        if (checkpoint.nextStepIndex < 0 || checkpoint.nextStepIndex > steps.size) {
-            throw WorkflowResumeException(
-                "Checkpoint for workflow '$name' and workflowId='${context.workflowId}' has invalid nextStepIndex=${checkpoint.nextStepIndex}; valid range is 0..${steps.size}",
-            )
-        }
-        val persistedDefinitionCompatibility =
-            checkpoint.requireWorkflowDefinitionCompatibility(
-                workflowName = name,
-                workflowId = context.workflowId,
-            )
-        requireCompatibleDefinition(
-            workflowName = name,
-            workflowId = context.workflowId,
-            persisted = persistedDefinitionCompatibility,
-            current = definitionCompatibility,
-        )
-        isolatedObserver.onWorkflowStarted(name, context)
-        isolatedObserver.emitWorkflowEvent(
+    }
+
+    /** Resume telemetry: the run has started again and its checkpoint has been read. */
+    private fun emitResumeStarted(
+        context: WorkflowContext,
+        observer: WorkflowObserver,
+        checkpoint: WorkflowCheckpoint,
+        persistedDefinitionCompatibility: WorkflowDefinitionCompatibility,
+    ) {
+        observer.onWorkflowStarted(name, context)
+        observer.emitWorkflowEvent(
             workflowName = name,
             context = context,
             event =
@@ -193,70 +220,73 @@ internal class WorkflowRunner<S, R>(
                     set(RuntimeAttributes.DEFINITION_DIGEST_ALGORITHM, persistedDefinitionCompatibility.digestAlgorithm)
                 },
         )
-        val persistenceSession: WorkflowPersistenceSession<S> =
-            persistence.session(
-                workflowName = name,
-                context = context,
-                observer = isolatedObserver,
-                clock = clock,
-                initialRevision = checkpoint.revision,
-                initialGeneration = checkpoint.checkpointGeneration,
-                workflowDefinitionCompatibility = definitionCompatibility,
-                governedRunIdentity = governedRunIdentity,
-            )
-        return try {
-            val resumedState = persistence.stateCodec.decode(checkpoint.statePayload)
-            val finalState =
-                executeTopLevelSteps(
-                    startIndex = checkpoint.nextStepIndex,
-                    state = resumedState,
-                    context = context,
-                    observer = isolatedObserver,
-                    stepCounter =
-                        StepCounter(
-                            stopPolicy = stopPolicy,
-                            initialStepExecutions = checkpoint.stepExecutions,
-                        ),
-                    persistenceSession = persistenceSession,
-                    resumedCheckpointMetadata = checkpoint.metadata,
-                    governedRunIdentity = governedRunIdentity,
+    }
+
+    /**
+     * A suspended resume aborts the session and reports the suspension, then propagates it:
+     * suspension is an outcome, not a failure, so the session is not failed.
+     */
+    private suspend fun failSuspended(
+        suspended: WorkflowSuspendedException,
+        persistenceSession: WorkflowPersistenceSession<S>?,
+        observer: FailureIsolatingWorkflowObserver,
+        context: WorkflowContext,
+    ): Nothing {
+        persistenceSession?.abort()
+        observer.emitWorkflowEvent(
+            workflowName = name,
+            context = context,
+            event =
+                RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
+                    set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
+                },
+        )
+        throw suspended
+    }
+
+    /**
+     * Resume phases 1-2: the checkpoint, the identity-continuity gate, resumability, and
+     * definition compatibility — everything that must hold before a single step runs.
+     */
+
+    private suspend fun loadResumeCheckpoint(
+        context: WorkflowContext,
+        persistence: WorkflowPersistence<S>,
+        governedRunIdentity: GovernedRunIdentity?,
+    ): Pair<WorkflowCheckpoint, WorkflowDefinitionCompatibility> {
+        val checkpoint =
+            persistence.checkpointStore.load(name, context.workflowId)
+                ?: throw WorkflowResumeException(
+                    "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
                 )
-            persistenceSession.complete(workflowName = name, context = context)
-            isolatedObserver.onWorkflowCompleted(name, context)
-            resultSelector(finalState)
-        } catch (suspended: WorkflowSuspendedException) {
-            persistenceSession.abort()
-            isolatedObserver.emitWorkflowEvent(
+        // Identity gate before any other resume validation: whole-identity continuity
+        // (never run-id-only) and fail-closed decoding of partial attribution.
+        requireGovernedRunAttributionContinuity(
+            workflowName = name,
+            workflowId = context.workflowId,
+            persisted = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata),
+            requested = governedRunIdentity,
+        )
+        checkpoint.requireResumePreconditions(name, steps.size)
+        val persistedDefinitionCompatibility =
+            checkpoint.requireWorkflowDefinitionCompatibility(
                 workflowName = name,
-                context = context,
-                event =
-                    RuntimeEvent.of(RuntimeEvents.WORKFLOW_SUSPENDED) {
-                        set(RuntimeAttributes.WORKFLOW_ID_BARE, context.workflowId)
-                    },
+                workflowId = context.workflowId,
             )
-            throw suspended
-        } catch (error: CancellationException) {
-            withContext(NonCancellable) {
-                persistenceSession.runCatchingAbort(error)
-            }
-            throw error
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            persistenceSession.runCatchingAbort(error)
-            isolatedObserver.onWorkflowFailed(name, error, context)
-            throw error
-        }
+        requireCompatibleDefinition(
+            workflowName = name,
+            workflowId = context.workflowId,
+            persisted = persistedDefinitionCompatibility,
+            current = definitionCompatibility,
+        )
+        return checkpoint to persistedDefinitionCompatibility
     }
 
     private suspend fun executeTopLevelSteps(
         startIndex: Int,
         state: S,
-        context: WorkflowContext,
-        observer: WorkflowObserver,
         stepCounter: StepCounter,
-        persistenceSession: WorkflowPersistenceSession<S>?,
-        resumedCheckpointMetadata: Map<String, String>?,
-        governedRunIdentity: GovernedRunIdentity?,
+        frame: WorkflowExecutionFrame<S>,
     ): S {
         var currentState = state
         val services = executionServices()
@@ -266,33 +296,33 @@ internal class WorkflowRunner<S, R>(
                 WorkflowStepExecutionRequest(
                     workflowName = name,
                     state = currentState,
-                    context = context,
-                    observer = observer,
+                    context = frame.context,
+                    observer = frame.observer,
                     stepCounter = stepCounter,
-                    persistenceSession = persistenceSession,
+                    persistenceSession = frame.persistenceSession,
                     topLevelStepIndex = index,
-                    resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
+                    resumedCheckpointMetadata = if (index == startIndex) frame.resumedCheckpointMetadata else null,
                     services = services,
                     executeNestedSteps = { nestedSteps, nestedState ->
                         executeSteps(
                             steps = nestedSteps,
                             state = nestedState,
-                            context = context,
-                            observer = observer,
+                            context = frame.context,
+                            observer = frame.observer,
                             stepCounter = stepCounter,
                             services = services,
                         )
                     },
                 )
             val stepResult =
-                if (governedRunIdentity == null) {
+                if (frame.governedRunIdentity == null) {
                     stepExecutor.executeStep(step, request)
                 } else {
                     // 0.7.1d: the canonical governed identity is established for the whole
                     // step execution, so subsystems invoked from application step code (the
                     // engine, evidence emitters) read the same run identity instead of
-                    // minting their own. Nested steps inherit this coroutine context.
-                    withContext(GovernedRunScope(governedRunIdentity)) {
+                    // minting their own. Nested steps inherit this coroutine frame.context.
+                    withContext(GovernedRunScope(frame.governedRunIdentity)) {
                         stepExecutor.executeStep(step, request)
                     }
                 }
@@ -300,10 +330,10 @@ internal class WorkflowRunner<S, R>(
                 is WorkflowStepExecutionResult.Completed -> currentState = result.state
 
                 WorkflowStepExecutionResult.Suspended -> throw WorkflowSuspendedException(
-                    "Workflow '$name' suspended at step '${step.name}' for workflowId='${context.workflowId}'",
+                    "Workflow '$name' suspended at step '${step.name}' for workflowId='${frame.context.workflowId}'",
                 )
             }
-            persistenceSession?.saveCheckpoint(
+            frame.persistenceSession?.saveCheckpoint(
                 state = currentState,
                 nextStepIndex = index + 1,
                 lastCompletedStepName = step.name,
@@ -364,4 +394,37 @@ internal class WorkflowRunner<S, R>(
             externalStepExecutorResolver = externalStepExecutorResolver,
             failureDiagnosticObserver = failureDiagnosticObserver,
         )
+
+    /**
+     * Terminal failure handling for one run: a cancellation aborts under [NonCancellable]
+     * without notifying the observer as a failure, anything else aborts and is reported.
+     * Never returns — the failure is always rethrown to the caller.
+     */
+    private suspend fun failRun(
+        error: Throwable,
+        persistenceSession: WorkflowPersistenceSession<S>?,
+        observer: FailureIsolatingWorkflowObserver,
+        context: WorkflowContext,
+    ): Nothing {
+        persistenceSession?.runCatchingAbort(error)
+        observer.onWorkflowFailed(name, error, context)
+        throw error
+    }
 }
+
+/**
+ * Everything the top-level step loop needs to stay stable across one run: the run context,
+ * its observer, the session that checkpoints it, the metadata recovered on resume, and the
+ * governed attribution it must carry unchanged. Threaded as one value so the loop cannot be
+ * called with a half-updated shape.
+ *
+ * Operational per-step state (current state, step index, per-step metadata) is deliberately
+ * NOT here: that belongs to the loop, not to the frame.
+ */
+internal data class WorkflowExecutionFrame<S>(
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+    val persistenceSession: WorkflowPersistenceSession<S>?,
+    val resumedCheckpointMetadata: Map<String, String>?,
+    val governedRunIdentity: GovernedRunIdentity?,
+)

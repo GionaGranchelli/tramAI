@@ -52,6 +52,15 @@ data class ClaimedDelayWakeup(
 )
 
 /**
+ * Governed declaration of one schedule (0.7.1d): the deployment whose runs it creates, plus
+ * the durable binding authority that survives restart.
+ */
+data class GovernedScheduleRegistration(
+    val deploymentIdentity: dev.tramai.core.identity.WorkloadDeploymentIdentity,
+    val bindingStore: GovernedScheduleBindingStore,
+)
+
+/**
  * Durable binding of a governed schedule to the workload deployment it runs (0.7.1d).
  *
  * A schedule is not a run, so it never carries a [dev.tramai.core.identity.GovernedRunIdentity]:

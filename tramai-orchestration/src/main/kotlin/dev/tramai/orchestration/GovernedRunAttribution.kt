@@ -17,12 +17,17 @@ import dev.tramai.core.identity.WorkloadId
  * canonical [GovernedRunIdentity] of the running execution. The reserved keys are
  * owned by the framework — application checkpoint metadata must never override
  * them, and the framework always writes them last.
+ *
+ * Deliberately NOT prefixed `tramai.`: the architecture guard
+ * (`RuntimeEventCatalogueArchitectureTest`) reserves that namespace for runtime
+ * identifiers and configuration properties, and a persisted metadata key is
+ * neither. Renaming these keys back under `tramai.` re-breaks that guard.
  */
-internal const val GOVERNED_RUN_WORKLOAD_KEY: String = "tramai.identity.workload"
-internal const val GOVERNED_RUN_CONFIGURATION_KEY: String = "tramai.identity.configuration"
-internal const val GOVERNED_RUN_CONFIGURATION_VERSION_KEY: String = "tramai.identity.configuration_version"
-internal const val GOVERNED_RUN_ENVIRONMENT_KEY: String = "tramai.identity.environment"
-internal const val GOVERNED_RUN_DEPLOYMENT_KEY: String = "tramai.identity.deployment"
+internal const val GOVERNED_RUN_WORKLOAD_KEY: String = "checkpoint.identity.workload"
+internal const val GOVERNED_RUN_CONFIGURATION_KEY: String = "checkpoint.identity.configuration"
+internal const val GOVERNED_RUN_CONFIGURATION_VERSION_KEY: String = "checkpoint.identity.configuration_version"
+internal const val GOVERNED_RUN_ENVIRONMENT_KEY: String = "checkpoint.identity.environment"
+internal const val GOVERNED_RUN_DEPLOYMENT_KEY: String = "checkpoint.identity.deployment"
 
 private val GOVERNED_RUN_ATTRIBUTION_KEYS: List<String> =
     listOf(
@@ -78,21 +83,24 @@ internal fun decodeGovernedRunAttribution(
         GovernedRunIdentity(
             deployment =
                 WorkloadDeploymentIdentity(
-                    workloadId = WorkloadId(values[0]!!),
+                    workloadId = WorkloadId(metadata.component(GOVERNED_RUN_WORKLOAD_KEY)),
                     configuration =
                         WorkloadConfigurationIdentity(
-                            id = ConfigurationId(values[1]!!),
-                            version = ConfigurationVersion(values[2]!!),
+                            id = ConfigurationId(metadata.component(GOVERNED_RUN_CONFIGURATION_KEY)),
+                            version =
+                                ConfigurationVersion(
+                                    metadata.component(GOVERNED_RUN_CONFIGURATION_VERSION_KEY),
+                                ),
                         ),
-                    environmentId = EnvironmentId(values[3]!!),
-                    deploymentId = DeploymentId(values[4]!!),
+                    environmentId = EnvironmentId(metadata.component(GOVERNED_RUN_ENVIRONMENT_KEY)),
+                    deploymentId = DeploymentId(metadata.component(GOVERNED_RUN_DEPLOYMENT_KEY)),
                 ),
             runId = RunId(workflowId),
         )
     } catch (error: IllegalArgumentException) {
         throw WorkflowCheckpointCorruptionException(
             "Persisted governed run attribution is invalid for workflow run '$workflowId': ${error.message}",
-        )
+        ).apply { initCause(error) }
     }
 }
 
@@ -154,3 +162,11 @@ private fun describeAttributionSubstitution(
             add("deploymentId '${expected.deploymentId}' != '${actual.deploymentId}'")
         }
     }.joinToString(", ").ifEmpty { "identity differs" }
+
+/**
+ * One reserved component, read by KEY rather than by position so the mapping between the
+ * persisted keys and the identity is readable and cannot drift. The caller has already
+ * established all-or-none, so an absent value here is corruption, not a missing default.
+ */
+private fun Map<String, String>.component(key: String): String =
+    requireNotNull(get(key)) { "governed run attribution is missing a required component" }

@@ -103,28 +103,34 @@ internal class WorkflowExecutionSupervisor(
             }
     }
 
+    /**
+     * Absent definition metadata means no worker can ever route this checkpoint. Unlike an
+     * unbound version (which another worker may implement), it must surface as a visible
+     * failure rather than a silent skip: record it so the stranded checkpoint stays
+     * diagnosable, release the lease, and fail. Never returns.
+     */
+    private suspend fun failMissingDefinitionMetadata(
+        checkpoint: WorkflowCheckpoint,
+        handle: ActiveExecution,
+    ): Nothing {
+        val error =
+            missingDefinitionMetadataException(
+                workflowName = checkpoint.workflowName,
+                workflowId = checkpoint.workflowId,
+                missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
+            )
+        executionFailures[checkpoint.workflowId] = error
+        releaseLease(handle)
+        throw error
+    }
+
     private suspend fun executeClaimedWorkflow(
         checkpoint: WorkflowCheckpoint,
         handle: ActiveExecution,
     ) {
         val definitionVersion =
             checkpoint.metadata[WORKFLOW_DEFINITION_VERSION_METADATA_KEY]
-                ?: run {
-                    // Absent definition metadata means no worker can ever route this
-                    // checkpoint. Unlike an unbound version (which another worker may
-                    // implement), this must surface as a visible failure instead of a
-                    // silent skip: release the lease and record latestFailure so the
-                    // stranded checkpoint is diagnosable.
-                    val error =
-                        missingDefinitionMetadataException(
-                            workflowName = checkpoint.workflowName,
-                            workflowId = checkpoint.workflowId,
-                            missingKey = WORKFLOW_DEFINITION_VERSION_METADATA_KEY,
-                        )
-                    executionFailures[checkpoint.workflowId] = error
-                    releaseLease(handle)
-                    throw error
-                }
+                ?: failMissingDefinitionMetadata(checkpoint, handle)
         val binding =
             workflowBindings.resolve(checkpoint.workflowName, definitionVersion) ?: run {
                 releaseLease(handle)
@@ -183,12 +189,18 @@ internal class WorkflowExecutionSupervisor(
 
                     StepAttemptResolutionAction.WORKFLOW_FAILED -> {
                         throw WorkflowRecoveryStateException(
-                            "Attempt '${unknownAttempt.attemptId}' is resolved as WORKFLOW_FAILED and cannot be executed",
+                            "Attempt '${unknownAttempt.attemptId}' is resolved as WORKFLOW_FAILED and cannot be " +
+                                "executed",
                         )
                     }
 
                     null -> {
-                        recoveryCoordinator.recoverUnknownAttempt(checkpoint, tracker, fencedCheckpointStore, unknownAttempt)
+                        recoveryCoordinator.recoverUnknownAttempt(
+                            checkpoint,
+                            tracker,
+                            fencedCheckpointStore,
+                            unknownAttempt,
+                        )
                     }
                 }
             } catch (error: Throwable) {
@@ -376,7 +388,9 @@ internal class ExecutionTracker(
                 latest.copy(
                     status = StepAttemptStatus.UNKNOWN,
                     completedAt = clock.millis(),
-                    outputSummary = latest.outputSummary ?: "Lease expired before the step reached a durable checkpoint",
+                    outputSummary =
+                        latest.outputSummary ?: "Lease expired before the step reached a durable " +
+                            "checkpoint",
                 )
             stepAttemptStore.updateStepAttempt(unknown)
             observability.onUnknownAttempt(
@@ -496,8 +510,17 @@ internal class ExecutionTracker(
         // real message so the durable record stays diagnostically useful.
         val observableFailure =
             when {
-                !error.isPersistenceFamilyFailure() -> error
-                else -> safeWorkerObservableFailure(PersistenceResourceKind.STEP_ATTEMPT, PersistenceOperation.SAVE, error)
+                !error.isPersistenceFamilyFailure() -> {
+                    error
+                }
+
+                else -> {
+                    safeWorkerObservableFailure(
+                        PersistenceResourceKind.STEP_ATTEMPT,
+                        PersistenceOperation.SAVE,
+                        error,
+                    )
+                }
             }
         val failed =
             attempt.copy(

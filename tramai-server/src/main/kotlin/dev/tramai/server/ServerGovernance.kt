@@ -27,7 +27,7 @@ import dev.tramai.core.identity.WorkloadId
  * already admitted, and the persisted identity — not server configuration — is what a
  * resumed execution is attributed to.
  */
-class ServerGovernance internal constructor(
+internal class ServerGovernance internal constructor(
     /** The deployment this server instance runs as, or null for an ungoverned server. */
     val configuredIdentity: WorkloadDeploymentIdentity?,
     private val authority: WorkloadRegistrationAuthority?,
@@ -59,11 +59,13 @@ class ServerGovernance internal constructor(
         val configured =
             configuredIdentity
                 ?: throw WorkflowConflictException(
-                    "Run was created by governed deployment '$persisted' and cannot be continued by an ungoverned server",
+                    "Run was created by governed deployment '$persisted' and cannot be continued by an ungoverned " +
+                        "server",
                 )
         if (configured != persisted) {
             throw WorkflowConflictException(
-                "Run was created by governed deployment '$persisted' and cannot be continued by deployment '$configured'",
+                "Run was created by governed deployment '$persisted' and cannot be continued by deployment " +
+                    "'$configured'",
             )
         }
     }
@@ -76,56 +78,67 @@ class ServerGovernance internal constructor(
             identity: WorkloadDeploymentIdentity,
             authority: WorkloadRegistrationAuthority,
         ): ServerGovernance = ServerGovernance(identity, authority)
-
-        /**
-         * Builds from the server's governed configuration properties.
-         *
-         * All-or-nothing: a partial configuration fails closed at startup. Starting
-         * ungoverned because a deployment id was misspelled would silently strip attribution
-         * from every run of that server.
-         */
-        fun fromProperties(
-            workloadId: String?,
-            configurationId: String?,
-            configurationVersion: String?,
-            environmentId: String?,
-            deploymentId: String?,
-            authority: WorkloadRegistrationAuthority?,
-        ): ServerGovernance {
-            val present =
-                mapOf(
-                    "tramai.server.governed.workload-id" to workloadId,
-                    "tramai.server.governed.configuration-id" to configurationId,
-                    "tramai.server.governed.configuration-version" to configurationVersion,
-                    "tramai.server.governed.environment-id" to environmentId,
-                    "tramai.server.governed.deployment-id" to deploymentId,
-                )
-            val configured = present.filterValues { !it.isNullOrBlank() }
-            if (configured.isEmpty()) return UNSET
-
-            val missing = present.filterKeys { it !in configured.keys }.keys
-            require(missing.isEmpty()) {
-                "Governed server configuration is incomplete, missing: ${missing.sorted()}"
-            }
-            val authority =
-                authority
-                    ?: throw IllegalStateException(
-                        "Governed server configuration requires a WorkloadRegistrationAuthority bean",
-                    )
-            return of(
-                identity =
-                    WorkloadDeploymentIdentity(
-                        workloadId = WorkloadId(requireNotNull(workloadId)),
-                        configuration =
-                            WorkloadConfigurationIdentity(
-                                id = ConfigurationId(requireNotNull(configurationId)),
-                                version = ConfigurationVersion(requireNotNull(configurationVersion)),
-                            ),
-                        environmentId = EnvironmentId(requireNotNull(environmentId)),
-                        deploymentId = DeploymentId(requireNotNull(deploymentId)),
-                    ),
-                authority = authority,
-            )
-        }
     }
 }
+
+/**
+ * The five governed-server configuration components exactly as declared in Spring
+ * configuration, all optional. Deliberately dumb: it holds strings and nothing else, so
+ * the all-or-nothing rule lives in one parser instead of being spread over the bindings.
+ */
+internal data class ServerGovernanceProperties(
+    val workloadId: String?,
+    val configurationId: String?,
+    val configurationVersion: String?,
+    val environmentId: String?,
+    val deploymentId: String?,
+)
+
+/**
+ * Resolves the governed server configuration. Pure — no Spring types — so the
+ * fail-closed rule is provable without a container.
+ *
+ * All-or-nothing by design: starting *ungoverned* because a deployment id was misspelled
+ * would silently strip attribution from every run of that server, so a partial
+ * configuration is a startup failure rather than a default.
+ */
+internal fun serverGovernanceFrom(
+    properties: ServerGovernanceProperties,
+    authority: WorkloadRegistrationAuthority?,
+): ServerGovernance {
+    val values =
+        mapOf(
+            "tramai.server.governed.workload-id" to properties.workloadId,
+            "tramai.server.governed.configuration-id" to properties.configurationId,
+            "tramai.server.governed.configuration-version" to properties.configurationVersion,
+            "tramai.server.governed.environment-id" to properties.environmentId,
+            "tramai.server.governed.deployment-id" to properties.deploymentId,
+        )
+    val configured = values.filterValues { !it.isNullOrBlank() }
+    if (configured.isEmpty()) return ServerGovernance.UNSET
+
+    val missing = values.keys - configured.keys
+    require(missing.isEmpty()) {
+        "Governed server configuration is incomplete, missing: ${missing.sorted()}"
+    }
+    val registeredAuthority =
+        authority
+            ?: error("Governed server configuration requires a WorkloadRegistrationAuthority bean")
+    return ServerGovernance.of(
+        identity = properties.completeIdentity(),
+        authority = registeredAuthority,
+    )
+}
+
+/** Every component is present and non-blank; the parser has already enforced that. */
+private fun ServerGovernanceProperties.completeIdentity(): WorkloadDeploymentIdentity =
+    WorkloadDeploymentIdentity(
+        workloadId = WorkloadId(requireNotNull(workloadId)),
+        configuration =
+            WorkloadConfigurationIdentity(
+                id = ConfigurationId(requireNotNull(configurationId)),
+                version = ConfigurationVersion(requireNotNull(configurationVersion)),
+            ),
+        environmentId = EnvironmentId(requireNotNull(environmentId)),
+        deploymentId = DeploymentId(requireNotNull(deploymentId)),
+    )

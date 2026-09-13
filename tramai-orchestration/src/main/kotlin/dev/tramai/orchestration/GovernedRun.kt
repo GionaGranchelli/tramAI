@@ -20,9 +20,14 @@ suspend fun <S> WorkflowPersistence<S>.recoverGovernedRun(
     workflowName: String,
     workflowId: String,
 ): GovernedRun? {
+    // Missing checkpoint and legacy-without-attribution are both "nothing to recover";
+    // PARTIAL attribution throws inside the decoder, so a governed run can never be
+    // silently downgraded to an unattributed one.
     val checkpoint = checkpointStore.load(workflowName, workflowId) ?: return null
-    val identity = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata) ?: return null
-    return GovernedRun(context = WorkflowContext(workflowId = checkpoint.workflowId), identity = identity)
+    val identity = decodeGovernedRunAttribution(checkpoint.workflowId, checkpoint.metadata)
+    return identity?.let {
+        GovernedRun(context = WorkflowContext(workflowId = checkpoint.workflowId), identity = it)
+    }
 }
 
 /**

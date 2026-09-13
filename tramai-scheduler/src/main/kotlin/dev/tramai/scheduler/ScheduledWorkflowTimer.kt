@@ -79,7 +79,7 @@ class ScheduledWorkflowTimer(
         initialState: suspend (ClaimedScheduledTick) -> S,
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>? = null,
-    ) = register(workflow, initialState, observer, persistence, deploymentIdentity = null)
+    ) = register(workflow, initialState, observer, persistence, governed = null)
 
     /**
      * Registers a GOVERNED schedule (0.7.1d): the schedule is durably bound to the
@@ -96,7 +96,7 @@ class ScheduledWorkflowTimer(
         initialState: suspend (ClaimedScheduledTick) -> S,
         observer: WorkflowObserver,
         persistence: WorkflowPersistence<S>?,
-        deploymentIdentity: WorkloadDeploymentIdentity?,
+        governed: GovernedScheduleRegistration?,
     ) {
         val schedule =
             workflow.schedule
@@ -114,7 +114,7 @@ class ScheduledWorkflowTimer(
                 // (registration.observer is invoked directly by pollOnce).
                 observer = FailureIsolatingWorkflowObserver(observer),
                 persistence = persistence,
-                deploymentIdentity = deploymentIdentity,
+                governed = governed,
             )
         synchronized(monitor) {
             registrations[scheduleId] = registration
@@ -127,9 +127,9 @@ class ScheduledWorkflowTimer(
                 nextFireAt = schedule.nextFireAfter(clock.instant()),
             ),
         )
-        if (deploymentIdentity != null) {
-            (store as? GovernedScheduleBindingStore)?.putGovernedScheduleBinding(
-                GovernedScheduleBinding(scheduleId = scheduleId, deploymentIdentity = deploymentIdentity),
+        governed?.let { declaration ->
+            declaration.bindingStore.putGovernedScheduleBinding(
+                GovernedScheduleBinding(scheduleId = scheduleId, deploymentIdentity = declaration.deploymentIdentity),
             )
         }
     }
@@ -192,11 +192,16 @@ class ScheduledWorkflowTimer(
             store.markTickSkipped(tick.tickId, tick.claimToken, reason)
             return
         }
-        // A tick is a NEW execution: same deployment identity, FRESH run id. The
-        // deployment comes from the durable schedule binding (the in-memory registration
-        // is the fallback for stores without that capability); the run id is created here,
-        // exactly once, by the execution envelope.
-        val governedRun = governedRunFor(tick, registration)
+        // A tick is a NEW execution: same deployment identity, FRESH run id. The deployment is
+        // read from the durable binding (the declaration is the fallback); the run id is
+        // created here, exactly once, by the execution envelope.
+        val governedRun =
+            registration.governed?.let { declaration ->
+                val deployment =
+                    declaration.bindingStore.getGovernedScheduleBinding(tick.scheduleId)?.deploymentIdentity
+                        ?: declaration.deploymentIdentity
+                GovernedRun.start(deployment = deployment, attributes = scheduledTickAttributes(tick))
+            }
         val context = governedRun?.context ?: scheduledTickContext(tick)
         val observer = registration.observer
         if (Duration.between(tick.scheduledFireAt, now) > misfireThreshold) {
@@ -275,38 +280,12 @@ class ScheduledWorkflowTimer(
             registrations[scheduleId]
         }
 
-    /**
-     * Resolves the governed execution envelope for a tick, or null for a schedule that is
-     * not governed. The deployment identity is shared across the schedule's runs; the run
-     * id is fresh for every tick.
-     */
-    private suspend fun governedRunFor(
-        tick: ClaimedScheduledTick,
-        registration: ScheduledWorkflowRegistration<*, *>,
-    ): GovernedRun? {
-        val durable = (store as? GovernedScheduleBindingStore)?.getGovernedScheduleBinding(tick.scheduleId)
-        val deployment = durable?.deploymentIdentity ?: registration.deploymentIdentity ?: return null
-        return GovernedRun.start(deployment = deployment, attributes = tickAttributes(tick))
-    }
-
-    private fun tickAttributes(tick: ClaimedScheduledTick): Map<String, Any?> =
-        mapOf(
-            RuntimeAttributes.SCHEDULE_TICK_ID.name to tick.tickId,
-            RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
-            RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
-        )
-
-    private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext =
-        WorkflowContext(
-            attributes = tickAttributes(tick),
-        )
-
     private data class ScheduledWorkflowRegistration<S, R>(
         val workflow: Workflow<S, R>,
         val initialState: suspend (ClaimedScheduledTick) -> S,
         val observer: WorkflowObserver,
         val persistence: WorkflowPersistence<S>?,
-        val deploymentIdentity: WorkloadDeploymentIdentity? = null,
+        val governed: GovernedScheduleRegistration? = null,
     ) {
         suspend fun run(
             tick: ClaimedScheduledTick,
@@ -357,3 +336,20 @@ class ScheduledWorkflowTimer(
 }
 
 private fun scheduleId(workflowName: String): String = "workflow:$workflowName"
+
+/**
+ * Operational tick identity (schedule id, tick id, fire time) — deliberately NOT workload
+ * attribution: these identify the tick, never the run's governed identity.
+ */
+private fun scheduledTickAttributes(tick: ClaimedScheduledTick): Map<String, Any?> =
+    mapOf(
+        RuntimeAttributes.SCHEDULE_TICK_ID.name to tick.tickId,
+        RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
+        RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
+    )
+
+/** Operational tick context — schedule/tick identity, never workload attribution. */
+private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext =
+    WorkflowContext(
+        attributes = scheduledTickAttributes(tick),
+    )

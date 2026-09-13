@@ -1,5 +1,6 @@
 package dev.tramai.persistence.jdbc
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -79,8 +80,7 @@ class JdbcSuspendedInvocationStore(
     private val dataSource: DataSource,
     private val replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
     private val clock: Clock = Clock.systemUTC(),
-) : SuspendedInvocationStore,
-    GovernedSuspendedInvocationStore {
+) : SuspendedInvocationStore {
     /**
      * Plain ObjectMapper for JSONB-safe metadata serialization (toolSecurity).
      * No default typing — only used for safe primitive/String fields.
@@ -116,7 +116,7 @@ class JdbcSuspendedInvocationStore(
      * the canonical run identity inside the same encrypted payload. The identity is therefore
      * never promoted into plaintext columns and a crash can never leave a half-governed record.
      */
-    override suspend fun createGoverned(
+    internal suspend fun createGoverned(
         suspended: GovernedSuspendedInvocation,
         replayEnvelope: SensitiveReplayEnvelope,
     ): Unit =
@@ -142,7 +142,7 @@ class JdbcSuspendedInvocationStore(
             row.metadata.toDomain()
         }
 
-    override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? =
+    internal suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? =
         withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
             validateIdField(approvalId, "approvalId")
 
@@ -493,46 +493,56 @@ class JdbcSuspendedInvocationStore(
         )
     }
 
+    private fun decodePlaintext(encrypted: JdbcEncryptedReplayEnvelope): ByteArray =
+        try {
+            replayEnvelopeCodec.decode(encrypted)
+        } catch (e: Exception) {
+            throw IllegalStateException("suspended-invocation-decryption-failed", e)
+        }
+
     private fun decryptAndDeserialize(encrypted: JdbcEncryptedReplayEnvelope): Payload {
-        val plaintext =
-            try {
-                replayEnvelopeCodec.decode(encrypted)
-            } catch (e: Exception) {
-                throw IllegalStateException("suspended-invocation-decryption-failed", e)
-            }
+        val plaintext = decodePlaintext(encrypted)
 
         val node =
             try {
                 mapper.readTree(plaintext)
             } catch (e: Exception) {
                 throw IllegalStateException("suspended-invocation-deserialization-failed", e)
-            } ?: throw IllegalStateException("suspended-invocation-deserialization-failed")
+            } ?: error("suspended-invocation-deserialization-failed")
 
         val payload =
             try {
                 mapper.treeToValue(node, Payload::class.java)
             } catch (e: Exception) {
                 throw IllegalStateException("suspended-invocation-deserialization-failed", e)
-            } ?: throw IllegalStateException("suspended-invocation-deserialization-failed")
+            } ?: error("suspended-invocation-deserialization-failed")
 
+        validatePayloadVersion(node, payload)
+        return payload
+    }
+
+    /**
+     * V1 is legacy (no attribution persisted, and none allowed); V2 is governed and
+     * mandatory; any other version is corruption. A malformed V2 never degrades to V1.
+     */
+    private fun validatePayloadVersion(
+        node: JsonNode,
+        payload: Payload,
+    ) {
         // A payload written before governed attribution existed has no version field at all,
         // which is exactly the legacy case.
         val version = node.get("payloadVersion")?.asInt() ?: 1
         when (version) {
             1 -> {
                 if (payload.governedRunIdentity != null) {
-                    throw IllegalStateException(
-                        "suspended-invocation-corrupted: legacy payload carries a governed identity",
-                    )
+                    error("suspended-invocation-corrupted: legacy payload carries a governed identity")
                 }
             }
 
             2 -> {
                 val identity =
                     payload.governedRunIdentity
-                        ?: throw IllegalStateException(
-                            "suspended-invocation-corrupted: governed payload without a run identity",
-                        )
+                        ?: error("suspended-invocation-corrupted: governed payload without a run identity")
                 val components =
                     listOf(
                         identity.workloadId,
@@ -543,23 +553,18 @@ class JdbcSuspendedInvocationStore(
                         identity.runId,
                     )
                 if (components.any { it.isBlank() }) {
-                    throw IllegalStateException(
-                        "suspended-invocation-corrupted: governed run identity is incomplete",
-                    )
+                    error("suspended-invocation-corrupted: governed run identity is incomplete")
                 }
                 // Bidirectional invariant, checked on decode as well as on create.
                 if (identity.runId != payload.metadata.identityWorkflowRunId) {
-                    throw IllegalStateException(
-                        "suspended-invocation-corrupted: governed identity names another run",
-                    )
+                    error("suspended-invocation-corrupted: governed identity names another run")
                 }
             }
 
             else -> {
-                throw IllegalStateException("suspended-invocation-unsupported-payload-version: $version")
+                error("suspended-invocation-unsupported-payload-version: $version")
             }
         }
-        return payload
     }
 
     private fun validateIdField(

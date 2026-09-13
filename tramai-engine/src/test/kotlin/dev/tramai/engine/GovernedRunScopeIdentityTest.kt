@@ -279,8 +279,14 @@ class GovernedRunScopeIdentityTest {
             val rightService = buildEngine(rightSource, rightProvider).create(ScopeIdentityService::class)
             val right = identity("governed-run-right")
 
-            val leftJob = launch(Dispatchers.Default) { withContext(GovernedRunScope(left)) { leftService.answerSuspend("l") } }
-            val rightJob = launch(Dispatchers.Default) { withContext(GovernedRunScope(right)) { rightService.answerSuspend("r") } }
+            val leftJob =
+                launch(Dispatchers.Default) {
+                    withContext(GovernedRunScope(left)) { leftService.answerSuspend("l") }
+                }
+            val rightJob =
+                launch(Dispatchers.Default) {
+                    withContext(GovernedRunScope(right)) { rightService.answerSuspend("r") }
+                }
             leftJob.join()
             rightJob.join()
 
@@ -297,7 +303,10 @@ class GovernedRunScopeIdentityTest {
             val service = buildEngine(source, provider).create(ScopeIdentityService::class)
 
             // A governed execution that is suspended mid-flight on this thread's event loop.
-            val suspended = launch { withContext(GovernedRunScope(identity("governed-run-suspended"))) { awaitCancellation() } }
+            val suspended =
+                launch {
+                    withContext(GovernedRunScope(identity("governed-run-suspended"))) { awaitCancellation() }
+                }
             delay(20)
 
             // ... must not leak its identity into an unrelated, ungoverned blocking call.
@@ -317,7 +326,9 @@ class GovernedRunScopeIdentityTest {
             val service = buildEngine(source, provider).create(ScopeIdentityService::class)
 
             assertThatThrownBy {
-                runBlocking { withContext(GovernedRunScope(identity("governed-run-failing"))) { service.answerSuspend("boom") } }
+                runBlocking {
+                    withContext(GovernedRunScope(identity("governed-run-failing"))) { service.answerSuspend("boom") }
+                }
             }.isInstanceOf(ProviderException::class.java)
                 .hasCauseInstanceOf(IllegalStateException::class.java)
 
@@ -330,7 +341,10 @@ class GovernedRunScopeIdentityTest {
     @Test
     fun `cancellation restores the previous thread context`() {
         runBlocking {
-            val cancelled = launch { withContext(GovernedRunScope(identity("governed-run-cancelled"))) { awaitCancellation() } }
+            val cancelled =
+                launch {
+                    withContext(GovernedRunScope(identity("governed-run-cancelled"))) { awaitCancellation() }
+                }
             delay(20)
             cancelled.cancelAndJoin()
 

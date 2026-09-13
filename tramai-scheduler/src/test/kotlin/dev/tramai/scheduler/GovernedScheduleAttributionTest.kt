@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit
 class GovernedScheduleAttributionTest {
     private companion object {
         const val WORKFLOW_NAME = "governed-scheduled"
-        const val GOVERNED_DEPLOYMENT_KEY = "tramai.identity.deployment"
+        const val GOVERNED_DEPLOYMENT_KEY = "checkpoint.identity.deployment"
 
         val stateCodec =
             object : WorkflowStateCodec<String> {
@@ -62,6 +62,7 @@ class GovernedScheduleAttributionTest {
     private class Fixture {
         val clock = MutableClock(Instant.parse("2026-09-13T09:00:00Z"))
         val store = InMemoryWorkflowSchedulerStore()
+        val bindings = InMemoryGovernedScheduleBindingStore()
         val checkpoints = InMemoryWorkflowCheckpointStore()
         val completedStates = mutableListOf<String>()
         val persistence =
@@ -96,7 +97,7 @@ class GovernedScheduleAttributionTest {
                 initialState = { "seed" },
                 observer = NoOpWorkflowObserver,
                 persistence = persistence,
-                deploymentIdentity = deployment,
+                governed = GovernedScheduleRegistration(deployment, bindings),
             )
         }
 
@@ -166,7 +167,7 @@ class GovernedScheduleAttributionTest {
 
             // The deployment binding changes while the run is suspended: a governed
             // continuation must NOT adopt the new binding for an existing run.
-            (fixture.store as GovernedScheduleBindingStore).putGovernedScheduleBinding(
+            fixture.bindings.putGovernedScheduleBinding(
                 GovernedScheduleBinding(
                     scheduleId =
                         fixture.store

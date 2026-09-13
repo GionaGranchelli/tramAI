@@ -115,14 +115,18 @@ internal class InvocationExecutionCoordinator(
     private val toolResultFilteringSettings = components.tools.toolResultFilteringSettings
     private val engineEventObserver = components.observation.engineEventObserver
     private val toolFailureDiagnosticObserver = components.observation.toolFailureDiagnosticObserver
-    private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
+    private val structuredOutputFailureDiagnosticObserver =
+        components.observation.structuredOutputFailureDiagnosticObserver
     private val policyDecisionAuditEmitter = components.security.policyDecisionAuditEmitter
     private val suspendedInvocationStore = components.approvals.suspendedInvocationStore
     private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
     private val clock = components.execution.clock
-    private val approvalContinuationStore = (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
-    private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
-    private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
+    private val approvalContinuationStore =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
+    private val toolArgumentsDigester =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
+    private val approvalGateCoordinator =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
 
     private val policyHelper =
         PolicyEnforcementHelper(
@@ -164,7 +168,14 @@ internal class InvocationExecutionCoordinator(
             reason,
             securityContext,
             ->
-            enforceFallbackTransition(correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext)
+            enforceFallbackTransition(
+                correlationId,
+                previousProviderId,
+                previousModelName,
+                nextProviderId,
+                reason,
+                securityContext,
+            )
         }
     private val providerExecutionCoordinator =
         ProviderExecutionCoordinator(
@@ -172,7 +183,9 @@ internal class InvocationExecutionCoordinator(
             circuitBreaker = circuitBreaker,
             attemptExecutor =
                 ProviderAttemptExecutor(
-                    serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                    serviceInterface =
+                        serviceDefinition.serviceType.qualifiedName
+                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
                     operationObserver = operationObserver,
                     operationInterceptor = operationInterceptor,
                     circuitBreaker = circuitBreaker,
@@ -228,7 +241,9 @@ internal class InvocationExecutionCoordinator(
             circuitBreaker = circuitBreaker,
             lifecycleScope = lifecycleScope,
             isClosed = isClosed,
-            serviceTypeName = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+            serviceTypeName =
+                serviceDefinition.serviceType.qualifiedName
+                    ?: serviceDefinition.serviceType.simpleName.orEmpty(),
             qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
             operationObserver = operationObserver,
             operationInterceptor = operationInterceptor,
@@ -497,7 +512,11 @@ internal class InvocationExecutionCoordinator(
         )
     }
 
-    override suspend fun execute(request: ClaimedResumeExecutionRequest): Any? = claimedResumeCoordinator.execute(request)
+    override suspend fun execute(request: ClaimedResumeExecutionRequest): Any? =
+        run {
+            val coordinator = claimedResumeCoordinator
+            coordinator.execute(request)
+        }
 }
 
 private fun PolicyContextBuilder.applySecurityContext(securityContext: ExecutionSecurityContext): PolicyContextBuilder =

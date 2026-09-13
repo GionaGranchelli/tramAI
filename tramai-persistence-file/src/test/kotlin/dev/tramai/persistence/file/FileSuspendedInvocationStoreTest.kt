@@ -24,7 +24,6 @@ import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.GovernedSuspendedInvocation
-import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
@@ -35,6 +34,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.nio.file.Files
@@ -398,7 +398,10 @@ class FileSuspendedInvocationStoreTest {
                                 record.replayEnvelope.messages.mapIndexed { index, message ->
                                     if (index == 1) {
                                         message.copy(
-                                            toolCalls = message.toolCalls?.map { it.copy(argumentsJson = """{"unsafe":true}""") },
+                                            toolCalls =
+                                                message.toolCalls?.map {
+                                                    it.copy(argumentsJson = """{"unsafe":true}""")
+                                                },
                                         )
                                     } else {
                                         message
@@ -596,155 +599,196 @@ class FileSuspendedInvocationStoreTest {
     private inline fun <reified T : Throwable> expectFailure(noinline block: suspend () -> Unit): T =
         assertThrows<T> { runBlocking { block() } }
 
-    private fun governedIdentity(
-        runId: String = "governed-run-1",
-        workloadId: String = "claims",
-        configurationId: String = "claims-prod",
-        configurationVersion: String = "17",
-        environmentId: String = "production",
-        deploymentId: String = "eu-west-amsterdam-01",
-    ) = GovernedRunIdentity(
-        deployment =
-            WorkloadDeploymentIdentity(
-                workloadId = WorkloadId(workloadId),
-                configuration =
-                    WorkloadConfigurationIdentity(
-                        id = ConfigurationId(configurationId),
-                        version = ConfigurationVersion(configurationVersion),
-                    ),
-                environmentId = EnvironmentId(environmentId),
-                deploymentId = DeploymentId(deploymentId),
-            ),
-        runId = RunId(runId),
+    private data class GovernedIdentityValues(
+        val runId: String = "governed-run-1",
+        val workloadId: String = "claims",
+        val configurationId: String = "claims-prod",
+        val configurationVersion: String = "17",
+        val environmentId: String = "production",
+        val deploymentId: String = "eu-west-amsterdam-01",
     )
 
-    /** Rewrites the persisted plaintext record in place, re-encrypting through the same envelope. */
-    private fun rewritePersistedRecord(
-        approvalId: String,
-        transform: (String) -> String,
-    ) {
-        val path = recordPath(approvalId)
-        val recordKeyDigest = FileStoreSha256.digest("suspended-invocation", approvalId)
-        val plaintext = FileStoreUtil.readAndDecrypt(path, "suspended-invocation", recordKeyDigest, testKey, "test-key")
-        FileStoreUtil.atomicEncryptWrite(
-            targetPath = path,
-            recordType = "suspended-invocation",
-            recordKeyDigest = recordKeyDigest,
-            keyId = "test-key",
-            key = testKey,
-            plaintextBytes = transform(plaintext.toString(Charsets.UTF_8)).toByteArray(Charsets.UTF_8),
-        )
-    }
+    @Nested
+    inner class GovernedAttributionTests {
+        private fun governedIdentity(values: GovernedIdentityValues = GovernedIdentityValues()) =
+            GovernedRunIdentity(
+                deployment =
+                    WorkloadDeploymentIdentity(
+                        workloadId = WorkloadId(values.workloadId),
+                        configuration =
+                            WorkloadConfigurationIdentity(
+                                id = ConfigurationId(values.configurationId),
+                                version = ConfigurationVersion(values.configurationVersion),
+                            ),
+                        environmentId = EnvironmentId(values.environmentId),
+                        deploymentId = DeploymentId(values.deploymentId),
+                    ),
+                runId = RunId(values.runId),
+            )
 
-    private fun storeGovernedRecord(
-        approvalId: String,
-        runId: String,
-    ): GovernedRunIdentity {
-        val identity = governedIdentity(runId = runId)
-        val (metadata, envelope) = createValidRecord(approvalId = approvalId, workflowRunId = runId)
-        runSuspending { createStore().createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
-        return identity
-    }
-
-    @Test
-    fun `governed create round trips the exact whole identity`() {
-        val store = createStore()
-        val identity = governedIdentity(runId = "governed-run-1")
-        val (metadata, envelope) =
-            createValidRecord(approvalId = "approval-governed-1", workflowRunId = "governed-run-1")
-
-        runSuspending { store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
-
-        val read = runSuspending { store.governedRunIdentity("approval-governed-1") }
-        assertEquals(identity, read)
-        assertEquals("eu-west-amsterdam-01", read?.deployment?.deploymentId?.value)
-        assertNotNull(runSuspending { store.get("approval-governed-1") })
-        assertNotNull(runSuspending { store.revealReplayEnvelope("approval-governed-1") })
-        assertEquals(null, runSuspending { store.governedRunIdentity("approval-absent") })
-    }
-
-    @Test
-    fun `a governed record survives store reconstruction`() {
-        val identity = storeGovernedRecord("approval-governed-restart", runId = "governed-restart-run")
-
-        val restarted = createStore()
-
-        assertEquals(identity, runSuspending { restarted.governedRunIdentity("approval-governed-restart") })
-        val metadata = assertNotNull(runSuspending { restarted.get("approval-governed-restart") })
-        assertEquals(identity.runId.value, metadata.identity.workflowRunId)
-        assertEquals(identity.deployment.deploymentId.value, "eu-west-amsterdam-01")
-        assertNotNull(runSuspending { restarted.revealReplayEnvelope("approval-governed-restart") })
-        restarted.verifyAll()
-    }
-
-    @Test
-    fun `a legacy record still reads as legacy`() {
-        val store = createStore()
-        val (metadata, envelope) = createValidRecord(approvalId = "approval-legacy-1")
-        runSuspending { store.create(metadata, envelope) }
-
-        assertNull(runSuspending { store.governedRunIdentity("approval-legacy-1") })
-        assertEquals(
-            metadata.identity.workflowRunId,
-            assertNotNull(runSuspending { store.get("approval-legacy-1") }).identity.workflowRunId,
-        )
-        assertNotNull(runSuspending { store.revealReplayEnvelope("approval-legacy-1") })
-        createStore().verifyAll()
-    }
-
-    @Test
-    fun `a governed record whose identity names another run is corruption`() {
-        storeGovernedRecord("approval-governed-mismatch", runId = "governed-mismatch-run")
-        rewritePersistedRecord("approval-governed-mismatch") { json ->
-            json.replaceFirst("\"runId\":\"governed-mismatch-run\"", "\"runId\":\"other-run\"")
+        /** Rewrites the persisted plaintext record in place, re-encrypting through the same envelope. */
+        private fun rewritePersistedRecord(
+            approvalId: String,
+            transform: (String) -> String,
+        ) {
+            val path = recordPath(approvalId)
+            val recordKeyDigest = FileStoreSha256.digest("suspended-invocation", approvalId)
+            val plaintext =
+                FileStoreUtil.readAndDecrypt(
+                    path,
+                    "suspended-invocation",
+                    recordKeyDigest,
+                    testKey,
+                    "test-key",
+                )
+            FileStoreUtil.atomicEncryptWrite(
+                targetPath = path,
+                recordType = "suspended-invocation",
+                recordKeyDigest = recordKeyDigest,
+                keyId = "test-key",
+                key = testKey,
+                plaintextBytes = transform(plaintext.toString(Charsets.UTF_8)).toByteArray(Charsets.UTF_8),
+            )
         }
 
-        expectFailure<FileStoreCorruptionException> {
-            createStore().governedRunIdentity("approval-governed-mismatch")
-        }
-        expectFailure<FileStoreCorruptionException> {
-            createStore().get("approval-governed-mismatch")
-        }
-    }
-
-    @Test
-    fun `a governed record missing an identity component fails closed`() {
-        storeGovernedRecord("approval-governed-partial", runId = "governed-partial-run")
-        rewritePersistedRecord("approval-governed-partial") { json ->
-            json.replace(Regex("\"deploymentId\":\"[^\"]*\","), "")
+        private fun storeGovernedRecord(
+            approvalId: String,
+            runId: String,
+        ): GovernedRunIdentity {
+            val identity = governedIdentity(GovernedIdentityValues(runId = runId))
+            val (metadata, envelope) = createValidRecord(approvalId = approvalId, workflowRunId = runId)
+            runSuspending { createStore().createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
+            return identity
         }
 
-        val failure =
+        @Test
+        fun `governed create round trips the exact whole identity`() {
+            val store = createStore()
+            val identity = governedIdentity(GovernedIdentityValues(runId = "governed-run-1"))
+            val (metadata, envelope) =
+                createValidRecord(approvalId = "approval-governed-1", workflowRunId = "governed-run-1")
+
+            runSuspending { store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
+
+            val read = runSuspending { store.governedRunIdentity("approval-governed-1") }
+            assertEquals(identity, read)
+            assertEquals("eu-west-amsterdam-01", read?.deployment?.deploymentId?.value)
+            assertNotNull(runSuspending { store.get("approval-governed-1") })
+            assertNotNull(runSuspending { store.revealReplayEnvelope("approval-governed-1") })
+            assertEquals(null, runSuspending { store.governedRunIdentity("approval-absent") })
+        }
+
+        @Test
+        fun `a governed record survives store reconstruction`() {
+            val identity = storeGovernedRecord("approval-governed-restart", runId = "governed-restart-run")
+
+            val restarted = createStore()
+
+            assertEquals(identity, runSuspending { restarted.governedRunIdentity("approval-governed-restart") })
+            val metadata = assertNotNull(runSuspending { restarted.get("approval-governed-restart") })
+            assertEquals(identity.runId.value, metadata.identity.workflowRunId)
+            assertEquals(identity.deployment.deploymentId.value, "eu-west-amsterdam-01")
+            assertNotNull(runSuspending { restarted.revealReplayEnvelope("approval-governed-restart") })
+            restarted.verifyAll()
+        }
+
+        @Test
+        fun `a legacy record still reads as legacy`() {
+            val store = createStore()
+            val (metadata, envelope) = createValidRecord(approvalId = "approval-legacy-1")
+            runSuspending { store.create(metadata, envelope) }
+
+            assertNull(runSuspending { store.governedRunIdentity("approval-legacy-1") })
+            assertEquals(
+                metadata.identity.workflowRunId,
+                assertNotNull(runSuspending { store.get("approval-legacy-1") }).identity.workflowRunId,
+            )
+            assertNotNull(runSuspending { store.revealReplayEnvelope("approval-legacy-1") })
+            createStore().verifyAll()
+        }
+
+        @Test
+        fun `a governed record whose identity names another run is corruption`() {
+            storeGovernedRecord("approval-governed-mismatch", runId = "governed-mismatch-run")
+            rewritePersistedRecord("approval-governed-mismatch") { json ->
+                json.replaceFirst("\"runId\":\"governed-mismatch-run\"", "\"runId\":\"other-run\"")
+            }
+
             expectFailure<FileStoreCorruptionException> {
-                createStore().governedRunIdentity("approval-governed-partial")
+                createStore().governedRunIdentity("approval-governed-mismatch")
             }
-        assertFalse(failure.message.isNullOrBlank())
-    }
-
-    @Test
-    fun `an unknown record schema version fails closed`() {
-        storeGovernedRecord("approval-governed-unknown", runId = "governed-unknown-run")
-        rewritePersistedRecord("approval-governed-unknown") { json ->
-            json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":3")
+            expectFailure<FileStoreCorruptionException> {
+                createStore().get("approval-governed-mismatch")
+            }
         }
 
-        expectFailure<FileStoreUnsupportedFormatException> {
-            createStore().governedRunIdentity("approval-governed-unknown")
-        }
-    }
-
-    @Test
-    fun `governed duplicate create keeps the duplicate semantics`() {
-        val store = createStore()
-        val identity = governedIdentity(runId = "governed-dup-run")
-        val (metadata, envelope) =
-            createValidRecord(approvalId = "approval-governed-dup", workflowRunId = "governed-dup-run")
-        runSuspending { store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
-
-        val failure =
-            expectFailure<IllegalArgumentException> {
-                store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope)
+        @Test
+        fun `a governed record missing an identity component fails closed`() {
+            storeGovernedRecord("approval-governed-partial", runId = "governed-partial-run")
+            rewritePersistedRecord("approval-governed-partial") { json ->
+                json.replace(Regex("\"deploymentId\":\"[^\"]*\","), "")
             }
-        assertEquals("suspended-invocation-already-exists", failure.message)
+
+            val failure =
+                expectFailure<FileStoreCorruptionException> {
+                    createStore().governedRunIdentity("approval-governed-partial")
+                }
+            assertFalse(failure.message.isNullOrBlank())
+        }
+
+        @Test
+        fun `an unknown record schema version fails closed`() {
+            storeGovernedRecord("approval-governed-unknown", runId = "governed-unknown-run")
+            rewritePersistedRecord("approval-governed-unknown") { json ->
+                json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":3")
+            }
+
+            expectFailure<FileStoreUnsupportedFormatException> {
+                createStore().governedRunIdentity("approval-governed-unknown")
+            }
+        }
+
+        @Test
+        fun `governed duplicate create keeps the duplicate semantics`() {
+            val store = createStore()
+            val identity = governedIdentity(GovernedIdentityValues(runId = "governed-dup-run"))
+            val (metadata, envelope) =
+                createValidRecord(approvalId = "approval-governed-dup", workflowRunId = "governed-dup-run")
+            runSuspending { store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
+
+            val failure =
+                expectFailure<IllegalArgumentException> {
+                    store.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope)
+                }
+            assertEquals("suspended-invocation-already-exists", failure.message)
+        }
+
+        @Test
+        fun `the governed wrapper is one durable write with no stale attribution`() {
+            val store = createStore()
+            val wrapper = GovernedFileSuspendedInvocationStore(store)
+            val identity = governedIdentity(GovernedIdentityValues(runId = "governed-wrapper-run"))
+            val (metadata, envelope) =
+                createValidRecord(approvalId = "approval-wrapper-1", workflowRunId = "governed-wrapper-run")
+
+            runSuspending { wrapper.createGoverned(GovernedSuspendedInvocation(metadata, identity), envelope) }
+
+            // One record: the wrapper is a front door to the same atomic write, not a second authority.
+            assertTrue(recordPath("approval-wrapper-1").toFile().isFile)
+            assertNotNull(runSuspending { store.get("approval-wrapper-1") })
+            assertNotNull(runSuspending { store.revealReplayEnvelope("approval-wrapper-1") })
+            assertEquals(identity, runSuspending { wrapper.governedRunIdentity("approval-wrapper-1") })
+            store.verifyAll()
+
+            // Restart recovers the exact whole identity through a fresh store and wrapper.
+            val restarted = GovernedFileSuspendedInvocationStore(createStore())
+            assertEquals(identity, runSuspending { restarted.governedRunIdentity("approval-wrapper-1") })
+
+            // Removal leaves no stale attribution, and an absent record is never fabricated.
+            val removed = assertNotNull(runSuspending { wrapper.remove("approval-wrapper-1") })
+            assertEquals(metadata.approvalId, removed.approvalId)
+            assertNull(runSuspending { wrapper.governedRunIdentity("approval-wrapper-1") })
+            assertNull(runSuspending { wrapper.governedRunIdentity("approval-never-persisted") })
+        }
     }
 }

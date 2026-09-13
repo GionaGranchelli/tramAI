@@ -215,7 +215,11 @@ class GovernedApprovalAttributionTest {
 
         override suspend fun get(approvalId: String): SuspendedInvocationMetadata? = delegate.get(approvalId)
 
-        override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? = delegate.revealReplayEnvelope(approvalId)
+        override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? =
+            run {
+                val store = delegate
+                store.revealReplayEnvelope(approvalId)
+            }
 
         override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? = delegate.remove(approvalId)
     }
@@ -297,27 +301,29 @@ class GovernedApprovalAttributionTest {
             )
     }
 
-    private fun identity(
-        runId: String = "governed-approval-run",
-        workload: String = "claims",
-        configurationId: String = "claims-prod",
-        configurationVersion: String = "17",
-        environment: String = "production",
-        deploymentId: String = "eu-west-amsterdam-01",
-    ): GovernedRunIdentity =
+    private data class IdentityOverrides(
+        val runId: String = "governed-approval-run",
+        val workload: String = "claims",
+        val configurationId: String = "claims-prod",
+        val configurationVersion: String = "17",
+        val environment: String = "production",
+        val deploymentId: String = "eu-west-amsterdam-01",
+    )
+
+    private fun identity(overrides: IdentityOverrides = IdentityOverrides()): GovernedRunIdentity =
         GovernedRunIdentity(
             deployment =
                 WorkloadDeploymentIdentity(
-                    workloadId = WorkloadId(workload),
+                    workloadId = WorkloadId(overrides.workload),
                     configuration =
                         WorkloadConfigurationIdentity(
-                            id = ConfigurationId(configurationId),
-                            version = ConfigurationVersion(configurationVersion),
+                            id = ConfigurationId(overrides.configurationId),
+                            version = ConfigurationVersion(overrides.configurationVersion),
                         ),
-                    environmentId = EnvironmentId(environment),
-                    deploymentId = DeploymentId(deploymentId),
+                    environmentId = EnvironmentId(overrides.environment),
+                    deploymentId = DeploymentId(overrides.deploymentId),
                 ),
-            runId = RunId(runId),
+            runId = RunId(overrides.runId),
         )
 
     // ── Suspension ──────────────────────────────────────────────────
@@ -326,7 +332,7 @@ class GovernedApprovalAttributionTest {
     fun `a governed suspension persists the whole identity and its engine identity agrees`() {
         runBlocking {
             val fixture = Fixture()
-            val expected = identity("governed-approval-run")
+            val expected = identity(IdentityOverrides(runId = "governed-approval-run"))
 
             val exception = fixture.suspendGoverned(expected)
 
@@ -369,7 +375,7 @@ class GovernedApprovalAttributionTest {
     fun `a standalone resume recovers and installs the persisted identity`() {
         runBlocking {
             val fixture = Fixture()
-            val expected = identity("governed-standalone-run")
+            val expected = identity(IdentityOverrides(runId = "governed-standalone-run"))
             val exception = fixture.suspendGoverned(expected)
 
             // No governed scope in force: the durable witness is the authority.
@@ -387,7 +393,7 @@ class GovernedApprovalAttributionTest {
     fun `resume inside the identical governed scope proceeds`() {
         runBlocking {
             val fixture = Fixture()
-            val expected = identity("governed-identical-run")
+            val expected = identity(IdentityOverrides(runId = "governed-identical-run"))
             val exception = fixture.suspendGoverned(expected)
 
             val result =
@@ -405,12 +411,12 @@ class GovernedApprovalAttributionTest {
         runBlocking {
             val substitutions =
                 mapOf(
-                    "workloadId" to identity(workload = "payments"),
-                    "configurationId" to identity(configurationId = "claims-staging"),
-                    "configurationVersion" to identity(configurationVersion = "18"),
-                    "environmentId" to identity(environment = "staging"),
-                    "deploymentId" to identity(deploymentId = "eu-central-frankfurt-01"),
-                    "runId" to identity(runId = "another-run"),
+                    "workloadId" to identity(IdentityOverrides(workload = "payments")),
+                    "configurationId" to identity(IdentityOverrides(configurationId = "claims-staging")),
+                    "configurationVersion" to identity(IdentityOverrides(configurationVersion = "18")),
+                    "environmentId" to identity(IdentityOverrides(environment = "staging")),
+                    "deploymentId" to identity(IdentityOverrides(deploymentId = "eu-central-frankfurt-01")),
+                    "runId" to identity(IdentityOverrides(runId = "another-run")),
                 )
 
             substitutions.forEach { (component, substituted) ->
@@ -442,7 +448,7 @@ class GovernedApprovalAttributionTest {
 
             assertThatThrownBy {
                 runBlocking {
-                    withContext(GovernedRunScope(identity(runId = "legacy-run"))) {
+                    withContext(GovernedRunScope(identity(IdentityOverrides(runId = "legacy-run")))) {
                         fixture.engine.resumeApproval(fixture.resumeCommand(exception))
                     }
                 }

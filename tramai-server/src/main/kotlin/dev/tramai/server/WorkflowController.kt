@@ -2,6 +2,7 @@ package dev.tramai.server
 
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.orchestration.GovernedRun
 import dev.tramai.orchestration.NoOpWorkflowObserver
@@ -109,6 +110,14 @@ class WorkflowController(
     ): WorkflowRunResponse {
         val entry = registry.get(name)
         val persistence = persistenceOrConflict(entry, id)
+        // Read-only preconditions, in this order, BEFORE any mutable step: the run must be
+        // resumable at all, attribution is recovered from its own checkpoint, and the
+        // configured deployment must be entitled to continue it. An unauthorized resume must
+        // not be able to move another run out of DELAYED — or change any state at all.
+        runStore.requireResumable(entry.workflow.name, id)
+        val governedRun = recoverPersistedGovernedRun(entry, persistence, id)
+        serverGovernance.authorizeContinuation(governedRun?.identity?.deployment)
+
         val running = runStore.markResuming(entry.workflow.name, id).toResponse()
         val job =
             workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
@@ -116,11 +125,28 @@ class WorkflowController(
                     entry = entry,
                     workflowId = id,
                     persistence = persistence,
+                    governedRun = governedRun,
                 )
             }
         runStore.attachExecution(entry.workflow.name, id, job)
         job.start()
         return running
+    }
+
+    /**
+     * Recovers the identity persisted with this run (null for a legacy run).
+     *
+     * ponytail: blocking bridge — the resume endpoint is not suspend and its ABI is public;
+     * recovery is a single checkpoint read.
+     */
+    private fun recoverPersistedGovernedRun(
+        entry: WorkflowEntry<*, *>,
+        persistence: WorkflowPersistence<*>,
+        workflowId: String,
+    ): GovernedRun? {
+        @Suppress("UNCHECKED_CAST")
+        val typedPersistence = persistence as WorkflowPersistence<Any?>
+        return runBlocking { typedPersistence.recoverGovernedRun(entry.workflow.name, workflowId) }
     }
 
     @GetMapping("/workflows/{name}/runs")
@@ -195,7 +221,14 @@ class WorkflowController(
                                 "get" to operation("Inspect ${entry.workflow.name} run"),
                                 "delete" to operation("Cancel ${entry.workflow.name} run"),
                             ),
-                        "$workflowPath/runs/{id}/resume" to mapOf("post" to operation("Resume ${entry.workflow.name} run")),
+                        "$workflowPath/runs/{id}/resume" to
+                            mapOf(
+                                "post" to
+                                    operation(
+                                        "Resume ${entry.workflow.name} " +
+                                            "run",
+                                    ),
+                            ),
                     )
                 }.toMap()
         return mapOf(
@@ -232,10 +265,21 @@ class WorkflowController(
                 definitionVersion = entry.workflow.definitionVersion,
                 idempotencyKey = idempotencyKey,
             )
-        if (!creation.created) {
+        return if (creation.created) {
+            admitGovernedRun(entry, workflowId, initialState, governedDeployment)
+        } else {
             // Another identical request won the race: return its run and launch nothing.
-            return creation.record.toResponse()
+            creation.record.toResponse()
         }
+    }
+
+    /** Launches an admitted run and returns the run record the caller sees. */
+    private fun admitGovernedRun(
+        entry: WorkflowEntry<*, *>,
+        workflowId: String,
+        initialState: Any?,
+        governedDeployment: WorkloadDeploymentIdentity?,
+    ): WorkflowRunResponse {
         // One canonical identity, established exactly once: the run id IS the RunId.
         val governedRun =
             governedDeployment?.let { deployment ->
@@ -314,6 +358,7 @@ class WorkflowController(
         workflowId: String,
         @Suppress("UNCHECKED_CAST")
         persistence: WorkflowPersistence<*>,
+        governedRun: GovernedRun?,
     ) {
         val observer = ServerWorkflowObserver(runStore, workflowId)
 
@@ -323,13 +368,8 @@ class WorkflowController(
         @Suppress("UNCHECKED_CAST")
         val typedPersistence = persistence as WorkflowPersistence<Any?>
         try {
-            // A continuation RECOVERS attribution from the run's own checkpoint, never from
-            // server configuration or registration. The configured deployment must match the
-            // persisted one; there is no lifecycle re-check, because a continuation is not a
-            // new execution and a later SUSPENDED/RETIRED transition cannot invalidate a run
-            // that was already admitted.
-            val governedRun = typedPersistence.recoverGovernedRun(entry.workflow.name, workflowId)
-            serverGovernance.authorizeContinuation(governedRun?.identity?.deployment)
+            // The identity was recovered from this run's own checkpoint and authorized before
+            // the resume was admitted; it is never re-derived here.
             val result =
                 if (governedRun == null) {
                     typedEntry.resume(
