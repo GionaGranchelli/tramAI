@@ -479,9 +479,11 @@ internal class InvocationExecutionCoordinator(
     private suspend fun invocationIdentity(workflowDigest: Sha256Digest): EngineExecutionIdentity {
         val identitySource = components.execution.identitySource
         // 0.7.1d: inside a governed execution the canonical RunId is authoritative and
-        // the engine must NOT mint a second workflow run id for the same execution.
-        // Outside one (legacy/ungoverned callers) the generated identity is unchanged.
-        val governedRunId = currentCoroutineContext()[GovernedRunScope]?.runId
+        // the engine must NOT mint a second workflow run id for the same execution:
+        // the coroutine context is authoritative, the thread bridge covers the blocking
+        // proxy path (see TramaiInvocationHandler). Outside a governed execution the
+        // generated identity is unchanged.
+        val governedRunId = GovernedRunScope.resolve(currentCoroutineContext())?.runId?.value
         val workflowRunId = governedRunId ?: identitySource.newWorkflowRunId()
         val correlationId = identitySource.newCorrelationId()
         require(workflowRunId.isNotBlank()) { "Engine workflowRunId must not be blank" }
