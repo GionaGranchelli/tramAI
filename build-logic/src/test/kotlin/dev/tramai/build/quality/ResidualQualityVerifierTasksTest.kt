@@ -239,6 +239,7 @@ class ResidualQualityVerifierTasksTest {
             dir,
             srcRel,
             "tramai-core/src/main/kotlin/dev/tramai/core/annotations",
+            "tramai-core/src/main/kotlin/dev/tramai/core/identity",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/Tool.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolResult.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ContentPart.kt",
