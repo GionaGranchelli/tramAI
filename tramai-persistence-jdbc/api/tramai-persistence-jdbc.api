@@ -106,12 +106,14 @@ public abstract interface class dev/tramai/persistence/jdbc/JdbcReplayEnvelopeCo
 	public abstract fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
 }
 
-public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore : dev/tramai/engine/SuspendedInvocationStore {
+public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore : dev/tramai/engine/GovernedSuspendedInvocationStore, dev/tramai/engine/SuspendedInvocationStore {
 	public static final field Companion Ldev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore$Companion;
 	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ljava/time/Clock;)V
 	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun create (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun createGoverned (Ldev/tramai/engine/GovernedSuspendedInvocation;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun governedRunIdentity (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun revealReplayEnvelope (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun revealSensitiveContext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

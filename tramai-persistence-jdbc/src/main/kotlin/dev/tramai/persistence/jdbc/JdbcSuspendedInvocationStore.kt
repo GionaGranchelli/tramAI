@@ -7,11 +7,22 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
@@ -68,7 +79,8 @@ class JdbcSuspendedInvocationStore(
     private val dataSource: DataSource,
     private val replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
     private val clock: Clock = Clock.systemUTC(),
-) : SuspendedInvocationStore {
+) : SuspendedInvocationStore,
+    GovernedSuspendedInvocationStore {
     /**
      * Plain ObjectMapper for JSONB-safe metadata serialization (toolSecurity).
      * No default typing — only used for safe primitive/String fields.
@@ -90,12 +102,35 @@ class JdbcSuspendedInvocationStore(
     ): Unit =
         withSafeJdbc({ "Database operation failed for suspended invocation: ${metadata.approvalId}" }) {
             validateCreateInput(metadata)
-            val payloadJson = buildCreatePayload(metadata, replayEnvelope)
+            val payloadJson = buildCreatePayload(metadata, replayEnvelope, runIdentity = null)
             val encrypted = replayEnvelopeCodec.encode(payloadJson)
             val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
 
             dataSource.connection.use { conn ->
                 insertSuspendedInvocation(conn, metadata, encrypted, now)
+            }
+        }
+
+    /**
+     * Persists a GOVERNED suspension: the same single row and single insert as [create], with
+     * the canonical run identity inside the same encrypted payload. The identity is therefore
+     * never promoted into plaintext columns and a crash can never leave a half-governed record.
+     */
+    override suspend fun createGoverned(
+        suspended: GovernedSuspendedInvocation,
+        replayEnvelope: SensitiveReplayEnvelope,
+    ): Unit =
+        withSafeJdbc({
+            "Database operation failed for suspended invocation: ${suspended.metadata.approvalId}"
+        }) {
+            validateCreateInput(suspended.metadata)
+            val payloadJson =
+                buildCreatePayload(suspended.metadata, replayEnvelope, suspended.runIdentity)
+            val encrypted = replayEnvelopeCodec.encode(payloadJson)
+            val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
+
+            dataSource.connection.use { conn ->
+                insertSuspendedInvocation(conn, suspended.metadata, encrypted, now)
             }
         }
 
@@ -105,6 +140,14 @@ class JdbcSuspendedInvocationStore(
 
             val row = readCurrent(approvalId) ?: return@withSafeJdbc null
             row.metadata.toDomain()
+        }
+
+    override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? =
+        withSafeJdbc({ "Database operation failed for suspended invocation: $approvalId" }) {
+            validateIdField(approvalId, "approvalId")
+
+            val row = readCurrent(approvalId) ?: return@withSafeJdbc null
+            row.governedRunIdentity
         }
 
     /**
@@ -125,14 +168,17 @@ class JdbcSuspendedInvocationStore(
     private fun buildCreatePayload(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
+        runIdentity: GovernedRunIdentity?,
     ): ByteArray {
         val messages = replayEnvelope.revealForResume().messages
         validateReplayEnvelopeInvariants(metadata, messages)
         validateReplayEnvelopeDigest(metadata, messages)
         val payload =
             Payload(
+                payloadVersion = if (runIdentity == null) 1 else 2,
                 metadata = PayloadMetadata.fromDomain(metadata),
                 persistedMessages = messages.map { toPersisted(it) },
+                governedRunIdentity = runIdentity?.let { PayloadGovernedRunIdentity.fromDomain(it) },
             )
         return mapper.writeValueAsBytes(payload)
     }
@@ -407,6 +453,7 @@ class JdbcSuspendedInvocationStore(
                         metadata = payload.metadata,
                         messages = payload.persistedMessages.map { toDomainMessage(it) },
                         version = version,
+                        governedRunIdentity = payload.governedRunIdentity?.toDomain(),
                     )
                 }
             }
@@ -417,6 +464,7 @@ class JdbcSuspendedInvocationStore(
         val metadata: PayloadMetadata,
         val messages: List<Message>,
         val version: Long,
+        val governedRunIdentity: GovernedRunIdentity? = null,
     )
 
     private fun readEncryptedFromRow(rs: ResultSet): JdbcEncryptedReplayEnvelope {
@@ -453,11 +501,65 @@ class JdbcSuspendedInvocationStore(
                 throw IllegalStateException("suspended-invocation-decryption-failed", e)
             }
 
-        return try {
-            mapper.readValue(plaintext)
-        } catch (e: Exception) {
-            throw IllegalStateException("suspended-invocation-deserialization-failed", e)
+        val node =
+            try {
+                mapper.readTree(plaintext)
+            } catch (e: Exception) {
+                throw IllegalStateException("suspended-invocation-deserialization-failed", e)
+            } ?: throw IllegalStateException("suspended-invocation-deserialization-failed")
+
+        val payload =
+            try {
+                mapper.treeToValue(node, Payload::class.java)
+            } catch (e: Exception) {
+                throw IllegalStateException("suspended-invocation-deserialization-failed", e)
+            } ?: throw IllegalStateException("suspended-invocation-deserialization-failed")
+
+        // A payload written before governed attribution existed has no version field at all,
+        // which is exactly the legacy case.
+        val version = node.get("payloadVersion")?.asInt() ?: 1
+        when (version) {
+            1 -> {
+                if (payload.governedRunIdentity != null) {
+                    throw IllegalStateException(
+                        "suspended-invocation-corrupted: legacy payload carries a governed identity",
+                    )
+                }
+            }
+
+            2 -> {
+                val identity =
+                    payload.governedRunIdentity
+                        ?: throw IllegalStateException(
+                            "suspended-invocation-corrupted: governed payload without a run identity",
+                        )
+                val components =
+                    listOf(
+                        identity.workloadId,
+                        identity.configurationId,
+                        identity.configurationVersion,
+                        identity.environmentId,
+                        identity.deploymentId,
+                        identity.runId,
+                    )
+                if (components.any { it.isBlank() }) {
+                    throw IllegalStateException(
+                        "suspended-invocation-corrupted: governed run identity is incomplete",
+                    )
+                }
+                // Bidirectional invariant, checked on decode as well as on create.
+                if (identity.runId != payload.metadata.identityWorkflowRunId) {
+                    throw IllegalStateException(
+                        "suspended-invocation-corrupted: governed identity names another run",
+                    )
+                }
+            }
+
+            else -> {
+                throw IllegalStateException("suspended-invocation-unsupported-payload-version: $version")
+            }
         }
+        return payload
     }
 
     private fun validateIdField(
@@ -536,9 +638,57 @@ class JdbcSuspendedInvocationStore(
      * Uses PersistedMessage DTOs — no Jackson default typing.
      */
     private data class Payload(
+        val payloadVersion: Int = 1,
         val metadata: PayloadMetadata,
         val persistedMessages: List<PersistedMessage>,
+        val governedRunIdentity: PayloadGovernedRunIdentity? = null,
     )
+
+    /**
+     * Persisted canonical run identity, carried INSIDE the encrypted payload (0.7.1d) so that
+     * workload/deployment attribution is never promoted into plaintext query columns — the
+     * same confidentiality decision the rest of this record already makes.
+     *
+     * `payloadVersion` is semantic: 1 means no governed attribution was persisted, 2 means it
+     * was persisted and is mandatory. A v2 payload missing a component is corruption, never a
+     * legacy fallback.
+     */
+    private data class PayloadGovernedRunIdentity(
+        val workloadId: String,
+        val configurationId: String,
+        val configurationVersion: String,
+        val environmentId: String,
+        val deploymentId: String,
+        val runId: String,
+    ) {
+        fun toDomain(): GovernedRunIdentity =
+            GovernedRunIdentity(
+                deployment =
+                    WorkloadDeploymentIdentity(
+                        workloadId = WorkloadId(workloadId),
+                        configuration =
+                            WorkloadConfigurationIdentity(
+                                id = ConfigurationId(configurationId),
+                                version = ConfigurationVersion(configurationVersion),
+                            ),
+                        environmentId = EnvironmentId(environmentId),
+                        deploymentId = DeploymentId(deploymentId),
+                    ),
+                runId = RunId(runId),
+            )
+
+        companion object {
+            fun fromDomain(identity: GovernedRunIdentity): PayloadGovernedRunIdentity =
+                PayloadGovernedRunIdentity(
+                    workloadId = identity.deployment.workloadId.value,
+                    configurationId = identity.deployment.configuration.id.value,
+                    configurationVersion = identity.deployment.configuration.version.value,
+                    environmentId = identity.deployment.environmentId.value,
+                    deploymentId = identity.deployment.deploymentId.value,
+                    runId = identity.runId.value,
+                )
+        }
+    }
 
     /**
      * Persistable snapshot of [SuspendedInvocationMetadata].
