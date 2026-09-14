@@ -1238,6 +1238,35 @@ public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutbo
 	public final fun dispatchPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Governed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)V
+	public final fun component1 ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public final fun copy (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$Legacy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecord ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$NoRecord : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxGovernance$NoRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxOperations {
 	public abstract fun listOutboxRecords (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markPreparedFailed (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
