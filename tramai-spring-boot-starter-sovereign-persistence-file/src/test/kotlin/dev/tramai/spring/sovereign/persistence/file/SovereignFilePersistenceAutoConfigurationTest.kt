@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.persistence.file
 
 import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.persistence.file.FileBackedSovereignStores
@@ -517,18 +518,18 @@ class CustomAuditStore : AuditStore {
 class CustomApprovalStore : ApprovalStore {
     private var created = false
 
-    override suspend fun create(request: dev.tramai.core.approval.ApprovalRequest): dev.tramai.core.approval.ApprovalRequest {
+    override suspend fun create(request: ApprovalRequest): ApprovalRequest {
         created = true
         return request
     }
 
-    override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalRequest? = null
+    override suspend fun get(approvalId: String): ApprovalRequest? = null
 
     override suspend fun transition(
         approvalId: String,
         expectedVersion: Long,
         transition: dev.tramai.core.approval.ApprovalTransition,
-    ): dev.tramai.core.approval.ApprovalRequest = throw UnsupportedOperationException("custom stub")
+    ): ApprovalRequest = throw UnsupportedOperationException("custom stub")
 
     override suspend fun consumeApprovedOrReplay(
         approvalId: String,
