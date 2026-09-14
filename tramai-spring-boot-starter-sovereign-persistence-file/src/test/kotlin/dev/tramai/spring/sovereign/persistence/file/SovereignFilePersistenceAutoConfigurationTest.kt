@@ -12,11 +12,6 @@ import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
-import java.io.File
-import java.nio.file.Files
-import java.nio.file.Path
-import java.time.Instant
-import java.util.Base64
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -24,9 +19,13 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.util.Base64
 
 class SovereignFilePersistenceAutoConfigurationTest {
-
     @TempDir
     lateinit var tempDir: Path
 
@@ -35,16 +34,21 @@ class SovereignFilePersistenceAutoConfigurationTest {
         Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
 
     /** Properties for a valid file-persistence config using key-file. */
-    private fun validFileProps(baseDir: Path, keyFile: Path): Map<String, String> = mapOf(
-        "tramai.sovereign.persistence.type" to "file",
-        "tramai.sovereign.persistence.base-dir" to baseDir.toAbsolutePath().toString(),
-        "tramai.sovereign.persistence.encryption.key-file" to keyFile.toAbsolutePath().toString(),
-    )
-
-    private val contextRunner = ApplicationContextRunner()
-        .withConfiguration(
-            AutoConfigurations.of(SovereignFilePersistenceAutoConfiguration::class.java),
+    private fun validFileProps(
+        baseDir: Path,
+        keyFile: Path,
+    ): Map<String, String> =
+        mapOf(
+            "tramai.sovereign.persistence.type" to "file",
+            "tramai.sovereign.persistence.base-dir" to baseDir.toAbsolutePath().toString(),
+            "tramai.sovereign.persistence.encryption.key-file" to keyFile.toAbsolutePath().toString(),
         )
+
+    private val contextRunner =
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(SovereignFilePersistenceAutoConfiguration::class.java),
+            )
 
     // ── type=memory does not create file stores ────────────────────────
 
@@ -65,8 +69,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.encryption.key-file=/tmp/nonexistent",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -83,8 +86,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
             .withPropertyValues(
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -103,8 +105,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
                 "tramai.sovereign.persistence.encryption.key-env=MY_KEY",
                 "tramai.sovereign.persistence.encryption.key-file=/tmp/some-key-file",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -122,8 +123,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
                 "tramai.sovereign.persistence.encryption.key-env=TRAMAI_TEST_NONEXISTENT_KEY_98765",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -145,8 +145,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
                 "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -170,8 +169,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                 "tramai.sovereign.persistence.type=file",
                 "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
                 "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasFailed()
                 val failure = requireNotNull(ctx.startupFailure)
                 assertThat(failure)
@@ -188,11 +186,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(FileBackedSovereignStores::class.java)
                 assertThat(ctx).hasSingleBean(AuditStore::class.java)
                 val store = ctx.getBean(AuditStore::class.java)
@@ -209,11 +207,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalStore::class.java)
                 val store = ctx.getBean(ApprovalStore::class.java)
                 assertThat(store).isExactlyInstanceOf(
@@ -229,11 +227,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalContinuationStore::class.java)
                 val store = ctx.getBean(ApprovalContinuationStore::class.java)
                 assertThat(store).isExactlyInstanceOf(
@@ -249,11 +247,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(SuspendedInvocationStore::class.java)
                 val store = ctx.getBean(SuspendedInvocationStore::class.java)
                 assertThat(store).isExactlyInstanceOf(
@@ -269,11 +267,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxStore::class.java)
                 val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
                 assertThat(store).isExactlyInstanceOf(FileSovereignOpsAuditOutboxStore::class.java)
@@ -287,11 +285,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
 
         contextRunner
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
                 assertThat(store.isDurable()).isTrue
             }
@@ -304,24 +302,24 @@ class SovereignFilePersistenceAutoConfigurationTest {
         val dir = tempDir.resolve("base-starter-delegation")
         val keyFile = prepareKeyFile(dir)
 
-        val combinedRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(
-                    SovereignFilePersistenceAutoConfiguration::class.java,
-                    dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
-                ),
-            )
-            .withUserConfiguration(MinimalProviderConfig::class.java)
-            .withPropertyValues(
-                "tramai.sovereign.enabled=true",
-                "tramai.sovereign.allowed-models[0]=local-model",
-                "tramai.sovereign.allowed-providers[0]=test-provider",
-                "tramai.sovereign.provider-zones.test-provider=LOCAL",
-                "tramai.sovereign.models.local-model=test-provider",
-                "tramai.sovereign.persistence.type=file",
-                "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
-                "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
-            )
+        val combinedRunner =
+            ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(
+                        SovereignFilePersistenceAutoConfiguration::class.java,
+                        dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
+                    ),
+                ).withUserConfiguration(MinimalProviderConfig::class.java)
+                .withPropertyValues(
+                    "tramai.sovereign.enabled=true",
+                    "tramai.sovereign.allowed-models[0]=local-model",
+                    "tramai.sovereign.allowed-providers[0]=test-provider",
+                    "tramai.sovereign.provider-zones.test-provider=LOCAL",
+                    "tramai.sovereign.models.local-model=test-provider",
+                    "tramai.sovereign.persistence.type=file",
+                    "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
+                    "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
+                )
 
         combinedRunner.run { ctx ->
             // AuditStore should be file-backed, NOT in-memory
@@ -349,24 +347,24 @@ class SovereignFilePersistenceAutoConfigurationTest {
         val dir = tempDir.resolve("runtime-suspended")
         val keyFile = prepareKeyFile(dir)
 
-        val combinedRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(
-                    SovereignFilePersistenceAutoConfiguration::class.java,
-                    dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
-                ),
-            )
-            .withUserConfiguration(MinimalProviderConfig::class.java)
-            .withPropertyValues(
-                "tramai.sovereign.enabled=true",
-                "tramai.sovereign.allowed-models[0]=test-model",
-                "tramai.sovereign.allowed-providers[0]=test-provider",
-                "tramai.sovereign.provider-zones.test-provider=LOCAL",
-                "tramai.sovereign.models.test-model=test-provider",
-                "tramai.sovereign.persistence.type=file",
-                "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
-                "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
-            )
+        val combinedRunner =
+            ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(
+                        SovereignFilePersistenceAutoConfiguration::class.java,
+                        dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
+                    ),
+                ).withUserConfiguration(MinimalProviderConfig::class.java)
+                .withPropertyValues(
+                    "tramai.sovereign.enabled=true",
+                    "tramai.sovereign.allowed-models[0]=test-model",
+                    "tramai.sovereign.allowed-providers[0]=test-provider",
+                    "tramai.sovereign.provider-zones.test-provider=LOCAL",
+                    "tramai.sovereign.models.test-model=test-provider",
+                    "tramai.sovereign.persistence.type=file",
+                    "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
+                    "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
+                )
 
         combinedRunner.run { ctx ->
             // Runtime and tramai beans exist (proves builder path succeeded)
@@ -397,11 +395,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(CustomAuditStoreConfig::class.java)
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx.getBeansOfType(AuditStore::class.java)).hasSize(1)
                 val store = ctx.getBean(AuditStore::class.java)
                 assertThat(store).isInstanceOf(CustomAuditStore::class.java)
@@ -416,11 +414,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(CustomApprovalStoreConfig::class.java)
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx.getBeansOfType(ApprovalStore::class.java)).hasSize(1)
                 val store = ctx.getBean(ApprovalStore::class.java)
                 assertThat(store).isInstanceOf(CustomApprovalStore::class.java)
@@ -435,11 +433,11 @@ class SovereignFilePersistenceAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(CustomOutboxStoreConfig::class.java)
             .withPropertyValues(
-                *validFileProps(dir, keyFile).entries
+                *validFileProps(dir, keyFile)
+                    .entries
                     .map { "${it.key}=${it.value}" }
                     .toTypedArray(),
-            )
-            .run { ctx ->
+            ).run { ctx ->
                 assertThat(ctx.getBeansOfType(SovereignOpsAuditOutboxStore::class.java)).hasSize(1)
                 val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
                 assertThat(store).isInstanceOf(CustomOutboxStore::class.java)
@@ -489,69 +487,66 @@ class CustomAuditStore : AuditStore {
     override suspend fun appendNext(
         auditStreamId: String,
         eventFactory: (AuditEvent?) -> AuditEvent,
-    ): AuditEvent = eventFactory(
-        AuditEvent(
-            schemaVersion = 1,
-            hashAlgorithm = dev.tramai.security.audit.AuditHashAlgorithm.SHA_256,
-            auditStreamId = auditStreamId,
-            eventId = "custom-test-event",
-            sequenceNumber = 1,
-            workflowRunId = null,
-            correlationId = null,
-            actor = "test",
-            enforcementPoint = "test",
-            decision = "permit",
-            policyVersion = null,
-            workflowDigest = null,
-            previousEventHash = null,
-            eventHash = "a".repeat(64),
-            timestamp = Instant.now(),
-            reasonCode = null,
-        ),
-    )
+    ): AuditEvent =
+        eventFactory(
+            AuditEvent(
+                schemaVersion = 1,
+                hashAlgorithm = dev.tramai.security.audit.AuditHashAlgorithm.SHA_256,
+                auditStreamId = auditStreamId,
+                eventId = "custom-test-event",
+                sequenceNumber = 1,
+                workflowRunId = null,
+                correlationId = null,
+                actor = "test",
+                enforcementPoint = "test",
+                decision = "permit",
+                policyVersion = null,
+                workflowDigest = null,
+                previousEventHash = null,
+                eventHash = "a".repeat(64),
+                timestamp = Instant.now(),
+                reasonCode = null,
+            ),
+        )
+
     override suspend fun readStream(auditStreamId: String): List<AuditEvent> = emptyList()
+
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? = null
 }
 
 class CustomApprovalStore : ApprovalStore {
     private var created = false
-    override suspend fun create(
-        request: dev.tramai.core.approval.ApprovalRequest,
-    ): dev.tramai.core.approval.ApprovalRequest {
+
+    override suspend fun create(request: dev.tramai.core.approval.ApprovalRequest): dev.tramai.core.approval.ApprovalRequest {
         created = true
         return request
     }
+
     override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalRequest? = null
+
     override suspend fun transition(
         approvalId: String,
         expectedVersion: Long,
         transition: dev.tramai.core.approval.ApprovalTransition,
-    ): dev.tramai.core.approval.ApprovalRequest {
-        throw UnsupportedOperationException("custom stub")
-    }
+    ): dev.tramai.core.approval.ApprovalRequest = throw UnsupportedOperationException("custom stub")
+
     override suspend fun consumeApprovedOrReplay(
         approvalId: String,
         expectedVersion: Long,
         presentedTokenDigest: dev.tramai.core.approval.Sha256Digest,
         consumedBy: String,
-    ): dev.tramai.core.approval.ApprovalConsumptionReceipt {
-        throw UnsupportedOperationException("custom stub")
-    }
+    ): dev.tramai.core.approval.ApprovalConsumptionReceipt = throw UnsupportedOperationException("custom stub")
 }
 
 class CustomOutboxStore : SovereignOpsAuditOutboxStore {
     override fun isDurable(): Boolean = true
 
-    override suspend fun append(
-        record: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsAuditOutboxRecord = record
+    override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord = record
 
     override suspend fun markReadyForDispatch(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
-    ): SovereignOpsAuditOutboxRecord {
-        throw UnsupportedOperationException("custom stub")
-    }
+    ): SovereignOpsAuditOutboxRecord = throw UnsupportedOperationException("custom stub")
 
     override suspend fun claimPending(
         claimedBy: String,
@@ -564,9 +559,7 @@ class CustomOutboxStore : SovereignOpsAuditOutboxStore {
         expectedStatus: SovereignOpsAuditOutboxStatus,
         expectedAttemptCount: Int,
         emittedAt: Instant,
-    ): SovereignOpsAuditOutboxRecord {
-        throw UnsupportedOperationException("custom stub")
-    }
+    ): SovereignOpsAuditOutboxRecord = throw UnsupportedOperationException("custom stub")
 
     override suspend fun markFailed(
         outboxId: String,
@@ -574,9 +567,7 @@ class CustomOutboxStore : SovereignOpsAuditOutboxStore {
         expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
-    ): SovereignOpsAuditOutboxRecord {
-        throw UnsupportedOperationException("custom stub")
-    }
+    ): SovereignOpsAuditOutboxRecord = throw UnsupportedOperationException("custom stub")
 
     override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? = null
 
@@ -597,8 +588,8 @@ class CustomOutboxStore : SovereignOpsAuditOutboxStore {
 
 class StubModelProvider : dev.tramai.core.provider.ModelProvider {
     override fun providerId(): String = "test-provider"
-    override suspend fun complete(
-        request: dev.tramai.core.model.ModelRequest,
-    ): dev.tramai.core.model.ModelResponse =
-        dev.tramai.core.model.ModelResponse(content = "stub response")
+
+    override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse =
+        dev.tramai.core.model
+            .ModelResponse(content = "stub response")
 }
