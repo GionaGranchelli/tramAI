@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.persistence.file
 
 import com.fasterxml.jackson.annotation.JsonInclude
@@ -7,12 +9,15 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.persistence.file.AesGcmFileEncryption
 import dev.tramai.persistence.file.EncryptedFileEnvelopeV1
 import dev.tramai.persistence.file.FileStoreCorruptionException
 import dev.tramai.persistence.file.FileStorePermissionException
 import dev.tramai.persistence.file.FileStoreSha256
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -340,6 +345,60 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                 status = targetStatus,
                 lastErrorCode = errorCode,
             )
+        }
+
+    /**
+     * 0.7.1d: appends a governed record, persisting the ordinary outbox fields and the complete
+     * canonical identity as one encrypted atomic write. No second file, no identity sidecar.
+     */
+    internal suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord) {
+        lease.withOpenOperation {
+            validateManagedDirectory(outboxDir, STORAGE_NAME)
+            val record = entry.record
+            require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
+            require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
+            require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
+                "tramai-sovereign-ops-outbox-invalid-status"
+            }
+            appendLock.lock()
+            try {
+                require(!Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
+                    "tramai-sovereign-ops-outbox-duplicate-id"
+                }
+                require(!eventKeyIndex.containsKey(record.eventKey)) {
+                    "tramai-sovereign-ops-outbox-duplicate-event-key"
+                }
+                val decoded = DecodedOutboxRecord(record, entry.runIdentity, 0L)
+                createAtomically(encodeOutboxRecord(decoded, 0L), record.outboxId)
+                eventKeyIndex[record.eventKey] = record.outboxId
+            } finally {
+                appendLock.unlock()
+            }
+        }
+    }
+
+    /**
+     * 0.7.1d: resolves provenance from record existence first, so an absent record is never mistaken
+     * for a legacy one.
+     */
+    internal suspend fun governanceById(outboxId: String): SovereignOpsAuditOutboxGovernance =
+        lease.withOpenOperation {
+            val lock = getLockForOutboxId(outboxId)
+            lock.lock()
+            try {
+                val decoded = readCurrent(outboxId)
+                if (decoded == null) {
+                    SovereignOpsAuditOutboxGovernance.NoRecord
+                } else if (decoded.runIdentity == null) {
+                    SovereignOpsAuditOutboxGovernance.Legacy(decoded.record)
+                } else {
+                    SovereignOpsAuditOutboxGovernance.Governed(
+                        GovernedSovereignOpsAuditOutboxRecord(decoded.record, decoded.runIdentity),
+                    )
+                }
+            } finally {
+                lock.unlock()
+            }
         }
 
     override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? =

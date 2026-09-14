@@ -44,15 +44,17 @@ interface GovernedSovereignOpsAuditOutboxStore {
      * Appends a governed record in `PREPARED` state, persisting the ordinary outbox fields and the
      * complete canonical identity in one logical durable write.
      */
-    suspend fun appendGoverned(governed: GovernedSovereignOpsAuditOutboxRecord): GovernedSovereignOpsAuditOutboxRecord
+    suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord)
 
     /**
-     * Reads the governed form of a record, or `null` when the record does not exist.
+     * Resolves a record's durable provenance: V2 → [SovereignOpsAuditOutboxGovernance.Governed],
+     * V1 → [SovereignOpsAuditOutboxGovernance.Legacy], absent →
+     * [SovereignOpsAuditOutboxGovernance.NoRecord].
      *
-     * A record that exists without governed attribution is legacy V1 and is reported as such by
-     * [SovereignOpsAuditOutboxGovernance] rather than being mistaken for corruption here.
+     * Provenance is never nullable: a missing identity is ambiguous between legacy and absent, so
+     * the two cases are modelled as distinct results instead of being collapsed into `null`.
      */
-    suspend fun findGovernedById(outboxId: String): GovernedSovereignOpsAuditOutboxRecord?
+    suspend fun governanceById(id: String): SovereignOpsAuditOutboxGovernance
 }
 
 /**
