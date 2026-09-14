@@ -217,7 +217,13 @@ class SovereignJdbcPersistenceAutoConfiguration {
     fun sovereignOpsApprovalMutationStore(
         dataSource: DataSource,
         outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
-    ): SovereignOpsApprovalMutationStore = JdbcSovereignOpsApprovalMutationStore(dataSource, outboxPayloadCodec)
+        suspendedInvocations: SuspendedInvocationStore,
+    ): SovereignOpsApprovalMutationStore =
+        JdbcSovereignOpsApprovalMutationStore(
+            dataSource,
+            outboxPayloadCodec,
+            suspendedInvocations = suspendedInvocations,
+        )
 
     @Bean
     @ConditionalOnMissingBean

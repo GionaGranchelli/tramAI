@@ -16,7 +16,8 @@ import dev.tramai.engine.SuspendedInvocationStore
  * silently interpreted as legacy: whether that is acceptable depends on whether the calling path
  * requires a suspension, which is the caller's decision, not this lookup's.
  */
-internal sealed interface ApprovalRunAttribution {
+@ExperimentalTramaiInternalApi
+sealed interface ApprovalRunAttribution {
     /** A suspension exists and carries the complete canonical identity. */
     data class Governed(
         val identity: GovernedRunIdentity,
@@ -37,7 +38,8 @@ internal sealed interface ApprovalRunAttribution {
  * store's governed capability, which is the canonical authority — never reconstructed from
  * `ApprovalRequest.binding.workflowRunId`, which carries a run identifier and not an authority.
  */
-internal suspend fun resolveApprovalRunAttribution(
+@ExperimentalTramaiInternalApi
+suspend fun resolveApprovalRunAttribution(
     suspendedInvocations: SuspendedInvocationStore,
     approvalId: String,
 ): ApprovalRunAttribution =
