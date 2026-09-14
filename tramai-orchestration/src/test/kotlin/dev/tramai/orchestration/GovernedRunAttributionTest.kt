@@ -310,7 +310,7 @@ class GovernedRunAttributionTest {
     // ── Durable round-trip in every supported store ─────────────────
 
     @Test
-    fun `governed attribution round-trips unchanged through every checkpoint store`() =
+    fun `governed attribution round-trips unchanged through every checkpoint store`() {
         runBlocking<Unit> {
             stores().forEach { (label, store) ->
                 val identity = GovernedRunIdentity(deployment(), RunId("$label-run"))
@@ -325,9 +325,10 @@ class GovernedRunAttributionTest {
                 assertThat(saved.workflowId).isEqualTo(identity.runId.value)
             }
         }
+    }
 
     @Test
-    fun `ungoverned checkpoints stay un-attributed on every store`() =
+    fun `ungoverned checkpoints stay un-attributed on every store`() {
         runBlocking<Unit> {
             stores().forEach { (label, store) ->
                 store.save(checkpoint("$label-legacy"))
@@ -339,6 +340,7 @@ class GovernedRunAttributionTest {
                     .isNull()
             }
         }
+    }
 
     // ── Execution continuity through the runner ─────────────────────
 
@@ -367,7 +369,7 @@ class GovernedRunAttributionTest {
     }
 
     @Test
-    fun `a governed run persists its identity and resumes with it unchanged`() =
+    fun `a governed run persists its identity and resumes with it unchanged`() {
         runBlocking<Unit> {
             val store = InMemoryWorkflowCheckpointStore()
             val persistence =
@@ -395,9 +397,10 @@ class GovernedRunAttributionTest {
             assertThat(store.load(WORKFLOW_NAME, run.context.workflowId)!!.metadata)
                 .containsEntry(GOVERNED_RUN_DEPLOYMENT_KEY, "eu-west-amsterdam-01")
         }
+    }
 
     @Test
-    fun `resuming a governed run through a substituted deployment is rejected`() =
+    fun `resuming a governed run through a substituted deployment is rejected`() {
         runBlocking<Unit> {
             val store = InMemoryWorkflowCheckpointStore()
             val persistence =
@@ -421,9 +424,10 @@ class GovernedRunAttributionTest {
             }.isInstanceOf(WorkflowResumeException::class.java)
                 .hasMessageContaining("environmentId")
         }
+    }
 
     @Test
-    fun `resuming a governed run through an ungoverned context is rejected`() =
+    fun `resuming a governed run through an ungoverned context is rejected`() {
         runBlocking<Unit> {
             val store = InMemoryWorkflowCheckpointStore()
             val persistence =
@@ -447,9 +451,10 @@ class GovernedRunAttributionTest {
             }.isInstanceOf(WorkflowResumeException::class.java)
                 .hasMessageContaining("resume carries no governed attribution")
         }
+    }
 
     @Test
-    fun `legacy ungoverned run and resume stay compatible`() =
+    fun `legacy ungoverned run and resume stay compatible`() {
         runBlocking<Unit> {
             val store = InMemoryWorkflowCheckpointStore()
             val persistence =
@@ -478,4 +483,5 @@ class GovernedRunAttributionTest {
 
             assertThat(workflow.resume(context = context, persistence = persistence)).isEqualTo("seed-one-two")
         }
+    }
 }

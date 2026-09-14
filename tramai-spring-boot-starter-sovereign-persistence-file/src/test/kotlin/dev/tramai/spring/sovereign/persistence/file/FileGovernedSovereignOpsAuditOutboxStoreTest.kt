@@ -95,8 +95,8 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
     // ---------- lifecycle ----------
 
     @Test
-    fun `governed identity survives every transition and two restarts`() =
-        runBlocking {
+    fun `governed identity survives every transition and two restarts`() {
+        runBlocking<Unit> {
             val dir = caseDir("lifecycle")
             val expected = identity()
             val original = record(expected)
@@ -146,10 +146,11 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
             concrete.verifyAll()
             assertRecordFileCount(dir, 1)
         }
+    }
 
     @Test
-    fun `legacy record reads as Legacy and an absent record as NoRecord`() =
-        runBlocking {
+    fun `legacy record reads as Legacy and an absent record as NoRecord`() {
+        runBlocking<Unit> {
             val store = governed(fileStore(caseDir("legacy")))
             val identity = identity()
             val legacy = record(identity)
@@ -167,10 +168,11 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
                 store.governanceById(UUID.randomUUID().toString()),
             )
         }
+    }
 
     @Test
-    fun `governed append keeps duplicate protection and writes no second file`() =
-        runBlocking {
+    fun `governed append keeps duplicate protection and writes no second file`() {
+        runBlocking<Unit> {
             val dir = caseDir("duplicates")
             val store = governed(fileStore(dir))
             val identity = identity()
@@ -195,10 +197,11 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
             assertTrue(duplicateEventKey.message?.contains("duplicate") == true, "got ${duplicateEventKey.message}")
             assertRecordFileCount(dir, 1)
         }
+    }
 
     @Test
-    fun `verifyAll accepts valid V1 and V2`() =
-        runBlocking {
+    fun `verifyAll accepts valid V1 and V2`() {
+        runBlocking<Unit> {
             val dir = caseDir("mixed")
             val concrete = fileStore(dir)
             val store = governed(concrete)
@@ -208,6 +211,7 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
             concrete.verifyAll()
             assertRecordFileCount(dir, 2)
         }
+    }
 
     // ---------- codec fail-closed matrix ----------
 
@@ -224,28 +228,30 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
-    fun `V2 whose identity disagrees with the run id fails closed`() =
-        runBlocking {
+    fun `V2 whose identity disagrees with the run id fails closed`() {
+        runBlocking<Unit> {
             val identity = identity()
             val json = governedJson(record(identity), identity)
             val tampered = json.replace("\"runId\":\"run-1\"", "\"runId\":\"run-other\"")
             assertTrue(tampered != json, "tamper must change the payload")
             assertFailsWith<FileStoreCorruptionException> { decodeOutboxRecord(tampered) }
         }
+    }
 
     @Test
-    fun `partial V2 identity fails closed`() =
-        runBlocking {
+    fun `partial V2 identity fails closed`() {
+        runBlocking<Unit> {
             val identity = identity()
             val json = governedJson(record(identity), identity)
-            val tampered = json.replace("\"deploymentId\":\"dep-1\",", "")
+            val tampered = json.replace(",\"deploymentId\":\"dep-1\"", "")
             assertTrue(tampered != json, "tamper must change the payload")
             assertFailsWith<FileStoreCorruptionException> { decodeOutboxRecord(tampered) }
         }
+    }
 
     @Test
-    fun `V1 payload decodes with no governed identity and re-encodes as V1`() =
-        runBlocking {
+    fun `V1 payload decodes with no governed identity and re-encodes as V1`() {
+        runBlocking<Unit> {
             val v1Json = record(identity()).toPersistedV1(version = 0L).toJson()
             val decoded = decodeOutboxRecord(v1Json)
             assertEquals(null, decoded.runIdentity)
@@ -254,10 +260,11 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
             assertTrue(reEncoded.contains("\"schemaVersion\":1"), "a legacy record must never be re-encoded as V2")
             assertEquals(decoded.record, decodeOutboxRecord(reEncoded).record)
         }
+    }
 
     @Test
-    fun `a governed payload re-encodes as V2 with the identity intact`() =
-        runBlocking {
+    fun `a governed payload re-encodes as V2 with the identity intact`() {
+        runBlocking<Unit> {
             val identity = identity()
             val decoded = decodeOutboxRecord(governedJson(record(identity), identity))
             assertEquals(identity, requireNotNull(decoded.runIdentity))
@@ -269,6 +276,7 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
             assertEquals(identity, roundTripped.runIdentity)
             assertEquals(decoded.record, roundTripped.record)
         }
+    }
 
     // ---------- helpers ----------
 
