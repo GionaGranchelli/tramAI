@@ -13,6 +13,7 @@ import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
 import dev.tramai.persistence.file.FileStoreCorruptionException
+import dev.tramai.persistence.file.FileStorePermissionException
 import dev.tramai.persistence.file.FileStoreUnsupportedFormatException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
@@ -182,6 +183,14 @@ private fun readJsonTree(json: String): JsonNode? =
     } catch (e: JsonProcessingException) {
         throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
     }
+
+/**
+ * Raises a file-permission failure with the validators' exact exception type and message.
+ *
+ * Hosted here rather than beside its callers because the legacy store file sits at its
+ * function-count ceiling and must not be restructured for a reporting concern.
+ */
+internal fun permissionFailure(message: String): Nothing = throw FileStorePermissionException(message)
 
 private const val OFFICIAL_VERSION = 1
 private const val GOVERNED_VERSION = 2

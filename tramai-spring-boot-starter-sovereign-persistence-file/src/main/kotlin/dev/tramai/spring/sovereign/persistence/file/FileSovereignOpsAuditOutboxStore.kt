@@ -90,7 +90,7 @@ internal data class PersistedSovereignOpsAuditOutboxRecordV1(
     }
 }
 
-internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(outboxRecordVersion: Long): PersistedSovereignOpsAuditOutboxRecordV1 =
+internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(version: Long): PersistedSovereignOpsAuditOutboxRecordV1 =
     PersistedSovereignOpsAuditOutboxRecordV1(
         schemaVersion = 1,
         outboxId = outboxId,
@@ -113,7 +113,7 @@ internal fun SovereignOpsAuditOutboxRecord.toPersistedV1(outboxRecordVersion: Lo
         claimExpiresAt = claimExpiresAt?.toString(),
         createdAt = createdAt.toString(),
         emittedAt = emittedAt?.toString(),
-        outboxRecordVersion = outboxRecordVersion,
+        outboxRecordVersion = version,
     )
 
 internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAuditOutboxRecord {
@@ -180,7 +180,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
 
     private fun recordKeyDigest(outboxId: String): String = FileStoreSha256.digest(RECORD_TYPE, outboxId)
 
-    private fun getLockForDigest(digest: String): ReentrantLock = recordLocks.computeIfAbsent(digest) { ReentrantLock() }
+    private fun getLockForDigest(key: String): ReentrantLock = recordLocks.computeIfAbsent(key) { ReentrantLock() }
 
     private fun getLockForOutboxId(outboxId: String): ReentrantLock = getLockForDigest(recordKeyDigest(outboxId))
 
@@ -216,7 +216,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
                     "tramai-sovereign-ops-outbox-duplicate-event-key"
                 }
 
-                createAtomically(record.toPersistedV1(outboxRecordVersion = 0L).toJson(), record.outboxId)
+                createAtomically(record.toPersistedV1(version = 0L).toJson(), record.outboxId)
                 eventKeyIndex[record.eventKey] = record.outboxId
                 record
             } finally {
@@ -661,12 +661,12 @@ private fun validateManagedDirectory(
     path: Path,
     description: String,
 ) {
-    if (Files.isSymbolicLink(path)) throw FileStorePermissionException("$description-symlink-rejected")
+    if (Files.isSymbolicLink(path)) permissionFailure("$description-symlink-rejected")
     if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
-        throw FileStorePermissionException("$description-not-directory")
+        permissionFailure("$description-not-directory")
     }
     if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) != DIR_PERMS_0700) {
-        throw FileStorePermissionException("$description-permission-denied")
+        permissionFailure("$description-permission-denied")
     }
 }
 
@@ -674,12 +674,12 @@ private fun validateRegularFile(
     path: Path,
     description: String,
 ) {
-    if (Files.isSymbolicLink(path)) throw FileStorePermissionException("$description-symlink-rejected")
+    if (Files.isSymbolicLink(path)) permissionFailure("$description-symlink-rejected")
     if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-        throw FileStorePermissionException("$description-not-regular-file")
+        permissionFailure("$description-not-regular-file")
     }
     if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) != FILE_PERMS_0600) {
-        throw FileStorePermissionException("$description-permission-denied")
+        permissionFailure("$description-permission-denied")
     }
 }
 
