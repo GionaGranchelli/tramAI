@@ -1,5 +1,6 @@
-package dev.tramai.engine.invocation
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 
+package dev.tramai.engine.invocation
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
@@ -17,6 +18,7 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolResult
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContentType

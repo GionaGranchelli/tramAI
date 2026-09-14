@@ -39,6 +39,13 @@ class ScheduledWorkflowTimer(
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
     private val scope: CoroutineScope = OwnedSchedulerScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
+    /**
+     * Durable binding authority, discovered from the STORE rather than from the current
+     * registration (0.7.1d). A registration only declares intent; a later ordinary
+     * registration must not be able to hide an existing durable governed binding.
+     */
+    private val bindings: GovernedScheduleBindingStore? = store as? GovernedScheduleBindingStore
+
     // Epic 5.3: the scheduler owns WorkflowObserver instances and invokes
     // tick callbacks BEFORE durable scheduler transitions (markTickSkipped /
     // markTickMisfired / markTickStarted / releaseDelayWakeupClaim). A
@@ -116,8 +123,13 @@ class ScheduledWorkflowTimer(
                 persistence = persistence,
                 governed = governed,
             )
-        synchronized(monitor) {
-            registrations[scheduleId] = registration
+        // Fail-safe order (0.7.1d): a durable binding write that throws must leave NO
+        // executable schedule behind, so the binding lands first, then the schedule, and the
+        // in-memory registration is published last.
+        governed?.let { declaration ->
+            declaration.bindingStore.putGovernedScheduleBinding(
+                GovernedScheduleBinding(scheduleId = scheduleId, deploymentIdentity = declaration.deploymentIdentity),
+            )
         }
         store.upsertSchedule(
             ScheduleRecord(
@@ -127,10 +139,8 @@ class ScheduledWorkflowTimer(
                 nextFireAt = schedule.nextFireAfter(clock.instant()),
             ),
         )
-        governed?.let { declaration ->
-            declaration.bindingStore.putGovernedScheduleBinding(
-                GovernedScheduleBinding(scheduleId = scheduleId, deploymentIdentity = declaration.deploymentIdentity),
-            )
+        synchronized(monitor) {
+            registrations[scheduleId] = registration
         }
     }
 
@@ -192,15 +202,23 @@ class ScheduledWorkflowTimer(
             store.markTickSkipped(tick.tickId, tick.claimToken, reason)
             return
         }
-        // A tick is a NEW execution: same deployment identity, FRESH run id. The deployment is
-        // read from the durable binding (the declaration is the fallback); the run id is
-        // created here, exactly once, by the execution envelope.
+        // A tick is a NEW execution: the SAME deployment identity, a FRESH run id created
+        // here, exactly once, by the execution envelope. Classification is DURABLE, never
+        // registration-local: the binding is read from the store, so a later ordinary
+        // registration cannot downgrade a schedule that is durably governed.
+        val binding = bindings?.getGovernedScheduleBinding(tick.scheduleId)
+        if (binding == null && registration.governed != null) {
+            // Explicitly governed registration with no durable binding: fail closed. Runtime
+            // authority is never reconstructed from the transient declaration.
+            val reason = GOVERNED_BINDING_MISSING_REASON
+            val context = scheduledTickContext(tick)
+            isolatedObserver.onSkippedTick(tick.workflowName, tick.scheduledFireAt, reason, context)
+            store.markTickSkipped(tick.tickId, tick.claimToken, reason)
+            return
+        }
         val governedRun =
-            registration.governed?.let { declaration ->
-                val deployment =
-                    declaration.bindingStore.getGovernedScheduleBinding(tick.scheduleId)?.deploymentIdentity
-                        ?: declaration.deploymentIdentity
-                GovernedRun.start(deployment = deployment, attributes = scheduledTickAttributes(tick))
+            binding?.let { bound ->
+                GovernedRun.start(deployment = bound.deploymentIdentity, attributes = scheduledTickAttributes(tick))
             }
         val context = governedRun?.context ?: scheduledTickContext(tick)
         val observer = registration.observer
@@ -347,6 +365,9 @@ private fun scheduledTickAttributes(tick: ClaimedScheduledTick): Map<String, Any
         RuntimeAttributes.SCHEDULE_SCHEDULE_ID.name to tick.scheduleId,
         RuntimeAttributes.SCHEDULE_SCHEDULED_FIRE_AT.name to tick.scheduledFireAt.toEpochMilli(),
     )
+
+/** Why a tick was skipped: the schedule declares governance but no binding is durable. */
+private const val GOVERNED_BINDING_MISSING_REASON = "governed_schedule_binding_missing"
 
 /** Operational tick context — schedule/tick identity, never workload attribution. */
 private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext =

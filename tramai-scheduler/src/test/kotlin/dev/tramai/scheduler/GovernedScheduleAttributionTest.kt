@@ -61,8 +61,14 @@ class GovernedScheduleAttributionTest {
 
     private class Fixture {
         val clock = MutableClock(Instant.parse("2026-09-13T09:00:00Z"))
-        val store = InMemoryWorkflowSchedulerStore()
+        val schedules = InMemoryWorkflowSchedulerStore()
         val bindings = InMemoryGovernedScheduleBindingStore()
+
+        /**
+         * The timer discovers the binding capability from the STORE, so the durable binding
+         * is consulted independently of whatever the current registration declares.
+         */
+        val store = CompositeWorkflowSchedulerStore(schedules, bindings)
         val checkpoints = InMemoryWorkflowCheckpointStore()
         val completedStates = mutableListOf<String>()
         val persistence =
@@ -81,15 +87,21 @@ class GovernedScheduleAttributionTest {
                     "$state-after"
                 }
             }.build(clock = clock) { it }
-        val timer =
+        val timer = newTimer("owner-1")
+
+        /** A second process over the same durable stores: restart, not a new schedule. */
+        fun newTimer(owner: String): ScheduledWorkflowTimer =
             ScheduledWorkflowTimer(
                 store = store,
                 clock = clock,
-                ownerId = "owner-1",
+                ownerId = owner,
                 pollInterval = Duration.ofMillis(1),
                 claimDuration = Duration.ofMinutes(5),
                 misfireThreshold = Duration.ofHours(1),
             )
+
+        /** The schedule id the timer derives from the workflow name. */
+        suspend fun scheduleId(): String = store.listScheduleStatus().single().scheduleId
 
         suspend fun registerGoverned(deployment: WorkloadDeploymentIdentity) {
             timer.register(
@@ -125,6 +137,22 @@ class GovernedScheduleAttributionTest {
             environmentId = EnvironmentId("production"),
             deploymentId = DeploymentId(deploymentId),
         )
+
+    /** A declaration that claims governance while nothing durable is written. */
+    private class UnavailableBindingStore : GovernedScheduleBindingStore {
+        override suspend fun putGovernedScheduleBinding(binding: GovernedScheduleBinding) = Unit
+
+        override suspend fun getGovernedScheduleBinding(scheduleId: String): GovernedScheduleBinding? = null
+    }
+
+    /** A binding authority that is down: the write fails. */
+    private class FailingBindingStore : GovernedScheduleBindingStore {
+        override suspend fun putGovernedScheduleBinding(binding: GovernedScheduleBinding) {
+            error("binding store unavailable")
+        }
+
+        override suspend fun getGovernedScheduleBinding(scheduleId: String): GovernedScheduleBinding? = null
+    }
 
     @Test
     fun `a governed tick runs under the bound deployment with a fresh run id`() {
@@ -169,11 +197,7 @@ class GovernedScheduleAttributionTest {
             // continuation must NOT adopt the new binding for an existing run.
             fixture.bindings.putGovernedScheduleBinding(
                 GovernedScheduleBinding(
-                    scheduleId =
-                        fixture.store
-                            .listScheduleStatus()
-                            .single()
-                            .scheduleId,
+                    scheduleId = fixture.scheduleId(),
                     deploymentIdentity = deployment(deploymentId = "eu-central-frankfurt-01"),
                 ),
             )
@@ -228,6 +252,124 @@ class GovernedScheduleAttributionTest {
             val runId = fixture.fireTick()
 
             assertThat(fixture.persistence.recoverGovernedRun(WORKFLOW_NAME, runId)).isNull()
+        }
+    }
+
+    @Test
+    fun `an ordinary re-registration cannot downgrade a governed schedule`() {
+        runBlocking {
+            val fixture = Fixture()
+            fixture.registerGoverned(deployment())
+            val firstRunId = fixture.fireTick()
+
+            // The in-memory registration is replaced by one that declares no governance. The
+            // durable binding still exists, so the next tick must stay governed.
+            fixture.timer.register(
+                workflow = fixture.workflow,
+                initialState = { "seed" },
+                observer = NoOpWorkflowObserver,
+                persistence = fixture.persistence,
+            )
+            val secondRunId = fixture.fireTick()
+
+            assertThat(secondRunId).isNotEqualTo(firstRunId)
+            val second = fixture.persistence.recoverGovernedRun(WORKFLOW_NAME, secondRunId)
+            assertThat(second)
+                .withFailMessage("a durable binding must survive an ordinary re-registration")
+                .isNotNull()
+            assertThat(second!!.identity.deployment).isEqualTo(deployment())
+        }
+    }
+
+    @Test
+    fun `a restarted timer cannot downgrade a surviving durable binding`() {
+        runBlocking {
+            val fixture = Fixture()
+            fixture.registerGoverned(deployment())
+            val firstRunId = fixture.fireTick()
+
+            // Restart: a fresh process over the same durable stores registers the workflow the
+            // ordinary way. The binding survives, so its ticks are still governed.
+            val restarted = fixture.newTimer("owner-2")
+            restarted.register(
+                workflow = fixture.workflow,
+                initialState = { "seed" },
+                observer = NoOpWorkflowObserver,
+                persistence = fixture.persistence,
+            )
+
+            fixture.clock.advanceBy(Duration.ofMinutes(1))
+            restarted.pollOnce()
+
+            val secondRunId =
+                fixture.store
+                    .listScheduleStatus()
+                    .single()
+                    .lastRunId!!
+            assertThat(secondRunId).isNotEqualTo(firstRunId)
+            val second = fixture.persistence.recoverGovernedRun(WORKFLOW_NAME, secondRunId)
+            assertThat(second)
+                .withFailMessage("a surviving durable binding must not be downgraded by a restarted timer")
+                .isNotNull()
+            assertThat(second!!.identity.deployment).isEqualTo(deployment())
+        }
+    }
+
+    @Test
+    fun `an explicitly governed registration without a durable binding executes nothing`() {
+        runBlocking {
+            val fixture = Fixture()
+            val declared = deployment(deploymentId = "eu-central-frankfurt-01")
+            fixture.timer.register(
+                workflow = fixture.workflow,
+                initialState = { "seed" },
+                observer = NoOpWorkflowObserver,
+                persistence = fixture.persistence,
+                governed = GovernedScheduleRegistration(declared, UnavailableBindingStore()),
+            )
+
+            fixture.clock.advanceBy(Duration.ofMinutes(1))
+            fixture.timer.pollOnce()
+
+            assertThat(fixture.completedStates)
+                .withFailMessage("a governed schedule with no durable binding must execute nothing")
+                .isEmpty()
+            assertThat(
+                fixture.store
+                    .listScheduleStatus()
+                    .single()
+                    .lastRunId,
+            ).withFailMessage("nothing may be attributed, not even to the declared deployment")
+                .isNull()
+        }
+    }
+
+    @Test
+    fun `a failed binding write publishes no schedule and executes nothing`() {
+        runBlocking {
+            val fixture = Fixture()
+            assertThatThrownBy {
+                runBlocking {
+                    fixture.timer.register(
+                        workflow = fixture.workflow,
+                        initialState = { "seed" },
+                        observer = NoOpWorkflowObserver,
+                        persistence = fixture.persistence,
+                        governed = GovernedScheduleRegistration(deployment(), FailingBindingStore()),
+                    )
+                }
+            }.isInstanceOf(IllegalStateException::class.java)
+
+            assertThat(fixture.store.getSchedule("workflow:$WORKFLOW_NAME"))
+                .withFailMessage("a failed binding write must not leave an executable schedule")
+                .isNull()
+
+            fixture.clock.advanceBy(Duration.ofMinutes(1))
+            fixture.timer.pollOnce()
+
+            assertThat(fixture.completedStates)
+                .withFailMessage("an unbound governed schedule must never become an ungoverned run")
+                .isEmpty()
         }
     }
 }

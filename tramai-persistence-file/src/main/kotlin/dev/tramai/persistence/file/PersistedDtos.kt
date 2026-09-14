@@ -378,9 +378,9 @@ data class PersistedSuspendedInvocationRecordV1(
  */
 data class PersistedSuspendedInvocationRecordV2(
     @get:JsonProperty("schemaVersion") val schemaVersion: Int,
-    @JsonProperty("metadata") val metadata: PersistedSuspendedInvocationMetadataV1,
-    @JsonProperty("replayEnvelope") val replayEnvelope: PersistedReplayEnvelopeV1,
-    @JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentityV1,
+    @param:JsonProperty("metadata") val metadata: PersistedSuspendedInvocationMetadataV1,
+    @param:JsonProperty("replayEnvelope") val replayEnvelope: PersistedReplayEnvelopeV1,
+    @param:JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentityV1,
 ) {
     fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
 
@@ -395,12 +395,12 @@ data class PersistedSuspendedInvocationRecordV2(
  */
 data class PersistedGovernedRunIdentityV1(
     @get:JsonProperty("schemaVersion") val schemaVersion: Int,
-    @JsonProperty("workloadId") val workloadId: String,
-    @JsonProperty("configurationId") val configurationId: String,
-    @JsonProperty("configurationVersion") val configurationVersion: String,
-    @JsonProperty("environmentId") val environmentId: String,
-    @JsonProperty("deploymentId") val deploymentId: String,
-    @JsonProperty("runId") val runId: String,
+    @param:JsonProperty("workloadId") val workloadId: String,
+    @param:JsonProperty("configurationId") val configurationId: String,
+    @param:JsonProperty("configurationVersion") val configurationVersion: String,
+    @param:JsonProperty("environmentId") val environmentId: String,
+    @param:JsonProperty("deploymentId") val deploymentId: String,
+    @param:JsonProperty("runId") val runId: String,
 )
 
 /**

@@ -1,5 +1,6 @@
-package dev.tramai.engine.approval
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 
+package dev.tramai.engine.approval
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
@@ -18,6 +19,7 @@ import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.GovernedSuspendedInvocation

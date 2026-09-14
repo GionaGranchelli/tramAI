@@ -98,6 +98,25 @@ public final class dev/tramai/scheduler/ClaimedScheduledTick {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/scheduler/CompositeWorkflowSchedulerStore : dev/tramai/scheduler/GovernedScheduleBindingStore, dev/tramai/scheduler/WorkflowSchedulerStore {
+	public fun <init> (Ldev/tramai/scheduler/WorkflowSchedulerStore;Ldev/tramai/scheduler/GovernedScheduleBindingStore;)V
+	public fun claimDueDelayWakeups (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun claimDueTicks (Ljava/time/Instant;Ljava/lang/String;Ljava/time/Duration;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getGovernedScheduleBinding (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getSchedule (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listScheduleStatus (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markDelayWakeupCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markTickCompleted (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markTickMisfired (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markTickSkipped (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markTickStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun putGovernedScheduleBinding (Ldev/tramai/scheduler/GovernedScheduleBinding;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun releaseDelayWakeupClaim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun releaseTickClaim (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun scheduleDelayWakeup (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun upsertSchedule (Ldev/tramai/scheduler/ScheduleRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/scheduler/CronSchedule : dev/tramai/orchestration/WorkflowScheduleDefinition {
 	public static final field Companion Ldev/tramai/scheduler/CronSchedule$Companion;
 	public fun canonicalForm ()Ljava/lang/String;
