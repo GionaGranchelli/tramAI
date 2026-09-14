@@ -257,7 +257,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(SuspendedInvocationStore::class.java)
                 val store = ctx.getBean(SuspendedInvocationStore::class.java)
                 assertThat(store).isExactlyInstanceOf(
-                    dev.tramai.persistence.file.FileSuspendedInvocationStore::class.java,
+                    dev.tramai.persistence.file.GovernedFileSuspendedInvocationStore::class.java,
                 )
             }
     }
@@ -382,7 +382,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
             val store = ctx.getBean(SuspendedInvocationStore::class.java)
             assertThat(store)
                 .isExactlyInstanceOf(
-                    dev.tramai.persistence.file.FileSuspendedInvocationStore::class.java,
+                    dev.tramai.persistence.file.GovernedFileSuspendedInvocationStore::class.java,
                 )
         }
     }
