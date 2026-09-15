@@ -28,6 +28,54 @@ class WorkloadRegistrationAuthority(
     private val store: WorkloadRegistrationStore,
 ) {
     /**
+     * Resolves the authoritative registration that admits a NEW governed run (0.7.1d).
+     *
+     * This is the minimal internal admission lookup, NOT a query surface: the only
+     * thing a caller can learn is whether its configured deployment is authoritative
+     * for new runs. The caller supplies the identity it intends to run as; the
+     * authority answers with the registered identity it must use.
+     *
+     * Rejects, never coerces:
+     * - no registration for the deployment scope;
+     * - the registered identity differs anywhere, including configuration
+     *   (id or version) — an identity is only authoritative in full;
+     * - the registration is not [WorkloadLifecycleState.ACTIVE].
+     *
+     * Lifecycle is checked HERE, at new-execution admission. A later transition to
+     * SUSPENDED or RETIRED does not retroactively invalidate a run that was
+     * already admitted, and must never be consulted for continuations.
+     */
+    suspend fun resolveForNewRun(expectedIdentity: WorkloadDeploymentIdentity): WorkloadDeploymentIdentity {
+        val registered =
+            store.find(
+                expectedIdentity.workloadId,
+                expectedIdentity.environmentId,
+                expectedIdentity.deploymentId,
+            ) ?: throw WorkloadAdmissionRejectedException("workload-deployment-not-registered")
+
+        val rejection = admissionRejection(registered, expectedIdentity)
+        if (rejection != null) {
+            throw WorkloadAdmissionRejectedException(rejection)
+        }
+        return registered.identity
+    }
+
+    /**
+     * Why an existing registration may not admit this deployment, or null when it may.
+     * Returned rather than thrown so the reason codes stay in one place and the admission
+     * path keeps a single failure surface.
+     */
+    private fun admissionRejection(
+        registered: RegisteredWorkload,
+        expectedIdentity: WorkloadDeploymentIdentity,
+    ): String? =
+        when {
+            registered.identity != expectedIdentity -> "workload-deployment-configuration-mismatch"
+            registered.lifecycle != WorkloadLifecycleState.ACTIVE -> "workload-deployment-not-active"
+            else -> null
+        }
+
+    /**
      * Registers a workload deployment as ACTIVE at state version 1.
      *
      * Idempotent for an identical declaration; conflicting declarations are

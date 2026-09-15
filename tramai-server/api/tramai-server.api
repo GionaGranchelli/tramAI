@@ -283,7 +283,9 @@ public final class dev/tramai/server/WorkflowEntry {
 	public final fun getStateType ()Lkotlin/reflect/KType;
 	public final fun getWorkflow ()Ldev/tramai/orchestration/Workflow;
 	public fun hashCode ()I
+	public final fun resume (Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun resume (Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/GovernedRun;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun toString ()Ljava/lang/String;
 }

@@ -111,8 +111,8 @@ public abstract interface class dev/tramai/spring/sovereign/persistence/jdbc/Jdb
 }
 
 public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore {
-	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;II)V
-	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;IILdev/tramai/engine/SuspendedInvocationStore;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;IILdev/tramai/engine/SuspendedInvocationStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun approveApprovalWithAuditIntent (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun denyApprovalWithAuditIntent (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
@@ -167,7 +167,7 @@ public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPer
 	public final fun jdbcReplayEnvelopeCodec (Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;
 	public final fun missingJdbcDataSourceFailure ()Ljava/lang/Void;
 	public final fun sovereignJdbcEncryptionKey (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ljavax/crypto/SecretKey;
-	public final fun sovereignOpsApprovalMutationStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;
+	public final fun sovereignOpsApprovalMutationStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ldev/tramai/engine/SuspendedInvocationStore;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;
 	public final fun sovereignOpsApprovalRequestMutationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore;
 	public final fun sovereignOpsAuditOutboxStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;
 	public final fun sovereignOpsWorkerLeaseStore (Ljavax/sql/DataSource;)Ldev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore;

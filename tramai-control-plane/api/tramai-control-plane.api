@@ -227,6 +227,11 @@ public final class dev/tramai/controlplane/RegistrationConflictReason : java/lan
 	public static fun values ()[Ldev/tramai/controlplane/RegistrationConflictReason;
 }
 
+public final class dev/tramai/controlplane/WorkloadAdmissionRejectedException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getReason ()Ljava/lang/String;
+}
+
 public final class dev/tramai/controlplane/WorkloadDeploymentScope {
 	public fun <init> (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)V
 	public final fun component1 ()Ldev/tramai/core/identity/WorkloadId;
@@ -255,6 +260,7 @@ public final class dev/tramai/controlplane/WorkloadLifecycleState : java/lang/En
 public final class dev/tramai/controlplane/WorkloadRegistrationAuthority {
 	public fun <init> (Ldev/tramai/controlplane/WorkloadRegistrationStore;)V
 	public final fun register (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun resolveForNewRun (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun transitionLifecycle (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadLifecycleState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun updateMetadata (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }

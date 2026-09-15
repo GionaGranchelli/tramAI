@@ -1,16 +1,27 @@
 package dev.tramai.persistence.file
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.core.JsonProcessingException
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
+import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.core.policy.AuditDetail
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.CompatibilityMode
@@ -18,7 +29,6 @@ import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.ManagedNetworkEgress
 import dev.tramai.core.policy.RiskLevel
 import dev.tramai.core.policy.ToolSecurityMetadata
-import dev.tramai.core.policy.ApprovalMode
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -175,84 +185,89 @@ data class PersistedAuditEventV1(
 // Domain conversions — ApprovalBinding
 // ====================================================================
 
-fun PersistedApprovalBindingV1.toDomain(): ApprovalBinding = ApprovalBinding(
-    workflowRunId = workflowRunId,
-    toolName = toolName,
-    argumentsDigest = Sha256Digest.of(argumentsDigest),
-    policyVersion = policyVersion,
-    workflowDigest = Sha256Digest.of(workflowDigest),
-    approvalTokenDigest = Sha256Digest.of(approvalTokenDigest),
-)
+fun PersistedApprovalBindingV1.toDomain(): ApprovalBinding =
+    ApprovalBinding(
+        workflowRunId = workflowRunId,
+        toolName = toolName,
+        argumentsDigest = Sha256Digest.of(argumentsDigest),
+        policyVersion = policyVersion,
+        workflowDigest = Sha256Digest.of(workflowDigest),
+        approvalTokenDigest = Sha256Digest.of(approvalTokenDigest),
+    )
 
-fun ApprovalBinding.toPersistedV1(): PersistedApprovalBindingV1 = PersistedApprovalBindingV1(
-    schemaVersion = 1,
-    workflowRunId = workflowRunId,
-    toolName = toolName,
-    argumentsDigest = argumentsDigest.value,
-    policyVersion = policyVersion,
-    workflowDigest = workflowDigest.value,
-    approvalTokenDigest = approvalTokenDigest.value,
-)
+fun ApprovalBinding.toPersistedV1(): PersistedApprovalBindingV1 =
+    PersistedApprovalBindingV1(
+        schemaVersion = 1,
+        workflowRunId = workflowRunId,
+        toolName = toolName,
+        argumentsDigest = argumentsDigest.value,
+        policyVersion = policyVersion,
+        workflowDigest = workflowDigest.value,
+        approvalTokenDigest = approvalTokenDigest.value,
+    )
 
 // ====================================================================
 // Domain conversions — ApprovalRequest
 // ====================================================================
 
-fun PersistedApprovalRequestV1.toDomain(): ApprovalRequest = ApprovalRequest(
-    approvalId = approvalId,
-    binding = binding.toDomain(),
-    status = ApprovalStatus.valueOf(status),
-    requestedBy = requestedBy,
-    requestedAt = Instant.parse(requestedAt),
-    expiresAt = Instant.parse(expiresAt),
-    decidedBy = decidedBy,
-    decidedAt = decidedAt?.let { Instant.parse(it) },
-    decisionComment = decisionComment,
-    consumedBy = consumedBy,
-    consumedAt = consumedAt?.let { Instant.parse(it) },
-    version = version,
-)
+fun PersistedApprovalRequestV1.toDomain(): ApprovalRequest =
+    ApprovalRequest(
+        approvalId = approvalId,
+        binding = binding.toDomain(),
+        status = ApprovalStatus.valueOf(status),
+        requestedBy = requestedBy,
+        requestedAt = Instant.parse(requestedAt),
+        expiresAt = Instant.parse(expiresAt),
+        decidedBy = decidedBy,
+        decidedAt = decidedAt?.let { Instant.parse(it) },
+        decisionComment = decisionComment,
+        consumedBy = consumedBy,
+        consumedAt = consumedAt?.let { Instant.parse(it) },
+        version = version,
+    )
 
-fun ApprovalRequest.toPersistedV1(): PersistedApprovalRequestV1 = PersistedApprovalRequestV1(
-    schemaVersion = 1,
-    approvalId = approvalId,
-    binding = binding.toPersistedV1(),
-    status = status.name,
-    requestedBy = requestedBy,
-    requestedAt = requestedAt.toString(),
-    expiresAt = expiresAt.toString(),
-    decidedBy = decidedBy,
-    decidedAt = decidedAt?.toString(),
-    decisionComment = decisionComment,
-    consumedBy = consumedBy,
-    consumedAt = consumedAt?.toString(),
-    version = version,
-)
+fun ApprovalRequest.toPersistedV1(): PersistedApprovalRequestV1 =
+    PersistedApprovalRequestV1(
+        schemaVersion = 1,
+        approvalId = approvalId,
+        binding = binding.toPersistedV1(),
+        status = status.name,
+        requestedBy = requestedBy,
+        requestedAt = requestedAt.toString(),
+        expiresAt = expiresAt.toString(),
+        decidedBy = decidedBy,
+        decidedAt = decidedAt?.toString(),
+        decisionComment = decisionComment,
+        consumedBy = consumedBy,
+        consumedAt = consumedAt?.toString(),
+        version = version,
+    )
 
 // ====================================================================
 // Domain conversions — ApprovalContinuation
 // ====================================================================
 
-fun PersistedApprovalContinuationV1.toDomain(): ApprovalContinuation = ApprovalContinuation(
-    approvalId = approvalId,
-    workflowRunId = workflowRunId,
-    correlationId = correlationId,
-    toolCallId = toolCallId,
-    toolName = toolName,
-    argumentsDigest = Sha256Digest.of(argumentsDigest),
-    policyVersion = policyVersion,
-    workflowDigest = Sha256Digest.of(workflowDigest),
-    status = ApprovalContinuationStatus.valueOf(status),
-    createdAt = Instant.parse(createdAt),
-    approvalExpiresAt = Instant.parse(approvalExpiresAt),
-    claimedBy = claimedBy,
-    claimedAt = claimedAt?.let { Instant.parse(it) },
-    completedAt = completedAt?.let { Instant.parse(it) },
-    recoveryResolvedBy = recoveryResolvedBy,
-    recoveryResolvedAt = recoveryResolvedAt?.let { Instant.parse(it) },
-    recoveryReasonCode = recoveryReasonCode,
-    version = version,
-)
+fun PersistedApprovalContinuationV1.toDomain(): ApprovalContinuation =
+    ApprovalContinuation(
+        approvalId = approvalId,
+        workflowRunId = workflowRunId,
+        correlationId = correlationId,
+        toolCallId = toolCallId,
+        toolName = toolName,
+        argumentsDigest = Sha256Digest.of(argumentsDigest),
+        policyVersion = policyVersion,
+        workflowDigest = Sha256Digest.of(workflowDigest),
+        status = ApprovalContinuationStatus.valueOf(status),
+        createdAt = Instant.parse(createdAt),
+        approvalExpiresAt = Instant.parse(approvalExpiresAt),
+        claimedBy = claimedBy,
+        claimedAt = claimedAt?.let { Instant.parse(it) },
+        completedAt = completedAt?.let { Instant.parse(it) },
+        recoveryResolvedBy = recoveryResolvedBy,
+        recoveryResolvedAt = recoveryResolvedAt?.let { Instant.parse(it) },
+        recoveryReasonCode = recoveryReasonCode,
+        version = version,
+    )
 
 fun ApprovalContinuation.toPersistedV1(): PersistedApprovalContinuationV1 =
     PersistedApprovalContinuationV1(
@@ -280,54 +295,56 @@ fun ApprovalContinuation.toPersistedV1(): PersistedApprovalContinuationV1 =
 /**
  * Extracts the [ApprovalContinuation] metadata from this record.
  */
-fun PersistedApprovalContinuationRecordV1.toDomain(): ApprovalContinuation =
-    continuation.toDomain()
+fun PersistedApprovalContinuationRecordV1.toDomain(): ApprovalContinuation = continuation.toDomain()
 
 // ====================================================================
 // Domain conversions — AuditEvent
 // ====================================================================
 
-fun PersistedAuditEventV1.toDomain(): AuditEvent = AuditEvent(
-    schemaVersion = schemaVersion,
-    hashAlgorithm = AuditHashAlgorithm.valueOf(
-        AuditHashAlgorithm.entries.first { it.wireName == hashAlgorithm }.name,
-    ),
-    auditStreamId = auditStreamId,
-    eventId = eventId,
-    sequenceNumber = sequenceNumber,
-    workflowRunId = workflowRunId,
-    correlationId = correlationId,
-    actor = actor,
-    enforcementPoint = enforcementPoint,
-    decision = decision,
-    policyVersion = policyVersion,
-    workflowDigest = workflowDigest,
-    previousEventHash = previousEventHash,
-    eventHash = eventHash,
-    timestamp = Instant.parse(timestamp),
-    reasonCode = reasonCode,
-    metadata = metadata,
-)
+fun PersistedAuditEventV1.toDomain(): AuditEvent =
+    AuditEvent(
+        schemaVersion = schemaVersion,
+        hashAlgorithm =
+            AuditHashAlgorithm.valueOf(
+                AuditHashAlgorithm.entries.first { it.wireName == hashAlgorithm }.name,
+            ),
+        auditStreamId = auditStreamId,
+        eventId = eventId,
+        sequenceNumber = sequenceNumber,
+        workflowRunId = workflowRunId,
+        correlationId = correlationId,
+        actor = actor,
+        enforcementPoint = enforcementPoint,
+        decision = decision,
+        policyVersion = policyVersion,
+        workflowDigest = workflowDigest,
+        previousEventHash = previousEventHash,
+        eventHash = eventHash,
+        timestamp = Instant.parse(timestamp),
+        reasonCode = reasonCode,
+        metadata = metadata,
+    )
 
-fun AuditEvent.toPersistedV1(): PersistedAuditEventV1 = PersistedAuditEventV1(
-    schemaVersion = schemaVersion,
-    hashAlgorithm = hashAlgorithm.wireName,
-    auditStreamId = auditStreamId,
-    eventId = eventId,
-    sequenceNumber = sequenceNumber,
-    workflowRunId = workflowRunId,
-    correlationId = correlationId,
-    actor = actor,
-    enforcementPoint = enforcementPoint,
-    decision = decision,
-    policyVersion = policyVersion,
-    workflowDigest = workflowDigest,
-    previousEventHash = previousEventHash,
-    eventHash = eventHash,
-    timestamp = timestamp.toString(),
-    reasonCode = reasonCode,
-    metadata = metadata,
-)
+fun AuditEvent.toPersistedV1(): PersistedAuditEventV1 =
+    PersistedAuditEventV1(
+        schemaVersion = schemaVersion,
+        hashAlgorithm = hashAlgorithm.wireName,
+        auditStreamId = auditStreamId,
+        eventId = eventId,
+        sequenceNumber = sequenceNumber,
+        workflowRunId = workflowRunId,
+        correlationId = correlationId,
+        actor = actor,
+        enforcementPoint = enforcementPoint,
+        decision = decision,
+        policyVersion = policyVersion,
+        workflowDigest = workflowDigest,
+        previousEventHash = previousEventHash,
+        eventHash = eventHash,
+        timestamp = timestamp.toString(),
+        reasonCode = reasonCode,
+        metadata = metadata,
+    )
 
 // ====================================================================
 // Suspended Invocation DTOs
@@ -344,6 +361,154 @@ data class PersistedSuspendedInvocationRecordV1(
         fun fromJson(json: String): PersistedSuspendedInvocationRecordV1 = strictReadValue(json)
     }
 }
+
+/**
+ * GOVERNED suspension record (0.7.1d): the V1 record plus the canonical run identity of the
+ * execution that created it.
+ *
+ * Written as ONE encrypted record through the same single atomic create as V1 — no second
+ * file, so a crash can never leave a governed suspension with partial attribution.
+ *
+ * V1 vs V2 is semantic, not merely serialization versioning:
+ * - V1 = no governed attribution was persisted (legacy, stays legacy forever)
+ * - V2 = governed attribution was persisted and is MANDATORY
+ *
+ * A V2 record that is missing an identity component is therefore corruption, never a legacy
+ * fallback, and a malformed V2 must never be decoded as V1.
+ */
+data class PersistedSuspendedInvocationRecordV2(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("metadata") val metadata: PersistedSuspendedInvocationMetadataV1,
+    @param:JsonProperty("replayEnvelope") val replayEnvelope: PersistedReplayEnvelopeV1,
+    @param:JsonProperty("governedRunIdentity") val governedRunIdentity: PersistedGovernedRunIdentityV1,
+) {
+    fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
+
+    companion object {
+        fun fromJson(json: String): PersistedSuspendedInvocationRecordV2 = strictReadValue(json)
+    }
+}
+
+/**
+ * Persisted canonical run identity: the five components as flat fields, so a missing
+ * component fails strict decoding rather than silently defaulting.
+ */
+data class PersistedGovernedRunIdentityV1(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("workloadId") val workloadId: String,
+    @param:JsonProperty("configurationId") val configurationId: String,
+    @param:JsonProperty("configurationVersion") val configurationVersion: String,
+    @param:JsonProperty("environmentId") val environmentId: String,
+    @param:JsonProperty("deploymentId") val deploymentId: String,
+    @param:JsonProperty("runId") val runId: String,
+)
+
+/**
+ * A decoded suspended invocation record of either schema version. [governedRunIdentity] is
+ * null exactly when the record is a V1 (legacy) record.
+ */
+internal data class DecodedSuspendedInvocationRecord(
+    val schemaVersion: Int,
+    val metadata: PersistedSuspendedInvocationMetadataV1,
+    val replayEnvelope: PersistedReplayEnvelopeV1,
+    val governedRunIdentity: GovernedRunIdentity?,
+)
+
+private const val GOVERNED_SUSPENDED_INVOCATION_CORRUPTED = "suspended-invocation-record-corrupted"
+private const val GOVERNED_SUSPENDED_INVOCATION_UNSUPPORTED = "unsupported-suspended-invocation-schema-version"
+
+/**
+ * Decodes a suspended invocation record by OUTER schema version: 1 legacy, 2 governed,
+ * anything else unsupported. A V2 that fails to decode (missing or malformed identity) is
+ * corruption — it is never retried as V1, because the version already told us the record
+ * claims to be governed.
+ */
+internal fun decodeSuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val version = decodeSuspendedInvocationSchemaVersion(json)
+    return when (version) {
+        1 -> {
+            decodeLegacySuspendedInvocationRecord(json)
+        }
+
+        2 -> {
+            decodeGovernedSuspendedInvocationRecord(json)
+        }
+
+        else -> {
+            throw FileStoreUnsupportedFormatException(GOVERNED_SUSPENDED_INVOCATION_UNSUPPORTED)
+        }
+    }
+}
+
+/**
+ * Declared schema version of a suspended-invocation payload.
+ *
+ * Only an integral, in-range JSON number is a schema declaration: anything else — missing, null,
+ * text, float, out of int range — is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
+ * `"abc"` to 0), so a damaged payload could decode as a valid version or be reported as an
+ * unsupported one instead of as corruption.
+ */
+private fun decodeSuspendedInvocationSchemaVersion(json: String): Int =
+    try {
+        val version = FILE_STORE_JSON.readTree(json)?.get("schemaVersion")
+        version?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()
+            ?: throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED)
+    } catch (e: FileStoreCorruptionException) {
+        throw e
+    } catch (e: JsonProcessingException) {
+        throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+    }
+
+private fun decodeLegacySuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val record =
+        try {
+            PersistedSuspendedInvocationRecordV1.fromJson(json)
+        } catch (e: IllegalArgumentException) {
+            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+        }
+    return DecodedSuspendedInvocationRecord(1, record.metadata, record.replayEnvelope, null)
+}
+
+private fun decodeGovernedSuspendedInvocationRecord(json: String): DecodedSuspendedInvocationRecord {
+    val record =
+        try {
+            PersistedSuspendedInvocationRecordV2.fromJson(json)
+        } catch (e: IllegalArgumentException) {
+            throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED, e)
+        }
+    val identity = record.governedRunIdentity.toDomain()
+    if (identity.runId.value != record.metadata.identity.workflowRunId) {
+        throw FileStoreCorruptionException("suspended-invocation-governed-identity-mismatch")
+    }
+    return DecodedSuspendedInvocationRecord(2, record.metadata, record.replayEnvelope, identity)
+}
+
+internal fun PersistedGovernedRunIdentityV1.toDomain(): GovernedRunIdentity =
+    GovernedRunIdentity(
+        deployment =
+            WorkloadDeploymentIdentity(
+                workloadId = WorkloadId(workloadId),
+                configuration =
+                    WorkloadConfigurationIdentity(
+                        id = ConfigurationId(configurationId),
+                        version = ConfigurationVersion(configurationVersion),
+                    ),
+                environmentId = EnvironmentId(environmentId),
+                deploymentId = DeploymentId(deploymentId),
+            ),
+        runId = RunId(runId),
+    )
+
+internal fun GovernedRunIdentity.toPersistedV1(): PersistedGovernedRunIdentityV1 =
+    PersistedGovernedRunIdentityV1(
+        schemaVersion = 1,
+        workloadId = deployment.workloadId.value,
+        configurationId = deployment.configuration.id.value,
+        configurationVersion = deployment.configuration.version.value,
+        environmentId = deployment.environmentId.value,
+        deploymentId = deployment.deploymentId.value,
+        runId = runId.value,
+    )
 
 data class PersistedSuspendedInvocationMetadataV1(
     @get:JsonProperty("schemaVersion") val schemaVersion: Int,
@@ -548,13 +713,14 @@ internal fun SuspendedInvocationMetadata.toPersistedV1(): PersistedSuspendedInvo
         toolSecurity = toolSecurity?.toPersistedV1(),
     )
 
-internal fun PersistedEngineExecutionIdentityV1.toDomain(): EngineExecutionIdentity = EngineExecutionIdentity(
-    workflowRunId = workflowRunId,
-    correlationId = correlationId,
-    workflowDigest = Sha256Digest.of(workflowDigest),
-    policyVersion = policyVersion,
-    actorId = actorId,
-)
+internal fun PersistedEngineExecutionIdentityV1.toDomain(): EngineExecutionIdentity =
+    EngineExecutionIdentity(
+        workflowRunId = workflowRunId,
+        correlationId = correlationId,
+        workflowDigest = Sha256Digest.of(workflowDigest),
+        policyVersion = policyVersion,
+        actorId = actorId,
+    )
 
 internal fun EngineExecutionIdentity.toPersistedV1(): PersistedEngineExecutionIdentityV1 =
     PersistedEngineExecutionIdentityV1(
@@ -566,10 +732,11 @@ internal fun EngineExecutionIdentity.toPersistedV1(): PersistedEngineExecutionId
         actorId = actorId,
     )
 
-internal fun PersistedExecutionSecurityContextV1.toDomain(): ExecutionSecurityContext = ExecutionSecurityContext(
-    dataClassification = dataClassification?.let(DataClassification::valueOf),
-    classificationSource = classificationSource?.let(ClassificationSource::valueOf),
-)
+internal fun PersistedExecutionSecurityContextV1.toDomain(): ExecutionSecurityContext =
+    ExecutionSecurityContext(
+        dataClassification = dataClassification?.let(DataClassification::valueOf),
+        classificationSource = classificationSource?.let(ClassificationSource::valueOf),
+    )
 
 internal fun ExecutionSecurityContext.toPersistedV1(): PersistedExecutionSecurityContextV1 =
     PersistedExecutionSecurityContextV1(
@@ -578,12 +745,13 @@ internal fun ExecutionSecurityContext.toPersistedV1(): PersistedExecutionSecurit
         classificationSource = classificationSource?.name,
     )
 
-internal fun PersistedResumeOperationReferenceV1.toDomain(): ResumeOperationReference = ResumeOperationReference(
-    serviceInterface = serviceInterface,
-    methodName = methodName,
-    jvmMethodDescriptor = jvmMethodDescriptor,
-    resumeDefinitionDigest = Sha256Digest.of(resumeDefinitionDigest),
-)
+internal fun PersistedResumeOperationReferenceV1.toDomain(): ResumeOperationReference =
+    ResumeOperationReference(
+        serviceInterface = serviceInterface,
+        methodName = methodName,
+        jvmMethodDescriptor = jvmMethodDescriptor,
+        resumeDefinitionDigest = Sha256Digest.of(resumeDefinitionDigest),
+    )
 
 internal fun ResumeOperationReference.toPersistedV1(): PersistedResumeOperationReferenceV1 =
     PersistedResumeOperationReferenceV1(
@@ -594,10 +762,11 @@ internal fun ResumeOperationReference.toPersistedV1(): PersistedResumeOperationR
         resumeDefinitionDigest = resumeDefinitionDigest.value,
     )
 
-internal fun PersistedResumeToolReferenceV1.toDomain(): ResumeToolReference = ResumeToolReference(
-    toolName = toolName,
-    declarationDigest = Sha256Digest.of(declarationDigest),
-)
+internal fun PersistedResumeToolReferenceV1.toDomain(): ResumeToolReference =
+    ResumeToolReference(
+        toolName = toolName,
+        declarationDigest = Sha256Digest.of(declarationDigest),
+    )
 
 internal fun ResumeToolReference.toPersistedV1(): PersistedResumeToolReferenceV1 =
     PersistedResumeToolReferenceV1(
@@ -606,13 +775,14 @@ internal fun ResumeToolReference.toPersistedV1(): PersistedResumeToolReferenceV1
         declarationDigest = declarationDigest.value,
     )
 
-internal fun PersistedTokenBudgetSnapshotV1.toDomain(): TokenBudgetSnapshot = TokenBudgetSnapshot(
-    totalInputTokens = totalInputTokens,
-    totalOutputTokens = totalOutputTokens,
-    totalInputCost = totalInputCost,
-    totalOutputCost = totalOutputCost,
-    warnIfExceeded = warnIfExceeded,
-)
+internal fun PersistedTokenBudgetSnapshotV1.toDomain(): TokenBudgetSnapshot =
+    TokenBudgetSnapshot(
+        totalInputTokens = totalInputTokens,
+        totalOutputTokens = totalOutputTokens,
+        totalInputCost = totalInputCost,
+        totalOutputCost = totalOutputCost,
+        warnIfExceeded = warnIfExceeded,
+    )
 
 internal fun TokenBudgetSnapshot.toPersistedV1(): PersistedTokenBudgetSnapshotV1 =
     PersistedTokenBudgetSnapshotV1(
@@ -624,14 +794,15 @@ internal fun TokenBudgetSnapshot.toPersistedV1(): PersistedTokenBudgetSnapshotV1
         warnIfExceeded = warnIfExceeded,
     )
 
-internal fun PersistedToolSecurityMetadataV1.toDomain(): ToolSecurityMetadata = ToolSecurityMetadata(
-    permission = permission,
-    risk = RiskLevel.valueOf(risk),
-    approval = ApprovalMode.valueOf(approval),
-    managedNetworkEgress = ManagedNetworkEgress.valueOf(managedNetworkEgress),
-    audit = AuditDetail.valueOf(audit),
-    compatibilityMode = CompatibilityMode.valueOf(compatibilityMode),
-)
+internal fun PersistedToolSecurityMetadataV1.toDomain(): ToolSecurityMetadata =
+    ToolSecurityMetadata(
+        permission = permission,
+        risk = RiskLevel.valueOf(risk),
+        approval = ApprovalMode.valueOf(approval),
+        managedNetworkEgress = ManagedNetworkEgress.valueOf(managedNetworkEgress),
+        audit = AuditDetail.valueOf(audit),
+        compatibilityMode = CompatibilityMode.valueOf(compatibilityMode),
+    )
 
 internal fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadataV1 =
     PersistedToolSecurityMetadataV1(
@@ -644,79 +815,109 @@ internal fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadata
         compatibilityMode = compatibilityMode.name,
     )
 
-internal fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope =
-    SensitiveReplayEnvelope.of(messages.map { it.toDomain() })
-
-internal fun PersistedMessageV1.toDomain(): Message = Message(
-    role = MessageRole.valueOf(role),
-    content = content,
-    contentParts = contentParts?.map { it.toDomain() },
-    toolCallId = toolCallId,
-    toolCalls = toolCalls?.map { it.toDomain() },
-)
-
-internal fun Message.toPersistedV1(): PersistedMessageV1 = PersistedMessageV1(
-    schemaVersion = 1,
-    role = role.name,
-    content = content,
-    contentParts = contentParts?.map { it.toPersistedV1() },
-    toolCallId = toolCallId,
-    toolCalls = toolCalls?.map { it.toPersistedV1() },
-)
-
-internal fun PersistedToolCallV1.toDomain(): ToolCall = ToolCall(
-    id = id,
-    name = name,
-    argumentsJson = argumentsJson,
-)
-
-internal fun ToolCall.toPersistedV1(): PersistedToolCallV1 = PersistedToolCallV1(
-    schemaVersion = 1,
-    id = id,
-    name = name,
-    argumentsJson = argumentsJson,
-)
-
-internal fun PersistedContentPartV1.toDomain(): ContentPart = when (type) {
-    "text" -> ContentPart.TextPart(
-        text = requireNotNull(text) { "persisted-content-part-text-missing" },
-    )
-    "image" -> ContentPart.ImagePart(
-        mimeType = requireNotNull(mimeType) { "persisted-content-part-image-mime-missing" },
-        data = Base64.getDecoder().decode(
-            requireNotNull(dataBase64) { "persisted-content-part-image-data-missing" },
-        ).copyOf(),
-    )
-    "image_url" -> ContentPart.ImageUrlContent(
-        url = requireNotNull(url) { "persisted-content-part-image-url-missing" },
-        mimeType = mimeType,
-    )
-    else -> error("persisted-content-part-type-unsupported")
+internal fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope {
+    val domainMessages = messages.map { it.toDomain() }
+    return SensitiveReplayEnvelope.of(domainMessages)
 }
 
-internal fun ContentPart.toPersistedV1(): PersistedContentPartV1 = when (this) {
-    is ContentPart.TextPart -> PersistedContentPartV1(
-        schemaVersion = 1,
-        type = "text",
-        text = text,
-        mimeType = null,
-        dataBase64 = null,
-        url = null,
+internal fun PersistedMessageV1.toDomain(): Message =
+    Message(
+        role = MessageRole.valueOf(role),
+        content = content,
+        contentParts = contentParts?.map { it.toDomain() },
+        toolCallId = toolCallId,
+        toolCalls = toolCalls?.map { it.toDomain() },
     )
-    is ContentPart.ImagePart -> PersistedContentPartV1(
+
+internal fun Message.toPersistedV1(): PersistedMessageV1 =
+    PersistedMessageV1(
         schemaVersion = 1,
-        type = "image",
-        text = null,
-        mimeType = mimeType,
-        dataBase64 = Base64.getEncoder().encodeToString(data),
-        url = null,
+        role = role.name,
+        content = content,
+        contentParts = contentParts?.map { it.toPersistedV1() },
+        toolCallId = toolCallId,
+        toolCalls = toolCalls?.map { it.toPersistedV1() },
     )
-    is ContentPart.ImageUrlContent -> PersistedContentPartV1(
+
+internal fun PersistedToolCallV1.toDomain(): ToolCall =
+    ToolCall(
+        id = id,
+        name = name,
+        argumentsJson = argumentsJson,
+    )
+
+internal fun ToolCall.toPersistedV1(): PersistedToolCallV1 =
+    PersistedToolCallV1(
         schemaVersion = 1,
-        type = "image_url",
-        text = null,
-        mimeType = mimeType,
-        dataBase64 = null,
-        url = url,
+        id = id,
+        name = name,
+        argumentsJson = argumentsJson,
     )
-}
+
+internal fun PersistedContentPartV1.toDomain(): ContentPart =
+    when (type) {
+        "text" -> {
+            ContentPart.TextPart(
+                text = requireNotNull(text) { "persisted-content-part-text-missing" },
+            )
+        }
+
+        "image" -> {
+            ContentPart.ImagePart(
+                mimeType = requireNotNull(mimeType) { "persisted-content-part-image-mime-missing" },
+                data =
+                    Base64
+                        .getDecoder()
+                        .decode(
+                            requireNotNull(dataBase64) { "persisted-content-part-image-data-missing" },
+                        ).copyOf(),
+            )
+        }
+
+        "image_url" -> {
+            ContentPart.ImageUrlContent(
+                url = requireNotNull(url) { "persisted-content-part-image-url-missing" },
+                mimeType = mimeType,
+            )
+        }
+
+        else -> {
+            error("persisted-content-part-type-unsupported")
+        }
+    }
+
+internal fun ContentPart.toPersistedV1(): PersistedContentPartV1 =
+    when (this) {
+        is ContentPart.TextPart -> {
+            PersistedContentPartV1(
+                schemaVersion = 1,
+                type = "text",
+                text = text,
+                mimeType = null,
+                dataBase64 = null,
+                url = null,
+            )
+        }
+
+        is ContentPart.ImagePart -> {
+            PersistedContentPartV1(
+                schemaVersion = 1,
+                type = "image",
+                text = null,
+                mimeType = mimeType,
+                dataBase64 = Base64.getEncoder().encodeToString(data),
+                url = null,
+            )
+        }
+
+        is ContentPart.ImageUrlContent -> {
+            PersistedContentPartV1(
+                schemaVersion = 1,
+                type = "image_url",
+                text = null,
+                mimeType = mimeType,
+                dataBase64 = null,
+                url = url,
+            )
+        }
+    }

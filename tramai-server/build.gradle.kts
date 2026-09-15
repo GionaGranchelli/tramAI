@@ -9,6 +9,7 @@ plugins {
 
 
 dependencies {
+    implementation(project(":tramai-control-plane"))
     api(project(":tramai-orchestration"))
 
     implementation(project(":tramai-scheduler"))
