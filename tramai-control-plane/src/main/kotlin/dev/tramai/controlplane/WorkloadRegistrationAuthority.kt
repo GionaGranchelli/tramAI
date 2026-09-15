@@ -20,13 +20,15 @@ import dev.tramai.core.identity.WorkloadMetadata
  * - stale writers lose (every mutation is a compare-and-set on the version
  *   the caller observed).
  *
- * This authority does NOT cancel running workflows, replace [WorkflowRegistry]
- * executable-definition lookup, or expose any REST/query surface — those
- * belong to later candidates.
+ * This authority does NOT cancel running workflows or replace [WorkflowRegistry]
+ * executable-definition lookup. It implements the framework-neutral command and read
+ * contracts ([WorkloadControlPlaneCommands], [WorkloadControlPlaneQueries]) as of 0.7.1e;
+ * HTTP mechanics stay in the server adapter.
  */
 class WorkloadRegistrationAuthority(
     private val store: WorkloadRegistrationStore,
-) {
+) : WorkloadControlPlaneCommands,
+    WorkloadControlPlaneQueries {
     /**
      * Resolves the authoritative registration that admits a NEW governed run (0.7.1d).
      *
@@ -61,6 +63,54 @@ class WorkloadRegistrationAuthority(
     }
 
     /**
+     * Reads current authoritative state (0.7.1e).
+     *
+     * Read-only: nothing on this path mutates, so a query cannot become a mutation authority.
+     * The observed version equals the registration's own state version because this read IS
+     * the authority's present state, not a derived view of it.
+     */
+    override suspend fun authoritative(
+        workloadId: WorkloadId,
+        environmentId: EnvironmentId,
+        deploymentId: DeploymentId,
+    ): ClassifiedRead? {
+        val registration =
+            store.find(workloadId, environmentId, deploymentId) ?: return null
+        return ClassifiedRead(
+            registration = registration,
+            consistency = QueryConsistency.AUTHORITATIVE,
+            observedVersion = registration.stateVersion,
+        )
+    }
+
+    /**
+     * Reads a projection snapshot (0.7.1e).
+     *
+     * In 0.7.1e the projection source is an OBSERVATION of the authoritative store — there is
+     * no derived store yet — so this read is honest about what a projection is here: a
+     * read-only observation stamped with the version it saw. Lag is real the moment a caller
+     * holds the observation across a mutation, and it never buys mutation authority: the
+     * authority still rejects a command conditioned on the observed version as
+     * [MetadataUpdateOutcome.Stale] / [LifecycleTransitionOutcome.Stale].
+     *
+     * ponytail: no projection engine (no event bus, no materialised store, no refresh policy)
+     * until a slice needs one — 0.7.4 evidence and 0.7.8 dashboard are the candidates.
+     */
+    override suspend fun projection(
+        workloadId: WorkloadId,
+        environmentId: EnvironmentId,
+        deploymentId: DeploymentId,
+    ): ClassifiedRead? {
+        val registration =
+            store.find(workloadId, environmentId, deploymentId) ?: return null
+        return ClassifiedRead(
+            registration = registration,
+            consistency = QueryConsistency.PROJECTION,
+            observedVersion = registration.stateVersion,
+        )
+    }
+
+    /**
      * Why an existing registration may not admit this deployment, or null when it may.
      * Returned rather than thrown so the reason codes stay in one place and the admission
      * path keeps a single failure surface.
@@ -81,7 +131,7 @@ class WorkloadRegistrationAuthority(
      * Idempotent for an identical declaration; conflicting declarations are
      * rejected, never silently applied.
      */
-    suspend fun register(
+    override suspend fun register(
         identity: WorkloadDeploymentIdentity,
         configurationFingerprint: ConfigurationFingerprint,
         metadata: WorkloadMetadata,
@@ -120,7 +170,7 @@ class WorkloadRegistrationAuthority(
      * @param expectedVersion version observed by the caller — a mutation based
      *   on a stale version fails with [MetadataUpdateOutcome.Stale].
      */
-    suspend fun updateMetadata(
+    override suspend fun updateMetadata(
         workloadId: WorkloadId,
         environmentId: EnvironmentId,
         deploymentId: DeploymentId,
@@ -171,7 +221,7 @@ class WorkloadRegistrationAuthority(
      * Applies an authoritative lifecycle transition. RETIRED is terminal;
      * suspending a workload never touches running workflows.
      */
-    suspend fun transitionLifecycle(
+    override suspend fun transitionLifecycle(
         workloadId: WorkloadId,
         environmentId: EnvironmentId,
         deploymentId: DeploymentId,
