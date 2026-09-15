@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.engine.approval
 
 import dev.tramai.core.approval.ApprovalContinuationStore
@@ -13,9 +15,13 @@ import dev.tramai.core.approval.gateway.AuditStreamId
 import dev.tramai.core.approval.gateway.HumanApprovalDecision
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.exception.GovernedRunContinuityException
+import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.SuspendedInvocationStore
-import java.time.Clock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import java.time.Clock
 
 /**
  * Minimal Preview adapter for [ApprovalGateway].
@@ -29,6 +35,9 @@ import kotlinx.coroutines.CancellationException
  *   inconsistent state. A future PR should harden the transaction boundary.
  * - Does not emit audit-requested outbox intent.
  * - Does not implement workflow resume.
+ * - Does not support governed runs: it persists an un-attributed suspension, so
+ *   [requestApproval] fails closed with [GovernedRunContinuityException] when invoked inside an
+ *   active [GovernedRunScope] rather than silently dropping the run's canonical identity.
  * - Existing pending requests cannot recover the original suspended invocation
  *   correlation ID from [ApprovalStore] alone, so the adapter currently uses
  *   the workflow run ID as a temporary audit stream identifier until the
@@ -49,19 +58,32 @@ class DefaultApprovalGateway(
     private val requestFactory: ApprovalGatewayRequestFactory,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalGateway {
-
     override suspend fun requestApproval(
         subject: ApprovalSubject,
         recommendation: ApprovalRecommendation,
         requiredRole: ApproverRole,
         workflowRunId: WorkflowRunId?,
     ): ApprovalRequestResult {
-        val request = requestFactory.createRequest(
-            subject = subject,
-            recommendation = recommendation,
-            requiredRole = requiredRole,
-            workflowRunId = workflowRunId,
-        )
+        // This adapter persists an un-attributed suspension through the released `create` path and
+        // cannot carry a governed run's canonical identity, so a governed execution must fail closed
+        // here instead of durably recording an un-attributed suspension (0.7.1d forbids that silent
+        // downgrade to legacy attribution). Nothing is written before this check.
+        val governedRun = GovernedRunScope.resolve(currentCoroutineContext())
+        if (governedRun != null) {
+            throw GovernedRunContinuityException(
+                "Cannot suspend governed run '${governedRun.runId.value}' through the preview " +
+                    "approval gateway: this path writes an un-attributed suspension and cannot " +
+                    "carry the governed identity",
+            )
+        }
+
+        val request =
+            requestFactory.createRequest(
+                subject = subject,
+                recommendation = recommendation,
+                requiredRole = requiredRole,
+                workflowRunId = workflowRunId,
+            )
 
         return try {
             val existing = approvalStore.get(request.approvalRequest.approvalId)
@@ -108,48 +130,61 @@ class DefaultApprovalGateway(
         val now = clock.instant()
 
         return when {
-            status == ApprovalStatus.APPROVED -> ApprovalRequestResult.AlreadyApproved(
-                decision = HumanApprovalDecision.Approved(
-                    approvalId = approvalId,
-                    decidedBy = requireNotNull(decidedBy) {
-                        "approved request must have a decider"
-                    },
-                    decidedAt = requireNotNull(decidedAt) {
-                        "approved request must have a decision timestamp"
-                    },
-                    comment = decisionComment,
-                ),
-            )
+            status == ApprovalStatus.APPROVED -> {
+                ApprovalRequestResult.AlreadyApproved(
+                    decision =
+                        HumanApprovalDecision.Approved(
+                            approvalId = approvalId,
+                            decidedBy =
+                                requireNotNull(decidedBy) {
+                                    "approved request must have a decider"
+                                },
+                            decidedAt =
+                                requireNotNull(decidedAt) {
+                                    "approved request must have a decision timestamp"
+                                },
+                            comment = decisionComment,
+                        ),
+                )
+            }
 
-            status == ApprovalStatus.DENIED -> ApprovalRequestResult.AlreadyDenied(
-                decision = HumanApprovalDecision.Denied(
-                    approvalId = approvalId,
-                    decidedBy = requireNotNull(decidedBy) {
-                        "denied request must have a decider"
-                    },
-                    decidedAt = requireNotNull(decidedAt) {
-                        "denied request must have a decision timestamp"
-                    },
-                    reason = decisionComment ?: "approval-denied",
-                ),
-            )
+            status == ApprovalStatus.DENIED -> {
+                ApprovalRequestResult.AlreadyDenied(
+                    decision =
+                        HumanApprovalDecision.Denied(
+                            approvalId = approvalId,
+                            decidedBy =
+                                requireNotNull(decidedBy) {
+                                    "denied request must have a decider"
+                                },
+                            decidedAt =
+                                requireNotNull(decidedAt) {
+                                    "denied request must have a decision timestamp"
+                                },
+                            reason = decisionComment ?: "approval-denied",
+                        ),
+                )
+            }
 
-            status == ApprovalStatus.TIMED_OUT || !expiresAt.isAfter(now) ->
+            status == ApprovalStatus.TIMED_OUT || !expiresAt.isAfter(now) -> {
                 ApprovalRequestResult.Expired(
                     approvalId = approvalId,
                     expiredAt = expiresAt,
                     reason = "approval-expired",
                 )
+            }
 
-            else -> ApprovalRequestResult.Suspended(
-                approvalId = approvalId,
-                workflowRunId = WorkflowRunId(binding.workflowRunId),
-                // Existing pending cannot recover the original correlation ID from
-                // ApprovalStore alone, so workflowRunId serves as a temporary audit
-                // stream identifier until the resume/gateway state model is hardened.
-                auditStreamId = AuditStreamId(binding.workflowRunId),
-                resumeToken = request.resumeToken,
-            )
+            else -> {
+                ApprovalRequestResult.Suspended(
+                    approvalId = approvalId,
+                    workflowRunId = WorkflowRunId(binding.workflowRunId),
+                    // Existing pending cannot recover the original correlation ID from
+                    // ApprovalStore alone, so workflowRunId serves as a temporary audit
+                    // stream identifier until the resume/gateway state model is hardened.
+                    auditStreamId = AuditStreamId(binding.workflowRunId),
+                    resumeToken = request.resumeToken,
+                )
+            }
         }
     }
 }
