@@ -228,6 +228,21 @@ class FileGovernedSovereignOpsAuditOutboxStoreTest {
     }
 
     @Test
+    fun `a mistyped declared version is corruption, never a known or unsupported version`() {
+        runBlocking<Unit> {
+            val identity = identity()
+            val json = governedJson(record(identity), identity)
+            val mistyped = listOf("\"2\"", "2.5", "\"two\"", "null", "99999999999")
+
+            mistyped.forEach { declared ->
+                val tampered = json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":$declared")
+                assertTrue(tampered != json, "tamper must change the payload")
+                assertFailsWith<FileStoreCorruptionException> { decodeOutboxRecord(tampered) }
+            }
+        }
+    }
+
+    @Test
     fun `V2 whose identity disagrees with the run id fails closed`() {
         runBlocking<Unit> {
             val identity = identity()

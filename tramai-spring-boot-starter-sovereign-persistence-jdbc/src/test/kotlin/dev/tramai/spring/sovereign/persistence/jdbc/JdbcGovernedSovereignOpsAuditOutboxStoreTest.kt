@@ -276,7 +276,28 @@ class JdbcGovernedSovereignOpsAuditOutboxStoreTest {
         val payload = governedJson().replace("""{"schemaVersion":2,""", "{")
         assertThatThrownBy { decodeOutboxRecord(payload.toByteArray()) }
             .isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("no declared schema version")
+            .hasMessageContaining("no declared integral schema version")
+    }
+
+    @Test
+    fun `a mistyped declared version is corruption, never a known or unsupported version`() {
+        val payload = governedJson()
+        val mistyped =
+            mapOf(
+                "text" to "\"2\"",
+                "float" to "2.5",
+                "non-numeric text" to "\"two\"",
+                "null" to "null",
+                "out of int range" to "99999999999",
+            )
+        mistyped.forEach { (kind, declared) ->
+            val tampered = payload.replace("""{"schemaVersion":2,""", """{"schemaVersion":$declared,""")
+            assertThat(tampered).describedAs("%s tamper must change the payload", kind).isNotEqualTo(payload)
+            assertThatThrownBy { decodeOutboxRecord(tampered.toByteArray()) }
+                .describedAs("a %s schema version must be corruption", kind)
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining(ERROR_CORRUPTED_RECORD)
+        }
     }
 
     @Test

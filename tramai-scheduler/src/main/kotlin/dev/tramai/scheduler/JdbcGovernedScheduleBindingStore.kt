@@ -31,8 +31,6 @@ class JdbcGovernedScheduleBindingStore(
                     statement.executeUpdate()
                 }
                 connection.prepareStatement(INSERT_SQL).use { statement ->
-                    statement.setString(1, binding.scheduleId)
-                    statement.setString(2, binding.deploymentIdentity.workloadId.value)
                     listOf(
                         binding.scheduleId,
                         binding.deploymentIdentity.workloadId.value,

@@ -169,10 +169,17 @@ internal fun encodeOutboxRecord(
 
 /**
  * Reads only the declared schema version, leaving the payload untouched for the real decode.
+ *
+ * Only an integral, in-range JSON number is a schema declaration: anything else — missing, null,
+ * text, float, out of int range — is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
+ * `"abc"` to 0), which turns a damaged payload into a wrong answer: a bogus V1/V2 decode, or a
+ * false "unsupported version" report for a payload that is simply damaged.
  */
-private fun outboxSchemaVersion(json: String): Int =
-    readJsonTree(json)?.get("schemaVersion")?.asInt()
-        ?: throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD)
+private fun outboxSchemaVersion(json: String): Int {
+    val version = readJsonTree(json)?.get("schemaVersion")
+    val declared = version?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()
+    return declared ?: throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD)
+}
 
 /**
  * Strict tree read: a payload that is not valid JSON at all is corruption, not an unknown version.

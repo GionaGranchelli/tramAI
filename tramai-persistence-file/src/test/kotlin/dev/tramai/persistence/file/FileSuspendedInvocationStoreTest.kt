@@ -749,6 +749,23 @@ class FileSuspendedInvocationStoreTest {
         }
 
         @Test
+        fun `a mistyped record schema version is corruption, never an unsupported version`() {
+            listOf("\"2\"", "2.5", "\"two\"", "null", "99999999999").forEachIndexed { index, declared ->
+                val approvalId = "approval-governed-mistyped-$index"
+                storeGovernedRecord(approvalId, runId = "governed-mistyped-run-$index")
+                rewritePersistedRecord(approvalId) { json ->
+                    json.replaceFirst("\"schemaVersion\":2", "\"schemaVersion\":$declared")
+                }
+
+                val failure =
+                    expectFailure<FileStoreCorruptionException> {
+                        createStore().governedRunIdentity(approvalId)
+                    }
+                assertFalse(failure.message.isNullOrBlank())
+            }
+        }
+
+        @Test
         fun `governed duplicate create keeps the duplicate semantics`() {
             val store = createStore()
             val identity = governedIdentity(GovernedIdentityValues(runId = "governed-dup-run"))

@@ -440,9 +440,18 @@ internal fun decodeSuspendedInvocationRecord(json: String): DecodedSuspendedInvo
     }
 }
 
+/**
+ * Declared schema version of a suspended-invocation payload.
+ *
+ * Only an integral, in-range JSON number is a schema declaration: anything else — missing, null,
+ * text, float, out of int range — is corruption. `asInt()` coerces instead (`"2"` and `2.9` to 2,
+ * `"abc"` to 0), so a damaged payload could decode as a valid version or be reported as an
+ * unsupported one instead of as corruption.
+ */
 private fun decodeSuspendedInvocationSchemaVersion(json: String): Int =
     try {
-        FILE_STORE_JSON.readTree(json)?.get("schemaVersion")?.asInt()
+        val version = FILE_STORE_JSON.readTree(json)?.get("schemaVersion")
+        version?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()
             ?: throw FileStoreCorruptionException(GOVERNED_SUSPENDED_INVOCATION_CORRUPTED)
     } catch (e: FileStoreCorruptionException) {
         throw e
