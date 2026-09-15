@@ -57,20 +57,44 @@ separation holds.
 
 ### A. Command authority
 
-A public command surface over the existing authority. It exposes commands, never the store:
+A public, framework-agnostic command port over the existing authority. It exposes the authority's own
+semantic shape — it does **not** invent convenience operations, and it never exposes the store:
 
 ```kotlin
 interface WorkloadControlPlaneCommands {
-    suspend fun register(...): RegisterOutcome            // existing authority operation
-    suspend fun suspend(...): LifecycleTransitionOutcome  // expectedVersion required
-    suspend fun activate(...): LifecycleTransitionOutcome // expectedVersion required
-    suspend fun retire(...): LifecycleTransitionOutcome   // expectedVersion required
-    suspend fun updateMetadata(...): MetadataUpdateOutcome // expectedVersion required
+    suspend fun register(...): RegisterOutcome
+
+    suspend fun updateMetadata(
+        ...,
+        expectedVersion: WorkloadStateVersion,
+        ...
+    ): MetadataUpdateOutcome
+
+    suspend fun transitionLifecycle(
+        ...,
+        expectedVersion: WorkloadStateVersion,
+        target: WorkloadLifecycleState,
+    ): LifecycleTransitionOutcome
 }
 ```
 
+The authority **implements the port** — there is no forwarding wrapper:
+
+```kotlin
+class WorkloadRegistrationAuthority(
+    private val store: WorkloadRegistrationStore,
+) : WorkloadControlPlaneCommands
+```
+
+A `suspend`/`activate`/`retire` convenience layer would only forward to `transitionLifecycle` and
+would duplicate the authority; lifecycle targets are expressed as
+`transitionLifecycle(target = SUSPENDED | ACTIVE | RETIRED)`, which keeps one place for lifecycle
+rules and one place for the port.
+
 ```text
-Command -> command boundary -> WorkloadRegistrationAuthority -> WorkloadRegistrationStore.compareAndSet
+Command -> WorkloadControlPlaneCommands (public preview contract)
+        -> WorkloadRegistrationAuthority
+        -> WorkloadRegistrationStore.compareAndSet
 ```
 
 - The command layer delegates lifecycle rules to `WorkloadRegistrationAuthority`; it re-implements
@@ -97,21 +121,41 @@ Already typed at the authority; 0.7.1e makes it externally consumable and guaran
 
 ### C. Query / projection contracts
 
-Reads are split structurally, with the minimum contract:
+Reads are split structurally from commands, as a separate public port:
 
 ```kotlin
+interface WorkloadControlPlaneQueries {
+    suspend fun authoritative(...): RegisteredWorkload?        // QueryConsistency.AUTHORITATIVE
+    suspend fun projection(...): ClassifiedReadProjection<...> // QueryConsistency.PROJECTION
+}
+
 enum class QueryConsistency { AUTHORITATIVE, PROJECTION }
 ```
 
 - **Authoritative query** — reads the authority/store; returns the current authoritative record,
-  including its `stateVersion`.
+  including its `stateVersion`. Consistency class `AUTHORITATIVE`.
 - **Projection query** — read-only derived state; may lag; **must** report the authoritative version
   it observed so a client can compare (e.g. authoritative `stateVersion = 18`, projection
-  `observedVersion = 16`), rather than asserting a vague "eventually consistent: true".
+  `observedVersion = 16`), rather than asserting a vague "eventually consistent: true". Consistency
+  class `PROJECTION`.
 - Projection results are immutable and cannot be fed back as a mutation input: a projection value is
   not a valid `expected` witness for a command.
 
 No generic CQRS framework, no event bus, no arbitrary metadata query language.
+
+### C1. What is public contract vs what stays server-only
+
+Public in `:tramai-control-plane` (the deliverable, and the reason the API migration entries are
+legitimate rather than bookkeeping):
+
+`expectedVersion`, `WorkloadStateVersion`, `Stale(currentVersion, expectedVersion)`, the outcome
+types, `QueryConsistency`, `observedVersion`, authoritative-vs-projection read semantics,
+`WorkloadControlPlaneCommands`, `WorkloadControlPlaneQueries`.
+
+Server-only in `:tramai-server` (never in the public control-plane ABI):
+
+`If-Match`/`ETag` parsing, HTTP status codes, `ProblemDetail`, Spring annotations, `ResponseEntity`,
+HTTP request/response DTO mechanics.
 
 ### D. HTTP concurrency contract
 
@@ -120,24 +164,42 @@ implements `If-Match` today, so this defines the contract rather than extending 
 
 - `GET workload` → `RegisteredWorkload` with `ETag` derived from `WorkloadStateVersion`. The ETag is a
   version token: `"<stateVersion>"` (strong, since it changes on every authoritative mutation).
-- mutation → requires `If-Match: <etag>`; matching version executes the command, stale version is a
-  precondition failure, missing required precondition is a precondition-required response.
-- Placement: the HTTP surface lives in **`tramai-server`**, which already owns governance wiring and
-  the `ProblemDetail` error convention. `tramai-control-plane` stays framework-agnostic (its only
-  `api` dependency is `tramai-core`) and must not gain a web dependency; its module doc currently
-  states "no REST/query surfaces … here (later candidates)" and is reconciled in this slice.
-- Failure mapping (final codes to be confirmed against the existing handlers before implementation):
+- **Frozen `If-Match` form: exactly one strong numeric ETag** — `If-Match: "17"`. The header can
+  syntactically express more than our contract allows, so the unsupported forms are rejected rather
+  than interpreted:
+
+  | `If-Match` value | Result | Why |
+  |---|---|---|
+  | `"17"` | evaluated | exactly one strong version token |
+  | `W/"17"` | 400 | weak tag — not a version-specific precondition |
+  | `*` | 400 | satisfies resource-existence semantics without naming an expected version, which would undermine the invariant that every mutation is conditioned on a specific observed version |
+  | `"16", "17"` | 400 | multiple alternatives — the authority has exactly one version |
+  | `abc`, empty | 400 | malformed |
+
+- mutation → requires `If-Match`; matching version executes the command, a stale version is a
+  precondition failure, an absent precondition is a precondition-required response.
+- Failure mapping (extends the existing `ProblemDetail` vocabulary; the server's current 409 handler
+  proves the convention, it does not mean every new semantic conflict must become 409):
 
   | Condition | Status | Notes |
   |---|---|---|
-  | stale `If-Match` | 412 | body carries current authoritative version |
-  | missing `If-Match` on a required mutation | 428 | never silently last-write-wins |
-  | unknown deployment scope | 404 | |
-  | invalid lifecycle transition (e.g. RETIRED is terminal) | 409 | distinct from precondition failure |
-  | malformed/absent `If-Match` value | 400 | not reinterpreted as "no precondition" |
+  | `If-Match` present but malformed/unsupported form | 400 | never interpreted as "no precondition" |
+  | mandatory `If-Match` absent | 428 | never silently last-write-wins |
+  | `If-Match` valid but no longer the current version | 412 | precondition failed — the command may be well-formed, its basis is stale |
+  | deployment scope absent | 404 | |
+  | version current, but the requested lifecycle transition is illegal | 409 | domain conflict, distinct from a stale precondition |
 
-  Errors are `ProblemDetail` with the authoritative version as an extension property, matching the
-  existing handler style.
+  412 and 409 stay separate on purpose: 412 means *the version you conditioned on is no longer
+  current*; 409 means *your precondition is current but the transition itself conflicts with domain
+  state*. Collapsing them would discard information the authority layer already preserves.
+
+- The **412 body carries `expectedVersion` and `currentVersion`**, and the response returns the
+  current `ETag`, so a client can re-read and reconcile without parsing human-readable text.
+- Placement: the HTTP surface lives in **`tramai-server`**, which already owns governance wiring and
+  the `ProblemDetail` error convention; `ETag`/`If-Match` parsing, status codes and DTO mechanics stay
+  there. `tramai-control-plane` stays framework-agnostic (its only `api` dependency is `tramai-core`)
+  and must not gain a web dependency; its module doc currently states "no REST/query surfaces … here
+  (later candidates)" and is reconciled in this slice.
 
 - Critically: `Controller -> command/query contract -> authority`. Never
   `Controller -> JdbcWorkloadRegistrationStore`.
@@ -170,14 +232,18 @@ Focused verification (async/TCK style matching the existing control-plane and JD
 8. No store implementation type is reachable through the public command/query contract.
 9. Metadata/lifecycle mutation cannot replace immutable identity or configuration fingerprint.
 10. Stale rejection survives JDBC persistence, restart and cross-instance execution.
+11. `If-Match` form is enforced: `"17"` accepted; `W/"17"`, `*`, `"16", "17"` and `abc` rejected as
+    unsupported precondition forms (not silently coerced, not treated as absent).
 
 ### Adversarial discriminator
 
-The strongest test is the one the Epic names: **mutation through a projection/read-model path must be
-rejected**, and a **stale precondition against newer state must be rejected**. Both are proven by
+The strongest tests are the ones the Epic names: **mutation through a projection/read-model path must
+be rejected**, and a **stale precondition against newer state must be rejected**. Both are proven by
 attempting them through the public surface, not by asserting a type is absent. Additional
-discriminators: `If-Match` present but stale; `If-Match` absent on a required mutation; `If-Match`
-malformed (must not degrade to last-write-wins); two same-version commands racing.
+discriminators: `If-Match` present but stale (412); `If-Match` absent on a required mutation (428);
+`If-Match` malformed (400, never last-write-wins); `If-Match: *` (must not authorize a mutation
+without an expected version, even though the resource exists); two same-version commands racing
+(exactly one wins); a projection value used as a mutation witness (must be unusable).
 
 ## Failure semantics
 
