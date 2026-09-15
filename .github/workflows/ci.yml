@@ -22,6 +22,8 @@ jobs:
             gates: spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards
           - name: hygiene
             gates: verifyDependencyHygiene
+          - name: junit-test-signatures
+            gates: verifyJUnitTestSignatures
 
     steps:
       - name: Checkout
