@@ -58,9 +58,9 @@ identity type, no parallel attribution store, and no second run identifier.
   written before attribution existed remain byte-compatible.
 - **Approval suspension and sovereign-ops outbox — V2 provenance.** A governed suspension and a
   governed outbox record carry the complete `GovernedRunIdentity` as one non-optional nested
-  object in a V2 payload; V1 keeps exactly its released DTO shape. A declared but unsupported
-  `schemaVersion` is corruption, not legacy, and only an integral in-range JSON number counts as a
-  declaration.
+  object in a V2 payload; V1 keeps exactly its released DTO shape. A malformed or mistyped
+  `schemaVersion` declaration is corruption; an unknown integral version is unsupported format.
+  Neither case is legacy.
 - **Scheduler — durable deployment binding.** Continuation classification and deployment identity
   come from the durable binding store, not from the transient runtime registration, so a schedule
   created before a registration change still recovers the identity it was created with.
