@@ -20,5 +20,6 @@ dependencies {
 
             testImplementation(libs.h2database)
         testImplementation(libs.spring.boot.starter.test)
+        testImplementation(testFixtures(project(":tramai-control-plane")))
 }
 

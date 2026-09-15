@@ -1,3 +1,18 @@
+public final class dev/tramai/controlplane/ClassifiedRead {
+	public fun <init> (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/QueryConsistency;Ldev/tramai/controlplane/WorkloadStateVersion;)V
+	public final fun component1 ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public final fun component2 ()Ldev/tramai/controlplane/QueryConsistency;
+	public final fun component3 ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun copy (Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/QueryConsistency;Ldev/tramai/controlplane/WorkloadStateVersion;)Ldev/tramai/controlplane/ClassifiedRead;
+	public static synthetic fun copy$default (Ldev/tramai/controlplane/ClassifiedRead;Ldev/tramai/controlplane/RegisteredWorkload;Ldev/tramai/controlplane/QueryConsistency;Ldev/tramai/controlplane/WorkloadStateVersion;ILjava/lang/Object;)Ldev/tramai/controlplane/ClassifiedRead;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConsistency ()Ldev/tramai/controlplane/QueryConsistency;
+	public final fun getObservedVersion ()Ldev/tramai/controlplane/WorkloadStateVersion;
+	public final fun getRegistration ()Ldev/tramai/controlplane/RegisteredWorkload;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/controlplane/ConfigurationFingerprint {
 	public static final field Companion Ldev/tramai/controlplane/ConfigurationFingerprint$Companion;
 	public static final field FINGERPRINT_MAX_LENGTH I
@@ -162,6 +177,14 @@ public final class dev/tramai/controlplane/MetadataUpdateOutcome$Unchanged : dev
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/controlplane/QueryConsistency : java/lang/Enum {
+	public static final field AUTHORITATIVE Ldev/tramai/controlplane/QueryConsistency;
+	public static final field PROJECTION Ldev/tramai/controlplane/QueryConsistency;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/controlplane/QueryConsistency;
+	public static fun values ()[Ldev/tramai/controlplane/QueryConsistency;
+}
+
 public abstract interface class dev/tramai/controlplane/RegisterOutcome {
 }
 
@@ -232,6 +255,17 @@ public final class dev/tramai/controlplane/WorkloadAdmissionRejectedException : 
 	public final fun getReason ()Ljava/lang/String;
 }
 
+public abstract interface class dev/tramai/controlplane/WorkloadControlPlaneCommands {
+	public abstract fun register (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun transitionLifecycle (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadLifecycleState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun updateMetadata (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/controlplane/WorkloadControlPlaneQueries {
+	public abstract fun authoritative (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun projection (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/controlplane/WorkloadDeploymentScope {
 	public fun <init> (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;)V
 	public final fun component1 ()Ldev/tramai/core/identity/WorkloadId;
@@ -257,12 +291,14 @@ public final class dev/tramai/controlplane/WorkloadLifecycleState : java/lang/En
 	public static fun values ()[Ldev/tramai/controlplane/WorkloadLifecycleState;
 }
 
-public final class dev/tramai/controlplane/WorkloadRegistrationAuthority {
+public final class dev/tramai/controlplane/WorkloadRegistrationAuthority : dev/tramai/controlplane/WorkloadControlPlaneCommands, dev/tramai/controlplane/WorkloadControlPlaneQueries {
 	public fun <init> (Ldev/tramai/controlplane/WorkloadRegistrationStore;)V
-	public final fun register (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun authoritative (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun projection (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun register (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/controlplane/ConfigurationFingerprint;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun resolveForNewRun (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun transitionLifecycle (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadLifecycleState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun updateMetadata (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transitionLifecycle (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/controlplane/WorkloadLifecycleState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun updateMetadata (Ldev/tramai/core/identity/WorkloadId;Ldev/tramai/core/identity/EnvironmentId;Ldev/tramai/core/identity/DeploymentId;Ldev/tramai/controlplane/WorkloadStateVersion;Ldev/tramai/core/identity/WorkloadMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public abstract interface class dev/tramai/controlplane/WorkloadRegistrationStore {
