@@ -48,6 +48,7 @@ stale privileged mutation cannot silently overwrite newer authoritative state
 | 0.7.1b | Workload identity contract | Define stable workload, configuration/version, environment/deployment and correlation types/validation |
 | 0.7.1c | Authoritative registration/state boundary | Establish source-of-truth and lifecycle semantics for control-plane workloads |
 | 0.7.1d | Run attribution | Persist/propagate workload+configuration identity through supported runs without ambiguity |
+| 0.7.1d1 | Governed approval identity carriage | Get both gateway creation paths onto the existing governed suspension path; carry framework-owned attribution through the approval lifecycle; enforce continuity at reconstruction (#418) |
 | 0.7.1e | Control-plane authority contract | Define query vs command boundaries, consistency classes and stale-precondition semantics |
 | 0.7.1f | Safe exposure model | Define default metadata categories; protected payloads have no generic query surface |
 | 0.7.1g | Evidence/compatibility proof | Typed identity/lifecycle evidence, API/TCK impact, adversarial and mutation proof |
