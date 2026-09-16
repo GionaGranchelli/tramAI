@@ -2,6 +2,7 @@ package dev.tramai.build.quality
 
 import org.junit.jupiter.api.Test
 import java.security.MessageDigest
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -294,6 +295,179 @@ class ApiStabilityPolicyTest {
         assertTrue(
             failures(evidence, evidence, listOf(historical), projectVersion = "0.7.0-SNAPSHOT").isEmpty(),
             "a landed entry whose hash is the committed dump is retained history, not a failure",
+        )
+    }
+
+    // ── retained history is a CHAIN, not a set of connected edges ────────
+    //
+    // The previous rule recognized one generation of history (an entry counted as landed when its
+    // `toSha256` was the current base hash). Once a module transitions a second time and that
+    // transition lands, the older entry was then permanently reported stale — which is exactly what
+    // merging the 0.7.1d transitions did to the real registry. Validity is reachability to the
+    // module's actual base hash; disconnected chains, ambiguous branches and cycles are not history.
+
+    @Test
+    fun `two retained generations are both valid when the base is the chain terminal`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to c),
+                listOf(migration(module, a, b, "0.5.0"), migration(module, b, c, "0.5.0")),
+            )
+
+        assertTrue(diagnostics.isEmpty(), "A→B→C with base C must accept both entries, got: $diagnostics")
+    }
+
+    @Test
+    fun `three retained generations are all valid when the base is the chain terminal`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+        val d = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V", "public fun d ()V")
+
+        val diagnostics =
+            failures(
+                mapOf(module to d),
+                mapOf(module to d),
+                listOf(
+                    migration(module, a, b, "0.5.0"),
+                    migration(module, b, c, "0.5.0"),
+                    migration(module, c, d, "0.5.0"),
+                ),
+            )
+
+        assertTrue(diagnostics.isEmpty(), "A→B→C→D with base D must accept all three, got: $diagnostics")
+    }
+
+    @Test
+    fun `retained history never authorizes the live transition`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+        val d = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V", "public fun d ()V")
+
+        // base C, current D, no entry for C→D: the chain A→B→C is history and authorizes nothing.
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to d),
+                listOf(migration(module, a, b, "0.5.0"), migration(module, b, c, "0.5.0")),
+                projectVersion = "0.7.0-SNAPSHOT",
+            )
+
+        assertTrue(
+            diagnostics.any { it.message.contains("changed without an exact hash-bound migration entry") },
+            "the live C→D transition must still require an exact entry, got: $diagnostics",
+        )
+        assertTrue(
+            diagnostics.none { it.message.contains("is stale, orphaned") },
+            "retained history must not be reported as stale, got: $diagnostics",
+        )
+    }
+
+    @Test
+    fun `an exact active entry for the live transition still authorizes it`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+        val d = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V", "public fun d ()V")
+
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to d),
+                listOf(
+                    migration(module, a, b, "0.5.0"),
+                    migration(module, b, c, "0.5.0"),
+                    migration(module, c, d, "0.7.0"),
+                ),
+                projectVersion = "0.7.0-SNAPSHOT",
+            )
+
+        assertTrue(
+            diagnostics.isEmpty(),
+            "an ACTIVE C→D entry must authorize with history behind it, got: $diagnostics",
+        )
+    }
+
+    @Test
+    fun `a chain that does not reach the base is not history`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+        val x = dump(module, "public fun x ()V")
+
+        // A→B→X: the edges connect to each other and to nothing that ever landed.
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to c),
+                listOf(migration(module, a, b, "0.5.0"), migration(module, b, x, "0.5.0")),
+            )
+
+        assertEquals(
+            2,
+            diagnostics.count { it.message.contains("is stale, orphaned") },
+            "both entries of a disconnected chain must fail, got: $diagnostics",
+        )
+    }
+
+    @Test
+    fun `a branching history is ambiguous and the predecessor chain is rejected`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+        val x = dump(module, "public fun x ()V")
+
+        // B has two successors (C and X). A history is a sequence, not a graph: A→B cannot claim
+        // validity, while B→C stays valid because its terminal IS the base.
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to c),
+                listOf(
+                    migration(module, a, b, "0.5.0"),
+                    migration(module, b, c, "0.5.0"),
+                    migration(module, b, x, "0.5.0"),
+                ),
+            )
+        val stale = diagnostics.filter { it.message.contains("is stale, orphaned") }
+
+        assertEquals(2, stale.size, "A→B (ambiguous successor) and B→X (unreachable) must fail, got: $diagnostics")
+        assertTrue(
+            stale.none { it.message.contains(sha256(b)) && it.message.contains(sha256(c)) },
+            "B→C terminates at the base and must remain valid, got: $diagnostics",
+        )
+    }
+
+    @Test
+    fun `a cyclic history is rejected`() {
+        val module = ":tramai-engine"
+        val a = dump(module, "public fun a ()V")
+        val b = dump(module, "public fun a ()V", "public fun b ()V")
+        val c = dump(module, "public fun a ()V", "public fun b ()V", "public fun c ()V")
+
+        val diagnostics =
+            failures(
+                mapOf(module to c),
+                mapOf(module to c),
+                listOf(migration(module, a, b, "0.5.0"), migration(module, b, a, "0.5.0")),
+            )
+
+        assertEquals(
+            2,
+            diagnostics.count { it.message.contains("is stale, orphaned") },
+            "a cycle reaches no base and must fail for every entry, got: $diagnostics",
         )
     }
 
