@@ -217,9 +217,13 @@ class WorkloadControlPlaneContractTest {
     }
 
     @Test
-    fun `no command accepts a read result as its mutation witness`() {
-        // Commands take (identity fields, expectedVersion, payload) — never a record. A value
-        // obtained from any read therefore cannot be replayed as mutation authority.
+    fun `a command takes an explicit version, never a read record`() {
+        // The guarantee is about the RECORD, not about the version type. Commands take
+        // (identity fields, expectedVersion, payload), so a read result cannot be handed over as a
+        // mutation witness. The version a read observed may still be submitted as an explicit
+        // expected version — that is not the read becoming authoritative, because the authority
+        // re-reads and answers Stale unless its current version still equals it (pinned by
+        // `a lagging projection observation never authorizes a command`).
         val commandParameters =
             WorkloadControlPlaneCommands::class.java.methods
                 .flatMap { it.parameterTypes.toList() }

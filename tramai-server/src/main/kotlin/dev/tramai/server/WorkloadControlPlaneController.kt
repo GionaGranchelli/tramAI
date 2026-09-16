@@ -1,6 +1,5 @@
 package dev.tramai.server
 
-import dev.tramai.controlplane.ClassifiedRead
 import dev.tramai.controlplane.ConfigurationFingerprint
 import dev.tramai.controlplane.LifecycleTransitionOutcome
 import dev.tramai.controlplane.MetadataUpdateOutcome
@@ -9,7 +8,6 @@ import dev.tramai.controlplane.RegisteredWorkload
 import dev.tramai.controlplane.WorkloadControlPlaneCommands
 import dev.tramai.controlplane.WorkloadControlPlaneQueries
 import dev.tramai.controlplane.WorkloadLifecycleState
-import dev.tramai.controlplane.WorkloadStateVersion
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
 import dev.tramai.core.identity.DeploymentId
@@ -22,7 +20,6 @@ import kotlinx.coroutines.runBlocking
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
-import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable

@@ -221,6 +221,24 @@ class WorkloadControlPlaneControllerTest
                 }.andExpect { status { isOk() } }
         }
 
+        @Test
+        fun `an explicitly present empty If-Match is 400 rather than 428 and mutates nothing`() {
+            val scope = register("empty-if-match")
+            val ownerBefore = currentOwner(scope)
+
+            // Presented but unusable: the header exists, so this is a malformed precondition (400), not
+            // a missing one (428). Either way nothing is written.
+            mockMvc
+                .put(path(scope, "metadata")) {
+                    header("If-Match", "")
+                    contentType = MediaType.APPLICATION_JSON
+                    content = metadata("Unconditioned Writer")
+                }.andExpect { status { isBadRequest() } }
+
+            assertThat(currentVersion(scope)).isEqualTo(WorkloadStateVersion.INITIAL)
+            assertThat(currentOwner(scope)).isEqualTo(ownerBefore)
+        }
+
         // ── helpers ─────────────────────────────────────────────────────
 
         /** The control-plane fixtures own the identifiers, so the adapter tests never invent any. */

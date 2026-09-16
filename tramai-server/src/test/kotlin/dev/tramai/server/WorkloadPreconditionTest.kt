@@ -25,10 +25,12 @@ class WorkloadPreconditionTest {
     }
 
     @Test
-    fun `an absent header is a missing precondition, not a malformed one`() {
+    fun `an absent header is a missing precondition and a present unusable one is malformed`() {
+        // 428 means "you did not supply the precondition"; 400 means "what you supplied is not a
+        // version precondition". Only an absent header is the former.
         assertThat(parseWorkloadPrecondition(null)).isEqualTo(WorkloadPrecondition.Missing)
-        assertThat(parseWorkloadPrecondition("")).isEqualTo(WorkloadPrecondition.Missing)
-        assertThat(parseWorkloadPrecondition("   ")).isEqualTo(WorkloadPrecondition.Missing)
+        assertThat(parseWorkloadPrecondition("")).isEqualTo(WorkloadPrecondition.Unsupported)
+        assertThat(parseWorkloadPrecondition("   ")).isEqualTo(WorkloadPrecondition.Unsupported)
     }
 
     @Test

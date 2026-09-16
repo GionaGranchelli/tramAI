@@ -37,23 +37,16 @@ private val STRONG_NUMERIC_ETAG = Regex("""^"([1-9][0-9]*)"$""")
 
 /** Parses an `If-Match` header into a precondition outcome. */
 internal fun parseWorkloadPrecondition(header: String?): WorkloadPrecondition {
-    val value = header?.trim()
-    val digits = value?.takeIf { it.isNotEmpty() }?.let { STRONG_NUMERIC_ETAG.matchEntire(it) }
-    return when {
-        value.isNullOrEmpty() -> {
-            WorkloadPrecondition.Missing
-        }
-
-        digits == null -> {
-            WorkloadPrecondition.Unsupported
-        }
-
-        else -> {
-            digits.groupValues
-                .get(1)
-                .toLongOrNull()
-                ?.let { WorkloadPrecondition.Expected(WorkloadStateVersion(it)) }
-                ?: WorkloadPrecondition.Unsupported
-        }
-    }
+    // Only an ABSENT header is Missing (428). A present value that does not carry exactly one strong
+    // numeric ETag — including empty or blank — is Unsupported (400), because "you sent nothing
+    // usable" is a malformed precondition, not a missing one, and collapsing the two would report a
+    // malformed request as a required-precondition error.
+    if (header == null) return WorkloadPrecondition.Missing
+    return STRONG_NUMERIC_ETAG
+        .matchEntire(header.trim())
+        ?.groupValues
+        ?.get(1)
+        ?.toLongOrNull()
+        ?.let { WorkloadPrecondition.Expected(WorkloadStateVersion(it)) }
+        ?: WorkloadPrecondition.Unsupported
 }

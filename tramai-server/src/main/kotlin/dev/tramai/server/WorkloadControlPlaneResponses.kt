@@ -15,11 +15,16 @@ import org.springframework.http.ResponseEntity
  * state is read, compared or mutated here.
  */
 
-/** An authoritative or projection read, with the ETag of the version it reports. */
+/**
+ * An authoritative or projection read, with the ETag of the version it reports.
+ *
+ * The ETag comes from [ClassifiedRead.observedVersion] — the version the read testifies to — rather
+ * than from the payload, so the header cannot disagree with the body if the two ever diverge.
+ */
 internal fun okResponse(read: ClassifiedRead): ResponseEntity<Any> =
     ResponseEntity
         .ok()
-        .eTag(workloadEtag(read.registration.stateVersion))
+        .eTag(workloadEtag(read.observedVersion))
         .body(WorkloadRegistrationResponse.from(read.registration, read.consistency.name))
 
 /** A command outcome that changed nothing or applied exactly once; both are 200 with the ETag. */

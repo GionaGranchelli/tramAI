@@ -26,15 +26,31 @@ enum class QueryConsistency {
  * A read result labelled with the consistency class that produced it and the
  * authoritative [WorkloadStateVersion] it reflects.
  *
- * Immutable by construction. It is NOT accepted anywhere as a mutation input: commands take
- * `(identity fields, expectedVersion, payload)`, so neither this wrapper nor the
- * [registration] inside it can be replayed as a mutation witness.
+ * Immutable by construction, and never accepted as a mutation input AS A RECORD: commands take
+ * `(identity fields, expectedVersion, payload)`, so a read result cannot be handed over as a
+ * mutation witness.
+ *
+ * Its [observedVersion] may legitimately be submitted as an explicit expected version like any other
+ * version. That is NOT the read becoming authoritative: the authority re-reads and answers
+ * `Stale(current, expected)` unless its current version still equals what was submitted. Projection
+ * lag is defeated by the compare-and-set, not by the type system — so there is deliberately no
+ * separate "version token" type here.
  */
 data class ClassifiedRead(
     val registration: RegisteredWorkload,
     val consistency: QueryConsistency,
     val observedVersion: WorkloadStateVersion,
-)
+) {
+    init {
+        // A read must not contradict itself: the version it reports is the version of the state it
+        // carries. A future projection implementation that observed one version and shipped another
+        // fails here instead of returning contradictory state/version evidence.
+        require(registration.stateVersion == observedVersion) {
+            "read state/version mismatch: registration.stateVersion=" +
+                "${registration.stateVersion.value} but observedVersion=${observedVersion.value}"
+        }
+    }
+}
 
 /**
  * Read authority for workload registration state (0.7.1e).
