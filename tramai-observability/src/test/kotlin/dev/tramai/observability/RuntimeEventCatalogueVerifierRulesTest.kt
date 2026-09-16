@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  * declared configuration-property literals may appear as `tramai.` strings.
  */
 class RuntimeEventCatalogueVerifierRulesTest {
-
     private val verifier = RuntimeEventCatalogueArchitectureTest()
 
     @Test
