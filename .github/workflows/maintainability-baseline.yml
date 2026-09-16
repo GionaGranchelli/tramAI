@@ -57,16 +57,6 @@ jobs:
       - name: Verify Maintainability Baseline
         run: ./gradlew verifyMaintainabilityBaseline --no-daemon
 
-      # 0.7.1e infrastructure: the API architecture authority (verify060Architecture) ran in
-      # neither ci.yml nor any verifyPr lane, so release-line drift in the API/migration policy
-      # stayed invisible until someone ran it by hand — twice, in 0.7.1c/d. It stays on JDK 21
-      # here (AGENTS.md rule 6) rather than joining the JDK 25 matrix, and it takes the exact PR
-      # base so Contract-2 compares base-branch dumps rather than the default branch.
-      - name: Verify Architecture Authority
-        run: |
-          ./gradlew verify060Architecture --no-daemon \
-            -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
-
       - name: Upload Reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -103,6 +103,13 @@ jobs:
           - name: static-analysis
             test-filter: "--tests 'dev.tramai.build.quality.StaticAnalysis*Test'"
             expected: 25
+          # 0.7.1e: the API compatibility / migration-policy suites lived only in
+          # maintainability-baseline.yml, which triggers for PRs against master — so on every
+          # epic-targeted slice (where this policy actually drifts) they never ran. They are pure
+          # dump/policy logic, so they belong in this JDK 25 matrix like the other partitions.
+          - name: api-compatibility
+            test-filter: "--tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest' --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest' --tests 'dev.tramai.build.quality.ApiStabilityPolicyTest'"
+            expected: 67
 
     steps:
       - name: Checkout
