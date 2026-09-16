@@ -11,6 +11,11 @@ import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
+import dev.tramai.engine.approval.ApprovalRunAttribution
+import dev.tramai.engine.approval.GovernedApprovalStore
+import dev.tramai.engine.approval.decodeApprovalAttribution
+import dev.tramai.engine.approval.mergeApprovalAttribution
+import dev.tramai.engine.approval.requireAttributionMatchesBinding
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
@@ -64,7 +69,7 @@ class JdbcApprovalStore(
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
     private val maxCreationTtl: Duration = Duration.ofMinutes(15),
-) : ApprovalStore {
+) : GovernedApprovalStore {
     init {
         require(maxCreationTtl > Duration.ZERO) {
             "maxCreationTtl must be positive"
@@ -78,7 +83,19 @@ class JdbcApprovalStore(
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     override suspend fun create(request: ApprovalRequest): ApprovalRequest =
+        createApproval(request, ApprovalRunAttribution.Ungoverned)
+
+    override suspend fun createGovernedApproval(
+        request: ApprovalRequest,
+        attribution: ApprovalRunAttribution.Governed,
+    ): ApprovalRequest = createApproval(request, attribution)
+
+    private suspend fun createApproval(
+        request: ApprovalRequest,
+        attribution: ApprovalRunAttribution,
+    ): ApprovalRequest =
         withSafeJdbc({ "Database operation failed for approval: ${request.approvalId}" }) {
+            requireAttributionMatchesBinding(request, attribution)
             require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
             require(request.status == ApprovalStatus.PENDING) { "Initial approval status must be PENDING, got ${request.status}" }
             require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
@@ -128,6 +145,7 @@ class JdbcApprovalStore(
                     decisionComment = null,
                     consumedBy = null,
                     consumedAt = null,
+                    attribution = mergeApprovalAttribution(emptyMap(), attribution).takeIf { it.isNotEmpty() },
                 )
             val metadataJson = mapper.writeValueAsString(metadata)
             val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
@@ -177,6 +195,20 @@ class JdbcApprovalStore(
                         mapToApprovalRequest(mapToRow(rs))
                     }
                 }
+            }
+        }
+
+    override suspend fun approvalAttribution(approvalId: String): ApprovalRunAttribution =
+        withSafeJdbc({ "Database operation failed for approval: $approvalId" }) {
+            validateIdField(approvalId, "approvalId", maxIdLength)
+
+            dataSource.connection.use { conn ->
+                val row = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
+                val metadata = parseMetadata(row.sanitizedMetadataJson)
+                decodeApprovalAttribution(
+                    workflowRunId = metadata.binding.workflowRunId,
+                    metadata = metadata.attribution.orEmpty(),
+                )
             }
         }
 
@@ -450,6 +482,7 @@ class JdbcApprovalStore(
         val consumedBy: String?,
         val consumedAt: String?,
         val inbox: ApprovalInboxMetadataJson? = null,
+        val attribution: Map<String, String>? = null,
     )
 
     private data class DecisionFields(
