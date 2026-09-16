@@ -14,6 +14,7 @@ import dev.tramai.core.identity.WorkloadId
 import dev.tramai.engine.approval.ApprovalAttributionCorruptionException
 import dev.tramai.engine.approval.ApprovalAttributionKeys
 import dev.tramai.engine.approval.ApprovalRunAttribution
+import dev.tramai.engine.approval.GovernedApprovalStore
 import dev.tramai.testing.persistence.approval.ApprovalStoreFixtures
 import dev.tramai.testing.persistence.approval.MutableClock
 import kotlinx.coroutines.runBlocking
@@ -67,7 +68,7 @@ class JdbcGovernedApprovalAttributionTest {
             javaClass.classLoader
                 .getResource("tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql")
                 ?.readText()
-                ?: throw IllegalStateException("Schema SQL resource not found")
+                ?: error("Schema SQL resource not found")
         setupConnection.createStatement().use { it.execute(schemaSql) }
     }
 
@@ -80,17 +81,17 @@ class JdbcGovernedApprovalAttributionTest {
     @Test
     fun `a governed approval keeps its attribution snapshot across approval and consumption`() =
         runBlocking<Unit> {
-            val store = JdbcApprovalStore(dataSource, MutableClock(t0))
+            val store = governedStore()
             val request = ApprovalStoreFixtures.pending("gov-lifecycle", t0, expiry)
             val attribution = ApprovalRunAttribution.Governed(identity(request.binding.workflowRunId))
 
             store.createGovernedApproval(request, attribution)
-            assertThat(store.approvalAttribution("gov-lifecycle")).isEqualTo(attribution)
+            assertThat(store.attributionOf("gov-lifecycle")).isEqualTo(attribution)
 
             // The typed metadata record is parsed and copied on every transition: this is where a
             // flat reserved-key encoding would have been dropped.
             val decided = store.transition("gov-lifecycle", 0L, ApprovalTransition.Approve(decidedBy = "approver-1"))
-            assertThat(store.approvalAttribution("gov-lifecycle")).isEqualTo(attribution)
+            assertThat(store.attributionOf("gov-lifecycle")).isEqualTo(attribution)
 
             store.consumeApprovedOrReplay(
                 "gov-lifecycle",
@@ -98,7 +99,7 @@ class JdbcGovernedApprovalAttributionTest {
                 request.binding.approvalTokenDigest,
                 consumedBy = "consumer-1",
             )
-            assertThat(store.approvalAttribution("gov-lifecycle")).isEqualTo(attribution)
+            assertThat(store.attributionOf("gov-lifecycle")).isEqualTo(attribution)
 
             // Byte-level proof, independent of the codec: the five reserved keys are still on the row.
             assertThat(rawAttribution("gov-lifecycle"))
@@ -116,19 +117,19 @@ class JdbcGovernedApprovalAttributionTest {
     @Test
     fun `a legacy approval stores no reserved keys and decodes as un-attributed`() =
         runBlocking<Unit> {
-            val store = JdbcApprovalStore(dataSource, MutableClock(t0))
+            val store = governedStore()
             val request = ApprovalStoreFixtures.pending("legacy-1", t0, expiry)
 
             store.create(request)
 
-            assertThat(store.approvalAttribution("legacy-1")).isEqualTo(ApprovalRunAttribution.Ungoverned)
+            assertThat(store.attributionOf("legacy-1")).isEqualTo(ApprovalRunAttribution.Ungoverned)
             assertThat(rawMetadata("legacy-1")).doesNotContain("approval.identity.")
         }
 
     @Test
     fun `a governed creation describing another run than its binding is rejected and writes nothing`() =
         runBlocking<Unit> {
-            val store = JdbcApprovalStore(dataSource, MutableClock(t0))
+            val store = governedStore()
             val request = ApprovalStoreFixtures.pending("mismatch-1", t0, expiry)
             val otherRun = identity("run-somewhere-else")
 
@@ -142,29 +143,37 @@ class JdbcGovernedApprovalAttributionTest {
     @Test
     fun `a partially attributed row is corruption rather than a legacy approval`() =
         runBlocking<Unit> {
-            val store = JdbcApprovalStore(dataSource, MutableClock(t0))
+            val store = governedStore()
             val request = ApprovalStoreFixtures.pending("partial-1", t0, expiry)
-            store.createGovernedApproval(request, ApprovalRunAttribution.Governed(identity(request.binding.workflowRunId)))
+            val governed = ApprovalRunAttribution.Governed(identity(request.binding.workflowRunId))
+
+            store.createGovernedApproval(request, governed)
 
             // Simulate a torn/foreign write: drop exactly one reserved key from the JSONB document.
-            setupConnection.prepareStatement(
-                "UPDATE approvals SET sanitized_metadata = sanitized_metadata #- " +
-                    "'{attribution,${ApprovalAttributionKeys.DEPLOYMENT}}' WHERE approval_id = ?",
-            ).use { stmt ->
-                stmt.setString(1, "partial-1")
-                stmt.executeUpdate()
-            }
+            setupConnection
+                .prepareStatement(
+                    "UPDATE approvals SET sanitized_metadata = sanitized_metadata #- " +
+                        "'{attribution,${ApprovalAttributionKeys.DEPLOYMENT}}' WHERE approval_id = ?",
+                ).use { stmt ->
+                    stmt.setString(1, "partial-1")
+                    stmt.executeUpdate()
+                }
 
-            assertFailsWith<ApprovalAttributionCorruptionException> { store.approvalAttribution("partial-1") }
+            assertFailsWith<ApprovalAttributionCorruptionException> { store.attributionOf("partial-1") }
         }
 
     @Test
     fun `attribution of an unknown approval is not found rather than un-attributed`() =
         runBlocking<Unit> {
-            val store = JdbcApprovalStore(dataSource, MutableClock(t0))
+            val store = governedStore()
 
-            assertFailsWith<ApprovalStoreNotFoundException> { store.approvalAttribution("no-such-approval") }
+            assertFailsWith<ApprovalStoreNotFoundException> { store.attributionOf("no-such-approval") }
         }
+
+    /** The governed capability over a store on the real database. */
+    private fun store(): JdbcApprovalStore = JdbcApprovalStore(dataSource, MutableClock(t0))
+
+    private fun governedStore(): GovernedApprovalStore = GovernedJdbcApprovalStore(store())
 
     private fun identity(runId: String): GovernedRunIdentity =
         GovernedRunIdentity(
@@ -182,17 +191,21 @@ class JdbcGovernedApprovalAttributionTest {
             runId = RunId(runId),
         )
 
-    private fun rawMetadata(approvalId: String): String =
-        setupConnection.prepareStatement("SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?").use { stmt ->
+    private fun rawMetadata(approvalId: String): String {
+        val sql = "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?"
+        return setupConnection.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
                 check(rs.next()) { "no approval row for $approvalId" }
                 rs.getString(1)
             }
         }
+    }
 
     private fun rawAttribution(approvalId: String): Map<String, String> {
-        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val mapper =
+            com.fasterxml.jackson.databind
+                .ObjectMapper()
         val node = mapper.readTree(rawMetadata(approvalId)).get("attribution")
         return ApprovalAttributionKeys.ALL.associateWith { key -> node.get(key).asText() }
     }
