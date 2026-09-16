@@ -575,8 +575,13 @@ object RootDocGuardVerifiers {
         require(ktSection.contains("separate Gradle build")) {
             "Kotlin Spring Boot Example section must contain 'separate Gradle build'"
         }
-        require(ktSection.contains("0.4.0")) {
-            "Kotlin Spring Boot Example section must contain '0.4.0'"
+        // This example consumes published artifacts, so the section must name the last promoted
+        // release. Deriving it keeps the guard honest across release cuts; the literal it replaced
+        // had gone stale and made the full release closure red on the Epic base.
+        val promotedRelease = promotedReleaseVersion(rootDir)
+        require(ktSection.contains(promotedRelease)) {
+            "Kotlin Spring Boot Example section must name the last promoted release " +
+                "'$promotedRelease' it consumes as published dependencies"
         }
         require(ktSection.contains("gemma4:e4b")) {
             "Kotlin Spring Boot Example section must specify 'gemma4:e4b' model"
