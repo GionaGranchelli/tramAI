@@ -11,11 +11,6 @@ import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
-import dev.tramai.engine.approval.ApprovalRunAttribution
-import dev.tramai.engine.approval.GovernedApprovalStore
-import dev.tramai.engine.approval.decodeApprovalAttribution
-import dev.tramai.engine.approval.mergeApprovalAttribution
-import dev.tramai.engine.approval.requireAttributionMatchesBinding
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
@@ -24,6 +19,11 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import dev.tramai.engine.approval.ApprovalRunAttribution
+import dev.tramai.engine.approval.ApprovalRunAttribution.Ungoverned
+import dev.tramai.engine.approval.decodeApprovalAttribution
+import dev.tramai.engine.approval.mergeApprovalAttribution
+import dev.tramai.engine.approval.requireAttributionMatchesBinding
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Connection
@@ -69,7 +69,7 @@ class JdbcApprovalStore(
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
     private val maxCreationTtl: Duration = Duration.ofMinutes(15),
-) : GovernedApprovalStore {
+) : ApprovalStore {
     init {
         require(maxCreationTtl > Duration.ZERO) {
             "maxCreationTtl must be positive"
@@ -82,10 +82,9 @@ class JdbcApprovalStore(
             .registerModule(JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
-    override suspend fun create(request: ApprovalRequest): ApprovalRequest =
-        createApproval(request, ApprovalRunAttribution.Ungoverned)
+    override suspend fun create(request: ApprovalRequest): ApprovalRequest = createApproval(request, Ungoverned)
 
-    override suspend fun createGovernedApproval(
+    internal suspend fun createGovernedApproval(
         request: ApprovalRequest,
         attribution: ApprovalRunAttribution.Governed,
     ): ApprovalRequest = createApproval(request, attribution)
@@ -96,36 +95,9 @@ class JdbcApprovalStore(
     ): ApprovalRequest =
         withSafeJdbc({ "Database operation failed for approval: ${request.approvalId}" }) {
             requireAttributionMatchesBinding(request, attribution)
-            require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
-            require(request.status == ApprovalStatus.PENDING) { "Initial approval status must be PENDING, got ${request.status}" }
-            require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
-            require(request.decidedAt == null) { "Initial approval must not have decidedAt set" }
-            require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
-
-            validateIdField(request.approvalId, "approvalId", maxIdLength)
-            validateIdField(request.requestedBy, "requestedBy", maxIdLength)
-            SafeActorIdPolicy.validateActorId(request.requestedBy, "requestedBy")
-
-            val binding = request.binding
-            validateIdField(binding.workflowRunId, "workflowRunId", maxIdLength)
-            validateIdField(binding.toolName, "toolName", maxIdLength)
-            validateIdField(binding.policyVersion, "policyVersion", maxIdLength)
-
             val now = clock.instant()
-            require(request.expiresAt > now) {
-                "expiresAt must be in the future, got $now for expiry ${request.expiresAt}"
-            }
-            require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
-            require(request.requestedAt <= now) {
-                "requestedAt must not be in the future, got ${request.requestedAt} for now $now"
-            }
-            require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
-            require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
-
-            val ttl = Duration.between(request.requestedAt, request.expiresAt)
-            require(ttl <= maxCreationTtl) {
-                "expiresAt exceeds maximum creation TTL of $maxCreationTtl"
-            }
+            val binding = request.binding
+            validateApprovalCreation(request, binding, maxIdLength, maxCreationTtl, now)
 
             val metadata =
                 ApprovalMetadata(
@@ -198,7 +170,7 @@ class JdbcApprovalStore(
             }
         }
 
-    override suspend fun approvalAttribution(approvalId: String): ApprovalRunAttribution =
+    internal suspend fun attributionOf(approvalId: String): ApprovalRunAttribution =
         withSafeJdbc({ "Database operation failed for approval: $approvalId" }) {
             validateIdField(approvalId, "approvalId", maxIdLength)
 
@@ -675,25 +647,6 @@ class JdbcApprovalStore(
         return mapper.readValue(json)
     }
 
-    private fun incrementVersion(
-        approvalId: String,
-        version: Long,
-    ): Long =
-        try {
-            Math.addExact(version, 1L)
-        } catch (_: ArithmeticException) {
-            throw ApprovalStoreConflictException(approvalId)
-        }
-
-    private fun tokenDigestsMatch(
-        presentedTokenDigest: Sha256Digest,
-        storedTokenDigest: Sha256Digest,
-    ): Boolean =
-        MessageDigest.isEqual(
-            presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-            storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-        )
-
     private fun resolveNextStatus(
         current: ApprovalRow,
         transition: ApprovalTransition,
@@ -770,17 +723,73 @@ class JdbcApprovalStore(
         val hex = hashBytes.joinToString("") { "%02x".format(it) }
         return "sha256:$hex"
     }
+}
 
-    private fun validateIdField(
-        value: String,
-        fieldName: String,
-        maxLength: Int,
-    ): String {
-        val trimmed = value.trim()
-        require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
-        require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
-        require(trimmed.length <= maxLength) { "$fieldName exceeds maximum length of $maxLength" }
-        require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
-        return trimmed
+private fun incrementVersion(
+    approvalId: String,
+    version: Long,
+): Long =
+    try {
+        Math.addExact(version, 1L)
+    } catch (_: ArithmeticException) {
+        throw ApprovalStoreConflictException(approvalId)
     }
+
+private fun tokenDigestsMatch(
+    presentedTokenDigest: Sha256Digest,
+    storedTokenDigest: Sha256Digest,
+): Boolean =
+    MessageDigest.isEqual(
+        presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+        storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+    )
+
+private fun validateIdField(
+    value: String,
+    fieldName: String,
+    maxLength: Int,
+): String {
+    val trimmed = value.trim()
+    require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
+    require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
+    require(trimmed.length <= maxLength) { "$fieldName exceeds maximum length of $maxLength" }
+    require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
+    return trimmed
+}
+
+/**
+ * Creation-time validation, kept at file scope so the store's function budget is unchanged.
+ *
+ * Ordering is preserved from the inline form: identity/attribution first, then the request shape,
+ * then the time window.
+ */
+private fun validateApprovalCreation(
+    request: ApprovalRequest,
+    binding: ApprovalBinding,
+    maxIdLength: Int,
+    maxCreationTtl: Duration,
+    now: Instant,
+) {
+    require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
+    require(request.status == ApprovalStatus.PENDING) { "Initial status must be PENDING, got ${request.status}" }
+    require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
+    require(request.decidedAt == null) { "Initial approval must not have decidedAt set" }
+    require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
+
+    validateIdField(request.approvalId, "approvalId", maxIdLength)
+    validateIdField(request.requestedBy, "requestedBy", maxIdLength)
+    SafeActorIdPolicy.validateActorId(request.requestedBy, "requestedBy")
+
+    validateIdField(binding.workflowRunId, "workflowRunId", maxIdLength)
+    validateIdField(binding.toolName, "toolName", maxIdLength)
+    validateIdField(binding.policyVersion, "policyVersion", maxIdLength)
+
+    require(request.expiresAt > now) { "expiresAt must be in the future, got $now for expiry ${request.expiresAt}" }
+    require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
+    require(request.requestedAt <= now) { "requestedAt is in the future: ${request.requestedAt} vs $now" }
+    require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
+    require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
+
+    val ttl = Duration.between(request.requestedAt, request.expiresAt)
+    require(ttl <= maxCreationTtl) { "expiresAt exceeds maximum creation TTL of $maxCreationTtl" }
 }

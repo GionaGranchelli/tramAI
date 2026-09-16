@@ -36,6 +36,7 @@ import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetSnapshot
+import dev.tramai.engine.approval.ApprovalAttributionKeys
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import java.time.Instant
@@ -88,6 +89,72 @@ data class PersistedApprovalRequestV1(
 
     companion object {
         fun fromJson(json: String): PersistedApprovalRequestV1 = strictReadValue(json)
+    }
+}
+
+/**
+ * Persisted governed approval attribution (approval V2).
+ *
+ * The five identity components as flat fields, so a missing one fails strict decoding rather than
+ * silently defaulting. The workflow run id is deliberately ABSENT: for an approval,
+ * `ApprovalBinding.workflowRunId` is the canonical run id, so persisting it here would create a
+ * second source that could diverge from the run it describes. Decoding reconstructs and validates
+ * the full identity against that canonical run id.
+ */
+data class PersistedApprovalAttributionV1(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("workloadId") val workloadId: String,
+    @param:JsonProperty("configurationId") val configurationId: String,
+    @param:JsonProperty("configurationVersion") val configurationVersion: String,
+    @param:JsonProperty("environmentId") val environmentId: String,
+    @param:JsonProperty("deploymentId") val deploymentId: String,
+) {
+    fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
+
+    /**
+     * The shared reserved-key vocabulary, so the file store validates through exactly the same
+     * codec path as JDBC rather than reinterpreting attribution locally.
+     */
+    fun toReservedKeys(): Map<String, String> =
+        mapOf(
+            ApprovalAttributionKeys.WORKLOAD to workloadId,
+            ApprovalAttributionKeys.CONFIGURATION to configurationId,
+            ApprovalAttributionKeys.CONFIGURATION_VERSION to configurationVersion,
+            ApprovalAttributionKeys.ENVIRONMENT to environmentId,
+            ApprovalAttributionKeys.DEPLOYMENT to deploymentId,
+        )
+
+    companion object {
+        fun fromJson(json: String): PersistedApprovalAttributionV1 = strictReadValue(json)
+
+        fun from(identity: GovernedRunIdentity): PersistedApprovalAttributionV1 =
+            PersistedApprovalAttributionV1(
+                schemaVersion = 1,
+                workloadId = identity.deployment.workloadId.value,
+                configurationId = identity.deployment.configuration.id.value,
+                configurationVersion = identity.deployment.configuration.version.value,
+                environmentId = identity.deployment.environmentId.value,
+                deploymentId = identity.deployment.deploymentId.value,
+            )
+    }
+}
+
+/**
+ * V2 approval record: the V1 request payload plus governed attribution, persisted as ONE durable
+ * record in a single atomic encrypted write.
+ *
+ * V1 means un-attributed (legacy); V2 means governed. There is no third version, and the two are
+ * never conflated: a malformed V2 record fails decoding instead of being reinterpreted as V1.
+ */
+data class PersistedApprovalRequestV2(
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
+    @param:JsonProperty("request") val request: PersistedApprovalRequestV1,
+    @param:JsonProperty("attribution") val attribution: PersistedApprovalAttributionV1,
+) {
+    fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
+
+    companion object {
+        fun fromJson(json: String): PersistedApprovalRequestV2 = strictReadValue(json)
     }
 }
 

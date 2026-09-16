@@ -40,7 +40,7 @@ public interface GovernedApprovalStore : ApprovalStore {
      * @throws ApprovalAttributionCorruptionException when the persisted set is partial or unusable.
      * @throws dev.tramai.core.exception.ApprovalStoreNotFoundException when no such approval exists.
      */
-    public suspend fun approvalAttribution(approvalId: String): ApprovalRunAttribution
+    public suspend fun attributionOf(approvalId: String): ApprovalRunAttribution
 }
 
 /**
