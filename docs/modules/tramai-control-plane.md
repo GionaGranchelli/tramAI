@@ -67,7 +67,16 @@ authoritative mutation and never changes identity.
 - Do not cancel running workflows when a registration is suspended/retired.
 - Do not embed `WorkloadStateVersion` in any identity type.
 - Do not replace `WorkflowRegistry` executable-definition lookup.
-- Do not add REST/query surfaces, If-Match/ETag, projection consistency classes or arbitrary metadata maps here (later candidates).
+- Do not add HTTP mechanics here (If-Match/ETag parsing, status codes, problem DTOs) or a web
+  dependency of any kind: since 0.7.1e the framework-neutral command/query contract lives in this
+  module and the transport adapter lives in `tramai-server`.
+- Do not add a projection engine, a generic CQRS layer or arbitrary metadata maps: 0.7.1e ships the
+  read classification (`QueryConsistency`, `ClassifiedRead`) and the read-only guarantee, not a
+  projection store.
+- Do not re-implement registration, lifecycle or version rules in an adapter: `WorkloadRegistrationAuthority`
+  implements `WorkloadControlPlaneCommands`/`WorkloadControlPlaneQueries` directly, so an adapter only
+  parses transport input and maps typed outcomes. Reproducing `find -> compare -> mutate` outside the
+  authority creates a second authority.
 
 ### Related architecture
 

@@ -43,6 +43,9 @@ class RuntimeEventCatalogueArchitectureTest {
      *  treated as protocol and must reference the catalogue. */
     private val configPropertyLiterals =
         setOf(
+            // 0.7.1e: the control-plane HTTP adapter is gated off by default; this is the exact
+            // Spring prefix of that gate, declared like every other configuration namespace.
+            "tramai.control-plane.http",
             "tramai.dashboard",
             "tramai.dashboard.auth.required",
             "tramai.dashboard.auth.provider",
