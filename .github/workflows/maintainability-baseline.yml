@@ -57,6 +57,16 @@ jobs:
       - name: Verify Maintainability Baseline
         run: ./gradlew verifyMaintainabilityBaseline --no-daemon
 
+      # 0.7.1e infrastructure: the API architecture authority (verify060Architecture) ran in
+      # neither ci.yml nor any verifyPr lane, so release-line drift in the API/migration policy
+      # stayed invisible until someone ran it by hand — twice, in 0.7.1c/d. It stays on JDK 21
+      # here (AGENTS.md rule 6) rather than joining the JDK 25 matrix, and it takes the exact PR
+      # base so Contract-2 compares base-branch dumps rather than the default branch.
+      - name: Verify Architecture Authority
+        run: |
+          ./gradlew verify060Architecture --no-daemon \
+            -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
+
       - name: Upload Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,7 +114,9 @@ jobs:
   # MutationRatchetAuthorityTest (7) = 257 -> 302.
   # 10.3d: W4 mutation ratchet wiring discriminator + W5 CI workflow wiring discriminators in CoverageWiringTest = 248 -> 253.
   # 12.3b (R12-003): Gradle 9 strict task dependency validation tests (+1 in policy-maintainability, +1 in scanners-coverage) = 302 -> 303, 253 -> 254.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 174 + 303 + 254 = 910.
+  # 0.7.1e: ApiStabilityPolicyTest (24) enrolled in scanners-coverage = 254 -> 278. The suite was
+  # in no CI lane at all, so the release-line API-policy discriminators never ran in CI.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 174 + 303 + 278 = 934.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -161,6 +173,7 @@ jobs:
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
               --tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest'
               --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest'
+              --tests 'dev.tramai.build.quality.ApiStabilityPolicyTest'
               --tests 'dev.tramai.build.quality.JUnitTestSignatureVerifierTest'
               --tests 'dev.tramai.build.quality.CancellationDeltaComparatorTest'
               --tests 'dev.tramai.build.quality.CoveragePolicyDeltaVerifierTest'
@@ -177,7 +190,7 @@ jobs:
               --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
               --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
               --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
-            expected: 254
+            expected: 278
 
     steps:
       - name: Checkout
