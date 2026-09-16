@@ -107,6 +107,9 @@ jobs:
           # maintainability-baseline.yml, which triggers for PRs against master — so on every
           # epic-targeted slice (where this policy actually drifts) they never ran. They are pure
           # dump/policy logic, so they belong in this JDK 25 matrix like the other partitions.
+          - name: ci-wiring
+            test-filter: "--tests 'dev.tramai.build.quality.TestsWatchdogWiringTest'"
+            expected: 6
           - name: api-compatibility
             test-filter: "--tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest' --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest' --tests 'dev.tramai.build.quality.ApiStabilityPolicyTest'"
             expected: 67
@@ -158,31 +161,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run tests
-        timeout-minutes: 15
-        run: |
-          ./gradlew test &
-          GRADLE_PID=$!
-          DUMP_DIR=/tmp/threaddumps
-          mkdir -p "$DUMP_DIR"
-          # Containment watchdog: if tests exceed ~14 min, dump worker threads and
-          # fail fast instead of letting a concurrency flake hold the pipeline
-          # hostage for the full timeout. Calibrated to 14 min against measured
-          # suite variance (successful runs reach ~12.8 min), leaving the
-          # 15-minute step timeout as the hard ceiling.
-          for i in $(seq 1 21); do
-            if ! kill -0 "$GRADLE_PID" 2>/dev/null; then break; fi
-            sleep 40
-          done
-          if kill -0 "$GRADLE_PID" 2>/dev/null; then
-            echo "::error::Run tests exceeded 14 minutes — dumping threads and aborting"
-            for P in $(jps -l 2>/dev/null | grep -iE 'GradleWorkerMain|GradleDaemon' | awk '{print $1}'); do
-              jstack "$P" > "$DUMP_DIR/worker-$P-$(date +%H%M%S).txt" 2>&1 || true
-            done
-            kill "$GRADLE_PID" 2>/dev/null || true
-            wait "$GRADLE_PID" 2>/dev/null || true
-            exit 1
-          fi
-          wait "$GRADLE_PID"
+        timeout-minutes: 25
+        env:
+          # Wall-clock ceiling: growth margin, not a hang signal. Healthy runs measure ~13-14 min,
+          # so 20 min absorbs suite growth while the inactivity guard below catches real stalls.
+          WATCHDOG_CEILING_SECONDS: "1200"
+          # No test-result progress for 4.5 min means the run is stalled, not slow.
+          WATCHDOG_INACTIVITY_SECONDS: "270"
+        run: bash ./.github/scripts/test-watchdog.sh
 
       - name: Upload test hang thread dumps
         if: always()
