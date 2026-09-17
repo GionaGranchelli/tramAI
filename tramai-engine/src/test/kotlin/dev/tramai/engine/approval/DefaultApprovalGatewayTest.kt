@@ -21,6 +21,8 @@ import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.AuditStreamId
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.exception.ApprovalStoreNotFoundException
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.GovernedRunContinuityException
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
@@ -38,12 +40,15 @@ import dev.tramai.core.model.ToolCall
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.approval.ApprovalRunAttribution.Governed
 import dev.tramai.engine.inMemorySuspendedInvocationStore
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
@@ -58,6 +63,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.test.assertFailsWith
 
 class DefaultApprovalGatewayTest {
     private val fixedClock: Clock =
@@ -71,11 +77,15 @@ class DefaultApprovalGatewayTest {
     private lateinit var suspendedInvocationStore: SuspendedInvocationStore
     private lateinit var factory: FakeApprovalGatewayRequestFactory
 
-    private fun createGateway(): DefaultApprovalGateway =
+    private fun createGateway(
+        approvals: dev.tramai.core.approval.ApprovalStore = approvalStore,
+        suspensions: SuspendedInvocationStore = suspendedInvocationStore,
+        continuations: ApprovalContinuationStore = continuationStore,
+    ): DefaultApprovalGateway =
         DefaultApprovalGateway(
-            approvalStore = approvalStore,
-            continuationStore = continuationStore,
-            suspendedInvocationStore = suspendedInvocationStore,
+            approvalStore = approvals,
+            continuationStore = continuations,
+            suspendedInvocationStore = suspensions,
             requestFactory = factory,
             clock = fixedClock,
         )
@@ -505,11 +515,15 @@ class DefaultApprovalGatewayTest {
         }
 
     // -----------------------------------------------------------------------
-    // 9. A governed run fails closed before anything is written (0.7.1d)
+    // 9. A caller run id that disagrees with the canonical identity aborts (0.7.1d1)
+    //
+    // The caller names 'wf-run-1' while the active scope's canonical run is 'governed-run-1'.
+    // The scope is authoritative: a caller may not pair one run's id with another run's identity,
+    // and nothing durable may exist afterwards.
     // -----------------------------------------------------------------------
 
     @Test
-    fun `a governed run is rejected before any approval, suspension or continuation write`(): Unit =
+    fun `a caller run id disagreeing with the canonical identity is rejected before any write`(): Unit =
         runBlocking {
             val approvalId = "governed-rejected"
             factory.defaultApprovalId = approvalId
@@ -653,10 +667,14 @@ class DefaultApprovalGatewayTest {
 internal class FakeApprovalGatewayRequestFactory(
     private val fixedClock: Clock,
     var defaultApprovalId: String = "gateway-test-1",
+    var overrideWorkflowRunId: String? = null,
     var defaultRequestedBy: String = "test-actor",
     var defaultResumeToken: ResumeToken = ResumeToken("public-resume-token"),
     private val digester: Sha256ToolArgumentsDigester = Sha256ToolArgumentsDigester(),
 ) : ApprovalGatewayRequestFactory {
+    var calls = 0
+    var lastRequestedWorkflowRunId: WorkflowRunId? = null
+
     private val zeroDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000")
     private val oneDigest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111")
     private val twoDigest = Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222")
@@ -667,8 +685,10 @@ internal class FakeApprovalGatewayRequestFactory(
         requiredRole: ApproverRole,
         workflowRunId: WorkflowRunId?,
     ): ApprovalGatewayPersistenceRequest {
+        calls++
+        lastRequestedWorkflowRunId = workflowRunId
         val now = fixedClock.instant()
-        val wfRunId = workflowRunId?.value ?: "wf-run-1"
+        val wfRunId = overrideWorkflowRunId ?: workflowRunId?.value ?: "wf-run-1"
         val argumentJson = "{\"subject\":\"${subject.value}\"}"
         val sensitiveArgs = SensitiveToolArguments.of(argumentJson)
         val argsDigest = digester.digest(sensitiveArgs)
