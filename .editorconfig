@@ -1,16 +1,9 @@
-# Epic 10.1a — the formatting policy declaration (see CAUTION below on enforcement).
+# Epic 10.1a — single formatting policy authority.
 # Consumed by Spotless (KtLint engine 1.8.0) for Kotlin sources. The policy is
 # deliberately conservative: it pins encoding/line conventions and the explicit
-# KtLint code style without imposing subjective style rewrites. No enforced max
-# line length: this must stay explicit, because ktlint_official DEFAULTS
-# max_line_length to 140 in KtLint 1.8.0, and several wrapping rules consult the
-# same setting.
-#
-# CAUTION: this file is the intended style declaration, but with Spotless 8.10.1 + KtLint 1.8.0 its
-# properties are NOT all propagated into the KtLint step (a probe showed indent_size had no effect).
-# max_line_length is therefore ALSO set in build.gradle.kts via editorConfigOverride, which is what
-# makes it effective. Do not assume a property declared here is enforced at runtime until that
-# handoff is fixed.
+# KtLint code style without imposing subjective style rewrites (e.g. no
+# enforced max line length — ktlint_official leaves it off, which avoids
+# forcing a repository-wide reformat of untouched legacy source).
 
 root = true
 
@@ -26,5 +19,3 @@ indent_size = 4
 # Explicit KtLint code style. ktlint_official is the deterministic rule set;
 # the version of the engine is pinned in gradle/libs.versions.toml (ktlint).
 ktlint_code_style = ktlint_official
-# Shared by standard:max-line-length and the wrapping rules.
-max_line_length = off

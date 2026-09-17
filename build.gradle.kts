@@ -55,21 +55,8 @@ spotless {
             }
         )
         // Explicitly pinned formatter engine — never Spotless's implicit default.
-        // The root .editorconfig remains the intended repository style declaration, and is passed
-        // explicitly so that intent is expressed here rather than implied.
-        //
-        // With Spotless 8.10.1 + KtLint 1.8.0, setEditorConfigPath alone does NOT propagate all
-        // EditorConfig properties into this step: a probe setting indent_size = 2 produced no
-        // standard:indent findings, and `max_line_length = off` in the file had no effect on the
-        // rule (ktlint_official defaults it to 140, so ratchet-visible files failed on long lines
-        // the declared policy allows).
-        //
-        // max_line_length is therefore mirrored explicitly below, because that policy is required
-        // for deterministic ratchet behaviour. No other EditorConfig property is claimed to be
-        // enforced by this override.
         ktlint(libs.versions.ktlint.get())
-            .setEditorConfigPath(rootProject.file(".editorconfig").absolutePath)
-            .editorConfigOverride(mapOf("max_line_length" to "off"))
+        // .editorconfig (root) is the single style authority.
     }
 }
 
