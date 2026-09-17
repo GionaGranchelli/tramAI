@@ -55,21 +55,21 @@ spotless {
             }
         )
         // Explicitly pinned formatter engine — never Spotless's implicit default.
-        // The root .editorconfig is the single style authority, supplied EXPLICITLY: Spotless's
-        // implicit discovery does not reach it here, which left the KtLint defaults in force
-        // (ktlint_official defaults max_line_length to 140, so ratchet-visible files failed on
-        // long lines the policy says are allowed).
+        // The root .editorconfig remains the intended repository style declaration, and is passed
+        // explicitly so that intent is expressed here rather than implied.
+        //
+        // With Spotless 8.10.1 + KtLint 1.8.0, setEditorConfigPath alone does NOT propagate all
+        // EditorConfig properties into this step: a probe setting indent_size = 2 produced no
+        // standard:indent findings, and `max_line_length = off` in the file had no effect on the
+        // rule (ktlint_official defaults it to 140, so ratchet-visible files failed on long lines
+        // the declared policy allows).
+        //
+        // max_line_length is therefore mirrored explicitly below, because that policy is required
+        // for deterministic ratchet behaviour. No other EditorConfig property is claimed to be
+        // enforced by this override.
         ktlint(libs.versions.ktlint.get())
             .setEditorConfigPath(rootProject.file(".editorconfig").absolutePath)
-            .editorConfigOverride(
-                mapOf(
-                    // The .editorconfig path above is NOT sufficient: ktlint 1.8.0 behind this
-                    // Spotless version still applies its own default (140) to max_line_length, as
-                    // proven by a probe setting indent_size = 2 which produced no indent findings.
-                    // The override is the pragmatic authority until that handoff is fixed.
-                    "max_line_length" to "off",
-                )
-            )
+            .editorConfigOverride(mapOf("max_line_length" to "off"))
     }
 }
 
