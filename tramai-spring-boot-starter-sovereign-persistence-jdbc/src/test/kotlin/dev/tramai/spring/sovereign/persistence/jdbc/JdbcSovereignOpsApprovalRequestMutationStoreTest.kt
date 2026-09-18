@@ -34,6 +34,7 @@ import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
 import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
+import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
@@ -255,15 +256,16 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     @Test
     fun `cancellation exception is rethrown and transaction rolls back`() { runBlocking {
         val request = request("approval-e")
+        val cancellingCodec = object : JdbcReplayEnvelopeCodec {
+            override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope {
+                throw CancellationException("cancelled")
+            }
+
+            override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = envelope.ciphertext
+        }
         val cancellingStore = JdbcSovereignOpsApprovalRequestMutationStore(
             dataSource = dataSource,
-            replayEnvelopeCodec = object : JdbcReplayEnvelopeCodec {
-                override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope {
-                    throw CancellationException("cancelled")
-                }
-
-                override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = envelope.ciphertext
-            },
+            replayEnvelopeCodec = cancellingCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
             encryptionKey = testSecretKey,
@@ -271,12 +273,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        val thrown =
-            assertThatThrownBy {
-                runBlocking {
-                    cancellingStore.createApprovalRequest(request)
-                }
-            }
+        val thrown = assertThatSuspendCallThrows { cancellingStore.createApprovalRequest(request) }
         thrown.isInstanceOf(CancellationException::class.java)
 
         assertThat(approvalStore.get("approval-e")).isNull()
@@ -782,6 +779,13 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         }
     }
 
+    private fun assertThatSuspendCallThrows(block: suspend () -> Unit) =
+        assertThatThrownBy {
+            runBlocking {
+                block()
+            }
+        }
+
     private fun selectCount(sql: String): Int =
         dataSource.connection.use { conn ->
             conn.createStatement().use { stmt ->
@@ -820,6 +824,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ApprovalAttributionKeys.ALL.forEach { key ->
                 assertThat(attribution!![key]?.asText()).isNotBlank
             }
+
+            // Suspension row: the SAME canonical identity, proven by reading it back through the
+            // canonical governed reader (exact equality of all six components, not just the run id).
+            val canonicalReader = GovernedJdbcSuspendedInvocationStore(delegate = suspendedInvocationStore)
+            assertThat(canonicalReader.governedRunIdentity(approvalId)).isEqualTo(identity)
             assertThat(attribution!!.size()).isEqualTo(ApprovalAttributionKeys.ALL.size)
             assertThat(attribution.has(identity.runId.value)).isFalse
 
@@ -923,9 +932,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             )
 
             val store = mutationStore
-            assertThatThrownBy {
-                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
-            }.isInstanceOf(ApprovalAttributionCorruptionException::class.java)
+            val thrown =
+                assertThatSuspendCallThrows {
+                    store.createGovernedApprovalRequest(request(approvalId), identity)
+                }
+            thrown.isInstanceOf(ApprovalAttributionCorruptionException::class.java)
         }
     }
 
@@ -948,6 +959,61 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             assertThat(approvalStore.get(approvalId)).isNull()
             assertThat(suspendedInvocationStore.get(approvalId)).isNull()
             assertThat(selectCount("SELECT count(*) FROM approvals")).isZero()
+        }
+    }
+
+
+    @Test
+    fun `governed creation rejects suspension metadata naming another run with zero writes`() {
+        runBlocking {
+            val approvalId = "approval-carrier-suspension"
+            val identity = identity("wf-$approvalId")
+            val base = request(approvalId)
+            val request =
+                base.copy(
+                    suspendedInvocationMetadata =
+                        base.suspendedInvocationMetadata.copy(
+                            identity =
+                                base.suspendedInvocationMetadata.identity.copy(
+                                    workflowRunId = "wf-other",
+                                ),
+                        ),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    mutationStore.createGovernedApprovalRequest(request, identity)
+                }
+            thrown.isInstanceOf(GovernedRunContinuityException::class.java)
+            thrown.hasMessageContaining("suspended invocation metadata")
+
+            assertThat(approvalStore.get(approvalId)).isNull()
+            assertThat(suspendedInvocationStore.get(approvalId)).isNull()
+            assertThat(continuationStore.get(approvalId)).isNull()
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM suspended_invocations")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM approval_continuations")).isZero()
+        }
+    }
+
+    @Test
+    fun `governed creation rejects a continuation naming another run with zero writes`() {
+        runBlocking {
+            val approvalId = "approval-carrier-continuation"
+            val identity = identity("wf-$approvalId")
+            val base = request(approvalId)
+            val request = base.copy(continuation = base.continuation.copy(workflowRunId = "wf-other"))
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    mutationStore.createGovernedApprovalRequest(request, identity)
+                }
+            thrown.isInstanceOf(GovernedRunContinuityException::class.java)
+            thrown.hasMessageContaining("continuation")
+
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM suspended_invocations")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM approval_continuations")).isZero()
         }
     }
 

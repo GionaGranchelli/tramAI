@@ -17,15 +17,7 @@ import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.core.exception.GovernedRunContinuityException
-import dev.tramai.core.identity.ConfigurationId
-import dev.tramai.core.identity.ConfigurationVersion
-import dev.tramai.core.identity.DeploymentId
-import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.GovernedRunIdentity
-import dev.tramai.core.identity.RunId
-import dev.tramai.core.identity.WorkloadConfigurationIdentity
-import dev.tramai.core.identity.WorkloadDeploymentIdentity
-import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
@@ -112,13 +104,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         inboxMetadata: ApprovalInboxMetadata?,
         resumeCredential: ApprovalResumeCredentialRecord?,
     ): SovereignOpsApprovalRequestMutationResult {
-        val boundRunId = request.approvalRequest.binding.workflowRunId
-        if (boundRunId != identity.runId.value) {
-            throw GovernedRunContinuityException(
-                "Governed approval creation for run '${identity.runId.value}' was given a request " +
-                    "bound to run '$boundRunId': attribution and binding must name the same run",
-            )
-        }
+        requireEveryCarrierNamesCanonicalRun(identity, request)
         return createApprovalRequestInternal(
             request = request,
             attribution = ApprovalRunAttribution.Governed(identity),
@@ -126,6 +112,36 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             inboxMetadata = inboxMetadata,
             resumeCredential = resumeCredential,
         )
+    }
+
+    /**
+     * Every run-id carrier in the request must name the canonical run before this boundary writes
+     * anything. The suspension record already carried `SuspendedInvocationMetadata.identity.workflowRunId`
+     * before 0.7.1d; the governed payload adds `GovernedRunIdentity.runId`. Those two must never
+     * disagree, or this path would persist a V2 suspension that the canonical JDBC reader rejects as
+     * corruption. The factory is identity-untrusted input translation, so all carriers are checked
+     * together rather than trusting that one correct binding implies the others.
+     */
+    private fun requireEveryCarrierNamesCanonicalRun(
+        identity: GovernedRunIdentity,
+        request: ApprovalGatewayPersistenceRequest,
+    ) {
+        val canonicalRunId = identity.runId.value
+        val carriers =
+            listOf(
+                "approval binding" to request.approvalRequest.binding.workflowRunId,
+                "continuation" to request.continuation.workflowRunId,
+                "suspended invocation metadata" to
+                    request.suspendedInvocationMetadata.identity.workflowRunId,
+            )
+        val mismatched = carriers.filter { (_, runId) -> runId != canonicalRunId }
+        if (mismatched.isNotEmpty()) {
+            throw GovernedRunContinuityException(
+                "Governed approval creation for run '$canonicalRunId' was given " +
+                    mismatched.joinToString { (carrier, runId) -> "$carrier naming run '$runId'" } +
+                    ": every governed run-id carrier must name the same run",
+            )
+        }
     }
 
     /**
@@ -791,22 +807,6 @@ private data class PayloadGovernedRunIdentity(
     val deploymentId: String,
     val runId: String,
 ) {
-    fun toDomain(): GovernedRunIdentity =
-        GovernedRunIdentity(
-            deployment =
-                WorkloadDeploymentIdentity(
-                    workloadId = WorkloadId(workloadId),
-                    configuration =
-                        WorkloadConfigurationIdentity(
-                            id = ConfigurationId(configurationId),
-                            version = ConfigurationVersion(configurationVersion),
-                        ),
-                    environmentId = EnvironmentId(environmentId),
-                    deploymentId = DeploymentId(deploymentId),
-                ),
-            runId = RunId(runId),
-        )
-
     companion object {
         fun fromDomain(identity: GovernedRunIdentity): PayloadGovernedRunIdentity =
             PayloadGovernedRunIdentity(
