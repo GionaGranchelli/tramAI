@@ -61,6 +61,29 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
+import dev.tramai.engine.GovernedSuspendedInvocation
+import java.lang.reflect.Method
+import java.lang.reflect.Proxy
+import java.sql.Connection
+import java.sql.PreparedStatement
+import java.sql.SQLException
+import java.util.concurrent.atomic.AtomicBoolean
+import com.fasterxml.jackson.databind.JsonNode
+import dev.tramai.engine.approval.ApprovalAttributionCorruptionException
+import dev.tramai.core.exception.GovernedRunContinuityException
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.engine.approval.ApprovalAttributionKeys
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcSovereignOpsApprovalRequestMutationStoreTest {
@@ -248,11 +271,13 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        assertThatThrownBy {
-            runBlocking {
-                cancellingStore.createApprovalRequest(request)
+        val thrown =
+            assertThatThrownBy {
+                runBlocking {
+                    cancellingStore.createApprovalRequest(request)
+                }
             }
-        }.isInstanceOf(CancellationException::class.java)
+        thrown.isInstanceOf(CancellationException::class.java)
 
         assertThat(approvalStore.get("approval-e")).isNull()
         assertThat(suspendedInvocationStore.get("approval-e")).isNull()
@@ -401,7 +426,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     }
     }
 
-    // ── Inbox metadata tests ──────────────────────────────────────────
+    // ── Inbox metadata tests ──
 
     @Test
     fun `approval request creation persists inbox metadata atomically`() { runBlocking {
@@ -766,6 +791,369 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                 }
             }
         }
+
+    // ---------------------------------------------------------------------------------------------
+    // 0.7.1d1 P3: governed transactional creation. The approval-row attribution and the suspension
+    // identity must come from ONE canonical identity inside the SAME transaction, and an existing row
+    // may only ever be adopted by the run it is durably attributed to.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `governed creation writes the reserved attribution and the canonical identity in one transaction`() {
+        runBlocking {
+            val approvalId = "approval-governed-a"
+            val identity = identity("wf-$approvalId")
+
+            val result = mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+
+            assertThat(result).isEqualTo(
+                SovereignOpsApprovalRequestMutationResult.Created(
+                    approvalId = approvalId,
+                    correlationId = "corr-$approvalId",
+                    resumeToken = ResumeToken("resume-$approvalId"),
+                ),
+            )
+
+            // Approval row: the five reserved components, and no run id of its own.
+            val attribution = metadataNode(approvalId)["attribution"]
+            assertThat(attribution).isNotNull
+            ApprovalAttributionKeys.ALL.forEach { key ->
+                assertThat(attribution!![key]?.asText()).isNotBlank
+            }
+            assertThat(attribution!!.size()).isEqualTo(ApprovalAttributionKeys.ALL.size)
+            assertThat(attribution.has(identity.runId.value)).isFalse
+
+            // Suspension: decrypted V2 payload carrying the full canonical identity.
+            val payload = decryptedSuspension(approvalId)
+            assertThat(payload["payloadVersion"].asInt()).isEqualTo(2)
+            val persisted = payload["governedRunIdentity"]
+            assertThat(persisted["runId"].asText()).isEqualTo(identity.runId.value)
+            assertThat(persisted["workloadId"].asText()).isEqualTo(identity.deployment.workloadId.value)
+            assertThat(persisted["deploymentId"].asText()).isEqualTo(identity.deployment.deploymentId.value)
+            assertThat(suspendedInvocationStore.get(approvalId)).isNotNull
+        }
+    }
+
+    @Test
+    fun `ungoverned creation metadata keeps the released shape`() {
+        runBlocking {
+            val approvalId = "approval-legacy-shape"
+
+            mutationStore.createApprovalRequest(request(approvalId))
+
+            // No attribution block at all: not an empty object, not null.
+            val metadata = metadataNode(approvalId)
+            assertThat(metadata.has("attribution")).isFalse
+            ApprovalAttributionKeys.ALL.forEach { key ->
+                assertThat(metadata.has(key)).isFalse
+            }
+            // And the suspension is a V1 payload: neither version nor identity is present.
+            val payload = decryptedSuspension(approvalId)
+            assertThat(payload.has("payloadVersion")).isFalse
+            assertThat(payload.has("governedRunIdentity")).isFalse
+        }
+    }
+
+    @Test
+    fun `governed creation of an exactly attributed existing approval is idempotent`() {
+        runBlocking {
+            val approvalId = "approval-governed-idempotent"
+            val identity = identity("wf-$approvalId")
+            mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+
+            val second = mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+
+            assertThat(second).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
+            assertThat((second as SovereignOpsApprovalRequestMutationResult.Existing).approval.approvalId)
+                .isEqualTo(approvalId)
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
+            assertThat(decryptedSuspension(approvalId)["payloadVersion"].asInt()).isEqualTo(2)
+        }
+    }
+
+    @Test
+    fun `governed creation refuses an un-attributed existing approval`() {
+        runBlocking {
+            val approvalId = "approval-legacy-existing"
+            mutationStore.createApprovalRequest(request(approvalId))
+
+            val identity = identity("wf-$approvalId")
+            val store = mutationStore
+            assertThatThrownBy {
+                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
+            }.isInstanceOf(GovernedRunContinuityException::class.java)
+
+            // The legacy row is untouched and nothing new was written.
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
+            assertThat(selectCount("SELECT count(*) FROM suspended_invocations")).isEqualTo(1)
+            assertThat(metadataNode(approvalId).has("attribution")).isFalse
+        }
+    }
+
+    @Test
+    fun `governed creation refuses an existing approval attributed to another identity`() {
+        runBlocking {
+            val approvalId = "approval-foreign-identity"
+            val identity = identity("wf-$approvalId")
+            mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+            // Simulate a row durably attributed elsewhere, leaving the run id and every other
+            // component intact so the row is foreign by identity only.
+            updateMetadata(
+                approvalId,
+                """jsonb_set(sanitized_metadata, '{attribution,"approval.identity.workload"}', '"other-workload"')""",
+            )
+
+            assertThatThrownBy {
+                runBlocking { mutationStore.createGovernedApprovalRequest(request(approvalId), identity) }
+            }.isInstanceOf(GovernedRunContinuityException::class.java)
+
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `partial persisted attribution is corruption, never a continuity failure`() {
+        runBlocking {
+            val approvalId = "approval-partial-attribution"
+            val identity = identity("wf-$approvalId")
+            mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+            updateMetadata(
+                approvalId,
+                """sanitized_metadata #- '{attribution,"approval.identity.deployment"}'""",
+            )
+
+            val store = mutationStore
+            assertThatThrownBy {
+                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
+            }.isInstanceOf(ApprovalAttributionCorruptionException::class.java)
+        }
+    }
+
+    @Test
+    fun `governed creation rejects a request bound to a different run with zero writes`() {
+        runBlocking {
+            val approvalId = "approval-governed-mismatch"
+
+            val store = mutationStore
+            val approvalRequest = request(approvalId)
+            val mismatchedIdentity = identity("elsewhere")
+            val thrown =
+                assertThatThrownBy {
+                    runBlocking {
+                        store.createGovernedApprovalRequest(approvalRequest, mismatchedIdentity)
+                    }
+                }
+            thrown.isInstanceOf(GovernedRunContinuityException::class.java)
+
+            assertThat(approvalStore.get(approvalId)).isNull()
+            assertThat(suspendedInvocationStore.get(approvalId)).isNull()
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isZero()
+        }
+    }
+
+    @Test
+    fun `governed creation failure after the approval insert rolls everything back`() {
+        runBlocking {
+            val approvalId = "approval-governed-rollback"
+            val failingCodec = object : JdbcOpsAuditOutboxPayloadCodec {
+                override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
+                    throw IllegalStateException("simulated-outbox-codec-failure")
+
+                override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
+                    throw UnsupportedOperationException()
+            }
+            val storeWithFailingOutbox = mutationStoreWith(outboxPayloadCodec = failingCodec)
+            val intent = auditIntent(approvalId, "governed-rollback")
+
+            assertThatThrownBy {
+                runBlocking {
+                    storeWithFailingOutbox.createGovernedApprovalRequest(
+                        request = request(approvalId),
+                        identity = identity("wf-$approvalId"),
+                        auditIntent = intent,
+                    )
+                }
+            }.isInstanceOf(IllegalStateException::class.java)
+
+            // The approval row is inserted before the outbox write, so its absence proves the
+            // governed path shares the single rollback boundary.
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM suspended_invocations")).isZero()
+            assertThat(selectCount("SELECT count(*) FROM approval_continuations")).isZero()
+        }
+    }
+
+    @Test
+    fun `a forced primary-key race with the exact identity adopts the existing row`() {
+        runBlocking {
+            val approvalId = "approval-race-exact"
+            val identity = identity("wf-$approvalId")
+            val racing = dataSourceRacingOnApprovalInsert {
+                // Independent connection, own transaction, already committed when the INSERT fails.
+                mutationStore.createGovernedApprovalRequest(request(approvalId), identity)
+            }
+
+            val store = mutationStoreWith(dataSource = racing)
+            val result = store.createGovernedApprovalRequest(request(approvalId), identity)
+
+            assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
+            assertThat(decryptedSuspension(approvalId)["payloadVersion"].asInt()).isEqualTo(2)
+        }
+    }
+
+    @Test
+    fun `a forced primary-key race with a foreign identity fails closed`() {
+        runBlocking {
+            val approvalId = "approval-race-foreign"
+            // Same run id, different deployment attribution: the loser must not adopt it.
+            val identity = identity("wf-$approvalId")
+            val foreign = identity("wf-$approvalId", workloadId = "other-workload")
+            val racing = dataSourceRacingOnApprovalInsert {
+                mutationStore.createGovernedApprovalRequest(request(approvalId), foreign)
+            }
+
+            val store = mutationStoreWith(dataSource = racing)
+            assertThatThrownBy {
+                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
+            }.isInstanceOf(GovernedRunContinuityException::class.java)
+
+            assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `a forced primary-key race with an un-attributed row fails closed`() {
+        runBlocking {
+            val approvalId = "approval-race-legacy"
+            val racing = dataSourceRacingOnApprovalInsert {
+                mutationStore.createApprovalRequest(request(approvalId))
+            }
+
+            assertThatThrownBy {
+                runBlocking {
+                    mutationStoreWith(dataSource = racing)
+                        .createGovernedApprovalRequest(request(approvalId), identity("wf-$approvalId"))
+                }
+            }.isInstanceOf(GovernedRunContinuityException::class.java)
+
+            assertThat(metadataNode(approvalId).has("attribution")).isFalse
+        }
+    }
+
+    /**
+     * Forces the primary-key race deterministically: when the approval INSERT runs, an independent
+     * connection commits the competing row first, then the statement itself fails with a
+     * duplicate-key SQLException. No thread timing is involved, so the rollback-and-re-read path in
+     * production is exercised exactly as written.
+     */
+    private fun dataSourceRacingOnApprovalInsert(competingWrite: suspend () -> Unit): DataSource {
+        val fired = AtomicBoolean(false)
+        val real = dataSource
+        return proxyOf(DataSource::class.java) { method, args ->
+            val connection = method.invoke(real, *(args ?: emptyArray())) as Connection
+            if (method.name == "getConnection") racingConnection(connection, fired, competingWrite) else connection
+        }
+    }
+
+    private fun racingConnection(
+        connection: Connection,
+        fired: AtomicBoolean,
+        competingWrite: suspend () -> Unit,
+    ): Connection =
+        proxyOf(Connection::class.java) { method, args ->
+            val result = method.invoke(connection, *(args ?: emptyArray()))
+            val sql = args?.firstOrNull() as? String
+            if (method.name == "prepareStatement" && sql?.contains("INSERT INTO approvals") == true) {
+                racingStatement(result, fired, competingWrite)
+            } else {
+                result
+            }
+        }
+
+    private fun racingStatement(
+        statement: Any,
+        fired: AtomicBoolean,
+        competingWrite: suspend () -> Unit,
+    ): PreparedStatement =
+        proxyOf(PreparedStatement::class.java) { method, args ->
+            if (method.name == "executeUpdate" && fired.compareAndSet(false, true)) {
+                runBlocking { competingWrite() }
+                throw SQLException("duplicate key value violates unique constraint \"approvals_pkey\"", "23505")
+            }
+            method.invoke(statement, *(args ?: emptyArray()))
+        }
+
+    /** Single-method JDK proxy so the racing DataSource stays readable. */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> proxyOf(type: Class<T>, handler: (Method, Array<Any?>?) -> Any?): T =
+        Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, args ->
+            handler(method, args)
+        } as T
+
+    private fun identity(runId: String, workloadId: String = "claims"): GovernedRunIdentity =
+        GovernedRunIdentity(
+            deployment =
+                WorkloadDeploymentIdentity(
+                    workloadId = WorkloadId(workloadId),
+                    configuration =
+                        WorkloadConfigurationIdentity(
+                            id = ConfigurationId("claims-prod"),
+                            version = ConfigurationVersion("17"),
+                        ),
+                    environmentId = EnvironmentId("production"),
+                    deploymentId = DeploymentId("eu-west-amsterdam-01"),
+                ),
+            runId = RunId(runId),
+        )
+
+    private fun mutationStoreWith(
+        dataSource: DataSource = this.dataSource,
+        outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec = outboxCodec,
+    ) = JdbcSovereignOpsApprovalRequestMutationStore(
+        dataSource = dataSource,
+        replayEnvelopeCodec = replayCodec,
+        continuationArgumentsCodec = continuationCodec,
+        outboxPayloadCodec = outboxPayloadCodec,
+        encryptionKey = testSecretKey,
+        encryptionKeyId = "test-key-1",
+        clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+    )
+
+    /** Structural view of the approval metadata, so jsonb reordering cannot affect the assertion. */
+    private fun metadataNode(approvalId: String): JsonNode =
+        mapper.readTree(
+            checkNotNull(selectValue("SELECT sanitized_metadata FROM approvals WHERE approval_id = ?", approvalId)),
+        )
+
+    /** Decrypted suspension payload as a JSON tree: the only way to see V1/V2 and the identity. */
+    private fun decryptedSuspension(approvalId: String): JsonNode {
+        val columns =
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT encrypted_replay_envelope, encryption_nonce, encryption_algorithm " +
+                        "FROM suspended_invocations WHERE invocation_id = ?",
+                ).use { stmt ->
+                    stmt.setString(1, approvalId)
+                    stmt.executeQuery().use { rs ->
+                        check(rs.next())
+                        Triple(rs.getBytes(1), rs.getBytes(2), rs.getString(3))
+                    }
+                }
+            }
+        return mapper.readTree(decrypt(columns.first, columns.second, columns.third))
+    }
+
+    private fun updateMetadata(approvalId: String, expression: String) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE approvals SET sanitized_metadata = $expression WHERE approval_id = ?",
+            ).use { stmt ->
+                stmt.setString(1, approvalId)
+                check(stmt.executeUpdate() == 1)
+            }
+        }
+    }
 
     private fun selectValue(sql: String, value: String): String? =
         dataSource.connection.use { conn ->
