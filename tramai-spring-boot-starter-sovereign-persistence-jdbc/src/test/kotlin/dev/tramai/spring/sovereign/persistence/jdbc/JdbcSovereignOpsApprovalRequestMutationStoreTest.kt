@@ -239,10 +239,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelope = request.replayEnvelope,
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 mutationStore.createApprovalRequest(request)
-            }
         }.isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("tramai-sovereign-ops-approval-request-mutation-database-failure")
 
@@ -284,18 +282,23 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
 
     @Test
     fun `rejects replay envelope digest mismatch and rolls back all records`() { runBlocking {
-        val request = request("approval-f").copy(
-            suspendedInvocationMetadata = request("approval-f").suspendedInvocationMetadata.copy(
-                replayEnvelopeDigest = Sha256Digest.of("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
-            ),
-        )
+        val mismatchedDigest =
+            Sha256Digest.of(
+                "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            )
+        val base = request("approval-f")
+        val request =
+            base.copy(
+                suspendedInvocationMetadata =
+                    base.suspendedInvocationMetadata.copy(replayEnvelopeDigest = mismatchedDigest),
+            )
 
-        assertThatThrownBy {
-            runBlocking {
+        val thrown =
+            assertThatSuspendCallThrows {
                 mutationStore.createApprovalRequest(request)
             }
-        }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("replay-envelope-digest-mismatch")
+        thrown.isInstanceOf(IllegalArgumentException::class.java)
+        thrown.hasMessageContaining("replay-envelope-digest-mismatch")
 
         assertThat(approvalStore.get("approval-f")).isNull()
         assertThat(suspendedInvocationStore.get("approval-f")).isNull()
@@ -323,10 +326,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 storeWithExpiryCheck.createApprovalRequest(request)
-            }
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("approval-request-expired-at-creation")
 
@@ -344,10 +345,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 mutationStore.createApprovalRequest(request)
-            }
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("continuation.workflowRunId")
 
@@ -376,10 +375,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 storeWithTimeCheck.createApprovalRequest(request)
-            }
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("continuation-created-at-in-future")
 
@@ -409,10 +406,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
-            }
         }.isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("simulated-outbox-codec-failure")
 
@@ -488,10 +483,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 storeWithFailingCodec.createApprovalRequest(request, inboxMetadata = metadata)
-            }
         }.isInstanceOf(RuntimeException::class.java)
 
         // Verify approval was rolled back (no row)
@@ -780,10 +773,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     }
 
     private fun assertThatSuspendCallThrows(block: suspend () -> Unit) =
-        assertThatThrownBy {
-            runBlocking {
+        assertThatSuspendCallThrows {
                 block()
-            }
         }
 
     private fun selectCount(sql: String): Int =
@@ -888,9 +879,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
 
             val identity = identity("wf-$approvalId")
             val store = mutationStore
-            assertThatThrownBy {
-                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
-            }.isInstanceOf(GovernedRunContinuityException::class.java)
+            val thrown =
+                assertThatSuspendCallThrows {
+                    store.createGovernedApprovalRequest(request(approvalId), identity)
+                }
+            thrown.isInstanceOf(GovernedRunContinuityException::class.java)
 
             // The legacy row is untouched and nothing new was written.
             assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
@@ -949,10 +942,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             val approvalRequest = request(approvalId)
             val mismatchedIdentity = identity("elsewhere")
             val thrown =
-                assertThatThrownBy {
-                    runBlocking {
+                assertThatSuspendCallThrows {
                         store.createGovernedApprovalRequest(approvalRequest, mismatchedIdentity)
-                    }
                 }
             thrown.isInstanceOf(GovernedRunContinuityException::class.java)
 
@@ -1028,17 +1019,13 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                 override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
                     throw UnsupportedOperationException()
             }
-            val storeWithFailingOutbox = mutationStoreWith(outboxPayloadCodec = failingCodec)
+            val store = mutationStoreWith(outboxPayloadCodec = failingCodec)
             val intent = auditIntent(approvalId, "governed-rollback")
+            val approvalRequest = request(approvalId)
+            val governedIdentity = identity("wf-$approvalId")
 
-            assertThatThrownBy {
-                runBlocking {
-                    storeWithFailingOutbox.createGovernedApprovalRequest(
-                        request = request(approvalId),
-                        identity = identity("wf-$approvalId"),
-                        auditIntent = intent,
-                    )
-                }
+            assertThatSuspendCallThrows {
+                store.createGovernedApprovalRequest(approvalRequest, governedIdentity, intent)
             }.isInstanceOf(IllegalStateException::class.java)
 
             // The approval row is inserted before the outbox write, so its absence proves the
@@ -1080,9 +1067,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             }
 
             val store = mutationStoreWith(dataSource = racing)
-            assertThatThrownBy {
-                runBlocking { store.createGovernedApprovalRequest(request(approvalId), identity) }
-            }.isInstanceOf(GovernedRunContinuityException::class.java)
+            val thrown =
+                assertThatSuspendCallThrows {
+                    store.createGovernedApprovalRequest(request(approvalId), identity)
+                }
+            thrown.isInstanceOf(GovernedRunContinuityException::class.java)
 
             assertThat(selectCount("SELECT count(*) FROM approvals")).isEqualTo(1)
         }
@@ -1096,11 +1085,9 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                 mutationStore.createApprovalRequest(request(approvalId))
             }
 
-            assertThatThrownBy {
-                runBlocking {
+            assertThatSuspendCallThrows {
                     mutationStoreWith(dataSource = racing)
                         .createGovernedApprovalRequest(request(approvalId), identity("wf-$approvalId"))
-                }
             }.isInstanceOf(GovernedRunContinuityException::class.java)
 
             assertThat(metadataNode(approvalId).has("attribution")).isFalse
