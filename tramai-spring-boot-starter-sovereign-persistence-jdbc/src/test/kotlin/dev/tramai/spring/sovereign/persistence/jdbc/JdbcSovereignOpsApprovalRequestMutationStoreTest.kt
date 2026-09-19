@@ -773,8 +773,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     }
 
     private fun assertThatSuspendCallThrows(block: suspend () -> Unit) =
-        assertThatSuspendCallThrows {
+        assertThatThrownBy {
+            runBlocking {
                 block()
+            }
         }
 
     private fun selectCount(sql: String): Int =
