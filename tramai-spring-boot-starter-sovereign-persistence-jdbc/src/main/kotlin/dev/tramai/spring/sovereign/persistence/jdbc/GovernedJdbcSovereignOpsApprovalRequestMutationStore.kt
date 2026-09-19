@@ -5,8 +5,8 @@ import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsApprovalRequestMutationStore
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**

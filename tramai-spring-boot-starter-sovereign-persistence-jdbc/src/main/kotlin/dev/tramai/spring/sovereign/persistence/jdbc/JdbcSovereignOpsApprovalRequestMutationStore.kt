@@ -247,7 +247,6 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
     }
 
-
     /**
      * Recovery for the loser of a creation race: a primary-key violation means a concurrent writer
      * committed the row first, so the loser re-reads it on its own connection and applies the SAME
@@ -270,7 +269,6 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             )
         }
     }
-
 
     private fun validateRequest(
         request: ApprovalGatewayPersistenceRequest,
