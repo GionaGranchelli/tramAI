@@ -271,7 +271,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             val request = request("approval-e")
             val cancellingCodec =
                 object : JdbcReplayEnvelopeCodec {
-                    override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope = throw CancellationException("cancelled")
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope = cancelled()
 
                     override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = envelope.ciphertext
                 }
@@ -432,7 +432,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                     override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
                         throw IllegalStateException("simulated-outbox-codec-failure")
 
-                    override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = throw UnsupportedOperationException()
+                    override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = unsupported()
                 }
             val storeWithFailingOutbox =
                 JdbcSovereignOpsApprovalRequestMutationStore(
@@ -456,7 +456,9 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             assertThat(approvalStore.get("approval-j")).isNull()
             assertThat(suspendedInvocationStore.get("approval-j")).isNull()
             assertThat(continuationStore.get("approval-j")).isNull()
-            assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
+            val outboxCount =
+                selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")
+            assertThat(outboxCount).isZero()
         }
     }
 
@@ -516,9 +518,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             val failureMessage = "simulated-codec-failure"
             val failingCodec =
                 object : JdbcContinuationArgumentsCodec {
-                    override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments = throw RuntimeException(failureMessage)
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments =
+                        throw SimulatedCodecFailure(failureMessage)
 
-                    override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray = throw RuntimeException(failureMessage)
+                    override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray =
+                        throw SimulatedCodecFailure(failureMessage)
                 }
             val storeWithFailingCodec =
                 JdbcSovereignOpsApprovalRequestMutationStore(
@@ -819,7 +823,9 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     private fun truncateTables() {
         dataSource.connection.use { conn ->
             conn.createStatement().use { stmt ->
-                stmt.execute("TRUNCATE TABLE approval_continuations, suspended_invocations, audit_outbox, approvals CASCADE")
+                val truncateAll =
+                    "TRUNCATE TABLE approval_continuations, suspended_invocations, audit_outbox, approvals CASCADE"
+                stmt.execute(truncateAll)
             }
         }
     }
@@ -884,3 +890,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         return "sha256:${hash.joinToString("") { "%02x".format(it) }}"
     }
 }
+
+private class SimulatedCodecFailure(
+    message: String,
+) : RuntimeException(message)
+
+private fun cancelled(): Nothing = throw CancellationException("cancelled")
+
+private fun unsupported(): Nothing = throw UnsupportedOperationException()

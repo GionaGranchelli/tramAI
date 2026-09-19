@@ -762,7 +762,7 @@ private data class ApprovalMetadata(
     val consumedBy: String?,
     val consumedAt: String?,
     val inbox: InboxMetadata? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val attribution: Map<String, String>? = null,
 )
 
@@ -806,9 +806,9 @@ private fun Message.toPersisted(): PersistedMessage =
 private data class SuspendedPayload(
     val metadata: SuspendedPayloadMetadata,
     val persistedMessages: List<PersistedMessage>,
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val payloadVersion: Int? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val governedRunIdentity: PayloadGovernedRunIdentity? = null,
 )
 

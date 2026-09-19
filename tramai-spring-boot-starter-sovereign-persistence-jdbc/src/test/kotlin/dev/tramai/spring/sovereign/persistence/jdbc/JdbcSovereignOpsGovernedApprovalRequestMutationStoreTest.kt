@@ -56,7 +56,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
+import org.testcontainers.utility.DockerImageName
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.security.MessageDigest
@@ -80,7 +81,7 @@ class JdbcSovereignOpsGovernedApprovalRequestMutationStoreTest {
     companion object {
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
         private val postgres =
-            PostgreSQLContainer(POSTGRES_IMAGE)
+            PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE))
                 .withDatabaseName("sovereign_ops_governed_mutation_test")
                 .withUsername("test")
                 .withPassword("test")
@@ -486,9 +487,11 @@ class JdbcSovereignOpsGovernedApprovalRequestMutationStoreTest {
             val approvalId = "approval-governed-rollback"
             val failingCodec =
                 object : JdbcOpsAuditOutboxPayloadCodec {
-                    override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload = error("simulated-outbox-codec-failure")
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload {
+                        error("simulated-outbox-codec-failure")
+                    }
 
-                    override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = throw UnsupportedOperationException()
+                    override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = unsupported()
                 }
             val store = mutationStoreWith(outboxPayloadCodec = failingCodec)
             val intent = auditIntent(approvalId, "governed-rollback")
@@ -861,9 +864,11 @@ class JdbcSovereignOpsGovernedApprovalRequestMutationStoreTest {
         type: Class<T>,
         handler: (Method, Array<Any?>?) -> Any?,
     ): T =
-        Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, args ->
-            handler(method, args)
-        } as T
+        type.cast(
+            Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, args ->
+                handler(method, args)
+            },
+        )
 
     private fun selectValue(
         sql: String,
@@ -879,3 +884,5 @@ class JdbcSovereignOpsGovernedApprovalRequestMutationStoreTest {
             }
         }
 }
+
+private fun unsupported(): Nothing = throw UnsupportedOperationException()
