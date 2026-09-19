@@ -239,9 +239,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelope = request.replayEnvelope,
         )
 
-        assertThatSuspendCallThrows {
-                mutationStore.createApprovalRequest(request)
-        }.isInstanceOf(IllegalStateException::class.java)
+        val thrown =
+            assertThatSuspendCallThrows {
+                            mutationStore.createApprovalRequest(request)
+            }
+        thrown.isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("tramai-sovereign-ops-approval-request-mutation-database-failure")
 
         assertThat(approvalStore.get("approval-d")).isNull()
@@ -326,9 +328,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatSuspendCallThrows {
-                storeWithExpiryCheck.createApprovalRequest(request)
-        }.isInstanceOf(IllegalArgumentException::class.java)
+        val thrown =
+            assertThatSuspendCallThrows {
+                            storeWithExpiryCheck.createApprovalRequest(request)
+            }
+        thrown.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("approval-request-expired-at-creation")
 
         assertThat(approvalStore.get("approval-g")).isNull()
@@ -345,9 +349,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatSuspendCallThrows {
-                mutationStore.createApprovalRequest(request)
-        }.isInstanceOf(IllegalArgumentException::class.java)
+        val thrown =
+            assertThatSuspendCallThrows {
+                            mutationStore.createApprovalRequest(request)
+            }
+        thrown.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("continuation.workflowRunId")
 
         assertThat(approvalStore.get("approval-h")).isNull()
@@ -375,9 +381,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             ),
         )
 
-        assertThatSuspendCallThrows {
-                storeWithTimeCheck.createApprovalRequest(request)
-        }.isInstanceOf(IllegalArgumentException::class.java)
+        val thrown =
+            assertThatSuspendCallThrows {
+                            storeWithTimeCheck.createApprovalRequest(request)
+            }
+        thrown.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("continuation-created-at-in-future")
 
         assertThat(approvalStore.get("approval-i")).isNull()
@@ -406,9 +414,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        assertThatSuspendCallThrows {
-                storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
-        }.isInstanceOf(IllegalStateException::class.java)
+        val thrown =
+            assertThatSuspendCallThrows {
+                            storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
+            }
+        thrown.isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("simulated-outbox-codec-failure")
 
         assertThat(approvalStore.get("approval-j")).isNull()
@@ -468,10 +478,12 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         )
         // Use a failing continuation arguments codec to trigger rollback
         val failingCodec = object : JdbcContinuationArgumentsCodec {
-            override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments =
+            override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments {
                 throw RuntimeException("simulated-codec-failure")
-            override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray =
+            }
+            override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray {
                 throw RuntimeException("simulated-codec-failure")
+            }
         }
         val storeWithFailingCodec = JdbcSovereignOpsApprovalRequestMutationStore(
             dataSource = dataSource,
@@ -483,9 +495,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
-        assertThatSuspendCallThrows {
+        val thrown =
+            assertThatSuspendCallThrows {
                 storeWithFailingCodec.createApprovalRequest(request, inboxMetadata = metadata)
-        }.isInstanceOf(RuntimeException::class.java)
+            }
+        thrown.isInstanceOf(RuntimeException::class.java)
 
         // Verify approval was rolled back (no row)
         assertThat(approvalStore.get("approval-inbox-2")).isNull()
