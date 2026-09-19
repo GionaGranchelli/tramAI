@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -11,66 +12,12 @@ import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
-import dev.tramai.core.approval.gateway.ResumeToken
-import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
+import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
-import dev.tramai.core.model.Message
-import dev.tramai.core.model.MessageRole
-import dev.tramai.core.model.ToolCall
-import dev.tramai.engine.EngineExecutionIdentity
-import dev.tramai.engine.ExecutionSecurityContext
-import dev.tramai.engine.ReplayEnvelopeDigestHelper
-import dev.tramai.engine.ResumeOperationReference
-import dev.tramai.engine.ResumeToolReference
-import dev.tramai.engine.SensitiveReplayEnvelope
-import dev.tramai.engine.SuspendedInvocationMetadata
-import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
-import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
-import dev.tramai.persistence.jdbc.JdbcApprovalStore
-import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
-import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
-import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
-import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
-import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
-import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
-import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.runBlocking
-import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
-import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
-import java.util.UUID
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import javax.sql.DataSource
-import dev.tramai.engine.GovernedSuspendedInvocation
-import java.lang.reflect.Method
-import java.lang.reflect.Proxy
-import java.sql.Connection
-import java.sql.PreparedStatement
-import java.sql.SQLException
-import java.util.concurrent.atomic.AtomicBoolean
-import com.fasterxml.jackson.databind.JsonNode
-import dev.tramai.engine.approval.ApprovalAttributionCorruptionException
 import dev.tramai.core.exception.GovernedRunContinuityException
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
@@ -81,36 +28,91 @@ import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
+import dev.tramai.engine.EngineExecutionIdentity
+import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
+import dev.tramai.engine.ResumeOperationReference
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.approval.ApprovalAttributionCorruptionException
 import dev.tramai.engine.approval.ApprovalAttributionKeys
+import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
+import dev.tramai.persistence.jdbc.GovernedJdbcSuspendedInvocationStore
+import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
+import dev.tramai.persistence.jdbc.JdbcApprovalStore
+import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
+import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
+import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
+import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
+import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
+import org.postgresql.ds.PGSimpleDataSource
+import org.testcontainers.containers.PostgreSQLContainer
+import java.lang.reflect.Method
+import java.lang.reflect.Proxy
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.sql.Connection
+import java.sql.PreparedStatement
+import java.sql.SQLException
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.crypto.Cipher
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import javax.sql.DataSource
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcSovereignOpsApprovalRequestMutationStoreTest {
-
     companion object {
         private const val POSTGRES_IMAGE = "postgres:17-alpine"
-        private val postgres = PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("sovereign_ops_request_mutation_test")
-            .withUsername("test")
-            .withPassword("test")
+        private val postgres =
+            PostgreSQLContainer(POSTGRES_IMAGE)
+                .withDatabaseName("sovereign_ops_request_mutation_test")
+                .withUsername("test")
+                .withPassword("test")
 
-        private fun createDataSource(): DataSource = PGSimpleDataSource().apply {
-            setUrl(postgres.jdbcUrl)
-            user = postgres.username
-            password = postgres.password
-        }
+        private fun createDataSource(): DataSource =
+            PGSimpleDataSource().apply {
+                setUrl(postgres.jdbcUrl)
+                user = postgres.username
+                password = postgres.password
+            }
 
         private val BASE_NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
     }
 
     private val testAesKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
     private val testSecretKey: SecretKey = SecretKeySpec(testAesKey, "AES")
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    private val mapper: ObjectMapper =
+        ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     private lateinit var dataSource: DataSource
     private lateinit var replayCodec: JdbcReplayEnvelopeCodec
@@ -139,421 +141,460 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         replayCodec = testReplayCodec()
         continuationCodec = testContinuationCodec()
         outboxCodec = testOutboxCodec()
-        mutationStore = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            continuationArgumentsCodec = continuationCodec,
-            outboxPayloadCodec = outboxCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-        approvalStore = JdbcApprovalStore(
-            dataSource = dataSource,
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-        suspendedInvocationStore = JdbcSuspendedInvocationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-        continuationStore = JdbcApprovalContinuationStore(
-            dataSource = dataSource,
-            argumentsCodec = continuationCodec,
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-    }
-
-    @Test
-    fun `create approval request persists approval suspended invocation and continuation atomically`() { runBlocking {
-        val request = request("approval-a")
-
-        val result = mutationStore.createApprovalRequest(request)
-
-        assertThat(result).isEqualTo(
-            SovereignOpsApprovalRequestMutationResult.Created(
-                approvalId = "approval-a",
-                correlationId = "corr-approval-a",
-                resumeToken = ResumeToken("resume-approval-a"),
-            ),
-        )
-
-        val approval = approvalStore.get("approval-a")
-        assertThat(approval).isNotNull
-        assertThat(approval!!.status).isEqualTo(ApprovalStatus.PENDING)
-
-        val suspended = suspendedInvocationStore.get("approval-a")
-        assertThat(suspended).isNotNull
-        assertThat(suspended!!.correlationId).isEqualTo("corr-approval-a")
-
-        val replayEnvelope = suspendedInvocationStore.revealReplayEnvelope("approval-a")
-        assertThat(replayEnvelope).isNotNull
-        assertThat(replayEnvelope!!.revealForResume().messages)
-            .extracting<String> { it.content }
-            .containsExactly("request-approval-a", "")
-
-        val continuation = continuationStore.get("approval-a")
-        assertThat(continuation).isNotNull
-        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
-        assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
-    }
-    }
-
-    @Test
-    fun `create approval request with audit intent also creates pending outbox record`() { runBlocking {
-        val request = request("approval-b")
-        val auditIntent = auditIntent("approval-b", "event-key-b")
-
-        mutationStore.createApprovalRequest(request, auditIntent)
-
-        assertThat(selectValue("SELECT status FROM audit_outbox WHERE outbox_id = ?", auditIntent.outboxId))
-            .isEqualTo("PENDING")
-        assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'event-key-b'")).isEqualTo(1)
-    }
-    }
-
-    @Test
-    fun `duplicate approval request returns existing`() { runBlocking {
-        val request = request("approval-c")
-
-        val created = mutationStore.createApprovalRequest(request)
-        val duplicate = mutationStore.createApprovalRequest(request)
-
-        assertThat(created).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
-        assertThat(duplicate).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
-        val existing = duplicate as SovereignOpsApprovalRequestMutationResult.Existing
-        assertThat(existing.approval.approvalId).isEqualTo("approval-c")
-        assertThat(selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-c'")).isEqualTo(1)
-    }
-    }
-
-    @Test
-    fun `constraint failure rolls back partial approval request creation`() { runBlocking {
-        val request = request("approval-d")
-        suspendedInvocationStore.create(
-            metadata = request("existing-conflict").suspendedInvocationMetadata.copy(
-                toolCallId = request.suspendedInvocationMetadata.toolCallId,
-                toolName = request.suspendedInvocationMetadata.toolName,
-                replayEnvelopeDigest = request.suspendedInvocationMetadata.replayEnvelopeDigest,
-            ),
-            replayEnvelope = request.replayEnvelope,
-        )
-
-        val thrown =
-            assertThatSuspendCallThrows {
-                            mutationStore.createApprovalRequest(request)
-            }
-        thrown.isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("tramai-sovereign-ops-approval-request-mutation-database-failure")
-
-        assertThat(approvalStore.get("approval-d")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-d")).isNull()
-        assertThat(continuationStore.get("approval-d")).isNull()
-        assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
-    }
-    }
-
-    @Test
-    fun `cancellation exception is rethrown and transaction rolls back`() { runBlocking {
-        val request = request("approval-e")
-        val cancellingCodec = object : JdbcReplayEnvelopeCodec {
-            override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope {
-                throw CancellationException("cancelled")
-            }
-
-            override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = envelope.ciphertext
-        }
-        val cancellingStore = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = cancellingCodec,
-            continuationArgumentsCodec = continuationCodec,
-            outboxPayloadCodec = outboxCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-
-        val thrown = assertThatSuspendCallThrows { cancellingStore.createApprovalRequest(request) }
-        thrown.isInstanceOf(CancellationException::class.java)
-
-        assertThat(approvalStore.get("approval-e")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-e")).isNull()
-        assertThat(continuationStore.get("approval-e")).isNull()
-    }
-    }
-
-    @Test
-    fun `rejects replay envelope digest mismatch and rolls back all records`() { runBlocking {
-        val mismatchedDigest =
-            Sha256Digest.of(
-                "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        mutationStore =
+            JdbcSovereignOpsApprovalRequestMutationStore(
+                dataSource = dataSource,
+                replayEnvelopeCodec = replayCodec,
+                continuationArgumentsCodec = continuationCodec,
+                outboxPayloadCodec = outboxCodec,
+                encryptionKey = testSecretKey,
+                encryptionKeyId = "test-key-1",
+                clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
             )
-        val base = request("approval-f")
-        val request =
-            base.copy(
-                suspendedInvocationMetadata =
-                    base.suspendedInvocationMetadata.copy(replayEnvelopeDigest = mismatchedDigest),
+        approvalStore =
+            JdbcApprovalStore(
+                dataSource = dataSource,
+                clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+            )
+        suspendedInvocationStore =
+            JdbcSuspendedInvocationStore(
+                dataSource = dataSource,
+                replayEnvelopeCodec = replayCodec,
+                clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+            )
+        continuationStore =
+            JdbcApprovalContinuationStore(
+                dataSource = dataSource,
+                argumentsCodec = continuationCodec,
+                clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+            )
+    }
+
+    @Test
+    fun `create approval request persists approval suspended invocation and continuation atomically`() {
+        runBlocking {
+            val request = request("approval-a")
+
+            val result = mutationStore.createApprovalRequest(request)
+
+            assertThat(result).isEqualTo(
+                SovereignOpsApprovalRequestMutationResult.Created(
+                    approvalId = "approval-a",
+                    correlationId = "corr-approval-a",
+                    resumeToken = ResumeToken("resume-approval-a"),
+                ),
             )
 
-        val thrown =
-            assertThatSuspendCallThrows {
-                mutationStore.createApprovalRequest(request)
-            }
-        thrown.isInstanceOf(IllegalArgumentException::class.java)
-        thrown.hasMessageContaining("replay-envelope-digest-mismatch")
+            val approval = approvalStore.get("approval-a")
+            assertThat(approval).isNotNull
+            assertThat(approval!!.status).isEqualTo(ApprovalStatus.PENDING)
 
-        assertThat(approvalStore.get("approval-f")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-f")).isNull()
-        assertThat(continuationStore.get("approval-f")).isNull()
-        assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
-    }
-    }
+            val suspended = suspendedInvocationStore.get("approval-a")
+            assertThat(suspended).isNotNull
+            assertThat(suspended!!.correlationId).isEqualTo("corr-approval-a")
 
-    @Test
-    fun `rejects already expired approval request and rolls back all records`() { runBlocking {
-        val now = BASE_NOW.plusSeconds(30)
-        val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
-        val storeWithExpiryCheck = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            continuationArgumentsCodec = continuationCodec,
-            outboxPayloadCodec = outboxCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = clockAtNow,
-        )
-        val request = request("approval-g").copy(
-            approvalRequest = request("approval-g").approvalRequest.copy(
-                expiresAt = now.minusSeconds(1),
-            ),
-        )
+            val replayEnvelope = suspendedInvocationStore.revealReplayEnvelope("approval-a")
+            assertThat(replayEnvelope).isNotNull
+            assertThat(replayEnvelope!!.revealForResume().messages)
+                .extracting<String> { it.content }
+                .containsExactly("request-approval-a", "")
 
-        val thrown =
-            assertThatSuspendCallThrows {
-                            storeWithExpiryCheck.createApprovalRequest(request)
-            }
-        thrown.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("approval-request-expired-at-creation")
-
-        assertThat(approvalStore.get("approval-g")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-g")).isNull()
-        assertThat(continuationStore.get("approval-g")).isNull()
-    }
-    }
-
-    @Test
-    fun `rejects invalid continuation metadata and rolls back all records`() { runBlocking {
-        val request = request("approval-h").copy(
-            continuation = request("approval-h").continuation.copy(
-                workflowRunId = "  ",
-            ),
-        )
-
-        val thrown =
-            assertThatSuspendCallThrows {
-                            mutationStore.createApprovalRequest(request)
-            }
-        thrown.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("continuation.workflowRunId")
-
-        assertThat(approvalStore.get("approval-h")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-h")).isNull()
-        assertThat(continuationStore.get("approval-h")).isNull()
-    }
-    }
-
-    @Test
-    fun `rejects future continuation createdAt and rolls back all records`() { runBlocking {
-        val now = BASE_NOW.plusSeconds(30)
-        val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
-        val storeWithTimeCheck = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            continuationArgumentsCodec = continuationCodec,
-            outboxPayloadCodec = outboxCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = clockAtNow,
-        )
-        val request = request("approval-i").copy(
-            continuation = request("approval-i").continuation.copy(
-                createdAt = now.plusSeconds(60),
-            ),
-        )
-
-        val thrown =
-            assertThatSuspendCallThrows {
-                            storeWithTimeCheck.createApprovalRequest(request)
-            }
-        thrown.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("continuation-created-at-in-future")
-
-        assertThat(approvalStore.get("approval-i")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-i")).isNull()
-        assertThat(continuationStore.get("approval-i")).isNull()
-    }
-    }
-
-    @Test
-    fun `audit outbox failure rolls back approval request creation`() { runBlocking {
-        val request = request("approval-j")
-        val auditIntent = auditIntent("approval-j", "outbox-failure-test")
-        val failingCodec = object : JdbcOpsAuditOutboxPayloadCodec {
-            override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
-                throw IllegalStateException("simulated-outbox-codec-failure")
-            override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
-                throw UnsupportedOperationException()
+            val continuation = continuationStore.get("approval-a")
+            assertThat(continuation).isNotNull
+            assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+            assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
         }
-        val storeWithFailingOutbox = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            continuationArgumentsCodec = continuationCodec,
-            outboxPayloadCodec = failingCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-
-        val thrown =
-            assertThatSuspendCallThrows {
-                            storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
-            }
-        thrown.isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("simulated-outbox-codec-failure")
-
-        assertThat(approvalStore.get("approval-j")).isNull()
-        assertThat(suspendedInvocationStore.get("approval-j")).isNull()
-        assertThat(continuationStore.get("approval-j")).isNull()
-        assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
     }
+
+    @Test
+    fun `create approval request with audit intent also creates pending outbox record`() {
+        runBlocking {
+            val request = request("approval-b")
+            val auditIntent = auditIntent("approval-b", "event-key-b")
+
+            mutationStore.createApprovalRequest(request, auditIntent)
+
+            assertThat(selectValue("SELECT status FROM audit_outbox WHERE outbox_id = ?", auditIntent.outboxId))
+                .isEqualTo("PENDING")
+            assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'event-key-b'")).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `duplicate approval request returns existing`() {
+        runBlocking {
+            val request = request("approval-c")
+
+            val created = mutationStore.createApprovalRequest(request)
+            val duplicate = mutationStore.createApprovalRequest(request)
+
+            assertThat(created).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
+            assertThat(duplicate).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
+            val existing = duplicate as SovereignOpsApprovalRequestMutationResult.Existing
+            assertThat(existing.approval.approvalId).isEqualTo("approval-c")
+            assertThat(selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-c'")).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `constraint failure rolls back partial approval request creation`() {
+        runBlocking {
+            val request = request("approval-d")
+            suspendedInvocationStore.create(
+                metadata =
+                    request("existing-conflict").suspendedInvocationMetadata.copy(
+                        toolCallId = request.suspendedInvocationMetadata.toolCallId,
+                        toolName = request.suspendedInvocationMetadata.toolName,
+                        replayEnvelopeDigest = request.suspendedInvocationMetadata.replayEnvelopeDigest,
+                    ),
+                replayEnvelope = request.replayEnvelope,
+            )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    mutationStore.createApprovalRequest(request)
+                }
+            thrown
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("tramai-sovereign-ops-approval-request-mutation-database-failure")
+
+            assertThat(approvalStore.get("approval-d")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-d")).isNull()
+            assertThat(continuationStore.get("approval-d")).isNull()
+            assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
+        }
+    }
+
+    @Test
+    fun `cancellation exception is rethrown and transaction rolls back`() {
+        runBlocking {
+            val request = request("approval-e")
+            val cancellingCodec =
+                object : JdbcReplayEnvelopeCodec {
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope = throw CancellationException("cancelled")
+
+                    override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = envelope.ciphertext
+                }
+            val cancellingStore =
+                JdbcSovereignOpsApprovalRequestMutationStore(
+                    dataSource = dataSource,
+                    replayEnvelopeCodec = cancellingCodec,
+                    continuationArgumentsCodec = continuationCodec,
+                    outboxPayloadCodec = outboxCodec,
+                    encryptionKey = testSecretKey,
+                    encryptionKeyId = "test-key-1",
+                    clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+                )
+
+            val thrown = assertThatSuspendCallThrows { cancellingStore.createApprovalRequest(request) }
+            thrown.isInstanceOf(CancellationException::class.java)
+
+            assertThat(approvalStore.get("approval-e")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-e")).isNull()
+            assertThat(continuationStore.get("approval-e")).isNull()
+        }
+    }
+
+    @Test
+    fun `rejects replay envelope digest mismatch and rolls back all records`() {
+        runBlocking {
+            val mismatchedDigest =
+                Sha256Digest.of(
+                    "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                )
+            val base = request("approval-f")
+            val request =
+                base.copy(
+                    suspendedInvocationMetadata =
+                        base.suspendedInvocationMetadata.copy(replayEnvelopeDigest = mismatchedDigest),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    mutationStore.createApprovalRequest(request)
+                }
+            thrown.isInstanceOf(IllegalArgumentException::class.java)
+            thrown.hasMessageContaining("replay-envelope-digest-mismatch")
+
+            assertThat(approvalStore.get("approval-f")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-f")).isNull()
+            assertThat(continuationStore.get("approval-f")).isNull()
+            assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
+        }
+    }
+
+    @Test
+    fun `rejects already expired approval request and rolls back all records`() {
+        runBlocking {
+            val now = BASE_NOW.plusSeconds(30)
+            val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
+            val storeWithExpiryCheck =
+                JdbcSovereignOpsApprovalRequestMutationStore(
+                    dataSource = dataSource,
+                    replayEnvelopeCodec = replayCodec,
+                    continuationArgumentsCodec = continuationCodec,
+                    outboxPayloadCodec = outboxCodec,
+                    encryptionKey = testSecretKey,
+                    encryptionKeyId = "test-key-1",
+                    clock = clockAtNow,
+                )
+            val request =
+                request("approval-g").copy(
+                    approvalRequest =
+                        request("approval-g").approvalRequest.copy(
+                            expiresAt = now.minusSeconds(1),
+                        ),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    storeWithExpiryCheck.createApprovalRequest(request)
+                }
+            thrown
+                .isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("approval-request-expired-at-creation")
+
+            assertThat(approvalStore.get("approval-g")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-g")).isNull()
+            assertThat(continuationStore.get("approval-g")).isNull()
+        }
+    }
+
+    @Test
+    fun `rejects invalid continuation metadata and rolls back all records`() {
+        runBlocking {
+            val request =
+                request("approval-h").copy(
+                    continuation =
+                        request("approval-h").continuation.copy(
+                            workflowRunId = "  ",
+                        ),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    mutationStore.createApprovalRequest(request)
+                }
+            thrown
+                .isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("continuation.workflowRunId")
+
+            assertThat(approvalStore.get("approval-h")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-h")).isNull()
+            assertThat(continuationStore.get("approval-h")).isNull()
+        }
+    }
+
+    @Test
+    fun `rejects future continuation createdAt and rolls back all records`() {
+        runBlocking {
+            val now = BASE_NOW.plusSeconds(30)
+            val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
+            val storeWithTimeCheck =
+                JdbcSovereignOpsApprovalRequestMutationStore(
+                    dataSource = dataSource,
+                    replayEnvelopeCodec = replayCodec,
+                    continuationArgumentsCodec = continuationCodec,
+                    outboxPayloadCodec = outboxCodec,
+                    encryptionKey = testSecretKey,
+                    encryptionKeyId = "test-key-1",
+                    clock = clockAtNow,
+                )
+            val request =
+                request("approval-i").copy(
+                    continuation =
+                        request("approval-i").continuation.copy(
+                            createdAt = now.plusSeconds(60),
+                        ),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    storeWithTimeCheck.createApprovalRequest(request)
+                }
+            thrown
+                .isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("continuation-created-at-in-future")
+
+            assertThat(approvalStore.get("approval-i")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-i")).isNull()
+            assertThat(continuationStore.get("approval-i")).isNull()
+        }
+    }
+
+    @Test
+    fun `audit outbox failure rolls back approval request creation`() {
+        runBlocking {
+            val request = request("approval-j")
+            val auditIntent = auditIntent("approval-j", "outbox-failure-test")
+            val failingCodec =
+                object : JdbcOpsAuditOutboxPayloadCodec {
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
+                        throw IllegalStateException("simulated-outbox-codec-failure")
+
+                    override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray = throw UnsupportedOperationException()
+                }
+            val storeWithFailingOutbox =
+                JdbcSovereignOpsApprovalRequestMutationStore(
+                    dataSource = dataSource,
+                    replayEnvelopeCodec = replayCodec,
+                    continuationArgumentsCodec = continuationCodec,
+                    outboxPayloadCodec = failingCodec,
+                    encryptionKey = testSecretKey,
+                    encryptionKeyId = "test-key-1",
+                    clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+                )
+
+            val thrown =
+                assertThatSuspendCallThrows {
+                    storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
+                }
+            thrown
+                .isInstanceOf(IllegalStateException::class.java)
+                .hasMessageContaining("simulated-outbox-codec-failure")
+
+            assertThat(approvalStore.get("approval-j")).isNull()
+            assertThat(suspendedInvocationStore.get("approval-j")).isNull()
+            assertThat(continuationStore.get("approval-j")).isNull()
+            assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
+        }
     }
 
     // ── Inbox metadata tests ──
 
     @Test
-    fun `approval request creation persists inbox metadata atomically`() { runBlocking {
-        val request = request("approval-inbox-1")
-        val metadata = ApprovalInboxMetadata(
-            requiredRole = ApproverRole("medical-reviewer"),
-            riskLevel = "HIGH",
-            subjectType = "claim",
-            subjectId = "claim-123",
-            recommendationType = "claim-payout",
-        )
+    fun `approval request creation persists inbox metadata atomically`() {
+        runBlocking {
+            val request = request("approval-inbox-1")
+            val metadata =
+                ApprovalInboxMetadata(
+                    requiredRole = ApproverRole("medical-reviewer"),
+                    riskLevel = "HIGH",
+                    subjectType = "claim",
+                    subjectId = "claim-123",
+                    recommendationType = "claim-payout",
+                )
 
-        val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+            val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
 
-        assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
+            assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
 
-        // Read sanitized_metadata JSON from DB and verify inbox fields via parsed tree
-        val rawJson = selectValue(
-            "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?",
-            "approval-inbox-1",
-        )!!
-        val root = mapper.readTree(rawJson)
-        val inbox = root["inbox"]
-        assertThat(inbox).isNotNull
-        assertThat(inbox["requiredRole"].asText()).isEqualTo("medical-reviewer")
-        assertThat(inbox["riskLevel"].asText()).isEqualTo("HIGH")
-        assertThat(inbox["subjectType"].asText()).isEqualTo("claim")
-        assertThat(inbox["subjectId"].asText()).isEqualTo("claim-123")
-        assertThat(inbox["recommendationType"].asText()).isEqualTo("claim-payout")
+            // Read sanitized_metadata JSON from DB and verify inbox fields via parsed tree
+            val rawJson =
+                selectValue(
+                    "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?",
+                    "approval-inbox-1",
+                )!!
+            val root = mapper.readTree(rawJson)
+            val inbox = root["inbox"]
+            assertThat(inbox).isNotNull
+            assertThat(inbox["requiredRole"].asText()).isEqualTo("medical-reviewer")
+            assertThat(inbox["riskLevel"].asText()).isEqualTo("HIGH")
+            assertThat(inbox["subjectType"].asText()).isEqualTo("claim")
+            assertThat(inbox["subjectId"].asText()).isEqualTo("claim-123")
+            assertThat(inbox["recommendationType"].asText()).isEqualTo("claim-payout")
 
-        // Verify inbox does not contain sensitive binding fields (they live under binding)
-        assertThat(inbox.has("argumentsDigest")).isFalse()
-        assertThat(inbox.has("approvalTokenDigest")).isFalse()
-    }
-    }
-
-
-    @Test
-    fun `rollback removes inbox metadata when continuation insert fails`() { runBlocking {
-        val request = request("approval-inbox-2")
-        val metadata = ApprovalInboxMetadata(
-            requiredRole = ApproverRole("medical-reviewer"),
-            riskLevel = "HIGH",
-            subjectType = "claim",
-            subjectId = "claim-456",
-            recommendationType = "claim-payout",
-        )
-        // Use a failing continuation arguments codec to trigger rollback
-        val failingCodec = object : JdbcContinuationArgumentsCodec {
-            override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments {
-                throw RuntimeException("simulated-codec-failure")
-            }
-            override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray {
-                throw RuntimeException("simulated-codec-failure")
-            }
+            // Verify inbox does not contain sensitive binding fields (they live under binding)
+            assertThat(inbox.has("argumentsDigest")).isFalse()
+            assertThat(inbox.has("approvalTokenDigest")).isFalse()
         }
-        val storeWithFailingCodec = JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayCodec,
-            continuationArgumentsCodec = failingCodec,
-            outboxPayloadCodec = outboxCodec,
-            encryptionKey = testSecretKey,
-            encryptionKeyId = "test-key-1",
-            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
-        )
-
-        val thrown =
-            assertThatSuspendCallThrows {
-                storeWithFailingCodec.createApprovalRequest(request, inboxMetadata = metadata)
-            }
-        thrown.isInstanceOf(RuntimeException::class.java)
-
-        // Verify approval was rolled back (no row)
-        assertThat(approvalStore.get("approval-inbox-2")).isNull()
-    }
     }
 
     @Test
-    fun `existing approval replay returns existing metadata safely without inbox changes`() { runBlocking {
-        val request = request("approval-inbox-3")
-        val metadata = ApprovalInboxMetadata(
-            requiredRole = ApproverRole("medical-reviewer"),
-            riskLevel = "HIGH",
-            subjectType = "claim",
-            subjectId = "claim-789",
-            recommendationType = "claim-payout",
-        )
+    fun `rollback removes inbox metadata when continuation insert fails`() {
+        runBlocking {
+            val request = request("approval-inbox-2")
+            val metadata =
+                ApprovalInboxMetadata(
+                    requiredRole = ApproverRole("medical-reviewer"),
+                    riskLevel = "HIGH",
+                    subjectType = "claim",
+                    subjectId = "claim-456",
+                    recommendationType = "claim-payout",
+                )
+            // Use a failing continuation arguments codec to trigger rollback
+            val failureMessage = "simulated-codec-failure"
+            val failingCodec =
+                object : JdbcContinuationArgumentsCodec {
+                    override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments = throw RuntimeException(failureMessage)
 
-        // First create with metadata
-        mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+                    override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray = throw RuntimeException(failureMessage)
+                }
+            val storeWithFailingCodec =
+                JdbcSovereignOpsApprovalRequestMutationStore(
+                    dataSource = dataSource,
+                    replayEnvelopeCodec = replayCodec,
+                    continuationArgumentsCodec = failingCodec,
+                    outboxPayloadCodec = outboxCodec,
+                    encryptionKey = testSecretKey,
+                    encryptionKeyId = "test-key-1",
+                    clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+                )
 
-        // Second call — should return Existing, not Created
-        val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+            val thrown =
+                assertThatSuspendCallThrows {
+                    storeWithFailingCodec.createApprovalRequest(request, inboxMetadata = metadata)
+                }
+            thrown.isInstanceOf(RuntimeException::class.java)
 
-        assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
-        val existing = result as SovereignOpsApprovalRequestMutationResult.Existing
-        assertThat(existing.approval.approvalId).isEqualTo("approval-inbox-3")
-
-        // Only one row exists
-        val count = selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-inbox-3'")
-        assertThat(count).isEqualTo(1)
+            // Verify approval was rolled back (no row)
+            assertThat(approvalStore.get("approval-inbox-2")).isNull()
+        }
     }
+
+    @Test
+    fun `existing approval replay returns existing metadata safely without inbox changes`() {
+        runBlocking {
+            val request = request("approval-inbox-3")
+            val metadata =
+                ApprovalInboxMetadata(
+                    requiredRole = ApproverRole("medical-reviewer"),
+                    riskLevel = "HIGH",
+                    subjectType = "claim",
+                    subjectId = "claim-789",
+                    recommendationType = "claim-payout",
+                )
+
+            // First create with metadata
+            mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+
+            // Second call — should return Existing, not Created
+            val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+
+            assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
+            val existing = result as SovereignOpsApprovalRequestMutationResult.Existing
+            assertThat(existing.approval.approvalId).isEqualTo("approval-inbox-3")
+
+            // Only one row exists
+            val count = selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-inbox-3'")
+            assertThat(count).isEqualTo(1)
+        }
     }
 
     @Test
     fun `transactional resume credential uses configured encryption key id`() {
         runBlocking {
             val request = request("cred-key-id-test")
-            val metadata = ApprovalInboxMetadata(
-                requiredRole = ApproverRole("medical-reviewer"),
-                riskLevel = "HIGH",
-                subjectType = "claim",
-                subjectId = "claim-key-id",
-                recommendationType = "claim-payout",
-            )
-            val resumeCredential = ApprovalResumeCredentialRecord(
-                approvalId = ApprovalId("cred-key-id-test"),
-                workflowRunId = WorkflowRunId("wf-cred-key-id-test"),
-                resumeToken = SealedResumeToken.seal(
-                    ResumeToken("test-resume-token"),
-                ),
-                createdAt = BASE_NOW,
-                expiresAt = BASE_NOW.plusSeconds(600),
-                version = 1L,
-            )
+            val metadata =
+                ApprovalInboxMetadata(
+                    requiredRole = ApproverRole("medical-reviewer"),
+                    riskLevel = "HIGH",
+                    subjectType = "claim",
+                    subjectId = "claim-key-id",
+                    recommendationType = "claim-payout",
+                )
+            val resumeCredential =
+                ApprovalResumeCredentialRecord(
+                    approvalId = ApprovalId("cred-key-id-test"),
+                    workflowRunId = WorkflowRunId("wf-cred-key-id-test"),
+                    resumeToken =
+                        SealedResumeToken.seal(
+                            ResumeToken("test-resume-token"),
+                        ),
+                    createdAt = BASE_NOW,
+                    expiresAt = BASE_NOW.plusSeconds(600),
+                    version = 1L,
+                )
 
             mutationStore.createApprovalRequest(
                 request = request,
@@ -562,10 +603,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             )
 
             // Read encryption_key_id from the resume credentials table
-            val keyId = selectValue(
-                "SELECT encryption_key_id FROM tramai_approval_resume_credentials WHERE approval_id = ?",
-                "cred-key-id-test",
-            )
+            val keyId =
+                selectValue(
+                    "SELECT encryption_key_id FROM tramai_approval_resume_credentials WHERE approval_id = ?",
+                    "cred-key-id-test",
+                )
 
             assertThat(keyId).isEqualTo("test-key-1")
             assertThat(keyId).isNotEqualTo("default")
@@ -578,87 +620,97 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         val workflowDigest = digest('b')
         val argumentsDigest = digest('a')
         val approvalTokenDigest = digest('c')
-        val messages = listOf(
-            Message(role = MessageRole.USER, content = "request-$approvalId"),
-            Message(
-                role = MessageRole.ASSISTANT,
-                content = "",
-                toolCalls = listOf(
-                    ToolCall(
-                        id = "tool-call-$approvalId",
-                        name = "tool-$approvalId",
-                        argumentsJson = "__redacted_approval_continuation_args__",
-                    ),
+        val messages =
+            listOf(
+                Message(role = MessageRole.USER, content = "request-$approvalId"),
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = "",
+                    toolCalls =
+                        listOf(
+                            ToolCall(
+                                id = "tool-call-$approvalId",
+                                name = "tool-$approvalId",
+                                argumentsJson = "__redacted_approval_continuation_args__",
+                            ),
+                        ),
                 ),
-            ),
-        )
+            )
         val operationReference = ResumeOperationReference("t.Service", "approve", "(Ljava/lang/String;)V", digest('d'))
         val replayDigest = ReplayEnvelopeDigestHelper.compute(operationReference, messages)
 
         return ApprovalGatewayPersistenceRequest(
-            approvalRequest = ApprovalRequest(
-                approvalId = approvalId,
-                binding = ApprovalBinding(
+            approvalRequest =
+                ApprovalRequest(
+                    approvalId = approvalId,
+                    binding =
+                        ApprovalBinding(
+                            workflowRunId = "wf-$approvalId",
+                            toolName = "tool-$approvalId",
+                            argumentsDigest = argumentsDigest,
+                            policyVersion = "policy-v1",
+                            workflowDigest = workflowDigest,
+                            approvalTokenDigest = approvalTokenDigest,
+                        ),
+                    status = ApprovalStatus.PENDING,
+                    requestedBy = "requestor-$approvalId",
+                    requestedAt = requestedAt,
+                    expiresAt = expiresAt,
+                    decidedBy = null,
+                    decidedAt = null,
+                    decisionComment = null,
+                    consumedBy = null,
+                    consumedAt = null,
+                    version = 0L,
+                ),
+            continuation =
+                ApprovalContinuation(
+                    approvalId = approvalId,
                     workflowRunId = "wf-$approvalId",
+                    correlationId = "corr-$approvalId",
+                    toolCallId = "tool-call-$approvalId",
                     toolName = "tool-$approvalId",
                     argumentsDigest = argumentsDigest,
                     policyVersion = "policy-v1",
                     workflowDigest = workflowDigest,
-                    approvalTokenDigest = approvalTokenDigest,
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = requestedAt,
+                    approvalExpiresAt = expiresAt,
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
                 ),
-                status = ApprovalStatus.PENDING,
-                requestedBy = "requestor-$approvalId",
-                requestedAt = requestedAt,
-                expiresAt = expiresAt,
-                decidedBy = null,
-                decidedAt = null,
-                decisionComment = null,
-                consumedBy = null,
-                consumedAt = null,
-                version = 0L,
-            ),
-            continuation = ApprovalContinuation(
-                approvalId = approvalId,
-                workflowRunId = "wf-$approvalId",
-                correlationId = "corr-$approvalId",
-                toolCallId = "tool-call-$approvalId",
-                toolName = "tool-$approvalId",
-                argumentsDigest = argumentsDigest,
-                policyVersion = "policy-v1",
-                workflowDigest = workflowDigest,
-                status = ApprovalContinuationStatus.PENDING,
-                createdAt = requestedAt,
-                approvalExpiresAt = expiresAt,
-                claimedBy = null,
-                claimedAt = null,
-                completedAt = null,
-                version = 0L,
-            ),
             sensitiveArguments = SensitiveToolArguments.of("""{"claimId":"$approvalId"}"""),
-            suspendedInvocationMetadata = SuspendedInvocationMetadata(
-                approvalId = approvalId,
-                toolCallId = "tool-call-$approvalId",
-                toolName = "tool-$approvalId",
-                toolCallIndex = 0,
-                correlationId = "corr-$approvalId",
-                identity = EngineExecutionIdentity(
-                    workflowRunId = "wf-$approvalId",
+            suspendedInvocationMetadata =
+                SuspendedInvocationMetadata(
+                    approvalId = approvalId,
+                    toolCallId = "tool-call-$approvalId",
+                    toolName = "tool-$approvalId",
+                    toolCallIndex = 0,
                     correlationId = "corr-$approvalId",
-                    workflowDigest = workflowDigest,
-                    policyVersion = "policy-v1",
-                    actorId = "requestor-$approvalId",
+                    identity =
+                        EngineExecutionIdentity(
+                            workflowRunId = "wf-$approvalId",
+                            correlationId = "corr-$approvalId",
+                            workflowDigest = workflowDigest,
+                            policyVersion = "policy-v1",
+                            actorId = "requestor-$approvalId",
+                        ),
+                    securityContext = ExecutionSecurityContext(),
+                    operationReference = operationReference,
+                    replayEnvelopeDigest = replayDigest,
+                    toolReference = ResumeToolReference("tool-$approvalId", digest('e')),
                 ),
-                securityContext = ExecutionSecurityContext(),
-                operationReference = operationReference,
-                replayEnvelopeDigest = replayDigest,
-                toolReference = ResumeToolReference("tool-$approvalId", digest('e')),
-            ),
             replayEnvelope = SensitiveReplayEnvelope.of(messages),
             resumeToken = ResumeToken("resume-$approvalId"),
         )
     }
 
-    private fun auditIntent(approvalId: String, eventKey: String): SovereignOpsAuditOutboxRecord =
+    private fun auditIntent(
+        approvalId: String,
+        eventKey: String,
+    ): SovereignOpsAuditOutboxRecord =
         SovereignOpsAuditOutboxRecord(
             outboxId = UUID.randomUUID().toString(),
             aggregateIdDigest = sha256Hex(approvalId),
@@ -738,9 +790,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         val spec = GCMParameterSpec(128, nonce)
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
         val ciphertext = cipher.doFinal(plaintext)
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(plaintext)
-            .joinToString("") { "%02x".format(it) }
+        val digest =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(plaintext)
+                .joinToString("") { "%02x".format(it) }
         return JdbcEncryptedAuditOutboxPayload(
             ciphertext = ciphertext,
             keyId = "test-key-1",
@@ -750,7 +804,11 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         )
     }
 
-    private fun decrypt(ciphertext: ByteArray, nonce: ByteArray, algorithm: String): ByteArray {
+    private fun decrypt(
+        ciphertext: ByteArray,
+        nonce: ByteArray,
+        algorithm: String,
+    ): ByteArray {
         val cipher = Cipher.getInstance(algorithm)
         val keySpec = SecretKeySpec(testAesKey, "AES")
         val spec = GCMParameterSpec(128, nonce)
@@ -775,11 +833,12 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                     "tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
                     "tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
                 ).forEach { resource ->
-                    val sql = javaClass.classLoader
-                        .getResourceAsStream(resource)
-                        ?.bufferedReader()
-                        ?.readText()
-                        ?: error("Migration not found: $resource")
+                    val sql =
+                        javaClass.classLoader
+                            .getResourceAsStream(resource)
+                            ?.bufferedReader()
+                            ?.readText()
+                            ?: error("Migration not found: $resource")
                     stmt.execute(sql)
                 }
             }
@@ -805,12 +864,10 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
 
     // ---------------------------------------------------------------------------------------------
 
-
-
-
-
-
-    private fun selectValue(sql: String, value: String): String? =
+    private fun selectValue(
+        sql: String,
+        value: String,
+    ): String? =
         dataSource.connection.use { conn ->
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, value)
