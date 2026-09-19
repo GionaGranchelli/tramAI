@@ -205,16 +205,12 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                 )
             } catch (e: SQLException) {
                 conn.rollback()
-                if (isApprovalPrimaryKeyViolation(e)) {
-                    val raced = selectApprovalAfterRollback(request.approvalRequest.approvalId)
-                    if (raced != null) {
-                        // The loser of a creation race applies the SAME reconciliation as the initial
-                        // SELECT: a concurrent run must never adopt the winner's identity.
-                        return@use SovereignOpsApprovalRequestMutationResult.Existing(
-                            requireExistingIdentityMatches(raced, governedIdentity),
-                        )
-                    }
-                }
+                recoverExistingAfterPrimaryKeyRace(
+                    error = e,
+                    approvalId = request.approvalRequest.approvalId,
+                    governedIdentity = governedIdentity,
+                )?.let { return@use it }
+
                 throw IllegalStateException(
                     "tramai-sovereign-ops-approval-request-mutation-database-failure",
                     e,
@@ -249,6 +245,30 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
         val pendingEncrypted = outboxPayloadCodec.encode(pendingPayload)
         markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
+    }
+
+
+    /**
+     * Recovery for the loser of a creation race: a primary-key violation means a concurrent writer
+     * committed the row first, so the loser re-reads it on its own connection and applies the SAME
+     * reconciliation as the initial SELECT — a concurrent run must never adopt the winner's identity.
+     *
+     * Returns null for anything else, so the caller keeps its database-failure wrapping, and lets
+     * continuity/corruption exceptions from [requireExistingIdentityMatches] propagate unchanged.
+     */
+    private fun recoverExistingAfterPrimaryKeyRace(
+        error: SQLException,
+        approvalId: String,
+        governedIdentity: GovernedRunIdentity?,
+    ): SovereignOpsApprovalRequestMutationResult.Existing? {
+        if (!isApprovalPrimaryKeyViolation(error)) return null
+
+        val raced = selectApprovalAfterRollback(approvalId)
+        return raced?.let {
+            SovereignOpsApprovalRequestMutationResult.Existing(
+                requireExistingIdentityMatches(it, governedIdentity),
+            )
+        }
     }
 
 
