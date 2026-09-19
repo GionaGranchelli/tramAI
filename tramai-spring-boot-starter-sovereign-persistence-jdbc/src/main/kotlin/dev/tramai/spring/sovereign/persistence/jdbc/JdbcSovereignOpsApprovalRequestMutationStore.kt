@@ -65,7 +65,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     private val encryptionKey: SecretKey,
     private val encryptionKeyId: String,
     private val clock: Clock = Clock.systemUTC(),
-) : GovernedSovereignOpsApprovalRequestMutationStore {
+) : SovereignOpsApprovalRequestMutationStore {
     private val mapper: ObjectMapper =
         ObjectMapper()
             .registerKotlinModule()
@@ -97,12 +97,12 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
      * This is a privileged persistence boundary: it re-checks that the request's binding names the
      * same run rather than trusting that the caller validated factory output.
      */
-    override suspend fun createGovernedApprovalRequest(
+    internal suspend fun createGovernedApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         identity: GovernedRunIdentity,
-        auditIntent: SovereignOpsAuditOutboxRecord?,
-        inboxMetadata: ApprovalInboxMetadata?,
-        resumeCredential: ApprovalResumeCredentialRecord?,
+        auditIntent: SovereignOpsAuditOutboxRecord? = null,
+        inboxMetadata: ApprovalInboxMetadata? = null,
+        resumeCredential: ApprovalResumeCredentialRecord? = null,
     ): SovereignOpsApprovalRequestMutationResult {
         requireEveryCarrierNamesCanonicalRun(identity, request)
         return createApprovalRequestInternal(
@@ -195,19 +195,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                     insertResumeCredential(conn, resumeCredential)
                 }
 
-                if (auditIntent != null) {
-                    val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
-                    val preparedEncrypted = outboxPayloadCodec.encode(preparedPayload)
-                    insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
-
-                    val pendingAuditIntent =
-                        auditIntent.copy(
-                            status = SovereignOpsAuditOutboxStatus.PENDING,
-                        )
-                    val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
-                    val pendingEncrypted = outboxPayloadCodec.encode(pendingPayload)
-                    markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
-                }
+                writeAuditOutboxArtifacts(conn, auditIntent)
 
                 conn.commit()
                 SovereignOpsApprovalRequestMutationResult.Created(
@@ -239,6 +227,30 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             }
         }
     }
+
+    /**
+     * Writes the prepared outbox row and then its pending transition inside the caller's
+     * transaction: like every other artifact of a creation, the two rows land together or not at
+     * all.
+     */
+    private fun writeAuditOutboxArtifacts(
+        conn: Connection,
+        auditIntent: SovereignOpsAuditOutboxRecord?,
+    ) {
+        if (auditIntent == null) return
+        val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
+        val preparedEncrypted = outboxPayloadCodec.encode(preparedPayload)
+        insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
+
+        val pendingAuditIntent =
+            auditIntent.copy(
+                status = SovereignOpsAuditOutboxStatus.PENDING,
+            )
+        val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
+        val pendingEncrypted = outboxPayloadCodec.encode(pendingPayload)
+        markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
+    }
+
 
     private fun validateRequest(
         request: ApprovalGatewayPersistenceRequest,
