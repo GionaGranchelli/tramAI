@@ -175,11 +175,13 @@ no change.
 - No reserved keys → legacy approval, intentionally un-attributed; unchanged behavior.
 - Partial reserved key set → **corruption**, never legacy, never a partial identity.
 - Reserved values invalid (blank/unparseable) → corruption.
-- Reserved set present but `GovernedRunIdentity.runId != ApprovalBinding.workflowRunId` → **fail
-  closed**.
+- When persisted approval attribution is checked against the canonical
+  `GovernedSuspendedInvocation` identity, the canonical suspension run id must equal
+  `ApprovalBinding.workflowRunId`; disagreement → **fail closed**. The run id decoded from the
+  approval row itself is derived from `ApprovalBinding.workflowRunId`, so it cannot be the
+  independent authority in this comparison.
 - Persisted approval attribution and canonical `GovernedSuspendedInvocation` identity differ in any
-  component with an identical run id → **fail closed**: run-id-only comparison is explicitly
-  insufficient.
+  component → **fail closed**: run-id-only comparison is explicitly insufficient.
 - An active ambient scope that disagrees with persisted attribution at reconstruction → abort as an
   identity-substitution/continuity failure. Ambient scope may corroborate, never override.
 - A governed run whose configured suspension store does not implement
