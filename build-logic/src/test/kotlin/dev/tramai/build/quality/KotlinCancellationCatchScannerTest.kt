@@ -1164,4 +1164,213 @@ class KotlinCancellationCatchScannerTest {
         assertEquals("medium", rc.risk)
     }
 
+    // ── Sibling catch cancellation-preservation recognition ──
+
+    @Test
+    fun `earlier sibling CancellationException catch that rolls back then rethrows is accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        auditCancellation(c)
+                        throw c
+                    } catch (e: Exception) {
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertEquals(
+            "accepted",
+            findings.single().risk,
+            "An earlier sibling CancellationException catch that rethrows its own variable " +
+                "must make the broad catch cancellation-safe",
+        )
+    }
+
+    @Test
+    fun `earlier sibling CancellationException catch throwing a different variable is not accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        throw lastObservedFailure
+                    } catch (e: Exception) {
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertNotEquals(
+            "accepted",
+            findings.single().risk,
+            "A sibling cancellation catch that throws a different variable does not preserve cancellation",
+        )
+    }
+
+    @Test
+    fun `earlier sibling CancellationException catch throwing a new exception is not accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        throw IllegalStateException("cancellation swallowed", c)
+                    } catch (e: Exception) {
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertNotEquals(
+            "accepted",
+            findings.single().risk,
+            "A sibling cancellation catch that throws a new exception does not preserve cancellation",
+        )
+    }
+
+    @Test
+    fun `earlier sibling CancellationException catch transforming cancellation is not accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        throw c.cause ?: c
+                    } catch (e: Exception) {
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertNotEquals(
+            "accepted",
+            findings.single().risk,
+            "A sibling cancellation catch that rewraps or transforms cancellation does not preserve it",
+        )
+    }
+
+    @Test
+    fun `CancellationException catch after the broad catch is not accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        handleError(e)
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        throw c
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertEquals(
+            "critical",
+            findings.single().risk,
+            "A cancellation catch appearing AFTER the broad catch is not an earlier sibling",
+        )
+    }
+
+    @Test
+    fun `CancellationException catch alone with rollback and rethrow reports no finding`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (c: CancellationException) {
+                        transactionalRollback()
+                        throw c
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertTrue(
+            findings.isEmpty(),
+            "A narrow cancellation catch with cleanup and rethrow is not a broad catch",
+        )
+    }
+
+    @Test
+    fun `CancellationException catch in a nested try is not a sibling of the broad catch`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        try {
+                            nestedRecovery()
+                        } catch (c: CancellationException) {
+                            transactionalRollback()
+                            throw c
+                        }
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertNotEquals(
+            "accepted",
+            findings.single().risk,
+            "A cancellation catch belonging to a nested try expression is not a sibling",
+        )
+    }
+
+    @Test
+    fun `regression rethrowIfCancellation first statement is still accepted`() {
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        handleError(e)
+                    }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
+        assertEquals(
+            "accepted",
+            findings.single().risk,
+            "The existing rethrowIfCancellation()-first acceptance must survive sibling recognition",
+        )
+    }
 }
