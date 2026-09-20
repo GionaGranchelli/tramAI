@@ -159,7 +159,7 @@ class TramaiDocsGuardsPlugin : Plugin<Project> {
 
         project.tasks.register<DocsContractVerifierTask>("verifyVersionAlignment") {
             group = "verification"
-            description = "Verifies the repository version surfaces are aligned: 0.6.0 as release version."
+            description = "Verifies the repository version surfaces are aligned."
             contractId.set("verifyVersionAlignment")
             verifierKind.set(DocGuardKind.VERSION_ALIGNMENT)
             this.rootDir.set(project.rootDir)

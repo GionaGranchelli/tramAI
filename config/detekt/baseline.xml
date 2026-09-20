@@ -787,7 +787,7 @@
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun jvmAiFrameworkComparison(rootDir: File)</ID>
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun productPositioning(rootDir: File)</ID>
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun readmePositioning(rootDir: File)</ID>
-    <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun versionAlignment(rootDir: File, expectedVersion: String, expectedReleaseDate: String)</ID>
+    <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun versionAlignment( rootDir: File, expectedVersion: String, expectedReleaseDate: String, )</ID>
     <ID>LongMethod:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$fun workflowApiStabilityBoundary(rootDir: File)</ID>
     <ID>LongMethod:RuntimeEvidenceBundleIntegrationTest.kt$RuntimeEvidenceBundleIntegrationTest$@Test fun `three real exporters produce complete runtime evidence section`()</ID>
     <ID>LongMethod:RuntimeEvidenceContractValidator.kt$RuntimeEvidenceContractValidator$private fun validateMetadata(record: RuntimeEvidenceRecord)</ID>
@@ -2986,7 +2986,7 @@
     <ID>MaxLineLength:ResumeOperationRegistryTest.kt$}</ID>
     <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$"Found another Gradle command at position $firstGradleIndex before governed-workflow at $governedRunIndex."</ID>
     <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$"examples/README.md example matrix must use :run as primary command for tool-governance, found: ${matrixLine?.take(80)}"</ID>
-    <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$Regex("""&lt;groupId&gt;dev\.tramai&lt;/groupId&gt;.*?&lt;version&gt;\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)\s*&lt;/version&gt;""", setOf(RegexOption.DOT_MATCHES_ALL))</ID>
+    <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$"""&lt;groupId&gt;dev\.tramai&lt;/groupId&gt;.*?&lt;version&gt;\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)\s*&lt;/version&gt;"""</ID>
     <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$require</ID>
     <ID>MaxLineLength:RootDocGuardVerifiers.kt$RootDocGuardVerifiers$val sdiSection = sectionBetween(text, "### Sovereign Document Intelligence", "### Sovereign Offline Verification")</ID>
     <ID>MaxLineLength:RuleBasedDlpInterceptor.kt$RuleBasedDlpInterceptor$require(rule.toolNames.all { it == it.trim() }) { "DLP rule must not contain tool names with surrounding whitespace" }</ID>
