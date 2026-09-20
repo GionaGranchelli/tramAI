@@ -108,7 +108,7 @@ jobs:
   # CHANGELOG.md, so ExampleGuideReleaseAssertionTest (+3) enters release-sovereign = 174 -> 179.
   # The same measurement certifies accumulated policy-maintainability drift = 303 -> 305
   # (both reproduced with the exact filters below; 0 failures).
-  # Counts: 8 + 71 + 75 + 25 (quality) + 179 + 305 + 254 = 917.
+  # #426: sibling-catch cancellation recognition adds 8 scanner tests: scanners-coverage 254 -> 262.\n  # Counts: 8 + 71 + 75 + 25 (quality) + 179 + 305 + 262 = 925.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -181,7 +181,7 @@ jobs:
               --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
               --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
               --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
-            expected: 254
+            expected: 262
 
     steps:
       - name: Checkout
