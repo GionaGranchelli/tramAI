@@ -512,25 +512,6 @@ class JdbcSovereignOpsApprovalRequestRejectionTest {
     // may only ever be adopted by the run it is durably attributed to.
     // ---------------------------------------------------------------------------------------------
 
-    private fun identity(
-        runId: String,
-        workloadId: String = "claims",
-    ): GovernedRunIdentity =
-        GovernedRunIdentity(
-            deployment =
-                WorkloadDeploymentIdentity(
-                    workloadId = WorkloadId(workloadId),
-                    configuration =
-                        WorkloadConfigurationIdentity(
-                            id = ConfigurationId("claims-prod"),
-                            version = ConfigurationVersion("17"),
-                        ),
-                    environmentId = EnvironmentId("production"),
-                    deploymentId = DeploymentId("eu-west-amsterdam-01"),
-                ),
-            runId = RunId(runId),
-        )
-
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {
         val messages = governedMessages(approvalId)
         return ApprovalGatewayPersistenceRequest(
