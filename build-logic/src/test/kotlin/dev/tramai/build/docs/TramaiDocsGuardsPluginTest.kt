@@ -206,6 +206,8 @@ class TramaiDocsGuardsPluginTest {
             "examples/spring-sovereign-starter/README.md",
             "examples/kotlin-springboot-example/README.md",
             "examples/sovereign-lab/README.md",
+            // The guide must name the promoted release, which the guard derives from this file.
+            "CHANGELOG.md",
         )
         runTask(dir, "verifyExampleSelectionGuide")
     }
@@ -410,6 +412,8 @@ class TramaiDocsGuardsPluginTest {
             "examples/spring-sovereign-starter/README.md",
             "examples/kotlin-springboot-example/README.md",
             "examples/sovereign-lab/README.md",
+            // The guide must name the promoted release, which the guard derives from this file.
+            "CHANGELOG.md",
         )
         val guide = File(dir, "examples/README.md")
         val text = guide.readText()
