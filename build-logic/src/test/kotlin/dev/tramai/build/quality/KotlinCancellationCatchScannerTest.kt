@@ -12,87 +12,104 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KotlinCancellationCatchScannerTest {
-
     @Test
     fun `detects catch (e Exception) syntax`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    logError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        logError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch (e: Exception)")
         assertEquals("Exception", findings.first().catchType)
     }
 
     @Test
     fun `detects catch (_ Throwable) syntax`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (_: Throwable) {
-                    // swallow silently
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (_: Throwable) {
+                        // swallow silently
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch (_: Throwable)")
         assertEquals("Throwable", findings.first().catchType)
     }
 
     @Test
     fun `detects runCatching`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                runCatching {
-                    doSomething()
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    runCatching {
+                        doSomething()
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find runCatching")
     }
 
     @Test
     fun `classifies explicit cancellation rethrow as accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("accepted", findings.first().risk,
-            "Cancellation rethrow inside nested if-block should be accepted")
+        assertEquals(
+            "accepted",
+            findings.first().risk,
+            "Cancellation rethrow inside nested if-block should be accepted",
+        )
     }
 
     @Test
     fun `classifies suspend catch without rethrow as critical`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty())
         assertEquals("critical", findings.first().risk)
     }
@@ -100,90 +117,114 @@ class KotlinCancellationCatchScannerTest {
     @Test
     fun `genuine multiline catch preserves suspend position`() {
         // A real multiline catch declaration split across three lines
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (
-                    e: Exception
-                ) {
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (
+                        e: Exception
+                    ) {
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find multiline catch")
         assertEquals("Exception", findings.first().catchType)
-        assertEquals("riskyOperation", findings.first().function,
-            "Should identify enclosing function despite multiline catch")
-        assertEquals("critical", findings.first().risk,
-            "Suspend catch without rethrow should be critical even when multiline")
+        assertEquals(
+            "riskyOperation",
+            findings.first().function,
+            "Should identify enclosing function despite multiline catch",
+        )
+        assertEquals(
+            "critical",
+            findings.first().risk,
+            "Suspend catch without rethrow should be critical even when multiline",
+        )
     }
 
     @Test
     fun `nested cancellation rethrow is accepted`() {
         // CancellationException check and throw on separate lines in nested block
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is java.util.concurrent.CancellationException) {
-                        throw e
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (e is java.util.concurrent.CancellationException) {
+                            throw e
+                        }
+                        handleError(e)
                     }
-                    handleError(e)
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("accepted", findings.first().risk,
-            "Nested cancellation rethrow on separate lines should be accepted")
+        assertEquals(
+            "accepted",
+            findings.first().risk,
+            "Nested cancellation rethrow on separate lines should be accepted",
+        )
     }
 
     @Test
     fun `handles qualified exception names`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: java.lang.IllegalArgumentException) {
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: java.lang.IllegalArgumentException) {
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isEmpty(), "Qualified non-base exception should not match broad catch pattern")
     }
 
     @Test
     fun `runCatching outside suspend is medium risk`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            fun regularFunction() {
-                runCatching {
-                    doSomething()
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                fun regularFunction() {
+                    runCatching {
+                        doSomething()
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty())
         assertEquals("medium", findings.first().risk, "runCatching outside suspend should be medium")
     }
 
     @Test
     fun `catch in string literal is not detected`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                val msg = "catch (e: Exception)"
-                doSomething()
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    val msg = "catch (e: Exception)"
+                    doSomething()
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isEmpty(), "String literal should not produce a finding")
     }
 
@@ -191,207 +232,270 @@ class KotlinCancellationCatchScannerTest {
 
     @Test
     fun `cancellation check followed by throw DomainException is not accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is CancellationException) {
-                        auditCancellation(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (e is CancellationException) {
+                            auditCancellation(e)
+                        }
+                        throw DomainOperationException(e)
                     }
-                    throw DomainOperationException(e)
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("high", findings.first().risk,
-            "Cancellation check followed by DomainException throw should be high, not accepted")
+        assertEquals(
+            "high",
+            findings.first().risk,
+            "Cancellation check followed by DomainException throw should be high, not accepted",
+        )
     }
 
     @Test
     fun `cancellation check followed by unrelated throw is not accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is CancellationException) {
-                        logCancellation(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (e is CancellationException) {
+                            logCancellation(e)
+                        }
+                        throw IllegalStateException("unexpected")
                     }
-                    throw IllegalStateException("unexpected")
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("high", findings.first().risk,
-            "Cancellation check followed by unrelated throw should be high, not accepted")
+        assertEquals(
+            "high",
+            findings.first().risk,
+            "Cancellation check followed by unrelated throw should be high, not accepted",
+        )
     }
 
     @Test
     fun `identifier containing rethrow does not trigger rethrow detection`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is CancellationException) {
-                        rethrowPolicy.record(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (e is CancellationException) {
+                            rethrowPolicy.record(e)
+                        }
+                        handleError(e)
                     }
-                    handleError(e)
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "RethrowPolicy reference should not be accepted as cancellation rethrow")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "RethrowPolicy reference should not be accepted as cancellation rethrow",
+        )
     }
 
     @Test
     fun `CancellationException in comment is not treated as rethrow check`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    // need to handle CancellationException here
-                    throw DomainException(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        // need to handle CancellationException here
+                        throw DomainException(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("high", findings.first().risk,
-            "CancellationException in comment should not elevate to accepted")
+        assertEquals(
+            "high",
+            findings.first().risk,
+            "CancellationException in comment should not elevate to accepted",
+        )
     }
 
     @Test
     fun `CancellationException in string is not treated as rethrow check`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    val msg = "CancellationException occurred"
-                    throw DomainException(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        val msg = "CancellationException occurred"
+                        throw DomainException(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("high", findings.first().risk,
-            "CancellationException in string should not elevate to accepted")
+        assertEquals(
+            "high",
+            findings.first().risk,
+            "CancellationException in string should not elevate to accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation extension is recognized as accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() should be recognized as accepted risk")
+        assertEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() should be recognized as accepted risk",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation with different variable name is recognized`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    throw ProviderException(error)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (error: Throwable) {
+                        error.rethrowIfCancellation()
+                        throw ProviderException(error)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() with different variable name should be accepted")
+        assertEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() with different variable name should be accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation with trailing whitespace in parens is recognized`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation( )
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation( )
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() with whitespace should be accepted")
+        assertEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() with whitespace should be accepted",
+        )
     }
 
     @Test
     fun `different variable rethrowIfCancellation is not accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    val other = RuntimeException()
-                    other.rethrowIfCancellation()
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        val other = RuntimeException()
+                        other.rethrowIfCancellation()
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() on different variable should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() on different variable should NOT be accepted",
+        )
     }
 
     @Test
     fun `throwing caught variable in unrelated condition is not accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun run() {
-                try {
-                    work()
-                } catch (e: Exception) {
-                    if (e is CancellationException) audit(e)
-                    if (shouldRethrow()) throw e
-                    handle(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun run() {
+                    try {
+                        work()
+                    } catch (e: Exception) {
+                        if (e is CancellationException) audit(e)
+                        if (shouldRethrow()) throw e
+                        handle(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "throw e outside cancellation branch should not be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "throw e outside cancellation branch should not be accepted",
+        )
     }
 
     // ── Regression tests requested in PR #203 review ──
 
     @Test
-    fun `project and directory contexts produce identical findings`(@TempDir tempDir: Path) {
-        val sourceCode = """
+    fun `project and directory contexts produce identical findings`(
+        @TempDir tempDir: Path,
+    ) {
+        val sourceCode =
+            """
             suspend fun riskyOperation() {
                 try {
                     doSomething()
@@ -416,7 +520,7 @@ class KotlinCancellationCatchScannerTest {
                     doSomething()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
 
         // Create a minimal module structure in temp dir
         val srcDir = tempDir.resolve("src/main/kotlin").toFile()
@@ -428,7 +532,7 @@ class KotlinCancellationCatchScannerTest {
         File(tempDir.toFile(), "build.gradle.kts").writeText("")
         // Create minimal settings
         File(tempDir.toFile(), "settings.gradle.kts").writeText(
-            """include("test-module")"""
+            """include("test-module")""",
         )
         val moduleDir = tempDir.resolve("test-module").toFile()
         moduleDir.mkdirs()
@@ -439,22 +543,34 @@ class KotlinCancellationCatchScannerTest {
 
         // Scan via CancellationCatchInventory with MeasurementContext.fromDirectory
         val dirCtx = MeasurementContext.fromDirectory(tempDir.toFile())
-        val dirFindings = CancellationCatchInventory(dirCtx).inventory()
-            .filter { it.file.contains("TestModule.kt") }
-            .sortedBy { "${it.function}::${it.catchType}" }
+        val dirFindings =
+            CancellationCatchInventory(dirCtx)
+                .inventory()
+                .filter { it.file.contains("TestModule.kt") }
+                .sortedBy { "${it.function}::${it.catchType}" }
 
         // Direct scan of the same source (bypassing inventory, pure scanner)
-        val directFindings = KotlinCancellationCatchScanner.scan(
-            sourceCode, "test-module", "test-module/src/main/kotlin/TestModule.kt"
-        ).sortedBy { "${it.function}::${it.catchType}" }
+        val directFindings =
+            KotlinCancellationCatchScanner
+                .scan(
+                    sourceCode,
+                    "test-module",
+                    "test-module/src/main/kotlin/TestModule.kt",
+                ).sortedBy { "${it.function}::${it.catchType}" }
 
-        assertEquals(directFindings.size, dirFindings.size,
-            "Directory-mode inventory should find same number of catches as direct scan")
+        assertEquals(
+            directFindings.size,
+            dirFindings.size,
+            "Directory-mode inventory should find same number of catches as direct scan",
+        )
         for (i in directFindings.indices) {
             assertEquals(directFindings[i].function, dirFindings[i].function)
             assertEquals(directFindings[i].catchType, dirFindings[i].catchType)
-            assertEquals(directFindings[i].risk, dirFindings[i].risk,
-                "Risk mismatch for ${directFindings[i].function}::${directFindings[i].catchType}")
+            assertEquals(
+                directFindings[i].risk,
+                dirFindings[i].risk,
+                "Risk mismatch for ${directFindings[i].function}::${directFindings[i].catchType}",
+            )
         }
     }
 
@@ -502,25 +618,40 @@ class KotlinCancellationCatchScannerTest {
     @Test
     fun `file scope requires module AND path match`() {
         val scope = DeviationParser.DeviationScope(":tramai-engine", "src/main/Foo.kt", null, isWildcard = false)
-        assertTrue(scope.covers(DeviationParser.FindingScope(
-            ":tramai-engine", "src/main/Foo.kt", null)))
+        assertTrue(
+            scope.covers(
+                DeviationParser.FindingScope(":tramai-engine", "src/main/Foo.kt", null),
+            ),
+        )
         // Wrong module
-        assertTrue(!scope.covers(DeviationParser.FindingScope(
-            ":tramai-core", "src/main/Foo.kt", null)))
+        assertTrue(
+            !scope.covers(
+                DeviationParser.FindingScope(":tramai-core", "src/main/Foo.kt", null),
+            ),
+        )
         // Wrong path
-        assertTrue(!scope.covers(DeviationParser.FindingScope(
-            ":tramai-engine", "src/main/Bar.kt", null)))
+        assertTrue(
+            !scope.covers(
+                DeviationParser.FindingScope(":tramai-engine", "src/main/Bar.kt", null),
+            ),
+        )
     }
 
     @Test
     fun `declaration scope requires module path and declaration`() {
-        val scope = DeviationParser.DeviationScope(
-            ":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler", isWildcard = false)
-        assertTrue(scope.covers(DeviationParser.FindingScope(
-            ":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler")))
+        val scope =
+            DeviationParser.DeviationScope(":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler", isWildcard = false)
+        assertTrue(
+            scope.covers(
+                DeviationParser.FindingScope(":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler"),
+            ),
+        )
         // Wrong declaration
-        assertTrue(!scope.covers(DeviationParser.FindingScope(
-            ":tramai-engine", "src/main/Foo.kt", "OtherHandler")))
+        assertTrue(
+            !scope.covers(
+                DeviationParser.FindingScope(":tramai-engine", "src/main/Foo.kt", "OtherHandler"),
+            ),
+        )
     }
 
     // ─── Deviation parser scope grammar tests ───
@@ -572,10 +703,11 @@ class KotlinCancellationCatchScannerTest {
         val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
         val currentCounts = current.groupBy { it }.mapValues { it.value.size }
 
-        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
-            val delta = currentCount - (committedCounts[key] ?: 0)
-            if (delta > 0) key to delta else null
-        }
+        val addedCounts =
+            currentCounts.mapNotNull { (key, currentCount) ->
+                val delta = currentCount - (committedCounts[key] ?: 0)
+                if (delta > 0) key to delta else null
+            }
 
         // id2 went from 2 to 3 occurrences
         assertEquals(1, addedCounts.size)
@@ -591,10 +723,11 @@ class KotlinCancellationCatchScannerTest {
         val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
         val currentCounts = current.groupBy { it }.mapValues { it.value.size }
 
-        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
-            val delta = currentCount - (committedCounts[key] ?: 0)
-            if (delta > 0) key to delta else null
-        }
+        val addedCounts =
+            currentCounts.mapNotNull { (key, currentCount) ->
+                val delta = currentCount - (committedCounts[key] ?: 0)
+                if (delta > 0) key to delta else null
+            }
 
         assertEquals(0, addedCounts.size)
     }
@@ -607,10 +740,11 @@ class KotlinCancellationCatchScannerTest {
         val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
         val currentCounts = current.groupBy { it }.mapValues { it.value.size }
 
-        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
-            val delta = currentCount - (committedCounts[key] ?: 0)
-            if (delta > 0) key to delta else null
-        }
+        val addedCounts =
+            currentCounts.mapNotNull { (key, currentCount) ->
+                val delta = currentCount - (committedCounts[key] ?: 0)
+                if (delta > 0) key to delta else null
+            }
 
         assertEquals(2, addedCounts.size) // id2 and id3 are new
         assertEquals(1, addedCounts.find { it.first == "id2" }?.second)
@@ -621,137 +755,179 @@ class KotlinCancellationCatchScannerTest {
 
     @Test
     fun `rethrowIfCancellation after side effect is NOT accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    logError(e)
-                    e.rethrowIfCancellation()
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        logError(e)
+                        e.rethrowIfCancellation()
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() after a side effect should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() after a side effect should NOT be accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation inside string is not recognized as helper`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    val msg = "e.rethrowIfCancellation()"
-                    handleError(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        val msg = "e.rethrowIfCancellation()"
+                        handleError(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() inside string should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() inside string should NOT be accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation inside conditional is NOT accepted as first statement`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (someCondition) {
-                        e.rethrowIfCancellation()
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        if (someCondition) {
+                            e.rethrowIfCancellation()
+                        }
+                        handleError(e)
                     }
-                    handleError(e)
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() inside a conditional branch should NOT be accepted as first-statement helper")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() inside a conditional branch should NOT be accepted as first-statement helper",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation after semicolon-prefixed side effect on same line is NOT accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (error: Throwable) {
-                    auditFailure(error); error.rethrowIfCancellation()
-                    handleError(error)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (error: Throwable) {
+                        auditFailure(error); error.rethrowIfCancellation()
+                        handleError(error)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() after side effect on same line should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() after side effect on same line should NOT be accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation inside inline conditional is NOT accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (error: Throwable) {
-                    if (shouldPropagate) error.rethrowIfCancellation()
-                    handleError(error)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (error: Throwable) {
+                        if (shouldPropagate) error.rethrowIfCancellation()
+                        handleError(error)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() inside inline conditional should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() inside inline conditional should NOT be accepted",
+        )
     }
 
     @Test
     fun `rethrowIfCancellation after inline block comment is NOT accepted`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (error: Throwable) {
-                    /* intent: suppress cancellation */ error.rethrowIfCancellation()
-                    handleError(error)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (error: Throwable) {
+                        /* intent: suppress cancellation */ error.rethrowIfCancellation()
+                        handleError(error)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "rethrowIfCancellation() after inline block comment should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "rethrowIfCancellation() after inline block comment should NOT be accepted",
+        )
     }
 
     @Test
     fun `multiple statements on first line without helper are NOT accepted as rethrow`() {
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    logError(e); notifyAlert(e); throw DomainException(e)
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun riskyOperation() {
+                    try {
+                        doSomething()
+                    } catch (e: Exception) {
+                        logError(e); notifyAlert(e); throw DomainException(e)
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty(), "Should find catch")
-        assertNotEquals("accepted", findings.first().risk,
-            "Multiple statements without rethrowIfCancellation() should NOT be accepted")
+        assertNotEquals(
+            "accepted",
+            findings.first().risk,
+            "Multiple statements without rethrowIfCancellation() should NOT be accepted",
+        )
     }
 
     // ── Fingerprint (source-content relocation evidence) tests ──
@@ -762,7 +938,10 @@ class KotlinCancellationCatchScannerTest {
         return findings.first().sourceFingerprint
     }
 
-    private fun fingerprintOf(source: String, catchType: String): String {
+    private fun fingerprintOf(
+        source: String,
+        catchType: String,
+    ): String {
         val findings = KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
         val finding = findings.firstOrNull { it.catchType == catchType }
         assertNotNull(finding, "Expected a $catchType finding in: $source")
@@ -771,47 +950,58 @@ class KotlinCancellationCatchScannerTest {
 
     @Test
     fun `identical multiline runCatching moved across files has same fingerprint`() {
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        assertEquals(fingerprintOf(base), fingerprintOf(current),
-            "Identical multiline runCatching must have identical fingerprints")
+            """.trimIndent()
+        assertEquals(
+            fingerprintOf(base),
+            fingerprintOf(current),
+            "Identical multiline runCatching must have identical fingerprints",
+        )
     }
 
     @Test
     fun `multiline runCatching with different bodies has different fingerprints`() {
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
-        assertNotEquals(fingerprintOf(base), fingerprintOf(current),
-            "Different runCatching bodies must not collide")
+            """.trimIndent()
+        assertNotEquals(
+            fingerprintOf(base),
+            fingerprintOf(current),
+            "Different runCatching bodies must not collide",
+        )
     }
 
     @Test
     fun `catch blocks with different bodies have different fingerprints`() {
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 try {
                     doSomething()
@@ -819,8 +1009,9 @@ class KotlinCancellationCatchScannerTest {
                     logError(e)
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 try {
                     doSomething()
@@ -828,75 +1019,89 @@ class KotlinCancellationCatchScannerTest {
                     publishFailure(e)
                 }
             }
-        """.trimIndent()
-        assertNotEquals(fingerprintOf(base), fingerprintOf(current),
-            "Different catch bodies must not collide")
+            """.trimIndent()
+        assertNotEquals(
+            fingerprintOf(base),
+            fingerprintOf(current),
+            "Different catch bodies must not collide",
+        )
     }
 
     @Test
     fun `genuine move landing on same line has same fingerprint`() {
         // Same construct, same line number — the fingerprint is content-based,
         // so a genuine move that lands on the same line is still a relocation.
-        val source = """
+        val source =
+            """
             suspend fun execute() {
                 runCatching { abort() }
             }
-        """.trimIndent()
+            """.trimIndent()
         assertEquals(fingerprintOf(source), fingerprintOf(source))
     }
 
     @Test
     fun `strings containing a b vs ab do not collapse`() {
-        val withSpace = """
+        val withSpace =
+            """
             suspend fun execute() {
                 runCatching {
                     log("a b")
                 }
             }
-        """.trimIndent()
-        val withoutSpace = """
+            """.trimIndent()
+        val withoutSpace =
+            """
             suspend fun execute() {
                 runCatching {
                     log("ab")
                 }
             }
-        """.trimIndent()
-        assertNotEquals(fingerprintOf(withSpace), fingerprintOf(withoutSpace),
-            "String contents must be preserved — 'a b' must not collapse to 'ab'")
+            """.trimIndent()
+        assertNotEquals(
+            fingerprintOf(withSpace),
+            fingerprintOf(withoutSpace),
+            "String contents must be preserved — 'a b' must not collapse to 'ab'",
+        )
     }
 
     @Test
     fun `strings containing https are preserved`() {
-        val source = """
+        val source =
+            """
             suspend fun execute() {
                 runCatching {
                     post("https://example.com/api")
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val fingerprint = fingerprintOf(source)
-        assertTrue(fingerprint.contains("https://"),
-            "Comment marker inside string literal must be preserved, got: $fingerprint")
+        assertTrue(
+            fingerprint.contains("https://"),
+            "Comment marker inside string literal must be preserved, got: $fingerprint",
+        )
     }
 
     @Test
     fun `fingerprint covers full body not just opening line`() {
         // The fingerprint must include body content — an opening line alone
         // (runCatching{) would not distinguish these two constructs.
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must cover body, got: $baseFp")
@@ -908,13 +1113,16 @@ class KotlinCancellationCatchScannerTest {
     fun `fingerprint is not serialized into baseline json`() {
         // "Zero schema change" is a protected invariant: the ephemeral
         // relocation evidence must never leak into the persisted baseline.
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun execute() {
-                runCatching { abort() }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun execute() {
+                    runCatching { abort() }
+                }
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty())
         val json = ReportNormalizer.toJson(findings.first())
         assertFalse(json.contains("sourceFingerprint"), "sourceFingerprint must not be serialized: $json")
@@ -926,22 +1134,24 @@ class KotlinCancellationCatchScannerTest {
         // A `}` in a comment is not structural — the construct continues past
         // it and the differing executable statements must produce different
         // fingerprints.
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     // }
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     // }
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at comment brace, got: $baseFp")
@@ -951,7 +1161,8 @@ class KotlinCancellationCatchScannerTest {
 
     @Test
     fun `brace inside block comment does not terminate fingerprint`() {
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     /* }
@@ -959,8 +1170,9 @@ class KotlinCancellationCatchScannerTest {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     /* }
@@ -968,7 +1180,7 @@ class KotlinCancellationCatchScannerTest {
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at block-comment brace, got: $baseFp")
@@ -981,7 +1193,8 @@ class KotlinCancellationCatchScannerTest {
         // A `}` inside a triple-quoted raw string is content, not structure —
         // the state must carry across lines so the construct is not truncated.
         val tq = "\"\"\""
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     val json = $tq
@@ -990,8 +1203,9 @@ class KotlinCancellationCatchScannerTest {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     val json = $tq
@@ -1000,7 +1214,7 @@ class KotlinCancellationCatchScannerTest {
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at raw-string brace, got: $baseFp")
@@ -1010,22 +1224,24 @@ class KotlinCancellationCatchScannerTest {
 
     @Test
     fun `brace inside regular string does not terminate fingerprint`() {
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     log("}")
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     log("}")
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at string brace, got: $baseFp")
@@ -1038,7 +1254,8 @@ class KotlinCancellationCatchScannerTest {
         // Kotlin block comments nest — an inner `/* */` inside an outer
         // `/* */` must not return to CODE early, and a `}` inside the still-
         // open outer comment must not close the construct.
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 runCatching {
                     /* outer
@@ -1048,8 +1265,9 @@ class KotlinCancellationCatchScannerTest {
                     deleteTemporaryState()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 runCatching {
                     /* outer
@@ -1059,7 +1277,7 @@ class KotlinCancellationCatchScannerTest {
                     publishExternalResult()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base)
         val currentFp = fingerprintOf(current)
         assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at nested-comment brace, got: $baseFp")
@@ -1073,7 +1291,8 @@ class KotlinCancellationCatchScannerTest {
         // outer catch whose opening line also contains an inner runCatching
         // must balance the OUTER construct (statement after the inner
         // runCatching included), not stop at the inner one.
-        val base = """
+        val base =
+            """
             suspend fun execute() {
                 try {
                     work()
@@ -1081,8 +1300,9 @@ class KotlinCancellationCatchScannerTest {
                     oldWork()
                 }
             }
-        """.trimIndent()
-        val current = """
+            """.trimIndent()
+        val current =
+            """
             suspend fun execute() {
                 try {
                     work()
@@ -1090,11 +1310,14 @@ class KotlinCancellationCatchScannerTest {
                     completelyDifferentWork()
                 }
             }
-        """.trimIndent()
+            """.trimIndent()
         val baseFp = fingerprintOf(base, "Exception")
         val currentFp = fingerprintOf(current, "Exception")
         assertTrue(baseFp.contains("oldWork"), "Outer-catch fingerprint must include statement after inner runCatching, got: $baseFp")
-        assertTrue(currentFp.contains("completelyDifferentWork"), "Outer-catch fingerprint must include statement after inner runCatching, got: $currentFp")
+        assertTrue(
+            currentFp.contains("completelyDifferentWork"),
+            "Outer-catch fingerprint must include statement after inner runCatching, got: $currentFp",
+        )
         assertNotEquals(baseFp, currentFp)
     }
 
@@ -1103,19 +1326,25 @@ class KotlinCancellationCatchScannerTest {
         // Unbalanced source (unterminated raw string before the construct's
         // real close) → blank fingerprint → Phase 2 refuses relocation.
         val tq = "\"\"\""
-        val findings = KotlinCancellationCatchScanner.scan(
-            """
-            suspend fun execute() {
-                runCatching {
-                    val json = $tq
-                    deleteTemporaryState()
+        val findings =
+            KotlinCancellationCatchScanner.scan(
+                """
+                suspend fun execute() {
+                    runCatching {
+                        val json = $tq
+                        deleteTemporaryState()
+                    }
                 }
-            }
-            """.trimIndent(), "test", "Test.kt"
-        )
+                """.trimIndent(),
+                "test",
+                "Test.kt",
+            )
         assertTrue(findings.isNotEmpty())
-        assertEquals("", findings.first().sourceFingerprint,
-            "Unbalanced construct must produce blank fingerprint (refuse relocation)")
+        assertEquals(
+            "",
+            findings.first().sourceFingerprint,
+            "Unbalanced construct must produce blank fingerprint (refuse relocation)",
+        )
     }
 
     @Test
@@ -1127,7 +1356,8 @@ class KotlinCancellationCatchScannerTest {
         // medium instead of critical. The declaration here follows another
         // block's closing brace directly (previous findBlockEnd == declaration
         // line), reproducing the Workflow.kt:1763 layout.
-        val source = """
+        val source =
+            """
             suspend fun previousBlock() {
                 doWork()
             }
@@ -1137,23 +1367,27 @@ class KotlinCancellationCatchScannerTest {
                 runCatching { abort() }
                     .onFailure { error.addSuppressed(it) }
             }
-        """.trimIndent()
+            """.trimIndent()
         val findings = KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
         val rc = findings.firstOrNull { it.catchType == "runCatching" }
         assertNotNull(rc, "runCatching finding expected")
-        assertEquals("critical", rc.risk,
-            "runCatching inside suspend fun directly after another block must be critical, got ${rc.risk}")
+        assertEquals(
+            "critical",
+            rc.risk,
+            "runCatching inside suspend fun directly after another block must be critical, got ${rc.risk}",
+        )
         assertEquals(true, rc.isSuspendCapable)
     }
 
     @Test
     fun `broad catch immediately after suspend function is not suspend capable`() {
-        val source = """
+        val source =
+            """
             suspend fun previousBlock() {
                 doWork()
             }
             val result = runCatching { doOutsideWork() }
-        """.trimIndent()
+            """.trimIndent()
 
         val findings =
             KotlinCancellationCatchScanner.scan(source, "test", "Test.kt")
