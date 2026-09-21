@@ -7,19 +7,20 @@ package dev.tramai.build.quality
  * Deterministic: same input always produces same output regardless of execution context.
  */
 object KotlinCancellationCatchScanner {
+    private val broadCatchPatterns =
+        listOf(
+            Regex(
+                """catch\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*|_)\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Exception|Throwable|RuntimeException)\s*\)""",
+            ),
+            Regex("""runCatching\s*\{"""),
+        )
 
-    private val broadCatchPatterns = listOf(
-        Regex(
-            """catch\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*|_)\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Exception|Throwable|RuntimeException)\s*\)"""
-        ),
-        Regex("""runCatching\s*\{""")
-    )
-
-    private val suspendPatterns = listOf(
-        Regex("""\bsuspend\s+fun\b"""),
-        Regex("""\bsuspend\s*\{"""),
-        Regex("""\bsuspend\s+\(""")
-    )
+    private val suspendPatterns =
+        listOf(
+            Regex("""\bsuspend\s+fun\b"""),
+            Regex("""\bsuspend\s*\{"""),
+            Regex("""\bsuspend\s+\("""),
+        )
 
     /**
      * Result of line joining: [joined] lines with their [originalIndices] mapping
@@ -27,20 +28,27 @@ object KotlinCancellationCatchScanner {
      */
     private data class JoinedLines(
         val lines: List<String>,
-        val originalIndices: List<Int>  // joined[i] started at original[originalIndices[i]]
+        // joined[i] started at original[originalIndices[i]]
+        val originalIndices: List<Int>,
     )
 
-    fun scan(source: String, module: String, file: String): List<CancellationCatchFinding> {
+    fun scan(
+        source: String,
+        module: String,
+        file: String,
+    ): List<CancellationCatchFinding> {
         val findings = mutableListOf<CancellationCatchFinding>()
         val lines = source.lines()
         val suspendRanges = findSuspendRanges(lines)
+        // Only built when a broad catch actually needs sibling resolution.
+        val catchIndex by lazy { buildSourceIndex(source) }
 
         // Join multiline catches while tracking original line positions
         val joined = joinCatchLines(lines)
 
         for ((joinedIdx, line) in joined.lines.withIndex()) {
             val originalLineIdx = joined.originalIndices[joinedIdx]
-            val originalLineNum = originalLineIdx + 1  // 1-indexed for suspend range check
+            val originalLineNum = originalLineIdx + 1 // 1-indexed for suspend range check
 
             // Skip comment lines
             val trimmed = line.trim()
@@ -48,7 +56,7 @@ object KotlinCancellationCatchScanner {
             if (trimmed.startsWith("*") && !trimmed.contains("*/")) continue
             if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
 
-            for (pattern in broadCatchPatterns) {
+            for ((patternIdx, pattern) in broadCatchPatterns.withIndex()) {
                 val match = pattern.find(line) ?: continue
                 // Skip matches inside string literals
                 if (isInsideStringLiteral(line, match.range.first)) continue
@@ -56,24 +64,32 @@ object KotlinCancellationCatchScanner {
                 val inSuspend = suspendRanges.any { originalLineNum in it }
                 val functionName = findEnclosingFunction(lines, originalLineIdx)
 
-                val catchType = when {
-                    line.contains("Throwable") -> "Throwable"
-                    line.contains("RuntimeException") -> "RuntimeException"
-                    line.contains("Exception") -> "Exception"
-                    line.contains("runCatching") -> "runCatching"
-                    else -> "unknown"
-                }
+                val catchType =
+                    when {
+                        line.contains("Throwable") -> "Throwable"
+                        line.contains("RuntimeException") -> "RuntimeException"
+                        line.contains("Exception") -> "Exception"
+                        line.contains("runCatching") -> "runCatching"
+                        else -> "unknown"
+                    }
 
-                val rethrowsCancellation = checkRethrowsCancellation(lines, originalLineIdx)
+                // patternIdx 0 is the `catch (…: Exception|Throwable|RuntimeException)`
+                // clause — the only shape that can share a try with a sibling
+                // catch clause. runCatching has no sibling to be rescued by.
+                val preservesCancellationViaSiblingCatch =
+                    patternIdx == 0 &&
+                        CatchClauseSyntax.checkEarlierSiblingPreservesCancellation(source, catchIndex, originalLineIdx)
+                val rethrowsCancellation =
+                    checkRethrowsCancellation(lines, originalLineIdx) || preservesCancellationViaSiblingCatch
                 val transformsException = checkTransformsException(lines, originalLineIdx)
 
-                val risk = when {
-                    rethrowsCancellation -> "accepted"
-                    inSuspend && transformsException -> "high"
-                    inSuspend -> "critical"
-                    !inSuspend -> "medium"
-                    else -> "medium"
-                }
+                val risk =
+                    when {
+                        rethrowsCancellation -> "accepted"
+                        inSuspend && transformsException -> "high"
+                        inSuspend -> "critical"
+                        else -> "medium"
+                    }
 
                 findings.add(
                     CancellationCatchFinding(
@@ -86,8 +102,8 @@ object KotlinCancellationCatchScanner {
                         transformsException = transformsException,
                         risk = risk,
                         sourceLine = originalLineNum,
-                        sourceFingerprint = fingerprintConstruct(lines, originalLineIdx, match)
-                    )
+                        sourceFingerprint = fingerprintConstruct(lines, originalLineIdx, match),
+                    ),
                 )
             }
         }
@@ -114,12 +130,13 @@ object KotlinCancellationCatchScanner {
         while (i < lines.size) {
             val trimmed = lines[i].trim()
             // Match lines that contain a catch keyword followed by `(` without a closing `)`.
-            // Common patterns: `catch (`, `} catch (`, `} catch (` 
+            // Common patterns: `catch (`, `} catch (`, `} catch (`
             val catchStart = trimmed.indexOf("catch")
-            val isMultiLineCatch = catchStart >= 0 &&
-                trimmed.substring(catchStart).let { after ->
-                    after.startsWith("catch") && after.contains("(") && !after.contains(")")
-                }
+            val isMultiLineCatch =
+                catchStart >= 0 &&
+                    trimmed.substring(catchStart).let { after ->
+                        after.startsWith("catch") && after.contains("(") && !after.contains(")")
+                    }
             if (isMultiLineCatch) {
                 val sb = StringBuilder(lines[i])
                 val startIdx = i
@@ -162,7 +179,10 @@ object KotlinCancellationCatchScanner {
     }
 
     /** Finds matching closing brace accounting for nested braces. */
-    private fun findBlockEnd(lines: List<String>, startIdx: Int): Int {
+    private fun findBlockEnd(
+        lines: List<String>,
+        startIdx: Int,
+    ): Int {
         var braceCount = 0
         var found = false
         for (i in startIdx until lines.size) {
@@ -174,7 +194,10 @@ object KotlinCancellationCatchScanner {
         return startIdx + 1
     }
 
-    private fun findEnclosingFunction(lines: List<String>, idx: Int): String {
+    private fun findEnclosingFunction(
+        lines: List<String>,
+        idx: Int,
+    ): String {
         for (i in idx downTo 0) {
             val funMatch = Regex("""fun\s+(\w+)""").find(lines[i].trim())
             if (funMatch != null) return funMatch.groupValues[1]
@@ -208,7 +231,7 @@ object KotlinCancellationCatchScanner {
     private fun fingerprintConstruct(
         lines: List<String>,
         startIdx: Int,
-        match: MatchResult
+        match: MatchResult,
     ): String {
         val endIdx = findConstructEndIdx(lines, startIdx, match) ?: return ""
         return (startIdx..endIdx)
@@ -231,7 +254,11 @@ object KotlinCancellationCatchScanner {
      * included), strings, char literals and raw strings are ignored, with
      * state carried across lines.
      */
-    private fun findConstructEndIdx(lines: List<String>, startIdx: Int, match: MatchResult): Int? {
+    private fun findConstructEndIdx(
+        lines: List<String>,
+        startIdx: Int,
+        match: MatchResult,
+    ): Int? {
         var depth = 0
         var opened = false
         var state = LexState.CODE
@@ -247,57 +274,82 @@ object KotlinCancellationCatchScanner {
             while (j < line.length) {
                 val c = line[j]
                 when (state) {
-                    LexState.CODE -> when {
-                        c == '/' && j + 1 < line.length && line[j + 1] == '/' -> {
-                            state = LexState.LINE_COMMENT
-                            j++
+                    LexState.CODE -> {
+                        when {
+                            c == '/' && j + 1 < line.length && line[j + 1] == '/' -> {
+                                state = LexState.LINE_COMMENT
+                                j++
+                            }
+
+                            c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
+                                state = LexState.BLOCK_COMMENT
+                                blockCommentDepth = 1
+                                j++
+                            }
+
+                            c == '"' && j + 2 < line.length && line[j + 1] == '"' && line[j + 2] == '"' -> {
+                                state = LexState.RAW_STRING
+                                j += 2
+                            }
+
+                            c == '"' -> {
+                                state = LexState.STRING
+                            }
+
+                            c == '\'' -> {
+                                state = LexState.CHAR
+                            }
+
+                            c == '{' -> {
+                                depth++
+                                opened = true
+                            }
+
+                            c == '}' -> {
+                                if (opened) {
+                                    depth--
+                                    if (depth == 0) return i
+                                }
+                            }
+
+                            else -> {}
                         }
-                        c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
-                            state = LexState.BLOCK_COMMENT
-                            blockCommentDepth = 1
-                            j++
-                        }
-                        c == '"' && j + 2 < line.length && line[j + 1] == '"' && line[j + 2] == '"' -> {
-                            state = LexState.RAW_STRING
-                            j += 2
-                        }
-                        c == '"' -> state = LexState.STRING
-                        c == '\'' -> state = LexState.CHAR
-                        c == '{' -> {
-                            depth++
-                            opened = true
-                        }
-                        c == '}' -> if (opened) {
-                            depth--
-                            if (depth == 0) return i
-                        }
-                        else -> {}
                     }
+
                     LexState.LINE_COMMENT -> { /* skip to end of line */ }
-                    LexState.BLOCK_COMMENT -> when {
-                        c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
-                            // Kotlin block comments nest
-                            blockCommentDepth++
-                            j++
+
+                    LexState.BLOCK_COMMENT -> {
+                        when {
+                            c == '/' && j + 1 < line.length && line[j + 1] == '*' -> {
+                                // Kotlin block comments nest
+                                blockCommentDepth++
+                                j++
+                            }
+
+                            c == '*' && j + 1 < line.length && line[j + 1] == '/' -> {
+                                blockCommentDepth--
+                                if (blockCommentDepth == 0) state = LexState.CODE
+                                j++
+                            }
+
+                            else -> {}
                         }
-                        c == '*' && j + 1 < line.length && line[j + 1] == '/' -> {
-                            blockCommentDepth--
-                            if (blockCommentDepth == 0) state = LexState.CODE
-                            j++
-                        }
-                        else -> {}
                     }
-                    LexState.STRING, LexState.CHAR ->
+
+                    LexState.STRING, LexState.CHAR -> {
                         if (c == '\\') {
                             j++ // skip escaped char
                         } else if ((state == LexState.STRING && c == '"') || (state == LexState.CHAR && c == '\'')) {
                             state = LexState.CODE
                         }
-                    LexState.RAW_STRING ->
+                    }
+
+                    LexState.RAW_STRING -> {
                         if (c == '"' && j + 2 < line.length && line[j + 1] == '"' && line[j + 2] == '"') {
                             state = LexState.CODE
                             j += 2
                         }
+                    }
                 }
                 j++
             }
@@ -314,36 +366,24 @@ object KotlinCancellationCatchScanner {
         return match?.groupValues?.get(1)
     }
 
-    /**
-     * Strips inline comments (// ...) from a line of source code.
-     * Does NOT handle block comments correctly — those are assumed to be
-     * on their own lines (and already skipped by the caller).
-     */
-    private fun stripComment(line: String): String {
-        val idx = line.indexOf("//")
-        return if (idx >= 0) line.substring(0, idx) else line
-    }
-
-    /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
-     *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
-     *  same branch as the CancellationException check, not merely nearby.
-     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern.
-     *  For the rethrowIfCancellation() helper, it must be the FIRST non-blank, non-comment
-     *  line in the catch body — before it, only blank lines and comments are allowed. */
-    private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
+    private fun checkRethrowsCancellation(
+        lines: List<String>,
+        catchIdx: Int,
+    ): Boolean {
         val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
 
         // Pattern: <catchVar>.rethrowIfCancellation() — extension-based cancellation rethrow
-        val rethrowIfCancellationPattern = Regex(
-            """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)"""
-        )
+        val rethrowIfCancellationPattern =
+            Regex(
+                """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)""",
+            )
 
         // Check rethrowIfCancellation() — must be first non-blank, non-comment line
         var foundHelper = false
         for (i in catchIdx + 1 until end) {
-            val stripped = stripComment(lines[i])
+            val stripped = CatchClauseSyntax.stripComment(lines[i])
             val trimmed = stripped.trim()
             if (trimmed.isBlank()) continue
             // Skip multi-line block comment starts and line-comment-only lines
@@ -352,9 +392,10 @@ object KotlinCancellationCatchScanner {
             if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
             // This is the first real statement — check if the ENTIRE line is
             // just: <catchVar>.rethrowIfCancellation()  (with optional trailing semicolon)
-            val fullLinePattern = Regex(
-                """^\s*${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)\s*;?\s*$"""
-            )
+            val fullLinePattern =
+                Regex(
+                    """^\s*${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)\s*;?\s*$""",
+                )
             if (fullLinePattern.matches(trimmed)) {
                 foundHelper = true
             }
@@ -365,12 +406,13 @@ object KotlinCancellationCatchScanner {
         // Pattern: throw <catchVar> (exact variable rethrow)
         val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")
         // Pattern: if (variable is [...][.]CancellationException[...])
-        val cancellationIfPattern = Regex(
-            """\bif\s*\(\s*${Regex.escape(catchVar)}\s+is\s+[A-Za-z_.]*CancellationException"""
-        )
+        val cancellationIfPattern =
+            Regex(
+                """\bif\s*\(\s*${Regex.escape(catchVar)}\s+is\s+[A-Za-z_.]*CancellationException""",
+            )
 
         for (i in catchIdx + 1 until end) {
-            val stripped = stripComment(lines[i])
+            val stripped = CatchClauseSyntax.stripComment(lines[i])
             if (stripped.isBlank()) continue
 
             // Only consider lines that are checking for CancellationException on our caught variable
@@ -389,19 +431,271 @@ object KotlinCancellationCatchScanner {
 
             // Search inside the if-block for `throw var`
             for (j in i + 1 until minOf(ifBlockEnd, end)) {
-                if (throwVarPattern.containsMatchIn(stripComment(lines[j]))) return true
+                if (throwVarPattern.containsMatchIn(CatchClauseSyntax.stripComment(lines[j]))) return true
             }
         }
 
         return false
     }
 
+    /** Single forward pass: bracket pairing, code mask and line starts. */
+    private fun buildSourceIndex(source: String): SourceIndex {
+        val openOffsets = HashMap<Int, Int>()
+        val closeOffsets = HashMap<Int, Int>()
+        val codeMask = BooleanArray(source.length) { true }
+        scanSourceStructure(source, openOffsets, closeOffsets, codeMask)
+        return SourceIndex(openOffsets, closeOffsets, codeMask, SourceStructure.buildLineStarts(source))
+    }
+
     /**
-     * Find the end of the block that follows an `if (...)` statement.
-     * Returns the index of the closing `}` (exclusive), or -1 if not found.
-     * Handles: `if (cond) statement` (single-line, no brace) and `if (cond) { ... }`.
+     * The lexical walk: bracket pairing and code mask. Owns every piece of lexical state
+     * (stack, state, blockCommentDepth, spanStart, i) plus span closing; the output containers
+     * are passed in and written exactly as before.
      */
-    private fun findBlockAfterIf(lines: List<String>, ifIdx: Int, limit: Int): Int {
+    private fun scanSourceStructure(
+        source: String,
+        openOffsets: HashMap<Int, Int>,
+        closeOffsets: HashMap<Int, Int>,
+        codeMask: BooleanArray,
+    ) {
+        val stack = ArrayDeque<Int>()
+        var state = LexState.CODE
+        var blockCommentDepth = 0
+        var spanStart = -1
+
+        fun closeSpan(endExclusive: Int) {
+            if (spanStart >= 0) {
+                codeMask.fill(false, spanStart, minOf(endExclusive, source.length))
+                spanStart = -1
+            }
+        }
+        var i = 0
+
+        // Same shape as closeSpan below: a local mutating helper, so the graded body of this
+        // function stays a dispatch loop. Application order is unchanged.
+        fun applyTransition(transition: LexTransition) {
+            transition.spanStartAt?.let { spanStart = it }
+            transition.blockCommentDepth?.let { blockCommentDepth = it }
+            transition.closeSpanAt?.let { closeSpan(it) }
+            state = transition.state
+            i += transition.consumed
+        }
+
+        while (i < source.length) {
+            when (state) {
+                LexState.CODE -> {
+                    val transition = advanceCode(source, i)
+                    if (transition == null) {
+                        SourceStructure.recordBracketAt(source, i, stack, openOffsets, closeOffsets)
+                    } else {
+                        applyTransition(transition)
+                    }
+                }
+
+                LexState.LINE_COMMENT -> {
+                    applyTransition(advanceLineComment(source, i))
+                }
+
+                LexState.BLOCK_COMMENT -> {
+                    applyTransition(advanceBlockComment(source, i, blockCommentDepth))
+                }
+
+                LexState.STRING, LexState.CHAR -> {
+                    applyTransition(advanceQuoted(source, i, state))
+                }
+
+                LexState.RAW_STRING -> {
+                    applyTransition(advanceRawString(source, i))
+                }
+            }
+            i++
+        }
+        closeSpan(source.length)
+    }
+
+    /** Minimal state-transition description for a single lexical step. */
+    private data class LexTransition(
+        val state: LexState,
+        val consumed: Int = 0,
+        val closeSpanAt: Int? = null,
+        // null = this transition does not modify spanStart; a value = assign exactly that
+        // absolute source offset. A coordinate, symmetric with closeSpanAt — not a command.
+        val spanStartAt: Int? = null,
+        // null = this transition does not alter depth; a value = assign exactly this depth.
+        // Deliberately not a delta and not a command.
+        val blockCommentDepth: Int? = null,
+    )
+
+    /**
+     * LINE_COMMENT handling for the character at absolute [offset]: a newline closes the span at
+     * that offset and returns to code; any other character stays inside the line comment.
+     */
+    private fun advanceLineComment(
+        source: String,
+        offset: Int,
+    ): LexTransition =
+        if (source[offset] == '\n') {
+            LexTransition(state = LexState.CODE, closeSpanAt = offset)
+        } else {
+            LexTransition(LexState.LINE_COMMENT)
+        }
+
+    /**
+     * RAW_STRING handling for the character at absolute [offset]: a closing triple quote consumes
+     * two further characters and closes the span three characters past the delimiter start. The
+     * asymmetry against [advanceLineComment] is the original behaviour, preserved literally.
+     */
+    private fun advanceRawString(
+        source: String,
+        offset: Int,
+    ): LexTransition =
+        if (SourceStructure.startsRawStringAt(source, offset)) {
+            LexTransition(state = LexState.CODE, consumed = 2, closeSpanAt = offset + 3)
+        } else {
+            LexTransition(LexState.RAW_STRING)
+        }
+
+    /**
+     * STRING/CHAR handling for the character at absolute [offset] while in [state]: a backslash
+     * consumes the escaped character, the matching quote closes the span one past [offset], and any
+     * other character stays inside the literal. The branch is shared by both states, so the incoming
+     * state is the only extra input — no new transition fields are needed.
+     */
+    private fun advanceQuoted(
+        source: String,
+        offset: Int,
+        state: LexState,
+    ): LexTransition =
+        when {
+            source[offset] == '\\' -> {
+                LexTransition(state = state, consumed = 1)
+            }
+
+            state == LexState.STRING && source[offset] == '"' -> {
+                LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
+            }
+
+            state == LexState.CHAR && source[offset] == '\'' -> {
+                LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
+            }
+
+            else -> {
+                LexTransition(state = state)
+            }
+        }
+
+    /** True when a nested block-comment opener starts at [offset]. */
+    private fun startsBlockCommentAt(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("/*", offset)
+
+    /** True when a block-comment closer starts at [offset]. */
+    private fun endsBlockCommentAt(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("*/", offset)
+
+    /**
+     * BLOCK_COMMENT handling for the character at absolute [offset] at nesting [depth]: `/*` nests
+     * one level deeper, `*/` unwinds one level and returns to code when the outermost closes. Both
+     * delimiter cases consume one further character, matching the original inner i++.
+     */
+    private fun advanceBlockComment(
+        source: String,
+        offset: Int,
+        depth: Int,
+    ): LexTransition =
+        when {
+            startsBlockCommentAt(source, offset) -> {
+                LexTransition(
+                    state = LexState.BLOCK_COMMENT,
+                    consumed = 1,
+                    blockCommentDepth = depth + 1,
+                )
+            }
+
+            endsBlockCommentAt(source, offset) -> {
+                if (depth == 1) {
+                    LexTransition(
+                        state = LexState.CODE,
+                        consumed = 1,
+                        closeSpanAt = offset + 1,
+                        blockCommentDepth = 0,
+                    )
+                } else {
+                    LexTransition(
+                        state = LexState.BLOCK_COMMENT,
+                        consumed = 1,
+                        blockCommentDepth = depth - 1,
+                    )
+                }
+            }
+
+            else -> {
+                LexTransition(state = LexState.BLOCK_COMMENT)
+            }
+        }
+
+    /** True when a line-comment opener starts at [offset]. */
+    private fun isLineCommentStart(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("//", offset)
+
+    /**
+     * The five lexical mode entries reachable from CODE, in the original precedence order:
+     * line comment, block comment, raw string, string, char. Bracket handling is deliberately not
+     * part of this and is not representable as a transition.
+     */
+    private fun advanceCode(
+        source: String,
+        offset: Int,
+    ): LexTransition? =
+        when {
+            isLineCommentStart(source, offset) -> {
+                LexTransition(
+                    state = LexState.LINE_COMMENT,
+                    consumed = 1,
+                    spanStartAt = offset,
+                )
+            }
+
+            startsBlockCommentAt(source, offset) -> {
+                LexTransition(
+                    state = LexState.BLOCK_COMMENT,
+                    consumed = 1,
+                    spanStartAt = offset,
+                    blockCommentDepth = 1,
+                )
+            }
+
+            SourceStructure.startsRawStringAt(source, offset) -> {
+                LexTransition(
+                    state = LexState.RAW_STRING,
+                    consumed = 2,
+                    spanStartAt = offset,
+                )
+            }
+
+            source[offset] == '"' -> {
+                LexTransition(state = LexState.STRING, spanStartAt = offset)
+            }
+
+            source[offset] == '\'' -> {
+                LexTransition(state = LexState.CHAR, spanStartAt = offset)
+            }
+
+            else -> {
+                null
+            }
+        }
+
+    private fun findBlockAfterIf(
+        lines: List<String>,
+        ifIdx: Int,
+        limit: Int,
+    ): Int {
         val ifLine = lines[ifIdx]
         val braceIdx = ifLine.indexOf('{')
         if (braceIdx >= 0) {
@@ -420,7 +714,10 @@ object KotlinCancellationCatchScanner {
     /** Find the end of the catch body (closing brace of the catch block).
      *  Counts only `{` from the catch line (ignoring `}` which may close the try block),
      *  then balances from the next line onward. */
-    private fun findCatchBodyEnd(lines: List<String>, catchIdx: Int): Int {
+    private fun findCatchBodyEnd(
+        lines: List<String>,
+        catchIdx: Int,
+    ): Int {
         // Count opening braces on the catch line (ignore closes — they belong to try/if blocks)
         var braceCount = lines[catchIdx].count { it == '{' }
         if (braceCount == 0) {
@@ -442,25 +739,43 @@ object KotlinCancellationCatchScanner {
     }
 
     /** Returns true if the given position on the line is inside a string literal. */
-    private fun isInsideStringLiteral(line: String, pos: Int): Boolean {
+    private fun isInsideStringLiteral(
+        line: String,
+        pos: Int,
+    ): Boolean {
         var inString = false
         var quoteChar: Char? = null
         var escaped = false
         for (i in 0 until pos) {
             if (i >= line.length) break
             val ch = line[i]
-            if (escaped) { escaped = false; continue }
-            if (ch == '\\') { escaped = true; continue }
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            if (ch == '\\') {
+                escaped = true
+                continue
+            }
             if (inString) {
-                if (ch == quoteChar) { inString = false; quoteChar = null }
+                if (ch == quoteChar) {
+                    inString = false
+                    quoteChar = null
+                }
             } else {
-                if (ch == '\"' || ch == '\'') { inString = true; quoteChar = ch }
+                if (ch == '\"' || ch == '\'') {
+                    inString = true
+                    quoteChar = ch
+                }
             }
         }
         return inString
     }
 
-    private fun checkTransformsException(lines: List<String>, catchIdx: Int): Boolean {
+    private fun checkTransformsException(
+        lines: List<String>,
+        catchIdx: Int,
+    ): Boolean {
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
         for (i in catchIdx + 1 until end) {
@@ -471,11 +786,292 @@ object KotlinCancellationCatchScanner {
         return false
     }
 
-    private fun riskWeight(risk: String): Int = when (risk) {
-        "critical" -> 4
-        "high" -> 3
-        "medium" -> 2
-        "accepted" -> 1
-        else -> 0
+    private fun riskWeight(risk: String): Int =
+        when (risk) {
+            "critical" -> 4
+            "high" -> 3
+            "medium" -> 2
+            "accepted" -> 1
+            else -> 0
+        }
+}
+
+/**
+ * Lexically-resolved structure of one source text: bracket pairs in both
+ * directions (closer→opener and opener→closer), plus a mask marking which
+ * offsets are executable code (never inside a comment or a literal).
+ * Sibling-catch recognition must not be fooled by braces, parens or
+ * keywords that sit inside comments and strings.
+ */
+private class SourceIndex(
+    val openOffsets: Map<Int, Int>,
+    val closeOffsets: Map<Int, Int>,
+    val codeMask: BooleanArray,
+    val lineStarts: IntArray,
+)
+
+/** Source-position and structural primitives shared by the scanner's parse passes. */
+private object SourceStructure {
+    /**
+     * Bracket bookkeeping for the character at [offset], executed only when no lexical mode entry
+     * applies. An opener is pushed; a closer pairs with the innermost opener if one exists. No
+     * bracket-type validation and no malformed-input recovery, matching the original behaviour.
+     */
+    fun recordBracketAt(
+        source: String,
+        offset: Int,
+        stack: ArrayDeque<Int>,
+        openOffsets: MutableMap<Int, Int>,
+        closeOffsets: MutableMap<Int, Int>,
+    ) {
+        if (source[offset] == '(' || source[offset] == '{') {
+            stack.addLast(offset)
+            return
+        }
+        if (source[offset] == ')' || source[offset] == '}') {
+            stack.removeLastOrNull()?.let { opener ->
+                openOffsets[offset] = opener
+                closeOffsets[opener] = offset
+            }
+        }
     }
+
+    /**
+     * Line start offsets of [source], including offset 0. Independent preparation pass: it reads
+     * nothing from and writes nothing into the lexical walk, so its equivalence can be proven
+     * separately from the state machine.
+     */
+    fun buildLineStarts(source: String): IntArray {
+        val starts = ArrayList<Int>()
+        starts.add(0)
+        source.forEachIndexed { i, c -> if (c == '\n') starts.add(i + 1) }
+        return starts.toIntArray()
+    }
+
+    /**
+     * True when a triple-quote raw-string delimiter starts at [offset]. Pure: reads [source] only.
+     * Extracted from the lexical walk so the close condition keeps its original operands (bounds
+     * check plus delimiter match) without tripping the condition-complexity threshold.
+     */
+    fun startsRawStringAt(
+        source: String,
+        offset: Int,
+    ): Boolean = offset + 2 < source.length && source.startsWith("\"\"\"", offset)
+
+    /** Previous executable-code offset before [offset], or -1. */
+    fun previousCodeOffset(
+        source: String,
+        index: SourceIndex,
+        offset: Int,
+    ): Int {
+        var i = minOf(offset, source.length) - 1
+        while (i >= 0 && (!index.codeMask[i] || source[i].isWhitespace())) i--
+        return i
+    }
+
+    /**
+     * The first non-whitespace code character at or after [from]: its offset when it equals
+     * [target], null when some other code character intervenes or none is found.
+     */
+    fun codeOffsetOf(
+        source: String,
+        index: SourceIndex,
+        from: Int,
+        target: Char,
+    ): Int? {
+        val firstCodeChar =
+            (from until source.length).firstOrNull { index.codeMask[it] && !source[it].isWhitespace() }
+        return firstCodeChar?.takeIf { source[it] == target }
+    }
+
+    /** True when [keyword] ends exactly at [offset] as a standalone token. */
+    fun keywordEndsAt(
+        source: String,
+        offset: Int,
+        keyword: String,
+    ): Boolean {
+        val start = offset - keyword.length + 1
+        if (start < 0 || !source.regionMatches(start, keyword, 0, keyword.length)) return false
+        return start == 0 || !(source[start - 1].isLetterOrDigit() || source[start - 1] == '_')
+    }
+
+    /**
+     * Offset of the `catch` keyword of the clause that produced a finding on
+     * [lineIdx]. ponytail: takes the last `catch` token on the line — source in
+     * this repo is one catch clause per line; a compact multi-catch line would
+     * resolve to the wrong clause and degrade to "not accepted".
+     */
+    fun catchKeywordOffset(
+        source: String,
+        index: SourceIndex,
+        lineIdx: Int,
+    ): Int? {
+        if (lineIdx !in index.lineStarts.indices) return null
+        val lineStart = index.lineStarts[lineIdx]
+        val lineEnd = if (lineIdx + 1 < index.lineStarts.size) index.lineStarts[lineIdx + 1] else source.length
+        return Regex("""\bcatch\b""")
+            .findAll(source.substring(lineStart, lineEnd))
+            .map { lineStart + it.range.first }
+            .filter { it < source.length && index.codeMask[it] }
+            .lastOrNull()
+    }
+}
+
+/** Catch-clause parsing and sibling-catch structural analysis. */
+private object CatchClauseSyntax {
+    /**
+     * The catch keyword offset of the sibling clause directly preceding [keywordOffset], or null
+     * when the construct before it is not a `catch (...) { ... }`.
+     */
+    fun previousSiblingCatchKeyword(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): Int? =
+        SourceStructure
+            .previousCodeOffset(source, index, keywordOffset)
+            .takeIf { it >= 0 && source[it] == '}' }
+            ?.let { closer -> previousCatchKeywordBeforeBody(source, index, closer) }
+
+    /** The `catch` keyword offset of the clause whose body closes at [closer], or null. */
+    fun previousCatchKeywordBeforeBody(
+        source: String,
+        index: SourceIndex,
+        closer: Int,
+    ): Int? =
+        index.openOffsets[closer]
+            ?.let { blockOpen -> SourceStructure.previousCodeOffset(source, index, blockOpen) }
+            ?.takeIf { it >= 0 && source[it] == ')' }
+            ?.let { beforeBlock -> index.openOffsets[beforeBlock] }
+            ?.let { paramOpen -> SourceStructure.previousCodeOffset(source, index, paramOpen) }
+            ?.takeIf { SourceStructure.keywordEndsAt(source, it, "catch") }
+            ?.let { beforeParams -> beforeParams - "catch".length + 1 }
+
+    /**
+     * True when the broad catch clause on [catchLineIdx] shares its `try`
+     * expression with an EARLIER sibling catch clause that catches
+     * CancellationException (bare or qualified) and ultimately throws that
+     * clause's own catch variable — cleanup statements before the throw are
+     * allowed. Cancellation is then preserved by the try statement as a whole,
+     * so the broad catch is cancellation-safe.
+     *
+     * Resolved structurally, not by a file-wide regex: the chain of catch
+     * clauses is walked backwards through lexically balanced braces/parens until
+     * the `try` keyword, so a CancellationException catch belonging to a nested
+     * try inside this clause's body, or to an unrelated try, or appearing AFTER
+     * this clause is never mistaken for a sibling. Kotlin itself rejects some of
+     * those orderings at compile time; the gate decides from syntax alone.
+     *
+     * The backwards walk is expressed as a sequence of sibling keyword offsets
+     * (see [previousSiblingCatchKeyword]) so no mutable cursor is needed.
+     */
+    fun checkEarlierSiblingPreservesCancellation(
+        source: String,
+        index: SourceIndex,
+        catchLineIdx: Int,
+    ): Boolean {
+        val firstCatch = SourceStructure.catchKeywordOffset(source, index, catchLineIdx) ?: return false
+        return generateSequence(firstCatch) { previousSiblingCatchKeyword(source, index, it) }
+            .drop(1)
+            .any { catchClauseRethrowsItsOwnVariable(source, index, it) }
+    }
+
+    /** Bounds of the `( ... )` catch parameter list following the keyword, or null. */
+    fun catchParameterBounds(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): IntRange? =
+        SourceStructure
+            .codeOffsetOf(source, index, keywordOffset + "catch".length, '(')
+            ?.let { paramOpen -> index.closeOffsets[paramOpen]?.let { paramClose -> paramOpen..paramClose } }
+
+    /** Bounds of the `{ ... }` catch body following the parameter list, or null. */
+    fun catchBodyBounds(
+        source: String,
+        index: SourceIndex,
+        paramClose: Int,
+    ): IntRange? =
+        SourceStructure
+            .codeOffsetOf(source, index, paramClose + 1, '{')
+            ?.let { bodyOpen -> index.closeOffsets[bodyOpen]?.let { bodyClose -> bodyOpen..bodyClose } }
+
+    /**
+     * The catch variable name when the parameter list's catch type ends in CancellationException,
+     * null for any other type or an unparsable parameter.
+     */
+    fun cancellationCatchVariable(
+        source: String,
+        paramOpen: Int,
+        paramClose: Int,
+    ): String? =
+        catchParameterPattern
+            .find(source.substring(paramOpen + 1, paramClose).trim())
+            ?.takeIf { it.groupValues[2].substringAfterLast('.') == "CancellationException" }
+            ?.groupValues
+            ?.get(1)
+
+    /** A structurally resolved cancellation catch clause: its variable name and body bounds. */
+    data class ParsedCatchClause(
+        val variable: String,
+        val body: IntRange,
+    )
+
+    /** Parses the clause at [keywordOffset]; null when incomplete or not a CancellationException. */
+    fun parseCancellationCatchClause(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): ParsedCatchClause? =
+        catchParameterBounds(source, index, keywordOffset)?.let { params ->
+            cancellationCatchVariable(source, params.first, params.last)?.let { variable ->
+                catchBodyBounds(source, index, params.last)?.let { ParsedCatchClause(variable, it) }
+            }
+        }
+
+    /**
+     * True when the catch clause opening at [keywordOffset] catches
+     * CancellationException and its body throws that clause's own catch
+     * variable as a standalone statement. A different variable, a new
+     * exception, a transformation (`throw c.cause`) or no throw at all are all
+     * rejected.
+     */
+    fun catchClauseRethrowsItsOwnVariable(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): Boolean {
+        val clause = parseCancellationCatchClause(source, index, keywordOffset) ?: return false
+        val throwOwnVariable = Regex("""\bthrow\s+${Regex.escape(clause.variable)}\s*[;}]?\s*$""")
+        return source
+            .substring(clause.body.first, clause.body.last + 1)
+            .lines()
+            .any { throwOwnVariable.containsMatchIn(stripComment(it)) }
+    }
+
+    /** `variable: Type` of a catch parameter list. */
+    val catchParameterPattern = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_.]*)$""")
+
+    /*
+     * Find the end of the block that follows an `if (...)` statement.
+     * Returns the index of the closing `}` (exclusive), or -1 if not found.
+     * Handles: `if (cond) statement` (single-line, no brace) and `if (cond) { ... }`.
+     */
+
+    /**
+     * Strips inline comments (// ...) from a line of source code.
+     * Does NOT handle block comments correctly — those are assumed to be
+     * on their own lines (and already skipped by the caller).
+     */
+    fun stripComment(line: String): String {
+        val idx = line.indexOf("//")
+        return if (idx >= 0) line.substring(0, idx) else line
+    }
+
+    /* Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
+     *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
+     *  same branch as the CancellationException check, not merely nearby.
+     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern.
+     *  For the rethrowIfCancellation() helper, it must be the FIRST non-blank, non-comment
+     *  line in the catch body — before it, only blank lines and comments are allowed. */
 }

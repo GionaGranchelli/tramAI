@@ -70,9 +70,9 @@
     <ID>CyclomaticComplexMethod:JdbcStepAttemptRecordStore.kt$JdbcStepAttemptRecordStore$private fun ResultSet.toVerifiedRecord(): StepAttemptRecord</ID>
     <ID>CyclomaticComplexMethod:JdbcWorkflowSchedulerStore.kt$@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions. private fun parseCalendarRuleObject(payload: String): Map&lt;String, String&gt;</ID>
     <ID>CyclomaticComplexMethod:JdbcWorkflowSchedulerStore.kt$@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped, depth). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions. private fun splitJsonObjects(body: String): List&lt;String&gt;</ID>
-    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$fun scan(source: String, module: String, file: String): List&lt;CancellationCatchFinding&gt;</ID>
-    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun checkRethrowsCancellation(lines: List&lt;String&gt;, catchIdx: Int): Boolean</ID>
-    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
+    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$fun scan( source: String, module: String, file: String, ): List&lt;CancellationCatchFinding&gt;</ID>
+    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun checkRethrowsCancellation( lines: List&lt;String&gt;, catchIdx: Int, ): Boolean</ID>
+    <ID>CyclomaticComplexMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx( lines: List&lt;String&gt;, startIdx: Int, match: MatchResult, ): Int?</ID>
     <ID>CyclomaticComplexMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
         <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun checkEdge( fromPath: String, toPath: String, catalog: ModuleCatalog, ): VerificationDiagnostic?</ID>
     <ID>CyclomaticComplexMethod:ModuleBoundaries.kt$ModuleBoundaries$fun parse(): BoundaryResult</ID>
@@ -743,7 +743,7 @@
     <ID>LongMethod:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$private fun createAndClaimDueTicks( connection: Connection, now: Instant, ownerId: String, claimExpiresAt: Instant, limit: Int, ): List&lt;ClaimedScheduledTick&gt;</ID>
     <ID>LongMethod:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$private fun upsertScheduleSql(connection: Connection): String</ID>
     <ID>LongMethod:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$suspend fun recover( now: Instant = Instant.now(), limit: Int = 500, ): Int</ID>
-    <ID>LongMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
+    <ID>LongMethod:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx( lines: List&lt;String&gt;, startIdx: Int, match: MatchResult, ): Int?</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$override fun apply(project: Project)</ID>
     <ID>LongMethod:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$private fun addApiCompatibilityDiagnostics( project: Project, checks: Map&lt;String, MutableList&lt;VerificationDiagnostic&gt;&gt;, )</ID>
         <ID>LongMethod:McpStep.kt$McpWorkflowStep$private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult</ID>
@@ -2427,7 +2427,6 @@
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at raw-string brace, got: $baseFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at string brace, got: $baseFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("oldWork"), "Outer-catch fingerprint must include statement after inner runCatching, got: $baseFp")</ID>
-    <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("completelyDifferentWork"), "Outer-catch fingerprint must include statement after inner runCatching, got: $currentFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at block-comment brace, got: $currentFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at comment brace, got: $currentFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at nested-comment brace, got: $currentFp")</ID>
@@ -3824,7 +3823,7 @@
     <ID>NestedBlockDepth:JdbcWorkflowLeaseStore.kt$JdbcWorkflowLeaseStore$private fun loadLease( connection: java.sql.Connection, workflowName: String, workflowId: String, ): WorkflowLease?</ID>
     <ID>NestedBlockDepth:JdbcWorkflowSchedulerStore.kt$@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped, depth). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions. private fun splitJsonObjects(body: String): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:JdbcWorkflowSchedulerStore.kt$JdbcWorkflowSchedulerStore$private fun createAndClaimDueTicks( connection: Connection, now: Instant, ownerId: String, claimExpiresAt: Instant, limit: Int, ): List&lt;ClaimedScheduledTick&gt;</ID>
-    <ID>NestedBlockDepth:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx(lines: List&lt;String&gt;, startIdx: Int, match: MatchResult): Int?</ID>
+    <ID>NestedBlockDepth:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findConstructEndIdx( lines: List&lt;String&gt;, startIdx: Int, match: MatchResult, ): Int?</ID>
     <ID>NestedBlockDepth:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun joinCatchLines(lines: List&lt;String&gt;): JoinedLines</ID>
         <ID>NestedBlockDepth:MavenPublishedArtifactResolver.kt$MavenPublishedArtifactResolver$private fun snapshotValueForExtension(metadata: File, extension: String): String?</ID>
     <ID>NestedBlockDepth:ModuleDocContractVerifier.kt$ModuleDocContractVerifier$fun verify(rootDir: File): List&lt;VerificationDiagnostic&gt;</ID>
@@ -3929,8 +3928,8 @@
     <ID>ReturnCount:JdbcAuditStoreTest.kt$JdbcAuditStoreTest$private fun checkChain(events: List&lt;AuditEvent&gt;): Boolean</ID>
     <ID>ReturnCount:JdbcSovereignOpsAuditOutboxStore.kt$JdbcSovereignOpsAuditOutboxStore$private fun selectClaimableSerialized( conn: Connection, limit: Int, now: Instant, ): List&lt;OutboxRow&gt;</ID>
     <ID>ReturnCount:JdbcWorkflowSchedulerStore.kt$private fun decodeCalendarRules(payload: String?): List&lt;CalendarRule&gt;</ID>
-    <ID>ReturnCount:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun checkRethrowsCancellation(lines: List&lt;String&gt;, catchIdx: Int): Boolean</ID>
-    <ID>ReturnCount:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findCatchBodyEnd(lines: List&lt;String&gt;, catchIdx: Int): Int</ID>
+    <ID>ReturnCount:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun checkRethrowsCancellation( lines: List&lt;String&gt;, catchIdx: Int, ): Boolean</ID>
+    <ID>ReturnCount:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$private fun findCatchBodyEnd( lines: List&lt;String&gt;, catchIdx: Int, ): Int</ID>
     <ID>ReturnCount:MarkdownWorkflowCheckpointStore.kt$MarkdownWorkflowCheckpointStore$private fun effectiveCheckpointPath( workflowName: String, workflowId: String, ): Path</ID>
     <ID>ReturnCount:MavenPublishedArtifactResolver.kt$MavenPublishedArtifactResolver$fun resolve(moduleDir: File, baseNameWithoutVersion: String, expectedVersion: String, extension: String): File</ID>
     <ID>ReturnCount:ModelResponse.kt$ModelResponse$fun totalTokens(): Int?</ID>
@@ -4539,7 +4538,7 @@
     <ID>UnusedPrivateProperty:JdbcApprovalInboxQueryService.kt$JdbcApprovalInboxQueryService$private val clock: Clock = Clock.systemUTC()</ID>
     <ID>UnusedPrivateProperty:JdbcApprovedContinuationResumeQueueTest.kt$JdbcApprovedContinuationResumeQueueTest$private val baseNow: Instant = Instant.parse("2026-06-01T12:00:00Z")</ID>
     <ID>UnusedPrivateProperty:JdbcWorkflowPersistenceCancellationContractTest.kt$JdbcWorkflowPersistenceCancellationContractTest.InterruptIgnoringPreparedStatement$private val blockOnCompletion: CountDownLatch</ID>
-    <ID>UnusedPrivateProperty:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$val rethrowIfCancellationPattern = Regex( """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)""" )</ID>
+    <ID>UnusedPrivateProperty:KotlinCancellationCatchScanner.kt$KotlinCancellationCatchScanner$val rethrowIfCancellationPattern = Regex( """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)""", )</ID>
     <ID>UnusedPrivateProperty:MaintainabilityBaselinePlugin.kt$MaintainabilityBaselinePlugin$val criticalTestTaskPaths = criticalModules.sorted().map { "$it:test" }</ID>
     <ID>UnusedPrivateProperty:McpStep.kt$WorkflowMcpException$safe: Boolean</ID>
     <ID>UnusedPrivateProperty:ProviderCircuitBreakerLifecycleDiscriminatorTest.kt$ProviderCircuitBreakerLifecycleDiscriminatorTest$val observer = dev.tramai.core.observation.OperationObserver { RecordingObservation() }</ID>
