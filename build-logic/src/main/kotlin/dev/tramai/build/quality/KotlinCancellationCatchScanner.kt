@@ -558,23 +558,11 @@ object KotlinCancellationCatchScanner {
                 }
 
                 LexState.BLOCK_COMMENT -> {
-                    when {
-                        c == '/' && i + 1 < source.length && source[i + 1] == '*' -> {
-                            blockCommentDepth++
-                            i++
-                        }
-
-                        c == '*' && i + 1 < source.length && source[i + 1] == '/' -> {
-                            blockCommentDepth--
-                            if (blockCommentDepth == 0) {
-                                closeSpan(i + 1)
-                                state = LexState.CODE
-                            }
-                            i++
-                        }
-
-                        else -> {}
-                    }
+                    val transition = advanceBlockComment(source, i, blockCommentDepth)
+                    transition.blockCommentDepth?.let { blockCommentDepth = it }
+                    transition.closeSpanAt?.let { closeSpan(it) }
+                    state = transition.state
+                    i += transition.consumed
                 }
 
                 LexState.STRING, LexState.CHAR -> {
@@ -601,6 +589,9 @@ object KotlinCancellationCatchScanner {
         val state: LexState,
         val consumed: Int = 0,
         val closeSpanAt: Int? = null,
+        // null = this transition does not alter depth; a value = assign exactly this depth.
+        // Deliberately not a delta and not a command.
+        val blockCommentDepth: Int? = null,
     )
 
     /**
@@ -644,6 +635,47 @@ object KotlinCancellationCatchScanner {
             }
 
             else -> LexTransition(state = state)
+        }
+
+    /** True when a nested block-comment opener starts at [offset]. */
+    private fun startsBlockCommentAt(source: String, offset: Int): Boolean =
+        source.startsWith("/*", offset)
+
+    /** True when a block-comment closer starts at [offset]. */
+    private fun endsBlockCommentAt(source: String, offset: Int): Boolean =
+        source.startsWith("*/", offset)
+
+    /**
+     * BLOCK_COMMENT handling for the character at absolute [offset] at nesting [depth]: `/*` nests
+     * one level deeper, `*/` unwinds one level and returns to code when the outermost closes. Both
+     * delimiter cases consume one further character, matching the original inner i++.
+     */
+    private fun advanceBlockComment(source: String, offset: Int, depth: Int): LexTransition =
+        when {
+            startsBlockCommentAt(source, offset) ->
+                LexTransition(
+                    state = LexState.BLOCK_COMMENT,
+                    consumed = 1,
+                    blockCommentDepth = depth + 1,
+                )
+
+            endsBlockCommentAt(source, offset) ->
+                if (depth == 1) {
+                    LexTransition(
+                        state = LexState.CODE,
+                        consumed = 1,
+                        closeSpanAt = offset + 1,
+                        blockCommentDepth = 0,
+                    )
+                } else {
+                    LexTransition(
+                        state = LexState.BLOCK_COMMENT,
+                        consumed = 1,
+                        blockCommentDepth = depth - 1,
+                    )
+                }
+
+            else -> LexTransition(state = LexState.BLOCK_COMMENT)
         }
 
     /**
