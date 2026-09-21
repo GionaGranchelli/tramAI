@@ -496,88 +496,41 @@ object KotlinCancellationCatchScanner {
 
         fun closeSpan(endExclusive: Int) {
             if (spanStart >= 0) {
-                for (k in spanStart until minOf(endExclusive, source.length)) codeMask[k] = false
+                codeMask.fill(false, spanStart, minOf(endExclusive, source.length))
                 spanStart = -1
             }
         }
         var i = 0
+
+        // Same shape as closeSpan below: a local mutating helper, so the graded body of this
+        // function stays a dispatch loop. Application order is unchanged.
+        fun applyTransition(transition: LexTransition) {
+            transition.spanStartAt?.let { spanStart = it }
+            transition.blockCommentDepth?.let { blockCommentDepth = it }
+            transition.closeSpanAt?.let { closeSpan(it) }
+            state = transition.state
+            i += transition.consumed
+        }
+
         while (i < source.length) {
-            val c = source[i]
             when (state) {
                 LexState.CODE -> {
-                    when {
-                        c == '/' && i + 1 < source.length && source[i + 1] == '/' -> {
-                            spanStart = i
-                            state = LexState.LINE_COMMENT
-                            i++
-                        }
-
-                        c == '/' && i + 1 < source.length && source[i + 1] == '*' -> {
-                            spanStart = i
-                            state = LexState.BLOCK_COMMENT
-                            blockCommentDepth = 1
-                            i++
-                        }
-
-                        c == '"' && i + 2 < source.length && source[i + 1] == '"' && source[i + 2] == '"' -> {
-                            spanStart = i
-                            state = LexState.RAW_STRING
-                            i += 2
-                        }
-
-                        c == '"' -> {
-                            spanStart = i
-                            state = LexState.STRING
-                        }
-
-                        c == '\'' -> {
-                            spanStart = i
-                            state = LexState.CHAR
-                        }
-
-                        c == '(' || c == '{' -> {
-                            stack.addLast(i)
-                        }
-
-                        c == ')' || c == '}' -> {
-                            stack.removeLastOrNull()?.let {
-                                openOffsets[i] = it
-                                closeOffsets[it] = i
-                            }
-                        }
-
-                        else -> {}
+                    val transition = advanceCode(source, i)
+                    if (transition == null) {
+                        recordBracketAt(source, i, stack, openOffsets, closeOffsets)
+                    } else {
+                        applyTransition(transition)
                     }
                 }
 
-                LexState.LINE_COMMENT -> {
-                    val transition = advanceLineComment(source, i)
-                    transition.closeSpanAt?.let { closeSpan(it) }
-                    state = transition.state
-                    i += transition.consumed
-                }
+                LexState.LINE_COMMENT -> applyTransition(advanceLineComment(source, i))
 
-                LexState.BLOCK_COMMENT -> {
-                    val transition = advanceBlockComment(source, i, blockCommentDepth)
-                    transition.blockCommentDepth?.let { blockCommentDepth = it }
-                    transition.closeSpanAt?.let { closeSpan(it) }
-                    state = transition.state
-                    i += transition.consumed
-                }
+                LexState.BLOCK_COMMENT ->
+                    applyTransition(advanceBlockComment(source, i, blockCommentDepth))
 
-                LexState.STRING, LexState.CHAR -> {
-                    val transition = advanceQuoted(source, i, state)
-                    transition.closeSpanAt?.let { closeSpan(it) }
-                    state = transition.state
-                    i += transition.consumed
-                }
+                LexState.STRING, LexState.CHAR -> applyTransition(advanceQuoted(source, i, state))
 
-                LexState.RAW_STRING -> {
-                    val transition = advanceRawString(source, i)
-                    transition.closeSpanAt?.let { closeSpan(it) }
-                    state = transition.state
-                    i += transition.consumed
-                }
+                LexState.RAW_STRING -> applyTransition(advanceRawString(source, i))
             }
             i++
         }
@@ -589,6 +542,9 @@ object KotlinCancellationCatchScanner {
         val state: LexState,
         val consumed: Int = 0,
         val closeSpanAt: Int? = null,
+        // null = this transition does not modify spanStart; a value = assign exactly that
+        // absolute source offset. A coordinate, symmetric with closeSpanAt — not a command.
+        val spanStartAt: Int? = null,
         // null = this transition does not alter depth; a value = assign exactly this depth.
         // Deliberately not a delta and not a command.
         val blockCommentDepth: Int? = null,
@@ -677,6 +633,72 @@ object KotlinCancellationCatchScanner {
 
             else -> LexTransition(state = LexState.BLOCK_COMMENT)
         }
+
+    /** True when a line-comment opener starts at [offset]. */
+    private fun isLineCommentStart(source: String, offset: Int): Boolean =
+        source.startsWith("//", offset)
+
+    /**
+     * The five lexical mode entries reachable from CODE, in the original precedence order:
+     * line comment, block comment, raw string, string, char. Bracket handling is deliberately not
+     * part of this and is not representable as a transition.
+     */
+    private fun advanceCode(source: String, offset: Int): LexTransition? =
+        when {
+            isLineCommentStart(source, offset) ->
+                LexTransition(
+                    state = LexState.LINE_COMMENT,
+                    consumed = 1,
+                    spanStartAt = offset,
+                )
+
+            startsBlockCommentAt(source, offset) ->
+                LexTransition(
+                    state = LexState.BLOCK_COMMENT,
+                    consumed = 1,
+                    spanStartAt = offset,
+                    blockCommentDepth = 1,
+                )
+
+            startsRawStringAt(source, offset) ->
+                LexTransition(
+                    state = LexState.RAW_STRING,
+                    consumed = 2,
+                    spanStartAt = offset,
+                )
+
+            source[offset] == '"' ->
+                LexTransition(state = LexState.STRING, spanStartAt = offset)
+
+            source[offset] == '\'' ->
+                LexTransition(state = LexState.CHAR, spanStartAt = offset)
+
+            else -> null
+        }
+
+    /**
+     * Bracket bookkeeping for the character at [offset], executed only when no lexical mode entry
+     * applies. An opener is pushed; a closer pairs with the innermost opener if one exists. No
+     * bracket-type validation and no malformed-input recovery, matching the original behaviour.
+     */
+    private fun recordBracketAt(
+        source: String,
+        offset: Int,
+        stack: ArrayDeque<Int>,
+        openOffsets: MutableMap<Int, Int>,
+        closeOffsets: MutableMap<Int, Int>,
+    ) {
+        if (source[offset] == '(' || source[offset] == '{') {
+            stack.addLast(offset)
+            return
+        }
+        if (source[offset] == ')' || source[offset] == '}') {
+            stack.removeLastOrNull()?.let { opener ->
+                openOffsets[offset] = opener
+                closeOffsets[opener] = offset
+            }
+        }
+    }
 
     /**
      * Line start offsets of [source], including offset 0. Independent preparation pass: it reads
