@@ -2427,7 +2427,6 @@
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at raw-string brace, got: $baseFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("deleteTemporaryState"), "Fingerprint must not truncate at string brace, got: $baseFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(baseFp.contains("oldWork"), "Outer-catch fingerprint must include statement after inner runCatching, got: $baseFp")</ID>
-    <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$DeviationParser.DeviationScope(":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler", isWildcard = false)</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at block-comment brace, got: $currentFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at comment brace, got: $currentFp")</ID>
     <ID>MaxLineLength:KotlinCancellationCatchScannerTest.kt$KotlinCancellationCatchScannerTest$assertTrue(currentFp.contains("publishExternalResult"), "Fingerprint must not truncate at nested-comment brace, got: $currentFp")</ID>

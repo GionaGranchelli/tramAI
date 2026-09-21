@@ -669,7 +669,12 @@ class KotlinCancellationCatchScannerTest {
     @Test
     fun `declaration scope requires module path and declaration`() {
         val scope =
-            DeviationParser.DeviationScope(":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler", isWildcard = false)
+            DeviationParser.DeviationScope(
+                ":tramai-engine",
+                "src/main/Foo.kt",
+                "TramaiInvocationHandler",
+                isWildcard = false,
+            )
         assertTrue(
             scope.covers(
                 DeviationParser.FindingScope(":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler"),
