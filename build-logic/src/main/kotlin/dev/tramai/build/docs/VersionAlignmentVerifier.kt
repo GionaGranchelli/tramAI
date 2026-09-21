@@ -29,14 +29,6 @@ private const val RELEASE_VERSION_PARTS = 3
 private fun parseReleaseVersion(version: String): List<Int>? =
     version.split(".").map { it.toIntOrNull() ?: return null }.takeIf { it.size == RELEASE_VERSION_PARTS }
 
-/**
- * The last promoted release: the newest dated CHANGELOG section. Any surface describing published
- * artifacts must name this rather than a literal, which silently goes stale at every release cut.
- */
-internal fun promotedReleaseVersion(rootDir: File): String =
-    DATED_RELEASE_HEADING.find(File(rootDir, "CHANGELOG.md").readText())?.groupValues?.get(1)
-        ?: error("CHANGELOG.md must contain a dated release heading (## X.Y.Z - YYYY-MM-DD)")
-
 /** Numeric `x.y.z` ordering of two release versions; unparseable input sorts below everything. */
 private fun compareReleaseVersions(
     left: String,
