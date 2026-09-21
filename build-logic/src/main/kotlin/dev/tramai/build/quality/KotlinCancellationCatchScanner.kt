@@ -779,6 +779,33 @@ object KotlinCancellationCatchScanner {
     }
 
     /**
+     * The catch keyword offset of the sibling clause directly preceding [keywordOffset], or null
+     * when the construct before it is not a `catch (...) { ... }`.
+     */
+    private fun previousSiblingCatchKeyword(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): Int? =
+        previousCodeOffset(source, index, keywordOffset)
+            .takeIf { it >= 0 && source[it] == '}' }
+            ?.let { closer -> previousCatchKeywordBeforeBody(source, index, closer) }
+
+    /** The `catch` keyword offset of the clause whose body closes at [closer], or null. */
+    private fun previousCatchKeywordBeforeBody(
+        source: String,
+        index: SourceIndex,
+        closer: Int,
+    ): Int? =
+        index.openOffsets[closer]
+            ?.let { blockOpen -> previousCodeOffset(source, index, blockOpen) }
+            ?.takeIf { it >= 0 && source[it] == ')' }
+            ?.let { beforeBlock -> index.openOffsets[beforeBlock] }
+            ?.let { paramOpen -> previousCodeOffset(source, index, paramOpen) }
+            ?.takeIf { keywordEndsAt(source, it, "catch") }
+            ?.let { beforeParams -> beforeParams - "catch".length + 1 }
+
+    /**
      * True when the broad catch clause on [catchLineIdx] shares its `try`
      * expression with an EARLIER sibling catch clause that catches
      * CancellationException (bare or qualified) and ultimately throws that
@@ -792,28 +819,19 @@ object KotlinCancellationCatchScanner {
      * try inside this clause's body, or to an unrelated try, or appearing AFTER
      * this clause is never mistaken for a sibling. Kotlin itself rejects some of
      * those orderings at compile time; the gate decides from syntax alone.
+     *
+     * The backwards walk is expressed as a sequence of sibling keyword offsets
+     * (see [previousSiblingCatchKeyword]) so no mutable cursor is needed.
      */
     private fun checkEarlierSiblingPreservesCancellation(
         source: String,
         index: SourceIndex,
         catchLineIdx: Int,
     ): Boolean {
-        var keywordOffset = catchKeywordOffset(source, index, catchLineIdx) ?: return false
-        while (true) {
-            // The construct directly before a sibling catch is the closing brace
-            // of the preceding catch body (or of the `try` block for the first one).
-            val closer = previousCodeOffset(source, index, keywordOffset)
-            if (closer < 0 || source[closer] != '}') return false
-            val blockOpen = index.openOffsets[closer] ?: return false
-            val beforeBlock = previousCodeOffset(source, index, blockOpen)
-            if (beforeBlock < 0 || source[beforeBlock] != ')') return false
-            val paramOpen = index.openOffsets[beforeBlock] ?: return false
-            val beforeParams = previousCodeOffset(source, index, paramOpen)
-            if (!keywordEndsAt(source, beforeParams, "catch")) return false
-            val siblingKeyword = beforeParams - "catch".length + 1
-            if (catchClauseRethrowsItsOwnVariable(source, index, siblingKeyword)) return true
-            keywordOffset = siblingKeyword
-        }
+        val firstCatch = catchKeywordOffset(source, index, catchLineIdx) ?: return false
+        return generateSequence(firstCatch) { previousSiblingCatchKeyword(source, index, it) }
+            .drop(1)
+            .any { catchClauseRethrowsItsOwnVariable(source, index, it) }
     }
 
     /** Bounds of the `( ... )` catch parameter list following the keyword, or null. */
