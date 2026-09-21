@@ -474,11 +474,7 @@ object KotlinCancellationCatchScanner {
         val openOffsets = HashMap<Int, Int>()
         val closeOffsets = HashMap<Int, Int>()
         val codeMask = BooleanArray(source.length) { true }
-        val lineStarts =
-            ArrayList<Int>().apply {
-                add(0)
-                source.forEachIndexed { i, c -> if (c == '\n') add(i + 1) }
-            }
+        val lineStarts = buildLineStarts(source)
         val stack = ArrayDeque<Int>()
         var state = LexState.CODE
         var blockCommentDepth = 0
@@ -589,7 +585,19 @@ object KotlinCancellationCatchScanner {
             i++
         }
         closeSpan(source.length)
-        return SourceIndex(openOffsets, closeOffsets, codeMask, lineStarts.toIntArray())
+        return SourceIndex(openOffsets, closeOffsets, codeMask, lineStarts)
+    }
+
+    /**
+     * Line start offsets of [source], including offset 0. Independent preparation pass: it reads
+     * nothing from and writes nothing into the lexical walk, so its equivalence can be proven
+     * separately from the state machine.
+     */
+    private fun buildLineStarts(source: String): IntArray {
+        val starts = ArrayList<Int>()
+        starts.add(0)
+        source.forEachIndexed { i, c -> if (c == '\n') starts.add(i + 1) }
+        return starts.toIntArray()
     }
 
     /**
