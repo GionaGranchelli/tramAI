@@ -578,14 +578,10 @@ object KotlinCancellationCatchScanner {
                 }
 
                 LexState.STRING, LexState.CHAR -> {
-                    if (c == '\\') {
-                        i++ // skip escaped char
-                    } else if ((state == LexState.STRING && c == '"') ||
-                        (state == LexState.CHAR && c == '\'')
-                    ) {
-                        closeSpan(i + 1)
-                        state = LexState.CODE
-                    }
+                    val transition = advanceQuoted(source, i, state)
+                    transition.closeSpanAt?.let { closeSpan(it) }
+                    state = transition.state
+                    i += transition.consumed
                 }
 
                 LexState.RAW_STRING -> {
@@ -628,6 +624,26 @@ object KotlinCancellationCatchScanner {
             LexTransition(state = LexState.CODE, consumed = 2, closeSpanAt = offset + 3)
         } else {
             LexTransition(LexState.RAW_STRING)
+        }
+
+    /**
+     * STRING/CHAR handling for the character at absolute [offset] while in [state]: a backslash
+     * consumes the escaped character, the matching quote closes the span one past [offset], and any
+     * other character stays inside the literal. The branch is shared by both states, so the incoming
+     * state is the only extra input — no new transition fields are needed.
+     */
+    private fun advanceQuoted(source: String, offset: Int, state: LexState): LexTransition =
+        when {
+            source[offset] == '\\' -> LexTransition(state = state, consumed = 1)
+            state == LexState.STRING && source[offset] == '"' -> {
+                LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
+            }
+
+            state == LexState.CHAR && source[offset] == '\'' -> {
+                LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
+            }
+
+            else -> LexTransition(state = state)
         }
 
     /**
