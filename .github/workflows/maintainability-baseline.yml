@@ -106,7 +106,15 @@ jobs:
   # 12.3b (R12-003): Gradle 9 strict task dependency validation tests (+1 in policy-maintainability, +1 in scanners-coverage) = 302 -> 303, 253 -> 254.
   # 0.7.1e: ApiStabilityPolicyTest (24) enrolled in scanners-coverage = 254 -> 278. The suite was
   # in no CI lane at all, so the release-line API-policy discriminators never ran in CI.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 174 + 303 + 278 = 934.
+  # Docs/version-surface repair: the example-selection guard derives the promoted release from
+  # CHANGELOG.md, so ExampleGuideReleaseAssertionTest (+3) enters release-sovereign = 174 -> 179.
+  # The same measurement certifies accumulated policy-maintainability drift = 303 -> 305
+  # (both reproduced with the exact filters below; 0 failures).
+  # #426: sibling-catch cancellation recognition adds 8 scanner tests, and the 83-line
+  # context-equivalence case is split into three single-scenario tests (1 removed, 3 added).
+  # MERGED: master's 264 scanner tests + the epic's ApiStabilityPolicyTest (24) and nine other
+  # lane additions = 297, measured through this lane's own 20 filters after merging master in.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 179 + 305 + 297 = 960.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -141,7 +149,7 @@ jobs:
               --tests 'dev.tramai.build.publishing.*'
               --tests 'dev.tramai.build.docs.*'
               --tests 'dev.tramai.build.conventions.*'
-            expected: 174
+            expected: 179
           - name: policy-maintainability
             test-filter: >-
               --tests 'dev.tramai.build.quality.ChangePolicy*Test'
@@ -157,7 +165,7 @@ jobs:
               --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
               --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
               --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
-            expected: 303
+            expected: 305
           - name: scanners-coverage
             test-filter: >-
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
@@ -180,7 +188,7 @@ jobs:
               --tests 'dev.tramai.build.quality.TestPerformanceVerifierTest'
               --tests 'dev.tramai.build.quality.TestPerformanceAggregatorTest'
               --tests 'dev.tramai.build.quality.ResolvedDependencyAggregateTest'
-            expected: 278
+            expected: 297
 
     steps:
       - name: Checkout

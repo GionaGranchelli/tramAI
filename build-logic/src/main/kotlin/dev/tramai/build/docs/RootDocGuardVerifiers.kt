@@ -1,6 +1,5 @@
 package dev.tramai.build.docs
 
-import dev.tramai.build.quality.TramaiVersions
 import java.io.File
 
 /*
@@ -15,10 +14,6 @@ import java.io.File
  * These objects are deliberately pure Kotlin — no Gradle types beyond
  * [File] — so they can be unit-tested without TestKit and driven by the
  * thin typed task ([DocsContractVerifierTask]).
- *
- * Release-scoped version assertions (verifyVersionAlignment) additionally
- * distinguish a promoted release from a `-SNAPSHOT` development line: see
- * [versionAlignment].
  */
 
 /** Shared section-extraction helper used by the example-guide and comparison verifiers. */
@@ -577,7 +572,7 @@ object RootDocGuardVerifiers {
         }
         // This example consumes published artifacts, so the section must name the last promoted
         // release. Deriving it keeps the guard honest across release cuts; the literal it replaced
-        // had gone stale and made the full release closure red on the Epic base.
+        // had gone stale and made the full release closure red on master.
         val promotedRelease = promotedReleaseVersion(rootDir)
         require(ktSection.contains(promotedRelease)) {
             "Kotlin Spring Boot Example section must name the last promoted release " +
@@ -1020,15 +1015,174 @@ object RootDocGuardVerifiers {
         }
     }
 
-    /**
-     * Verifies the repository version surfaces. The contract lives in [VersionAlignmentVerifier];
-     * this member keeps the task-facing entry point and its name.
-     */
+/** verifyVersionAlignment (root build.gradle.kts @ 66198f33, lines 4287–4453). */
     fun versionAlignment(
         rootDir: File,
         expectedVersion: String,
         expectedReleaseDate: String,
-    ) = verifyVersionAlignmentSurfaces(rootDir, expectedVersion, expectedReleaseDate)
+    ) {
+        // 1. gradle.properties contains exactly tramaiVersion=<expectedVersion>
+        val propsFile = File(rootDir, "gradle.properties")
+        require(propsFile.isFile) { "Missing gradle.properties" }
+        val propsText = propsFile.readText()
+        val committedVersion =
+            propsText
+                .lineSequence()
+                .single { it.startsWith("tramaiVersion=") }
+                .substringAfter("=")
+                .trim()
+        require(committedVersion == expectedVersion) {
+            "gradle.properties must set tramaiVersion exactly to $expectedVersion, got '$committedVersion'"
+        }
+
+        // 2. Build fallback is expectedVersion
+        val buildFile = File(rootDir, "build.gradle.kts")
+        val buildText = buildFile.readText()
+        require(buildText.contains("orElse(\"$expectedVersion\")")) {
+            "build.gradle.kts fallback must be $expectedVersion"
+        }
+
+        // 3. CHANGELOG.md has ## Unreleased present above a dated expectedVersion section
+        val changelog = File(rootDir, "CHANGELOG.md")
+        val changelogText = changelog.readText()
+        require(changelogText.contains("## Unreleased")) {
+            "CHANGELOG.md must retain ## Unreleased heading"
+        }
+        // After promotion, ## Unreleased is immediately followed by ## <expectedVersion>
+        val afterUnreleased = changelogText.substringAfter("## Unreleased")
+        require(afterUnreleased.contains("## $expectedVersion - $expectedReleaseDate")) {
+            "CHANGELOG.md must contain a dated $expectedVersion section after ## Unreleased"
+        }
+
+        // 5. No active <expectedVersion>-SNAPSHOT references remain
+        val snapshotGradleCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:0\.5\.0-SNAPSHOT""")
+        val snapshotMavenVersion = Regex("""<version>\s*0\.5\.0-SNAPSHOT\s*</version>""")
+        val snapshotVariable = Regex("""tramaiVersion\s*=\s*"0\.5\.0-SNAPSHOT"""")
+
+        // 6. 0.4.0 remains documented as the previous release where relevant
+        val statusDoc = File(rootDir, "docs/STATUS.md")
+        val statusText = statusDoc.readText()
+        require(statusText.contains("0.4.0") && statusText.contains("Latest published release")) {
+            "STATUS.md must identify 0.4.0 as latest published release"
+        }
+
+        // 7. The roadmap identifies the completed expectedVersion train
+        val roadmap = File(rootDir, "docs/POST-SOVEREIGNTY-ROADMAP.md")
+        val roadmapText = roadmap.readText()
+        require(roadmapText.contains("Release train: TramAI $expectedVersion")) {
+            "Roadmap must identify release train $expectedVersion"
+        }
+        require(roadmapText.contains("$expectedVersion release")) {
+            "Roadmap must reference $expectedVersion release"
+        }
+        // 7b. Roadmap tables use valid Markdown (no line starting with ||)
+        require(!roadmapText.lineSequence().any { it.trimStart().startsWith("||") }) {
+            "Roadmap contains malformed Markdown table rows beginning with '||' — pipe prefixes must be a single |"
+        }
+
+        // 8. Release notes and readiness documents exist
+        require(File(rootDir, "docs/releases/$expectedVersion-release-readiness.md").isFile) {
+            "Missing $expectedVersion release-readiness document"
+        }
+        require(File(rootDir, "docs/releases/sovereign-runtime-release-readiness.md").isFile) {
+            "Missing sovereign-runtime release-readiness document"
+        }
+
+        // 9. Consumer docs use expectedVersion for active coordinates (historical records excluded)
+        val consumerDocs =
+            listOf(
+                "README.md",
+                "docs/guides/getting-started.md",
+                "docs/guides/quickstart.md",
+                "docs/guides/spring-boot.md",
+                "docs/guides/standalone-usage.md",
+                "docs/guides/tutorial-invoice-analyzer.md",
+                "docs/module-guide.md",
+                "docs/STATUS.md",
+                "docs/POST-SOVEREIGNTY-ROADMAP.md",
+                "docs/reference/releasing.md",
+                "examples/README.md",
+                "examples/support-agent/build.gradle.kts",
+                "examples/kotlin-springboot-example/build.gradle.kts",
+                "examples/kotlin-native-smoke-example/build.gradle.kts",
+                "examples/sovereign-runtime-consumer-smoke/build.gradle.kts",
+                "examples/spring-sovereign-starter/build.gradle.kts",
+            )
+        // Also check all module docs
+        val moduleDocsDir = File(rootDir, "docs/modules")
+        val moduleDocs =
+            if (moduleDocsDir.isDirectory) {
+                moduleDocsDir
+                    .listFiles()
+                    .orEmpty()
+                    .filter { it.name.endsWith(".md") }
+                    .map { it.path }
+            } else {
+                emptyList()
+            }
+        val allConsumerDocs = consumerDocs + moduleDocs
+
+        // Historical allowlist - old release records
+        val historicalAllowlist =
+            setOf(
+                "docs/releases/CHANGELOG-0.3.1.md",
+                "docs/releases/CHANGELOG-0.4.0.md",
+                "docs/guides/secure-defaults-migration.md",
+                "docs/reference/release-0.1.0.md",
+            )
+
+        for (path in allConsumerDocs) {
+            val f = File(rootDir, path)
+            if (!f.isFile) continue
+            if (f.canonicalPath in historicalAllowlist.map { File(rootDir, it).canonicalPath }) continue
+            val content = f.readText()
+
+            // No stale SNAPSHOT references in active docs
+            require(!snapshotGradleCoordinate.containsMatchIn(content)) {
+                "Consumer doc $path still contains dev.tramai:*:0.5.0-SNAPSHOT dependency reference"
+            }
+            require(!snapshotMavenVersion.containsMatchIn(content)) {
+                "Consumer doc $path still contains Maven <version>0.5.0-SNAPSHOT</version>"
+            }
+            require(!snapshotVariable.containsMatchIn(content)) {
+                "Consumer doc $path still contains tramaiVersion = \"0.5.0-SNAPSHOT\""
+            }
+
+            // Reject any stale Gradle coordinates (dev.tramai:*:x.y.z where x.y.z != expectedVersion)
+            val gradleCoordinatePattern =
+                Regex("""dev\.tramai:[a-z0-9-]+:([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)""")
+            val staleGradleCoords =
+                gradleCoordinatePattern
+                    .findAll(content)
+                    .filter { it.groupValues[1] != expectedVersion }
+                    .map { it.value }
+                    .toList()
+            require(staleGradleCoords.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Gradle coordinates: ${staleGradleCoords.joinToString()}"
+            }
+
+            // Reject any stale Maven versions in dev.tramai dependency blocks
+            val mavenDevTramaiDependency =
+                Regex(
+                    """<groupId>dev\.tramai</groupId>.*?<version>\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)\s*</version>""",
+                    setOf(RegexOption.DOT_MATCHES_ALL),
+                )
+            val staleMvnVersions =
+                mavenDevTramaiDependency
+                    .findAll(content)
+                    .filter { it.groupValues[1] != expectedVersion }
+                    .map { it.value }
+                    .toList()
+            require(staleMvnVersions.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Maven versions: ${staleMvnVersions.joinToString()}"
+            }
+        }
+
+        // 10. No malformed Markdown tables or prohibited claims
+        require(!roadmapText.lineSequence().any { it.trimStart().startsWith("||") }) {
+            "Roadmap contains malformed Markdown table rows beginning with '||'"
+        }
+    }
 
 /** verifyToolGovernanceExample (root build.gradle.kts @ 66198f33, lines 4459–4526). */
     fun moduleDocContract(rootDir: File): List<dev.tramai.build.quality.VerificationDiagnostic> =
