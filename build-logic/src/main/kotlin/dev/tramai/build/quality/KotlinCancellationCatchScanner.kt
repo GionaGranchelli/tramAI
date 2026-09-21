@@ -579,7 +579,7 @@ object KotlinCancellationCatchScanner {
                 }
 
                 LexState.RAW_STRING -> {
-                    if (c == '"' && i + 2 < source.length && source[i + 1] == '"' && source[i + 2] == '"') {
+                    if (startsRawStringAt(source, i)) {
                         closeSpan(i + 3)
                         state = LexState.CODE
                         i += 2
@@ -591,6 +591,14 @@ object KotlinCancellationCatchScanner {
         closeSpan(source.length)
         return SourceIndex(openOffsets, closeOffsets, codeMask, lineStarts.toIntArray())
     }
+
+    /**
+     * True when a triple-quote raw-string delimiter starts at [offset]. Pure: reads [source] only.
+     * Extracted from the lexical walk so the close condition keeps its original operands (bounds
+     * check plus delimiter match) without tripping the condition-complexity threshold.
+     */
+    private fun startsRawStringAt(source: String, offset: Int): Boolean =
+        offset + 2 < source.length && source.startsWith("\"\"\"", offset)
 
     /** Previous executable-code offset before [offset], or -1. */
     private fun previousCodeOffset(
