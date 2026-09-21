@@ -88,7 +88,6 @@ object KotlinCancellationCatchScanner {
                         rethrowsCancellation -> "accepted"
                         inSuspend && transformsException -> "high"
                         inSuspend -> "critical"
-                        !inSuspend -> "medium"
                         else -> "medium"
                     }
 
