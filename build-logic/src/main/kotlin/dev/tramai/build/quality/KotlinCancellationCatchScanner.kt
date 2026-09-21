@@ -589,11 +589,10 @@ object KotlinCancellationCatchScanner {
                 }
 
                 LexState.RAW_STRING -> {
-                    if (startsRawStringAt(source, i)) {
-                        closeSpan(i + 3)
-                        state = LexState.CODE
-                        i += 2
-                    }
+                    val transition = advanceRawString(source, i)
+                    transition.closeSpanAt?.let { closeSpan(it) }
+                    state = transition.state
+                    i += transition.consumed
                 }
             }
             i++
@@ -617,6 +616,18 @@ object KotlinCancellationCatchScanner {
             LexTransition(state = LexState.CODE, closeSpanAt = offset)
         } else {
             LexTransition(LexState.LINE_COMMENT)
+        }
+
+    /**
+     * RAW_STRING handling for the character at absolute [offset]: a closing triple quote consumes
+     * two further characters and closes the span three characters past the delimiter start. The
+     * asymmetry against [advanceLineComment] is the original behaviour, preserved literally.
+     */
+    private fun advanceRawString(source: String, offset: Int): LexTransition =
+        if (startsRawStringAt(source, offset)) {
+            LexTransition(state = LexState.CODE, consumed = 2, closeSpanAt = offset + 3)
+        } else {
+            LexTransition(LexState.RAW_STRING)
         }
 
     /**
