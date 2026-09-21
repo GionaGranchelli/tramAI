@@ -523,14 +523,21 @@ object KotlinCancellationCatchScanner {
                     }
                 }
 
-                LexState.LINE_COMMENT -> applyTransition(advanceLineComment(source, i))
+                LexState.LINE_COMMENT -> {
+                    applyTransition(advanceLineComment(source, i))
+                }
 
-                LexState.BLOCK_COMMENT ->
+                LexState.BLOCK_COMMENT -> {
                     applyTransition(advanceBlockComment(source, i, blockCommentDepth))
+                }
 
-                LexState.STRING, LexState.CHAR -> applyTransition(advanceQuoted(source, i, state))
+                LexState.STRING, LexState.CHAR -> {
+                    applyTransition(advanceQuoted(source, i, state))
+                }
 
-                LexState.RAW_STRING -> applyTransition(advanceRawString(source, i))
+                LexState.RAW_STRING -> {
+                    applyTransition(advanceRawString(source, i))
+                }
             }
             i++
         }
@@ -554,7 +561,10 @@ object KotlinCancellationCatchScanner {
      * LINE_COMMENT handling for the character at absolute [offset]: a newline closes the span at
      * that offset and returns to code; any other character stays inside the line comment.
      */
-    private fun advanceLineComment(source: String, offset: Int): LexTransition =
+    private fun advanceLineComment(
+        source: String,
+        offset: Int,
+    ): LexTransition =
         if (source[offset] == '\n') {
             LexTransition(state = LexState.CODE, closeSpanAt = offset)
         } else {
@@ -566,7 +576,10 @@ object KotlinCancellationCatchScanner {
      * two further characters and closes the span three characters past the delimiter start. The
      * asymmetry against [advanceLineComment] is the original behaviour, preserved literally.
      */
-    private fun advanceRawString(source: String, offset: Int): LexTransition =
+    private fun advanceRawString(
+        source: String,
+        offset: Int,
+    ): LexTransition =
         if (startsRawStringAt(source, offset)) {
             LexTransition(state = LexState.CODE, consumed = 2, closeSpanAt = offset + 3)
         } else {
@@ -579,9 +592,16 @@ object KotlinCancellationCatchScanner {
      * other character stays inside the literal. The branch is shared by both states, so the incoming
      * state is the only extra input — no new transition fields are needed.
      */
-    private fun advanceQuoted(source: String, offset: Int, state: LexState): LexTransition =
+    private fun advanceQuoted(
+        source: String,
+        offset: Int,
+        state: LexState,
+    ): LexTransition =
         when {
-            source[offset] == '\\' -> LexTransition(state = state, consumed = 1)
+            source[offset] == '\\' -> {
+                LexTransition(state = state, consumed = 1)
+            }
+
             state == LexState.STRING && source[offset] == '"' -> {
                 LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
             }
@@ -590,32 +610,43 @@ object KotlinCancellationCatchScanner {
                 LexTransition(state = LexState.CODE, closeSpanAt = offset + 1)
             }
 
-            else -> LexTransition(state = state)
+            else -> {
+                LexTransition(state = state)
+            }
         }
 
     /** True when a nested block-comment opener starts at [offset]. */
-    private fun startsBlockCommentAt(source: String, offset: Int): Boolean =
-        source.startsWith("/*", offset)
+    private fun startsBlockCommentAt(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("/*", offset)
 
     /** True when a block-comment closer starts at [offset]. */
-    private fun endsBlockCommentAt(source: String, offset: Int): Boolean =
-        source.startsWith("*/", offset)
+    private fun endsBlockCommentAt(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("*/", offset)
 
     /**
      * BLOCK_COMMENT handling for the character at absolute [offset] at nesting [depth]: `/*` nests
      * one level deeper, `*/` unwinds one level and returns to code when the outermost closes. Both
      * delimiter cases consume one further character, matching the original inner i++.
      */
-    private fun advanceBlockComment(source: String, offset: Int, depth: Int): LexTransition =
+    private fun advanceBlockComment(
+        source: String,
+        offset: Int,
+        depth: Int,
+    ): LexTransition =
         when {
-            startsBlockCommentAt(source, offset) ->
+            startsBlockCommentAt(source, offset) -> {
                 LexTransition(
                     state = LexState.BLOCK_COMMENT,
                     consumed = 1,
                     blockCommentDepth = depth + 1,
                 )
+            }
 
-            endsBlockCommentAt(source, offset) ->
+            endsBlockCommentAt(source, offset) -> {
                 if (depth == 1) {
                     LexTransition(
                         state = LexState.CODE,
@@ -630,50 +661,65 @@ object KotlinCancellationCatchScanner {
                         blockCommentDepth = depth - 1,
                     )
                 }
+            }
 
-            else -> LexTransition(state = LexState.BLOCK_COMMENT)
+            else -> {
+                LexTransition(state = LexState.BLOCK_COMMENT)
+            }
         }
 
     /** True when a line-comment opener starts at [offset]. */
-    private fun isLineCommentStart(source: String, offset: Int): Boolean =
-        source.startsWith("//", offset)
+    private fun isLineCommentStart(
+        source: String,
+        offset: Int,
+    ): Boolean = source.startsWith("//", offset)
 
     /**
      * The five lexical mode entries reachable from CODE, in the original precedence order:
      * line comment, block comment, raw string, string, char. Bracket handling is deliberately not
      * part of this and is not representable as a transition.
      */
-    private fun advanceCode(source: String, offset: Int): LexTransition? =
+    private fun advanceCode(
+        source: String,
+        offset: Int,
+    ): LexTransition? =
         when {
-            isLineCommentStart(source, offset) ->
+            isLineCommentStart(source, offset) -> {
                 LexTransition(
                     state = LexState.LINE_COMMENT,
                     consumed = 1,
                     spanStartAt = offset,
                 )
+            }
 
-            startsBlockCommentAt(source, offset) ->
+            startsBlockCommentAt(source, offset) -> {
                 LexTransition(
                     state = LexState.BLOCK_COMMENT,
                     consumed = 1,
                     spanStartAt = offset,
                     blockCommentDepth = 1,
                 )
+            }
 
-            startsRawStringAt(source, offset) ->
+            startsRawStringAt(source, offset) -> {
                 LexTransition(
                     state = LexState.RAW_STRING,
                     consumed = 2,
                     spanStartAt = offset,
                 )
+            }
 
-            source[offset] == '"' ->
+            source[offset] == '"' -> {
                 LexTransition(state = LexState.STRING, spanStartAt = offset)
+            }
 
-            source[offset] == '\'' ->
+            source[offset] == '\'' -> {
                 LexTransition(state = LexState.CHAR, spanStartAt = offset)
+            }
 
-            else -> null
+            else -> {
+                null
+            }
         }
 
     /**
@@ -717,8 +763,10 @@ object KotlinCancellationCatchScanner {
      * Extracted from the lexical walk so the close condition keeps its original operands (bounds
      * check plus delimiter match) without tripping the condition-complexity threshold.
      */
-    private fun startsRawStringAt(source: String, offset: Int): Boolean =
-        offset + 2 < source.length && source.startsWith("\"\"\"", offset)
+    private fun startsRawStringAt(
+        source: String,
+        offset: Int,
+    ): Boolean = offset + 2 < source.length && source.startsWith("\"\"\"", offset)
 
     /** Previous executable-code offset before [offset], or -1. */
     private fun previousCodeOffset(
@@ -856,7 +904,11 @@ object KotlinCancellationCatchScanner {
      * The catch variable name when the parameter list's catch type ends in CancellationException,
      * null for any other type or an unparsable parameter.
      */
-    private fun cancellationCatchVariable(source: String, paramOpen: Int, paramClose: Int): String? =
+    private fun cancellationCatchVariable(
+        source: String,
+        paramOpen: Int,
+        paramClose: Int,
+    ): String? =
         catchParameterPattern
             .find(source.substring(paramOpen + 1, paramClose).trim())
             ?.takeIf { it.groupValues[2].substringAfterLast('.') == "CancellationException" }
@@ -864,7 +916,10 @@ object KotlinCancellationCatchScanner {
             ?.get(1)
 
     /** A structurally resolved cancellation catch clause: its variable name and body bounds. */
-    private data class ParsedCatchClause(val variable: String, val body: IntRange)
+    private data class ParsedCatchClause(
+        val variable: String,
+        val body: IntRange,
+    )
 
     /** Parses the clause at [keywordOffset]; null when incomplete or not a CancellationException. */
     private fun parseCancellationCatchClause(
