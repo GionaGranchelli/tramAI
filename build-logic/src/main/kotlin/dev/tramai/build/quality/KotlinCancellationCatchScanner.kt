@@ -816,6 +816,50 @@ object KotlinCancellationCatchScanner {
         }
     }
 
+    /** Bounds of the `( ... )` catch parameter list following the keyword, or null. */
+    private fun catchParameterBounds(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): IntRange? =
+        codeOffsetOf(source, index, keywordOffset + "catch".length, '(')
+            ?.let { paramOpen -> index.closeOffsets[paramOpen]?.let { paramClose -> paramOpen..paramClose } }
+
+    /** Bounds of the `{ ... }` catch body following the parameter list, or null. */
+    private fun catchBodyBounds(
+        source: String,
+        index: SourceIndex,
+        paramClose: Int,
+    ): IntRange? =
+        codeOffsetOf(source, index, paramClose + 1, '{')
+            ?.let { bodyOpen -> index.closeOffsets[bodyOpen]?.let { bodyClose -> bodyOpen..bodyClose } }
+
+    /**
+     * The catch variable name when the parameter list's catch type ends in CancellationException,
+     * null for any other type or an unparsable parameter.
+     */
+    private fun cancellationCatchVariable(source: String, paramOpen: Int, paramClose: Int): String? =
+        catchParameterPattern
+            .find(source.substring(paramOpen + 1, paramClose).trim())
+            ?.takeIf { it.groupValues[2].substringAfterLast('.') == "CancellationException" }
+            ?.groupValues
+            ?.get(1)
+
+    /** A structurally resolved cancellation catch clause: its variable name and body bounds. */
+    private data class ParsedCatchClause(val variable: String, val body: IntRange)
+
+    /** Parses the clause at [keywordOffset]; null when incomplete or not a CancellationException. */
+    private fun parseCancellationCatchClause(
+        source: String,
+        index: SourceIndex,
+        keywordOffset: Int,
+    ): ParsedCatchClause? =
+        catchParameterBounds(source, index, keywordOffset)?.let { params ->
+            cancellationCatchVariable(source, params.first, params.last)?.let { variable ->
+                catchBodyBounds(source, index, params.last)?.let { ParsedCatchClause(variable, it) }
+            }
+        }
+
     /**
      * True when the catch clause opening at [keywordOffset] catches
      * CancellationException and its body throws that clause's own catch
@@ -828,18 +872,10 @@ object KotlinCancellationCatchScanner {
         index: SourceIndex,
         keywordOffset: Int,
     ): Boolean {
-        val paramOpen = codeOffsetOf(source, index, keywordOffset + "catch".length, '(') ?: return false
-        val paramClose = index.closeOffsets[paramOpen] ?: return false
-        val parameter = source.substring(paramOpen + 1, paramClose).trim()
-        val parsed = catchParameterPattern.find(parameter) ?: return false
-        val variable = parsed.groupValues[1]
-        if (parsed.groupValues[2].substringAfterLast('.') != "CancellationException") return false
-
-        val bodyOpen = codeOffsetOf(source, index, paramClose + 1, '{') ?: return false
-        val bodyClose = index.closeOffsets[bodyOpen] ?: return false
-        val throwOwnVariable = Regex("""\bthrow\s+${Regex.escape(variable)}\s*[;}]?\s*$""")
+        val clause = parseCancellationCatchClause(source, index, keywordOffset) ?: return false
+        val throwOwnVariable = Regex("""\bthrow\s+${Regex.escape(clause.variable)}\s*[;}]?\s*$""")
         return source
-            .substring(bodyOpen, bodyClose + 1)
+            .substring(clause.body.first, clause.body.last + 1)
             .lines()
             .any { throwOwnVariable.containsMatchIn(stripComment(it)) }
     }
