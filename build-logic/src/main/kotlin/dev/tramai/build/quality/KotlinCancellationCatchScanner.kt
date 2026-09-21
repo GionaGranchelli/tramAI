@@ -551,10 +551,10 @@ object KotlinCancellationCatchScanner {
                 }
 
                 LexState.LINE_COMMENT -> {
-                    if (c == '\n') {
-                        closeSpan(i)
-                        state = LexState.CODE
-                    }
+                    val transition = advanceLineComment(source, i)
+                    transition.closeSpanAt?.let { closeSpan(it) }
+                    state = transition.state
+                    i += transition.consumed
                 }
 
                 LexState.BLOCK_COMMENT -> {
@@ -600,6 +600,24 @@ object KotlinCancellationCatchScanner {
         }
         closeSpan(source.length)
     }
+
+    /** Minimal state-transition description for a single lexical step. */
+    private data class LexTransition(
+        val state: LexState,
+        val consumed: Int = 0,
+        val closeSpanAt: Int? = null,
+    )
+
+    /**
+     * LINE_COMMENT handling for the character at absolute [offset]: a newline closes the span at
+     * that offset and returns to code; any other character stays inside the line comment.
+     */
+    private fun advanceLineComment(source: String, offset: Int): LexTransition =
+        if (source[offset] == '\n') {
+            LexTransition(state = LexState.CODE, closeSpanAt = offset)
+        } else {
+            LexTransition(LexState.LINE_COMMENT)
+        }
 
     /**
      * Line start offsets of [source], including offset 0. Independent preparation pass: it reads
