@@ -731,23 +731,19 @@ object KotlinCancellationCatchScanner {
         return i
     }
 
-    /** First [target] code character at/after [from]; null if other code intervenes. */
+    /**
+     * The first non-whitespace code character at or after [from]: its offset when it equals
+     * [target], null when some other code character intervenes or none is found.
+     */
     private fun codeOffsetOf(
         source: String,
         index: SourceIndex,
         from: Int,
         target: Char,
     ): Int? {
-        var i = from
-        while (i < source.length) {
-            if (index.codeMask[i]) {
-                val c = source[i]
-                if (c == target) return i
-                if (!c.isWhitespace()) return null
-            }
-            i++
-        }
-        return null
+        val firstCodeChar =
+            (from until source.length).firstOrNull { index.codeMask[it] && !source[it].isWhitespace() }
+        return firstCodeChar?.takeIf { source[it] == target }
     }
 
     /** True when [keyword] ends exactly at [offset] as a standalone token. */
