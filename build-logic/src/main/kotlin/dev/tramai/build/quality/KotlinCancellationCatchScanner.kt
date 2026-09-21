@@ -474,7 +474,21 @@ object KotlinCancellationCatchScanner {
         val openOffsets = HashMap<Int, Int>()
         val closeOffsets = HashMap<Int, Int>()
         val codeMask = BooleanArray(source.length) { true }
-        val lineStarts = buildLineStarts(source)
+        scanSourceStructure(source, openOffsets, closeOffsets, codeMask)
+        return SourceIndex(openOffsets, closeOffsets, codeMask, buildLineStarts(source))
+    }
+
+    /**
+     * The lexical walk: bracket pairing and code mask. Owns every piece of lexical state
+     * (stack, state, blockCommentDepth, spanStart, i) plus span closing; the output containers
+     * are passed in and written exactly as before.
+     */
+    private fun scanSourceStructure(
+        source: String,
+        openOffsets: HashMap<Int, Int>,
+        closeOffsets: HashMap<Int, Int>,
+        codeMask: BooleanArray,
+    ) {
         val stack = ArrayDeque<Int>()
         var state = LexState.CODE
         var blockCommentDepth = 0
@@ -585,7 +599,6 @@ object KotlinCancellationCatchScanner {
             i++
         }
         closeSpan(source.length)
-        return SourceIndex(openOffsets, closeOffsets, codeMask, lineStarts)
     }
 
     /**
