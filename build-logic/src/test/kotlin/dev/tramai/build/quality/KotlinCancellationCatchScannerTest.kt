@@ -490,50 +490,17 @@ class KotlinCancellationCatchScannerTest {
 
     // ── Regression tests requested in PR #203 review ──
 
-    @Test
-    fun `project and directory contexts produce identical findings`(
-        @TempDir tempDir: Path,
-    ) {
-        val sourceCode =
-            """
-            suspend fun riskyOperation() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    if (e is java.util.concurrent.CancellationException) {
-                        throw e
-                    }
-                    handleError(e)
-                }
-            }
-            
-            fun regularFunction() {
-                try {
-                    doSomething()
-                } catch (e: Exception) {
-                    logError(e)
-                }
-            }
-            
-            suspend fun anotherSuspend() {
-                runCatching {
-                    doSomething()
-                }
-            }
-            """.trimIndent()
-
-        // Create a minimal module structure in temp dir
+    /** Writes [sourceCode] as a discoverable module in [tempDir] and returns the two scans. */
+    private fun scanBothContexts(
+        tempDir: Path,
+        sourceCode: String,
+    ): Pair<List<CancellationCatchFinding>, List<CancellationCatchFinding>> {
         val srcDir = tempDir.resolve("src/main/kotlin").toFile()
         srcDir.mkdirs()
-        val sourceFile = File(srcDir, "TestModule.kt")
-        sourceFile.writeText(sourceCode)
+        File(srcDir, "TestModule.kt").writeText(sourceCode)
 
-        // Create a minimal build file so directory discovery finds it
         File(tempDir.toFile(), "build.gradle.kts").writeText("")
-        // Create minimal settings
-        File(tempDir.toFile(), "settings.gradle.kts").writeText(
-            """include("test-module")""",
-        )
+        File(tempDir.toFile(), "settings.gradle.kts").writeText("""include("test-module")""")
         val moduleDir = tempDir.resolve("test-module").toFile()
         moduleDir.mkdirs()
         File(moduleDir, "build.gradle.kts").writeText("")
@@ -541,23 +508,30 @@ class KotlinCancellationCatchScannerTest {
         moduleSrcDir.mkdirs()
         File(moduleSrcDir, "TestModule.kt").writeText(sourceCode)
 
-        // Scan via CancellationCatchInventory with MeasurementContext.fromDirectory
-        val dirCtx = MeasurementContext.fromDirectory(tempDir.toFile())
         val dirFindings =
-            CancellationCatchInventory(dirCtx)
+            CancellationCatchInventory(MeasurementContext.fromDirectory(tempDir.toFile()))
                 .inventory()
                 .filter { it.file.contains("TestModule.kt") }
                 .sortedBy { "${it.function}::${it.catchType}" }
-
-        // Direct scan of the same source (bypassing inventory, pure scanner)
         val directFindings =
             KotlinCancellationCatchScanner
-                .scan(
-                    sourceCode,
-                    "test-module",
-                    "test-module/src/main/kotlin/TestModule.kt",
-                ).sortedBy { "${it.function}::${it.catchType}" }
+                .scan(sourceCode, "test-module", "test-module/src/main/kotlin/TestModule.kt")
+                .sortedBy { "${it.function}::${it.catchType}" }
+        return dirFindings to directFindings
+    }
 
+    /** Directory discovery and a direct scan must agree, and agree on the expected scenarios. */
+    private fun assertDirectoryScanMatches(
+        tempDir: Path,
+        sourceCode: String,
+        expected: List<Pair<String, String>>,
+    ) {
+        val (dirFindings, directFindings) = scanBothContexts(tempDir, sourceCode)
+        assertEquals(
+            expected,
+            directFindings.map { it.function to it.catchType },
+            "Direct scan should find exactly the expected scenarios",
+        )
         assertEquals(
             directFindings.size,
             dirFindings.size,
@@ -572,6 +546,61 @@ class KotlinCancellationCatchScannerTest {
                 "Risk mismatch for ${directFindings[i].function}::${directFindings[i].catchType}",
             )
         }
+    }
+
+    @Test
+    fun `directory discovery matches direct scan for an accepted cancellation rethrow`(
+        @TempDir tempDir: Path,
+    ) {
+        val sourceCode =
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (e is java.util.concurrent.CancellationException) {
+                        throw e
+                    }
+                    handleError(e)
+                }
+            }
+            """.trimIndent()
+
+        assertDirectoryScanMatches(tempDir, sourceCode, listOf("riskyOperation" to "Exception"))
+    }
+
+    @Test
+    fun `directory discovery matches direct scan for a broad catch without rethrow`(
+        @TempDir tempDir: Path,
+    ) {
+        val sourceCode =
+            """
+            fun regularFunction() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e)
+                }
+            }
+            """.trimIndent()
+
+        assertDirectoryScanMatches(tempDir, sourceCode, listOf("regularFunction" to "Exception"))
+    }
+
+    @Test
+    fun `directory discovery matches direct scan for runCatching in suspend`(
+        @TempDir tempDir: Path,
+    ) {
+        val sourceCode =
+            """
+            suspend fun anotherSuspend() {
+                runCatching {
+                    doSomething()
+                }
+            }
+            """.trimIndent()
+
+        assertDirectoryScanMatches(tempDir, sourceCode, listOf("anotherSuspend" to "runCatching"))
     }
 
     // ─── Deviation scope matching tests ───
