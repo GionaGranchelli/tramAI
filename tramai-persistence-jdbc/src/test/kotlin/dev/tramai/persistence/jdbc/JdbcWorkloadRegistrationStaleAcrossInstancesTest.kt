@@ -78,7 +78,7 @@ class JdbcWorkloadRegistrationStaleAcrossInstancesTest {
                     WorkloadRegistrationFixtures.metadata(owner = "Instance B"),
                 )
             assertThat(committedByB).isInstanceOf(MetadataUpdateOutcome.Applied::class.java)
-            val currentByB = (committedByB as MetadataUpdateOutcome.Applied).registration.stateVersion
+            val currentByB = (committedByB as MetadataUpdateOutcome.Applied).exposure.stateVersion
             assertThat(currentByB).isEqualTo(observedByA.next())
 
             // A submits the version it read: precondition failure naming B's committed version.
@@ -145,7 +145,7 @@ class JdbcWorkloadRegistrationStaleAcrossInstancesTest {
                 )
 
             assertThat(recovered).isInstanceOf(MetadataUpdateOutcome.Applied::class.java)
-            val advanced = (recovered as MetadataUpdateOutcome.Applied).registration.stateVersion
+            val advanced = (recovered as MetadataUpdateOutcome.Applied).exposure.stateVersion
             assertThat(advanced).isEqualTo(current.next())
             assertThat(owner(writer, scope)).isEqualTo("Reconciled Writer")
         }
@@ -156,5 +156,5 @@ class JdbcWorkloadRegistrationStaleAcrossInstancesTest {
     ): String =
         authority
             .authoritative(scope.workloadId, scope.environmentId, scope.deploymentId)!!
-            .registration.metadata.owner
+            .exposure.metadata.owner
 }

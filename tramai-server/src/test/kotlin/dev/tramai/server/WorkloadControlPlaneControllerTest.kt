@@ -41,6 +41,20 @@ class WorkloadControlPlaneControllerTest
         private val objectMapper: ObjectMapper,
         private val authority: WorkloadRegistrationAuthority,
     ) {
+        private val approvedResponseProperties =
+            setOf(
+                "workloadId",
+                "configurationId",
+                "configurationVersion",
+                "environmentId",
+                "deploymentId",
+                "owner",
+                "purpose",
+                "lifecycle",
+                "stateVersion",
+                "consistency",
+            )
+
         // Kotlin classes are final, so CGLIB proxying is unavailable: mirror the production
         // configuration convention and turn it off explicitly.
         @TestConfiguration(proxyBeanMethods = false)
@@ -222,6 +236,67 @@ class WorkloadControlPlaneControllerTest
         }
 
         @Test
+        fun `every successful control-plane response has the exact safe shape and no fingerprint`() {
+            val scope =
+                WorkloadRegistrationFixtures.identity(
+                    configurationId = "exact-shape-config",
+                    deployment = "exact-shape-deployment",
+                )
+            val sentinel = "sha256:SENTINEL-0.7.1f-FINGERPRINT"
+
+            fun assertShape(body: String) {
+                val json = objectMapper.readTree(body)
+                assertThat(json.fieldNames().asSequence().toSet()).isEqualTo(approvedResponseProperties)
+                assertThat(body).doesNotContain(sentinel)
+            }
+
+            mockMvc
+                .post("/control-plane/workloads") {
+                    contentType = MediaType.APPLICATION_JSON
+                    content = registration(scope, sentinel)
+                }.andExpect { status { isCreated() } }
+                .andReturn()
+                .response.contentAsString
+                .let(::assertShape)
+
+            mockMvc
+                .post("/control-plane/workloads") {
+                    contentType = MediaType.APPLICATION_JSON
+                    content = registration(scope, sentinel)
+                }.andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let(::assertShape)
+
+            mockMvc
+                .get(path(scope))
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let(::assertShape)
+
+            mockMvc
+                .put(path(scope, "metadata")) {
+                    header("If-Match", "\"1\"")
+                    contentType = MediaType.APPLICATION_JSON
+                    content = metadata("safe-owner")
+                }.andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let(::assertShape)
+
+            mockMvc
+                .put(path(scope, "lifecycle")) {
+                    header("If-Match", "\"2\"")
+                    contentType = MediaType.APPLICATION_JSON
+                    content = "{\"target\":\"SUSPENDED\"}"
+                }.andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let(::assertShape)
+        }
+
+        @Test
         fun `an explicitly present empty If-Match is 400 rather than 428 and mutates nothing`() {
             val scope = register("empty-if-match")
             val ownerBefore = currentOwner(scope)
@@ -269,7 +344,7 @@ class WorkloadControlPlaneControllerTest
                         version,
                         WorkloadRegistrationFixtures.metadata(owner = "owner-${version.value}"),
                     )
-                version = (outcome as MetadataUpdateOutcome.Applied).registration.stateVersion
+                version = (outcome as MetadataUpdateOutcome.Applied).exposure.stateVersion
             }
             Unit
         }
@@ -295,7 +370,7 @@ class WorkloadControlPlaneControllerTest
             runBlocking {
                 val read =
                     authority.authoritative(scope.workloadId, scope.environmentId, scope.deploymentId)
-                checkNotNull(read).registration.metadata.owner
+                checkNotNull(read).exposure.metadata.owner
             }
 
         private fun path(
@@ -309,7 +384,10 @@ class WorkloadControlPlaneControllerTest
 
         private fun metadata(owner: String): String = """{"owner":"$owner","purpose":"p"}"""
 
-        private fun registration(scope: WorkloadDeploymentIdentity): String =
+        private fun registration(
+            scope: WorkloadDeploymentIdentity,
+            fingerprint: String = "sha256:aaaa",
+        ): String =
             """
             {
               "workloadId": "${scope.workloadId.value}",
@@ -317,7 +395,7 @@ class WorkloadControlPlaneControllerTest
               "configurationVersion": "${scope.configuration.version.value}",
               "environmentId": "${scope.environmentId.value}",
               "deploymentId": "${scope.deploymentId.value}",
-              "configurationFingerprint": "sha256:aaaa",
+              "configurationFingerprint": "$fingerprint",
               "owner": "Owner",
               "purpose": "p"
             }

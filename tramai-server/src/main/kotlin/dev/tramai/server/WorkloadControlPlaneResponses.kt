@@ -1,7 +1,7 @@
 package dev.tramai.server
 
 import dev.tramai.controlplane.ClassifiedRead
-import dev.tramai.controlplane.RegisteredWorkload
+import dev.tramai.controlplane.WorkloadExposure
 import dev.tramai.controlplane.WorkloadStateVersion
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
@@ -25,21 +25,21 @@ internal fun okResponse(read: ClassifiedRead): ResponseEntity<Any> =
     ResponseEntity
         .ok()
         .eTag(workloadEtag(read.observedVersion))
-        .body(WorkloadRegistrationResponse.from(read.registration, read.consistency.name))
+        .body(WorkloadRegistrationResponse.from(read.exposure, read.consistency.name))
 
 /** A command outcome that changed nothing or applied exactly once; both are 200 with the ETag. */
-internal fun okResponse(registration: RegisteredWorkload): ResponseEntity<Any> =
+internal fun okResponse(exposure: WorkloadExposure): ResponseEntity<Any> =
     ResponseEntity
         .ok()
-        .eTag(workloadEtag(registration.stateVersion))
-        .body(WorkloadRegistrationResponse.from(registration))
+        .eTag(workloadEtag(exposure.stateVersion))
+        .body(WorkloadRegistrationResponse.from(exposure))
 
 /** A newly created registration is 201 with its ETag. */
-internal fun createdResponse(registration: RegisteredWorkload): ResponseEntity<Any> =
+internal fun createdResponse(exposure: WorkloadExposure): ResponseEntity<Any> =
     ResponseEntity
         .status(HttpStatus.CREATED)
-        .eTag(workloadEtag(registration.stateVersion))
-        .body(WorkloadRegistrationResponse.from(registration))
+        .eTag(workloadEtag(exposure.stateVersion))
+        .body(WorkloadRegistrationResponse.from(exposure))
 
 /**
  * Precondition failed (412): the version the command was conditioned on is no longer current.

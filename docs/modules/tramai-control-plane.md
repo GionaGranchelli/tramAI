@@ -38,6 +38,14 @@ lifecycle/metadata and state version?"* — durably and without silent overwrite
 Suspending/retiring a registration never cancels running workflows. RETIRED is terminal. `WorkloadStateVersion` advances on every successful
 authoritative mutation and never changes identity.
 
+### Safe exposure model (0.7.1f)
+
+`WorkloadExposure` is the single generic control-plane payload. It contains only deployment
+identity, bounded owner/purpose metadata, registration lifecycle, and state version. The
+`configurationFingerprint` is AUTHORITY-ONLY: it is the CAS/rebinding witness and is never exposed
+through generic queries, outcomes, or HTTP. `WorkloadRegistrationStore` remains the deliberate
+exception because its SPI must retain `RegisteredWorkload` for CAS.
+
 ### Thread-safety and concurrency
 
 - Every store mutation is atomic; every authority mutation is a version-guarded compare-and-set — stale writers lose, no last-writer-wins.
@@ -73,6 +81,8 @@ authoritative mutation and never changes identity.
 - Do not add a projection engine, a generic CQRS layer or arbitrary metadata maps: 0.7.1e ships the
   read classification (`QueryConsistency`, `ClassifiedRead`) and the read-only guarantee, not a
   projection store.
+- Do not expose `RegisteredWorkload` on a generic control-plane port or outcome, add `Map`/`Any`/
+  `JsonNode` to `WorkloadExposure`, or read an authority witness off a generic surface.
 - Do not re-implement registration, lifecycle or version rules in an adapter: `WorkloadRegistrationAuthority`
   implements `WorkloadControlPlaneCommands`/`WorkloadControlPlaneQueries` directly, so an adapter only
   parses transport input and maps typed outcomes. Reproducing `find -> compare -> mutate` outside the

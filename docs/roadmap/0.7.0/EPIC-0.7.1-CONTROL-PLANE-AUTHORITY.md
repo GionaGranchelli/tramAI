@@ -1,7 +1,7 @@
 # Epic 0.7.1 — Control-Plane Authority & Workload Identity
 
 **Branch:** `epic/0.7.1-control-plane-authority`  
-**Status:** 🟡 Active — 0.7.1a audit recorded in [TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md](TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md); 0.7.1b identity contract implemented in [TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md](TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md); 0.7.1c authoritative registration/state boundary implemented in [TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md](TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md)
+**Status:** 🟡 Active — 0.7.1a audit recorded in [TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md](TASK-0.7.1a-BASELINE-AUTHORITY-AUDIT.md); 0.7.1b identity contract implemented in [TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md](TASK-0.7.1b-WORKLOAD-IDENTITY-CONTRACT.md); 0.7.1c authoritative registration/state boundary implemented in [TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md](TASK-0.7.1c-AUTHORITATIVE-REGISTRATION-STATE-BOUNDARY.md); 0.7.1f safe exposure model implemented in [TASK-0.7.1f-SAFE-EXPOSURE-MODEL.md](TASK-0.7.1f-SAFE-EXPOSURE-MODEL.md)
 **Dependencies:** NONE
 
 ## Executive decision
@@ -50,7 +50,7 @@ stale privileged mutation cannot silently overwrite newer authoritative state
 | 0.7.1d | Run attribution | Persist/propagate workload+configuration identity through supported runs without ambiguity |
 | 0.7.1d1 | Governed approval identity carriage | Get both gateway creation paths onto the existing governed suspension path; carry framework-owned attribution through the approval lifecycle; enforce continuity at reconstruction (#418) |
 | 0.7.1e | Control-plane authority contract | Define query vs command boundaries, consistency classes and stale-precondition semantics |
-| 0.7.1f | Safe exposure model | Define default metadata categories; protected payloads have no generic query surface |
+| 0.7.1f | Safe exposure model | Implement the explicit `WorkloadExposure` safe exposure model; protected payloads have no generic query surface |
 | 0.7.1g | Evidence/compatibility proof | Typed identity/lifecycle evidence, API/TCK impact, adversarial and mutation proof |
 | 0.7.1h | Integration/docs | Update architecture/docs/reference fixtures and prove exact-head Epic acceptance |
 

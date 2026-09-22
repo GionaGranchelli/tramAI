@@ -8,7 +8,7 @@
 
 **Change class:** `runtime-behaviour` (primary) + `public-api` (control-plane port payloads)
 
-**Status:** Specified; implementation not started.
+**Status:** Implemented.
 
 ## Objective
 
@@ -346,15 +346,15 @@ mutation mechanism:
 
 ## Definition of done
 
-- [ ] exposure inventory recorded and frozen (this document)
-- [ ] safe / authority-only / protected categories frozen (this document)
-- [ ] `configurationFingerprint` ruled AUTHORITY-ONLY and structurally excluded from every generic surface
-- [ ] generic query port, command outcomes and HTTP all expose only the approved model
-- [ ] projection reads cannot widen the surface
-- [ ] no arbitrary metadata bag reachable; `WorkloadMetadata` stays bounded
-- [ ] no persistence record reachable from the public contract
-- [ ] exact-shape/type-graph discriminators implemented and proven to fail when the boundary moves
-- [ ] API transition authorized by an ACTIVE migration entry
+- [x] exposure inventory recorded and frozen (this document)
+- [x] safe / authority-only / protected categories frozen (this document)
+- [x] `configurationFingerprint` ruled AUTHORITY-ONLY and structurally excluded from every generic surface
+- [x] generic query port, command outcomes and HTTP all expose only the approved model
+- [x] projection reads cannot widen the surface
+- [x] no arbitrary metadata bag reachable; `WorkloadMetadata` stays bounded
+- [x] no persistence record reachable from the public contract
+- [x] exact-shape/type-graph discriminators implemented and proven to fail when the boundary moves
+- [x] API transition authorized by an ACTIVE migration entry
 - [ ] focused module suites green; repository quality gates green on the reported head
 - [ ] task doc, module doc and PR body agree with the final implementation
 - [ ] working tree clean

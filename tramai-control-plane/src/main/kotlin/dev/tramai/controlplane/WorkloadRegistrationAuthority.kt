@@ -77,7 +77,7 @@ class WorkloadRegistrationAuthority(
         val registration =
             store.find(workloadId, environmentId, deploymentId) ?: return null
         return ClassifiedRead(
-            registration = registration,
+            exposure = WorkloadExposure.from(registration),
             consistency = QueryConsistency.AUTHORITATIVE,
             observedVersion = registration.stateVersion,
         )
@@ -104,7 +104,7 @@ class WorkloadRegistrationAuthority(
         val registration =
             store.find(workloadId, environmentId, deploymentId) ?: return null
         return ClassifiedRead(
-            registration = registration,
+            exposure = WorkloadExposure.from(registration),
             consistency = QueryConsistency.PROJECTION,
             observedVersion = registration.stateVersion,
         )
@@ -139,10 +139,10 @@ class WorkloadRegistrationAuthority(
         val existing = store.find(identity.workloadId, identity.environmentId, identity.deploymentId)
         if (existing != null) {
             return if (existing.isSameDeclaration(identity, configurationFingerprint, metadata)) {
-                RegisterOutcome.AlreadyRegistered(existing)
+                RegisterOutcome.AlreadyRegistered(WorkloadExposure.from(existing))
             } else {
                 RegisterOutcome.Rejected(
-                    existing = existing,
+                    existing = WorkloadExposure.from(existing),
                     reason = existing.rejectionReason(identity, configurationFingerprint),
                 )
             }
@@ -157,9 +157,17 @@ class WorkloadRegistrationAuthority(
                 stateVersion = WorkloadStateVersion.INITIAL,
             )
         return when (val result = store.create(desired)) {
-            is CreateResult.Created -> RegisterOutcome.Created(result.registration)
-            is CreateResult.Idempotent -> RegisterOutcome.AlreadyRegistered(result.registration)
-            is CreateResult.Conflicting -> RegisterOutcome.Rejected(result.existing, result.reason)
+            is CreateResult.Created -> {
+                RegisterOutcome.Created(WorkloadExposure.from(result.registration))
+            }
+
+            is CreateResult.Idempotent -> {
+                RegisterOutcome.AlreadyRegistered(WorkloadExposure.from(result.registration))
+            }
+
+            is CreateResult.Conflicting -> {
+                RegisterOutcome.Rejected(WorkloadExposure.from(result.existing), result.reason)
+            }
         }
     }
 
@@ -186,7 +194,7 @@ class WorkloadRegistrationAuthority(
             }
 
             current.metadata == metadata -> {
-                MetadataUpdateOutcome.Unchanged(current)
+                MetadataUpdateOutcome.Unchanged(WorkloadExposure.from(current))
             }
 
             else -> {
@@ -200,7 +208,7 @@ class WorkloadRegistrationAuthority(
                         stateVersion = current.stateVersion.next(),
                     )
                 if (store.compareAndSet(current, updated)) {
-                    MetadataUpdateOutcome.Applied(updated)
+                    MetadataUpdateOutcome.Applied(WorkloadExposure.from(updated))
                 } else {
                     // Lost the race: report the CURRENT authoritative version,
                     // not the version observed before the race (0.7.1e command
@@ -237,7 +245,7 @@ class WorkloadRegistrationAuthority(
             }
 
             current.lifecycle == target -> {
-                LifecycleTransitionOutcome.Unchanged(current)
+                LifecycleTransitionOutcome.Unchanged(WorkloadExposure.from(current))
             }
 
             !current.lifecycle.canTransitionTo(target) -> {
@@ -255,7 +263,7 @@ class WorkloadRegistrationAuthority(
                         stateVersion = current.stateVersion.next(),
                     )
                 if (store.compareAndSet(current, updated)) {
-                    LifecycleTransitionOutcome.Applied(updated)
+                    LifecycleTransitionOutcome.Applied(WorkloadExposure.from(updated))
                 } else {
                     // Lost the race: report the CURRENT authoritative version.
                     val latest =
@@ -275,17 +283,17 @@ class WorkloadRegistrationAuthority(
 sealed interface RegisterOutcome {
     /** A new registration was created (ACTIVE, state version 1). */
     data class Created(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : RegisterOutcome
 
     /** The identical declaration was already authoritative; nothing changed. */
     data class AlreadyRegistered(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : RegisterOutcome
 
     /** The declaration conflicts with the authoritative record; nothing changed. */
     data class Rejected(
-        val existing: RegisteredWorkload,
+        val existing: WorkloadExposure,
         val reason: RegistrationConflictReason,
     ) : RegisterOutcome
 }
@@ -294,12 +302,12 @@ sealed interface RegisterOutcome {
 sealed interface MetadataUpdateOutcome {
     /** Metadata changed; identity unchanged; state version advanced. */
     data class Applied(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : MetadataUpdateOutcome
 
     /** Requested metadata equals current metadata; no authoritative mutation occurred. */
     data class Unchanged(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : MetadataUpdateOutcome
 
     /** Caller's expected version is stale; the store moved on. */
@@ -315,12 +323,12 @@ sealed interface MetadataUpdateOutcome {
 sealed interface LifecycleTransitionOutcome {
     /** Lifecycle changed; state version advanced. */
     data class Applied(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : LifecycleTransitionOutcome
 
     /** Target state equals current state; no authoritative mutation occurred. */
     data class Unchanged(
-        val registration: RegisteredWorkload,
+        val exposure: WorkloadExposure,
     ) : LifecycleTransitionOutcome
 
     /** The requested transition is outside the authoritative lifecycle graph. */

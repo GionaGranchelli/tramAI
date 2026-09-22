@@ -4,9 +4,9 @@ import dev.tramai.controlplane.ConfigurationFingerprint
 import dev.tramai.controlplane.LifecycleTransitionOutcome
 import dev.tramai.controlplane.MetadataUpdateOutcome
 import dev.tramai.controlplane.RegisterOutcome
-import dev.tramai.controlplane.RegisteredWorkload
 import dev.tramai.controlplane.WorkloadControlPlaneCommands
 import dev.tramai.controlplane.WorkloadControlPlaneQueries
+import dev.tramai.controlplane.WorkloadExposure
 import dev.tramai.controlplane.WorkloadLifecycleState
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
@@ -55,10 +55,9 @@ data class WorkloadLifecycleCommand(
 /**
  * Authoritative read model.
  *
- * Deliberately NOT [RegisteredWorkload] and deliberately without
- * [RegisteredWorkload.configurationFingerprint]: the fingerprint is the witness that binds a
- * configuration to a registration, and a witness has no business being handed back to a client
- * (or being mistaken for something a client may present back to the authority).
+ * Built from the safe exposure model ([WorkloadExposure]), never from the internal authority
+ * record. The fingerprint is structurally unreachable: it is the witness that binds a
+ * configuration to a registration, and a witness has no business being handed back to a client.
  */
 data class WorkloadRegistrationResponse(
     val workloadId: String,
@@ -74,19 +73,19 @@ data class WorkloadRegistrationResponse(
 ) {
     companion object {
         fun from(
-            registration: RegisteredWorkload,
+            exposure: WorkloadExposure,
             consistency: String = "AUTHORITATIVE",
         ): WorkloadRegistrationResponse =
             WorkloadRegistrationResponse(
-                workloadId = registration.identity.workloadId.value,
-                configurationId = registration.identity.configuration.id.value,
-                configurationVersion = registration.identity.configuration.version.value,
-                environmentId = registration.identity.environmentId.value,
-                deploymentId = registration.identity.deploymentId.value,
-                owner = registration.metadata.owner,
-                purpose = registration.metadata.purpose,
-                lifecycle = registration.lifecycle,
-                stateVersion = registration.stateVersion.value,
+                workloadId = exposure.identity.workloadId.value,
+                configurationId = exposure.identity.configuration.id.value,
+                configurationVersion = exposure.identity.configuration.version.value,
+                environmentId = exposure.identity.environmentId.value,
+                deploymentId = exposure.identity.deploymentId.value,
+                owner = exposure.metadata.owner,
+                purpose = exposure.metadata.purpose,
+                lifecycle = exposure.lifecycle,
+                stateVersion = exposure.stateVersion.value,
                 consistency = consistency,
             )
     }
@@ -131,11 +130,11 @@ internal class WorkloadControlPlaneController(
                 )
             when (outcome) {
                 is RegisterOutcome.Created -> {
-                    createdResponse(outcome.registration)
+                    createdResponse(outcome.exposure)
                 }
 
                 is RegisterOutcome.AlreadyRegistered -> {
-                    okResponse(outcome.registration)
+                    okResponse(outcome.exposure)
                 }
 
                 is RegisterOutcome.Rejected -> {
@@ -169,8 +168,8 @@ internal class WorkloadControlPlaneController(
                         WorkloadMetadata(command.owner, command.purpose),
                     )
             ) {
-                is MetadataUpdateOutcome.Applied -> okResponse(outcome.registration)
-                is MetadataUpdateOutcome.Unchanged -> okResponse(outcome.registration)
+                is MetadataUpdateOutcome.Applied -> okResponse(outcome.exposure)
+                is MetadataUpdateOutcome.Unchanged -> okResponse(outcome.exposure)
                 is MetadataUpdateOutcome.Stale -> preconditionFailed(outcome.currentVersion, outcome.expectedVersion)
                 MetadataUpdateOutcome.NotFound -> notFoundResponse()
             }
@@ -199,11 +198,11 @@ internal class WorkloadControlPlaneController(
                     )
             ) {
                 is LifecycleTransitionOutcome.Applied -> {
-                    okResponse(outcome.registration)
+                    okResponse(outcome.exposure)
                 }
 
                 is LifecycleTransitionOutcome.Unchanged -> {
-                    okResponse(outcome.registration)
+                    okResponse(outcome.exposure)
                 }
 
                 is LifecycleTransitionOutcome.Stale -> {

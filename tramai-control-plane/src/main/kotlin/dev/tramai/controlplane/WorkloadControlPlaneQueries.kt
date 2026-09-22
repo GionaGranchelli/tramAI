@@ -24,7 +24,8 @@ enum class QueryConsistency {
 
 /**
  * A read result labelled with the consistency class that produced it and the
- * authoritative [WorkloadStateVersion] it reflects.
+ * authoritative [WorkloadStateVersion] it reflects. It returns the safe
+ * [WorkloadExposure], never the internal authority record.
  *
  * Immutable by construction, and never accepted as a mutation input AS A RECORD: commands take
  * `(identity fields, expectedVersion, payload)`, so a read result cannot be handed over as a
@@ -37,7 +38,7 @@ enum class QueryConsistency {
  * separate "version token" type here.
  */
 data class ClassifiedRead(
-    val registration: RegisteredWorkload,
+    val exposure: WorkloadExposure,
     val consistency: QueryConsistency,
     val observedVersion: WorkloadStateVersion,
 ) {
@@ -45,9 +46,9 @@ data class ClassifiedRead(
         // A read must not contradict itself: the version it reports is the version of the state it
         // carries. A future projection implementation that observed one version and shipped another
         // fails here instead of returning contradictory state/version evidence.
-        require(registration.stateVersion == observedVersion) {
-            "read state/version mismatch: registration.stateVersion=" +
-                "${registration.stateVersion.value} but observedVersion=${observedVersion.value}"
+        require(exposure.stateVersion == observedVersion) {
+            "read state/version mismatch: exposure.stateVersion=" +
+                "${exposure.stateVersion.value} but observedVersion=${observedVersion.value}"
         }
     }
 }

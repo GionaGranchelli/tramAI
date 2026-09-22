@@ -73,7 +73,7 @@ class WorkloadControlPlaneContractTest {
             // Not merely "one failed": exactly one Applied at v8, and one Stale that reports the
             // winner's version as current rather than the version it read before the race.
             val applied = outcomes.filterIsInstance<MetadataUpdateOutcome.Applied>().single()
-            assertThat(applied.registration.stateVersion).isEqualTo(WorkloadStateVersion(8))
+            assertThat(applied.exposure.stateVersion).isEqualTo(WorkloadStateVersion(8))
 
             val stale = outcomes.filterIsInstance<MetadataUpdateOutcome.Stale>().single()
             assertThat(stale.expectedVersion).isEqualTo(WorkloadStateVersion(7))
@@ -96,7 +96,7 @@ class WorkloadControlPlaneContractTest {
                     WorkloadLifecycleState.RETIRED,
                 )
             assertThat(retired).isInstanceOf(LifecycleTransitionOutcome.Applied::class.java)
-            val version = (retired as LifecycleTransitionOutcome.Applied).registration.stateVersion
+            val version = (retired as LifecycleTransitionOutcome.Applied).exposure.stateVersion
 
             // Current version, illegal target -> domain conflict, NOT a precondition failure.
             val illegal =
@@ -136,7 +136,7 @@ class WorkloadControlPlaneContractTest {
             assertThat(read).isNotNull
             assertThat(read!!.consistency).isEqualTo(QueryConsistency.AUTHORITATIVE)
             assertThat(read.observedVersion).isEqualTo(version)
-            assertThat(read.registration.stateVersion).isEqualTo(version)
+            assertThat(read.exposure.stateVersion).isEqualTo(version)
         }
 
     @Test
@@ -168,7 +168,7 @@ class WorkloadControlPlaneContractTest {
                     WorkloadMetadata(owner = "Concurrent writer", purpose = "advance"),
                 )
             assertThat(winner).isInstanceOf(MetadataUpdateOutcome.Applied::class.java)
-            val current = (winner as MetadataUpdateOutcome.Applied).registration.stateVersion
+            val current = (winner as MetadataUpdateOutcome.Applied).exposure.stateVersion
             assertThat(current).isEqualTo(WorkloadStateVersion(17))
 
             // The lagging observation is spent: conditioning a command on it fails closed and
@@ -248,7 +248,7 @@ class WorkloadControlPlaneContractTest {
                     version,
                     WorkloadMetadata(owner = "owner-${version.value}", purpose = "advance"),
                 )
-            version = (outcome as MetadataUpdateOutcome.Applied).registration.stateVersion
+            version = (outcome as MetadataUpdateOutcome.Applied).exposure.stateVersion
         }
         return version
     }

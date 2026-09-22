@@ -106,3 +106,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "0.7.1e control-plane authority contract: adds the public preview command and read ports (WorkloadControlPlaneCommands, WorkloadControlPlaneQueries) plus the read classification types (QueryConsistency, ClassifiedRead), and declares both ports on WorkloadRegistrationAuthority. The authority keeps its three command methods with unchanged signatures; its dump entry is re-rendered only because the class header now names the implemented interfaces."
     migration: "No consumer action: the contract is additive. Existing call sites are unaffected; a consumer that wants the framework-neutral port binds WorkloadRegistrationAuthority to WorkloadControlPlaneCommands or WorkloadControlPlaneQueries. No existing signature changed, so no recompilation is required."
+
+  - module: ":tramai-control-plane"
+    fromSha256: "0c656c8654f45c0d8fc33b25c8e8935e3bcc6bf1d6ff6d1f395b4a19725db7e8"
+    toSha256: "71acccdcab31390b76032fc1979384dea72cce7dca8f6a5156254c2fb319e675"
+    targetVersion: "0.7.0"
+    rationale: "0.7.1f invariant: the generic control-plane payload becomes the explicit safe exposure model, so the CAS/rebinding witness stops being reachable from WorkloadControlPlaneQueries and every non-stale command outcome."
+    migration: "Consumers must change ClassifiedRead.registration to .exposure and outcome payload property registration/existing to .exposure; the safe payload is narrower. No other signature changed."
