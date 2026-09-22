@@ -519,6 +519,24 @@ public final class dev/tramai/engine/TramaiEngine : java/lang/AutoCloseable {
 	public final fun resumeApproval (Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class dev/tramai/engine/approval/ApprovalAttributionCollisionException : java/lang/IllegalArgumentException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/engine/approval/ApprovalAttributionCorruptionException : java/lang/IllegalStateException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/engine/approval/ApprovalAttributionKeys {
+	public static final field CONFIGURATION Ljava/lang/String;
+	public static final field CONFIGURATION_VERSION Ljava/lang/String;
+	public static final field DEPLOYMENT Ljava/lang/String;
+	public static final field ENVIRONMENT Ljava/lang/String;
+	public static final field INSTANCE Ldev/tramai/engine/approval/ApprovalAttributionKeys;
+	public static final field WORKLOAD Ljava/lang/String;
+	public final fun getALL ()Ljava/util/List;
+}
+
 public final class dev/tramai/engine/approval/ApprovalGatewayPersistenceRequest {
 	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ldev/tramai/core/approval/ApprovalRequest;
@@ -544,10 +562,46 @@ public abstract interface class dev/tramai/engine/approval/ApprovalGatewayReques
 	public abstract fun createRequest-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public abstract interface class dev/tramai/engine/approval/ApprovalRunAttribution {
+}
+
+public final class dev/tramai/engine/approval/ApprovalRunAttribution$Governed : dev/tramai/engine/approval/ApprovalRunAttribution {
+	public fun <init> (Ldev/tramai/core/identity/GovernedRunIdentity;)V
+	public final fun component1 ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public final fun copy (Ldev/tramai/core/identity/GovernedRunIdentity;)Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;
+	public static synthetic fun copy$default (Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;Ldev/tramai/core/identity/GovernedRunIdentity;ILjava/lang/Object;)Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIdentity ()Ldev/tramai/core/identity/GovernedRunIdentity;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/approval/ApprovalRunAttribution$Ungoverned : dev/tramai/engine/approval/ApprovalRunAttribution {
+	public static final field INSTANCE Ldev/tramai/engine/approval/ApprovalRunAttribution$Ungoverned;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/approval/ApprovalRunAttributionKt {
+	public static final fun decodeApprovalAttribution (Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/engine/approval/ApprovalRunAttribution;
+	public static final fun encodeApprovalAttribution (Ldev/tramai/core/identity/GovernedRunIdentity;)Ljava/util/Map;
+	public static final fun mergeApprovalAttribution (Ljava/util/Map;Ldev/tramai/engine/approval/ApprovalRunAttribution;)Ljava/util/Map;
+}
+
 public final class dev/tramai/engine/approval/DefaultApprovalGateway : dev/tramai/core/approval/gateway/ApprovalGateway {
 	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/engine/approval/ApprovalGatewayRequestFactory;Ljava/time/Clock;)V
 	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/engine/approval/ApprovalGatewayRequestFactory;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun requestApproval-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/engine/approval/GovernedApprovalStore : dev/tramai/core/approval/ApprovalStore {
+	public abstract fun attributionOf (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun createGovernedApproval (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/approval/GovernedApprovalStoreKt {
+	public static final fun requireAttributionMatchesBinding (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/engine/approval/ApprovalRunAttribution;)V
 }
 
 public final class dev/tramai/engine/evidence/ProviderRouteDecisionEvidenceSource {
