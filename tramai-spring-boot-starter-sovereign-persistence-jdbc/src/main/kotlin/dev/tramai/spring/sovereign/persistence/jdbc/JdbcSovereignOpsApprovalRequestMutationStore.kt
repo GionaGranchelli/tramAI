@@ -44,6 +44,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.CancellationException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Connection
@@ -56,6 +57,17 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import javax.crypto.SecretKey
 import javax.sql.DataSource
+
+/**
+ * The optional artifacts a creation may attach: the audit intent, the inbox metadata, and the resume
+ * credential. They travel together from the gateway boundary into the single transaction, and grouping
+ * them keeps the transaction body below the parameter ceiling.
+ */
+private data class CreationSideArtifacts(
+    val auditIntent: SovereignOpsAuditOutboxRecord?,
+    val inboxMetadata: ApprovalInboxMetadata?,
+    val resumeCredential: ApprovalResumeCredentialRecord?,
+)
 
 class JdbcSovereignOpsApprovalRequestMutationStore(
     private val dataSource: DataSource,
@@ -169,59 +181,89 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         return dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
+            // The failure the caller will observe. Cleanup runs in `finally`, and this is what tells it
+            // whether a cleanup failure is a secondary detail or the operation's only real outcome.
+            var primaryFailure: Exception? = null
+            val sideArtifacts = CreationSideArtifacts(auditIntent, inboxMetadata, resumeCredential)
             try {
-                val existing = selectApproval(conn, request.approvalRequest.approvalId)
-                if (existing != null) {
-                    conn.commit()
-                    return@use SovereignOpsApprovalRequestMutationResult.Existing(
-                        requireExistingIdentityMatches(existing, governedIdentity),
-                    )
-                }
-
-                insertApproval(conn, request.approvalRequest, inboxMetadata, attribution)
-                insertSuspendedInvocation(
+                return@use runTransaction(
                     conn = conn,
-                    metadata = request.suspendedInvocationMetadata,
-                    replayEnvelope = request.replayEnvelope,
-                    governedIdentity = governedIdentity,
+                    request = request,
+                    attribution = attribution,
+                    sideArtifacts = sideArtifacts,
                 )
-                insertContinuation(
-                    conn = conn,
-                    continuation = request.continuation,
-                    sensitiveArguments = request.sensitiveArguments,
-                )
-
-                if (resumeCredential != null) {
-                    insertResumeCredential(conn, resumeCredential)
-                }
-
-                writeAuditOutboxArtifacts(conn, auditIntent)
-
-                conn.commit()
-                SovereignOpsApprovalRequestMutationResult.Created(
-                    approvalId = request.approvalRequest.approvalId,
-                    correlationId = request.suspendedInvocationMetadata.correlationId,
-                    resumeToken = request.resumeToken,
-                )
+            } catch (e: CancellationException) {
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
+                throw e
             } catch (e: SQLException) {
-                conn.rollback()
-                recoverExistingAfterPrimaryKeyRace(
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
+                return@use recoverOrThrowDatabaseFailure(
                     error = e,
-                    approvalId = request.approvalRequest.approvalId,
-                    governedIdentity = governedIdentity,
-                )?.let { return@use it }
-
-                throw IllegalStateException(
-                    "tramai-sovereign-ops-approval-request-mutation-database-failure",
-                    e,
+                    recover = {
+                        recoverExistingAfterPrimaryKeyRace(e, request.approvalRequest.approvalId, governedIdentity)
+                    },
+                    onPrimaryResolved = { primaryFailure = it },
                 )
             } catch (e: Exception) {
-                conn.rollback()
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
                 throw e
             } finally {
-                conn.autoCommit = previousAutoCommit
+                restoreAutoCommitSuppressing(
+                    conn = conn,
+                    previousAutoCommit = previousAutoCommit,
+                    primary = primaryFailure,
+                )
             }
         }
+    }
+
+    /**
+     * The transaction body: existing-row reconciliation first, then the four inserts and the audit
+     * artifacts under one commit. Failures propagate untouched to the caller's cleanup handling.
+     */
+    private fun runTransaction(
+        conn: Connection,
+        request: ApprovalGatewayPersistenceRequest,
+        attribution: ApprovalRunAttribution,
+        sideArtifacts: CreationSideArtifacts,
+    ): SovereignOpsApprovalRequestMutationResult {
+        // Derived here rather than passed: the same canonical identity rule that governs the outer
+        // boundary applies to both the existing-row check and the suspended-invocation payload.
+        val governedIdentity = (attribution as? ApprovalRunAttribution.Governed)?.identity
+        val existing = selectApproval(conn, request.approvalRequest.approvalId)
+        if (existing != null) {
+            conn.commit()
+            return SovereignOpsApprovalRequestMutationResult.Existing(
+                requireExistingIdentityMatches(existing, governedIdentity),
+            )
+        }
+
+        insertApproval(conn, request.approvalRequest, sideArtifacts.inboxMetadata, attribution)
+        insertSuspendedInvocation(
+            conn = conn,
+            metadata = request.suspendedInvocationMetadata,
+            replayEnvelope = request.replayEnvelope,
+            governedIdentity = governedIdentity,
+        )
+        insertContinuation(
+            conn = conn,
+            continuation = request.continuation,
+            sensitiveArguments = request.sensitiveArguments,
+        )
+
+        sideArtifacts.resumeCredential?.let { insertResumeCredential(conn, it) }
+
+        writeAuditOutboxArtifacts(conn, sideArtifacts.auditIntent)
+
+        conn.commit()
+        return SovereignOpsApprovalRequestMutationResult.Created(
+            approvalId = request.approvalRequest.approvalId,
+            correlationId = request.suspendedInvocationMetadata.correlationId,
+            resumeToken = request.resumeToken,
+        )
     }
 
     /**
@@ -707,24 +749,6 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         }
     }
 
-    private fun isApprovalPrimaryKeyViolation(error: SQLException): Boolean =
-        error.sqlState == "23505" &&
-            (
-                error.message?.contains("approvals_pkey", ignoreCase = true) == true ||
-                    error.message?.contains("approval_id", ignoreCase = true) == true
-            )
-
-    private fun validateIdField(
-        value: String,
-        fieldName: String,
-    ) {
-        val trimmed = value.trim()
-        require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
-        require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
-        require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
-        require(trimmed.length <= 256) { "$fieldName exceeds maximum length of 256" }
-    }
-
     private fun validateDigestField(value: String) {
         require(value.matches(Regex("^sha256:[0-9a-f]{64}$"))) {
             "tramai-sovereign-ops-digest-field-must-be-sha256"
@@ -914,4 +938,88 @@ private data class SuspendedPayloadMetadata(
                 toolSecurity = metadata.toolSecurity?.let { mapper.writeValueAsString(it) },
             )
     }
+}
+
+/**
+ * Rolls back without ever replacing [primary]: a rollback failure is attached rather than thrown,
+ * so the reason the transaction failed stays the reason the caller sees.
+ */
+private fun rollbackSuppressing(
+    conn: Connection,
+    primary: Exception,
+) {
+    try {
+        conn.rollback()
+    } catch (e: SQLException) {
+        primary.addSuppressed(e)
+    }
+}
+
+/**
+ * Restores the connection's original autoCommit. A failure here is only the operation's real
+ * outcome when nothing else has failed: with a primary in flight it is attached to that primary,
+ * otherwise it propagates instead of being swallowed.
+ */
+private fun restoreAutoCommitSuppressing(
+    conn: Connection,
+    previousAutoCommit: Boolean,
+    primary: Exception?,
+) {
+    try {
+        conn.autoCommit = previousAutoCommit
+    } catch (e: SQLException) {
+        if (primary != null) {
+            primary.addSuppressed(e)
+        } else {
+            throw e
+        }
+    }
+}
+
+/**
+ * Reconciles a primary-key race, or throws the caller-visible database failure.
+ * [onPrimaryResolved] receives the wrapper — or null once recovery succeeded — so the caller's
+ * cleanup attaches its own failures to the exception the caller will actually observe.
+ */
+private fun recoverOrThrowDatabaseFailure(
+    error: SQLException,
+    recover: () -> SovereignOpsApprovalRequestMutationResult.Existing?,
+    onPrimaryResolved: (Exception?) -> Unit,
+): SovereignOpsApprovalRequestMutationResult.Existing {
+    val recovered = recover()
+    if (recovered != null) {
+        onPrimaryResolved(null)
+        return recovered
+    }
+
+    val wrapped =
+        IllegalStateException(
+            "tramai-sovereign-ops-approval-request-mutation-database-failure",
+            error,
+        )
+    onPrimaryResolved(wrapped)
+    throw wrapped
+}
+
+private const val DUPLICATE_KEY_SQL_STATE = "23505"
+
+/** Maximum accepted length of a persisted attribution field value. */
+private const val MAX_ATTRIBUTION_FIELD_LENGTH = 256
+
+private fun isApprovalPrimaryKeyViolation(error: SQLException): Boolean =
+    error.sqlState == DUPLICATE_KEY_SQL_STATE &&
+        (
+            error.message?.contains("approvals_pkey", ignoreCase = true) == true ||
+                error.message?.contains("approval_id", ignoreCase = true) == true
+        )
+
+private fun validateIdField(
+    value: String,
+    fieldName: String,
+) {
+    val trimmed = value.trim()
+    require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
+    require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
+    require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
+    require(trimmed.length <= MAX_ATTRIBUTION_FIELD_LENGTH) { "$fieldName exceeds maximum length of 256" }
 }

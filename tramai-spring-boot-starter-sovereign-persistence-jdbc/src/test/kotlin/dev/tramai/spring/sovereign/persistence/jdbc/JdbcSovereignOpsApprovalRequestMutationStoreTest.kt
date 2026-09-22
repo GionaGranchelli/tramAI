@@ -80,6 +80,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -619,6 +620,196 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                 }
             }
         }
+    }
+
+    /**
+     * The failure the caller observes must be the failure the operation actually suffered. Each test
+     * below pins one of those ownership decisions: a cleanup failure is attached to the primary, and
+     * a recovered primary-key race has no primary left to attach anything to.
+     */
+    @Test
+    fun `cancellation stays primary when rollback fails`() {
+        val cancellation = CancellationException("test-cancellation")
+        val rollbackFailure = SQLException("test-rollback-failure")
+        val wrapper = FaultInjectingDataSource(dataSource, failRollbackWith = rollbackFailure)
+        val store = storeWith(wrapper, replayCodec = replayCodecThrowing(cancellation))
+
+        val thrown = runCatchingSuspend { store.createApprovalRequest(request("cancel-rollback"), null) }
+
+        assertThat(thrown).isSameAs(cancellation)
+        assertThat(thrown!!.suppressed.toList()).contains(rollbackFailure)
+        assertThat(wrapper.rollbackCalls).isGreaterThan(0)
+    }
+
+    @Test
+    fun `cancellation stays primary when restoring autoCommit fails`() {
+        val cancellation = CancellationException("test-cancellation")
+        val restoreFailure = SQLException("test-restore-failure")
+        val wrapper = FaultInjectingDataSource(dataSource, failRestoreWith = restoreFailure)
+        val store = storeWith(wrapper, replayCodec = replayCodecThrowing(cancellation))
+
+        val thrown = runCatchingSuspend { store.createApprovalRequest(request("cancel-restore"), null) }
+
+        assertThat(thrown).isSameAs(cancellation)
+        assertThat(thrown!!.suppressed.toList()).contains(restoreFailure)
+        assertThat(wrapper.rollbackCalls).isGreaterThan(0)
+    }
+
+    @Test
+    fun `recovered primary key race leaves no primary for a restore failure`() {
+        val duplicateKey =
+            SQLException(
+                "duplicate key value violates unique constraint \"approvals_pkey\"",
+                "23505",
+            )
+        val restoreFailure = SQLException("test-restore-after-recovery")
+        // The loser connection is the one that receives the simulated duplicate key and the failing
+        // restore; the winner is committed through the raw data source, so recovery re-reads a real row.
+        val wrapper =
+            FaultInjectingDataSource(
+                delegate = dataSource,
+                failRestoreWith = restoreFailure,
+                duplicateKeyOnApprovalInsert = duplicateKey,
+                winnerStore = { runBlocking { mutationStore.createApprovalRequest(request("pk-race-restore"), null) } },
+            )
+        val store = storeWith(wrapper, replayCodec = replayCodec)
+
+        val thrown =
+            runCatchingSuspend {
+                store.createApprovalRequest(request("pk-race-restore"), null)
+            }
+
+        assertThat(wrapper.insertInterceptions).isEqualTo(1)
+        assertThat(thrown).isSameAs(restoreFailure)
+        assertThat(thrown).isNotInstanceOf(IllegalStateException::class.java)
+        assertThat(thrown!!.message).doesNotContain("tramai-sovereign-ops-approval-request-mutation")
+    }
+
+    /** Builds a store over [source] with the given codecs, mirroring the fixture's construction. */
+    private fun storeWith(
+        source: DataSource,
+        replayCodec: JdbcReplayEnvelopeCodec,
+    ): JdbcSovereignOpsApprovalRequestMutationStore =
+        JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = source,
+            replayEnvelopeCodec = replayCodec,
+            continuationArgumentsCodec = continuationCodec,
+            outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
+            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+        )
+
+    /** The real codec, except that encoding — which runs after the approval insert — throws [failure]. */
+    private fun replayCodecThrowing(failure: Throwable): JdbcReplayEnvelopeCodec =
+        object : JdbcReplayEnvelopeCodec {
+            override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope = throw failure
+
+            override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray = testReplayCodec().decode(envelope)
+        }
+
+    /** Returns the exception a suspending call threw, or null when it returned normally. */
+    private fun runCatchingSuspend(block: suspend () -> Unit): Throwable? =
+        try {
+            runBlocking { block() }
+            null
+        } catch (e: Throwable) {
+            e
+        }
+
+    /**
+     * Delegates to the real PostgreSQL data source and injects exactly one fault on the first
+     * connection it hands out: a failing rollback, a failing autoCommit restore, or a duplicate-key
+     * failure on the approval insert. Later acquisitions (recovery's own re-read, and the committed
+     * winner) stay raw, so production's catch and recovery paths run for real.
+     */
+    private class FaultInjectingDataSource(
+        private val delegate: DataSource,
+        private val failRollbackWith: SQLException? = null,
+        private val failRestoreWith: SQLException? = null,
+        private val duplicateKeyOnApprovalInsert: SQLException? = null,
+        private val winnerStore: (() -> Unit)? = null,
+    ) : DataSource {
+        private val acquisitions = AtomicInteger()
+        private var autoCommitWrites = 0
+
+        var rollbackCalls = 0
+            private set
+
+        var insertInterceptions = 0
+            private set
+
+        override fun getConnection(): Connection {
+            val raw = delegate.connection
+            if (acquisitions.incrementAndGet() > 1) return raw
+            return Proxy.newProxyInstance(
+                Connection::class.java.classLoader,
+                arrayOf(Connection::class.java),
+            ) { _, method, args ->
+                val callArgs = args ?: emptyArray()
+                when (method.name) {
+                    "rollback" -> {
+                        rollbackCalls++
+                        failRollbackWith?.let { throw it }
+                        method.invoke(raw, *callArgs)
+                    }
+
+                    "setAutoCommit" -> {
+                        autoCommitWrites++
+                        // The first write is transaction setup; anything later is the restore.
+                        if (autoCommitWrites > 1 && failRestoreWith != null) throw failRestoreWith
+                        method.invoke(raw, *callArgs)
+                    }
+
+                    "prepareStatement" -> {
+                        proxyStatement(raw, method, callArgs)
+                    }
+
+                    else -> {
+                        method.invoke(raw, *callArgs)
+                    }
+                }
+            } as Connection
+        }
+
+        private fun proxyStatement(
+            raw: Connection,
+            method: java.lang.reflect.Method,
+            args: Array<Any?>,
+        ): Any {
+            val statement = method.invoke(raw, *args)
+            if (duplicateKeyOnApprovalInsert == null) return statement
+            return Proxy.newProxyInstance(
+                java.sql.PreparedStatement::class.java.classLoader,
+                arrayOf(java.sql.PreparedStatement::class.java),
+            ) { _, m, statementArgs ->
+                if (m.name == "executeUpdate" && (args.firstOrNull() as? String)?.contains("approvals") == true) {
+                    insertInterceptions++
+                    winnerStore?.invoke()
+                    throw duplicateKeyOnApprovalInsert
+                }
+                m.invoke(statement, *(statementArgs ?: emptyArray()))
+            }
+        }
+
+        override fun getConnection(
+            username: String?,
+            password: String?,
+        ): Connection = getConnection()
+
+        override fun getLogWriter(): java.io.PrintWriter? = delegate.logWriter
+
+        override fun setLogWriter(out: java.io.PrintWriter?) = delegate.setLogWriter(out)
+
+        override fun getLoginTimeout(): Int = delegate.loginTimeout
+
+        override fun setLoginTimeout(seconds: Int) = delegate.setLoginTimeout(seconds)
+
+        override fun getParentLogger(): java.util.logging.Logger = delegate.parentLogger
+
+        override fun <T : Any?> unwrap(iface: Class<T>?): T = unsupported()
+
+        override fun isWrapperFor(iface: Class<*>?): Boolean = false
     }
 
     private fun assertThatSuspendCallThrows(block: suspend () -> Unit) =
