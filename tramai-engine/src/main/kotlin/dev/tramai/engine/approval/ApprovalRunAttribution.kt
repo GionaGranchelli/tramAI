@@ -88,12 +88,30 @@ public fun decodeApprovalAttribution(
     workflowRunId: String,
     metadata: Map<String, String>,
 ): ApprovalRunAttribution {
-    val values = ApprovalAttributionKeys.ALL.map { key -> metadata[key]?.takeIf { it.isNotBlank() } }
-    if (values.all { it == null }) return ApprovalRunAttribution.Ungoverned
-    if (values.any { it == null }) {
+    // Presence and validity are separate equivalence classes. Collapsing them would read a set of
+    // present-but-blank reserved keys as "all absent" and downgrade malformed governed state into
+    // legacy state — the silent downgrade this parser exists to prevent.
+    val present = ApprovalAttributionKeys.ALL.filter(metadata::containsKey)
+    if (present.isEmpty()) return ApprovalRunAttribution.Ungoverned
+
+    val expected = ApprovalAttributionKeys.ALL
+    val defect =
+        when {
+            present.size != expected.size -> {
+                "is incomplete: all of ${expected.joinToString()} must be present, or none"
+            }
+
+            expected.any { metadata.getValue(it).isBlank() } -> {
+                "is malformed: a present reserved key must carry a non-blank value"
+            }
+
+            else -> {
+                null
+            }
+        }
+    if (defect != null) {
         throw ApprovalAttributionCorruptionException(
-            "Persisted approval attribution is incomplete for workflow run '$workflowRunId': " +
-                "all of ${ApprovalAttributionKeys.ALL.joinToString()} must be present, or none",
+            "Persisted approval attribution $defect for workflow run '$workflowRunId'",
         )
     }
     return try {

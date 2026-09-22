@@ -135,15 +135,24 @@ sealed interface ApprovalRunAttribution {
     ) : ApprovalRunAttribution
 }
 
-internal data class ResolvedApprovalPersistenceRequest(
-    val request: ApprovalGatewayPersistenceRequest,
-    val attribution: ApprovalRunAttribution,
-)
+interface GovernedSovereignOpsApprovalRequestMutationStore : SovereignOpsApprovalRequestMutationStore {
+    suspend fun createGovernedApprovalRequest(
+        request: ApprovalGatewayPersistenceRequest,
+        identity: GovernedRunIdentity,
+        auditIntent: SovereignOpsAuditOutboxRecord? = null,
+        inboxMetadata: ApprovalInboxMetadata? = null,
+        resumeCredential: ApprovalResumeCredentialRecord? = null,
+    ): SovereignOpsApprovalRequestMutationResult
+}
 ```
 
-Names/package follow the existing architecture; the invariant is what matters: the factory produces
-a payload, the gateway resolves and attaches attribution, and the store boundary accepts only a
-resolved attribution for governed creation.
+As built, the outer wrapper above is a **governed capability on the store boundary**, not a DTO: the
+illustrative `ResolvedApprovalPersistenceRequest` shape was deliberately not introduced, because the
+attribution is derived from the canonical identity inside the store that already owns the single
+transaction. The engine-side equivalent is `GovernedApprovalStore`, mirrored for suspensions by
+`GovernedSuspendedInvocationStore`. Names/package follow the existing architecture; the invariant is
+what matters: the factory produces a payload, the gateway resolves identity and hands it over as the
+canonical value, and the store boundary accepts only a whole identity for governed creation.
 
 The invariant is **carriage through the gateway persistence boundary**, not allegiance to one DTO.
 If introducing the wrapper at the lower mutation-store API changes a Preview public surface, that is
@@ -203,7 +212,7 @@ path *does* use a run id as an authoritative lookup/correlation key, disagreemen
 | Surface | Change |
 |---|---|
 | `tramai-engine` — `ApprovalGatewayPersistenceRequest` | **unchanged**; factory payload stays identity-blind |
-| `tramai-engine` — `ApprovalRunAttribution` (sealed) + `ResolvedApprovalPersistenceRequest` | NEW: gateway-resolved attribution seam + reserved-key codec (encode/decode/collision) |
+| `tramai-engine` — `ApprovalRunAttribution` (sealed) + `GovernedApprovalStore` / `GovernedSuspendedInvocationStore`; ops — `GovernedSovereignOpsApprovalRequestMutationStore` | NEW: governed capabilities carrying the canonical identity into the store that owns the transaction (no `ResolvedApprovalPersistenceRequest` DTO was introduced) + reserved-key codec (encode/decode/collision) |
 | `tramai-engine` — `DefaultApprovalGateway` | resolve ambient identity, validate `workflowRunId`, route governed suspensions to `createGoverned`; reject → carry |
 | `tramai-spring-boot-starter-sovereign-ops` — `SovereignOpsTransactionalApprovalGateway` | same resolution/validation/carriage; inbox/audit artifacts carry only continuity-required attribution |
 | approval-row persistence (JDBC + file) | write/read the reserved keys in existing `sanitized_metadata`; immutability across lifecycle transitions |
