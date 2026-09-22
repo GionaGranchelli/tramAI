@@ -108,12 +108,12 @@ class WorkloadExposureModelTest {
         assertThat(output).doesNotContain(RegisteredWorkload::class.java, ConfigurationFingerprint::class.java)
         assertThat(input).doesNotContain(
             RegisteredWorkload::class.java,
-            java.util.Map::class.java,
-            java.lang.Object::class.java,
+            Map::class.java,
+            Any::class.java,
         )
         (output + input).forEach { type ->
             assertThat(getters(type).values).noneMatch {
-                it == java.lang.Object::class.java || java.util.Map::class.java.isAssignableFrom(it) ||
+                it == Any::class.java || Map::class.java.isAssignableFrom(it) ||
                     it.simpleName == "JsonNode"
             }
             assertThat(type.packageName).isIn("dev.tramai.controlplane", "dev.tramai.core.identity")
