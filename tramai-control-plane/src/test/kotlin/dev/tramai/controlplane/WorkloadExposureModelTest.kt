@@ -121,6 +121,39 @@ class WorkloadExposureModelTest {
     }
 
     @Test
+    fun `port signatures expose no forbidden extension type`() {
+        // The type-graph walk below is deliberately scoped to the control-plane and core-identity
+        // packages, so a forbidden type (Map / Any / Object / JsonNode) reaching a port SIGNATURE would be
+        // filtered out of the walk before any assertion could see it. Assert the raw signatures directly
+        // instead of trusting a walk that drops exactly the types this guard exists to catch.
+        val raw =
+            ports
+                .flatMap { port ->
+                    port.methods.flatMap { method ->
+                        method.parameterTypes
+                            .filterNot { it.name == "kotlin.coroutines.Continuation" }
+                            .toList() + listOfNotNull(suspendReturn(method))
+                    }
+                }.toSet()
+
+        assertThat(raw).isNotEmpty()
+        raw.forEach { type ->
+            assertThat(type)
+                .describedAs("port signature must not carry %s", type.name)
+                .isNotEqualTo(Any::class.java)
+            assertThat(Map::class.java.isAssignableFrom(type))
+                .describedAs("port signature must not carry %s", type.name)
+                .isFalse()
+            assertThat(type.simpleName)
+                .describedAs("port signature must not carry %s", type.name)
+                .isNotEqualTo("JsonNode")
+            assertThat(type.packageName)
+                .describedAs("port signature type %s must live in an approved package", type.name)
+                .isIn("dev.tramai.controlplane", "dev.tramai.core.identity")
+        }
+    }
+
+    @Test
     fun `classified read exposes safe model and rejects version contradiction`() {
         val exposure = WorkloadExposure.from(WorkloadRegistrationFixtures.registration())
         assertThat(ClassifiedRead(exposure, QueryConsistency.AUTHORITATIVE, exposure.stateVersion).exposure)
