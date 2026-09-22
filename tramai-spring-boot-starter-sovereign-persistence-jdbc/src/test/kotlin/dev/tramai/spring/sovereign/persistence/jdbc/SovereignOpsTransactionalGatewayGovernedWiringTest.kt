@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.persistence.jdbc
 
 import dev.tramai.core.approval.ApprovalBinding
@@ -27,6 +29,7 @@ import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.GovernedSuspendedInvocationStore
@@ -61,8 +64,7 @@ import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.utility.DockerImageName
+import org.testcontainers.postgresql.PostgreSQLContainer
 import java.time.Instant
 import javax.sql.DataSource
 
@@ -201,7 +203,7 @@ class SovereignOpsTransactionalGatewayGovernedWiringTest {
 
     companion object {
         private val postgres =
-            PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
+            PostgreSQLContainer("postgres:17-alpine")
                 .withDatabaseName("sovereign_ops_gateway_wiring_test")
 
         /** A real 256-bit AES key on disk: the production key-file source, not a test-only shortcut. */
