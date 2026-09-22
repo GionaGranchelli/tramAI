@@ -45,13 +45,6 @@ migrations:
     rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
     migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
 
-  - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
-    fromSha256: "a362d955e271d5318ba65359f090dd3410b5a5e0af79836ff39ff36aec314bf3"
-    toSha256: "c12710086064ec051631dfef7fdadf268daf9ae1f43aedb1f7e00d90ed2d1da7"
-    targetVersion: "0.5.0"
-    rationale: "Refresh committed API dump to match current source; the SovereignOpsAuditOutboxStore API changed before API-compatibility enforcement existed (attempt-count parameter type). No new API surface introduced by this PR."
-    migration: "Consumers of SovereignOpsAuditOutboxStore with an attempt-count parameter must pass int instead of the previous parameter layout; source-compatible callers require no change."
-
   - module: ":tramai-orchestration"
     fromSha256: "c5d9c58e5be2036e5786827251c5f44edd8d432e4644ebc5837b070372617cec"
     toSha256: "64c1ff59baae3a49faa0f1d1c8a617ab7cc7773413c302203b230e1ac2c8a733"
@@ -60,7 +53,7 @@ migrations:
     migration: "Applications executing createTableSql() alone must additionally execute createSequenceTableSql() (or createSchemaSql()) so the sequence counter table exists; source-compatible callers require no other change."
 
   - module: ":tramai-engine"
-    fromSha256: "2be18464bc69a5c9c0b387d7a88cf6701066f5f4bf31c4e93ec8d9a82aa45dfc"
+    fromSha256: "34fa48078a3f2f978b8edd9ce014d91fd4726f9c48b5206b87caff008c0f6913"
     toSha256: "97449797943f051f255c0f96d69746f9145059fb577c8927d7443e9958da435f"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution: adds GovernedSuspendedInvocation, the suspension record that carries the durable whole-run identity alongside the invocation metadata."
@@ -74,14 +67,14 @@ migrations:
     migration: "No consumer action: GovernedRun is additive; ungoverned workflow execution is unchanged."
 
   - module: ":tramai-persistence-file"
-    fromSha256: "2c116948a04c020d41bb3e8af5339b542f1398f8ddfc706b5b0ecfde0f6e583d"
+    fromSha256: "41dcb6ad3f7dd35a316d9f317d3711b0eeb932961c58d87be4d975015de338dc"
     toSha256: "f4f21c7cb3a6185994706adf4340ad734c8072520363e03faf75b097900c450e"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution: adds GovernedFileSuspendedInvocationStore and the governed outbox/audit types (V2 provenance) for file persistence."
     migration: "No consumer action: the governed store is a new type; legacy V1 records keep their released shape."
 
   - module: ":tramai-persistence-jdbc"
-    fromSha256: "ced39e6c362b4d0fe3d49dac8d83957569cd203ca4fdb3526c6c5a65103b4af1"
+    fromSha256: "48e004581e5929bfe3610c0372a33c776951ffe72f455166676b19cbd6590597"
     toSha256: "0b04daf0a52a32e5467840089ba305dbe0979f2875b81ca02be8cd063025f4fa"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution: adds GovernedJdbcSuspendedInvocationStore, wrapping the JDBC suspension store so run identity survives the JDBC boundary."
@@ -95,14 +88,14 @@ migrations:
     migration: "No consumer action: governed scheduling is opt-in; the existing scheduler store contract is unchanged."
 
   - module: ":tramai-spring-boot-starter-sovereign-ops"
-    fromSha256: "7100484d4ea3e5a5e84b19abce1b1046de4aceab5c01722186f9450d2d24e416"
+    fromSha256: "5b5bad9d52b8e711dfd109c696956dbb216447cfd56e7366fc607c28abbdcbc6"
     toSha256: "5e773044a6ae45de22fa3f983ebc192b4f2c3ee7df530d5e2cf74b92f71a6dda"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution: adds the ApprovalRunAttribution.Governed variant so suspended approvals carry the complete governed identity through the sovereign ops outbox."
     migration: "No consumer action: the existing attribution surface is preserved; governed attribution is an additional variant."
 
   - module: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
-    fromSha256: "c12710086064ec051631dfef7fdadf268daf9ae1f43aedb1f7e00d90ed2d1da7"
+    fromSha256: "6546de47ac3d62a97f87eca8916e71de7f702026028ebf3f60778a28797605d6"
     toSha256: "2f12c7776fc64c59b1cf128038db52bbdb400f4c2c928e87dcabf3459b81557b"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution: the JDBC approval mutation store and its autoconfiguration bean method each gained a governed-suspension-store parameter (with a default) so the mutation transaction can carry provenance."
