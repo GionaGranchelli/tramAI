@@ -244,7 +244,9 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
             ).run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignOpsApprovalRequestMutationStore::class.java)
                 val store = ctx.getBean(SovereignOpsApprovalRequestMutationStore::class.java)
-                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsApprovalRequestMutationStore::class.java)
+                // Exposed through the governed wrapper so the default wiring satisfies the governed
+                // capability the transactional gateway requires; the delegate is the JDBC store.
+                assertThat(store).isInstanceOf(GovernedJdbcSovereignOpsApprovalRequestMutationStore::class.java)
             }
     }
 

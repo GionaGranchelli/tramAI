@@ -236,13 +236,19 @@ class SovereignJdbcPersistenceAutoConfiguration {
         @Qualifier("sovereignJdbcEncryptionKey") encryptionKey: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): SovereignOpsApprovalRequestMutationStore =
-        JdbcSovereignOpsApprovalRequestMutationStore(
-            dataSource = dataSource,
-            replayEnvelopeCodec = replayEnvelopeCodec,
-            continuationArgumentsCodec = continuationArgumentsCodec,
-            outboxPayloadCodec = outboxPayloadCodec,
-            encryptionKey = encryptionKey,
-            encryptionKeyId = properties.encryption.keyId,
+        // Exposed through the governed wrapper so the default wiring satisfies the governed
+        // capability the transactional gateway requires. The wrapper composes the same store and
+        // forwards into the same single transaction; the delegate still declares only the released
+        // SPI, so its analyzer identity is unchanged.
+        GovernedJdbcSovereignOpsApprovalRequestMutationStore(
+            JdbcSovereignOpsApprovalRequestMutationStore(
+                dataSource = dataSource,
+                replayEnvelopeCodec = replayEnvelopeCodec,
+                continuationArgumentsCodec = continuationArgumentsCodec,
+                outboxPayloadCodec = outboxPayloadCodec,
+                encryptionKey = encryptionKey,
+                encryptionKeyId = properties.encryption.keyId,
+            ),
         )
 
     @Bean

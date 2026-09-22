@@ -15,15 +15,20 @@ import dev.tramai.core.approval.gateway.AuditStreamId
 import dev.tramai.core.approval.gateway.HumanApprovalDecision
 import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.GovernedRunContinuityException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataContext
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import java.time.Clock
@@ -39,10 +44,13 @@ import java.time.Clock
  * durable "approval-requested" outbox intent during request creation and passes it
  * to the mutation store for atomic persistence alongside the core records.
  *
- * **Governed runs:** [ApprovalGatewayPersistenceRequest] carries no governed identity, so this
- * gateway cannot persist run attribution through it. [requestApproval] fails closed with
- * [GovernedRunContinuityException] when invoked inside an active [GovernedRunScope] instead of
- * writing a request whose identity is silently absent.
+ * **Governed runs:** an active [GovernedRunScope] is the creation authority, mirroring
+ * `DefaultApprovalGateway`: the gateway resolves the canonical identity, validates any caller-supplied
+ * run id against it, builds the identity-blind factory request, checks the factory's binding against
+ * the canonical run id, and persists through [GovernedSovereignOpsApprovalRequestMutationStore] so the
+ * approval attribution and the suspension identity come from one identity in one transaction. A
+ * governed request against a configured store without that capability fails closed with
+ * [ConfigurationException] before the factory runs and before anything is written.
  *
  * @param mutationStore atomic creation store
  * @param requestFactory builds low-level persistence records from the ergonomic SPI input
@@ -63,52 +71,53 @@ class SovereignOpsTransactionalApprovalGateway(
         requiredRole: ApproverRole,
         workflowRunId: WorkflowRunId?,
     ): ApprovalRequestResult {
-        // [ApprovalGatewayPersistenceRequest] carries no governed identity, so this path cannot
-        // persist one: a governed execution must fail closed here rather than durably recording a
-        // run whose canonical identity is silently absent (the downgrade 0.7.1d forbids). Nothing is
-        // written and the mutation store is never called before this check.
-        rejectGovernedRun()
+        // THE canonical value for this request: a governed execution carries its identity, an
+        // ungoverned one carries nothing. Everything below derives from this one value.
+        val governedIdentity = resolveGovernedIdentity(workflowRunId)
+
+        // Capability discovery is a precondition, not a per-store surprise: a governed request
+        // against a deployment that cannot persist governed records fails before the factory runs,
+        // so a partially governed wiring can never write some records and then fail on the rest.
+        val governedStore = if (governedIdentity != null) requireGovernedStore() else null
 
         val request =
             requestFactory.createRequest(
                 subject = subject,
                 recommendation = recommendation,
                 requiredRole = requiredRole,
-                workflowRunId = workflowRunId,
+                workflowRunId = effectiveWorkflowRunId(governedIdentity, workflowRunId),
             )
 
-        val auditIntent =
-            auditIntentFactory?.approvalRequested(
-                request = request,
-                subject = subject,
-                recommendation = recommendation,
-                requiredRole = requiredRole,
-            )
+        // The factory is untrusted for identity: it was handed the canonical run id above, and a
+        // payload that re-points the binding must abort before anything durable exists.
+        requireFactoryBindingMatches(request, governedIdentity)
 
-        val inboxMetadata =
-            inboxMetadataFactory?.create(
-                ApprovalInboxMetadataContext(
-                    approvalId = request.approvalRequest.approvalId,
-                    workflowRunId = request.approvalRequest.binding.workflowRunId,
-                    toolName = request.approvalRequest.binding.toolName,
-                    requestedBy = request.approvalRequest.requestedBy,
-                    requiredRole = requiredRole,
-                    correlationId = request.suspendedInvocationMetadata.correlationId,
-                ),
-            )
-
-        val resumeCredential =
-            ApprovalResumeCredentialRecord(
-                approvalId = ApprovalId(request.approvalRequest.approvalId),
-                workflowRunId = WorkflowRunId(request.approvalRequest.binding.workflowRunId),
-                resumeToken = SealedResumeToken.seal(request.resumeToken),
-                createdAt = request.approvalRequest.requestedAt,
-                expiresAt = request.approvalRequest.expiresAt,
-                version = 1L,
-            )
+        // Optional artifacts for this one request. Assembled by a helper so the decision path
+        // above — resolve identity, validate, dispatch — stays the readable security-relevant part.
+        val artifacts = artifactsFor(request, subject, recommendation, requiredRole)
 
         return try {
-            when (val result = mutationStore.createApprovalRequest(request, auditIntent, inboxMetadata, resumeCredential)) {
+            val result =
+                if (governedIdentity == null) {
+                    mutationStore.createApprovalRequest(
+                        request,
+                        artifacts.auditIntent,
+                        artifacts.inboxMetadata,
+                        artifacts.resumeCredential,
+                    )
+                } else {
+                    // Non-null by construction: resolved above, before the factory ran.
+                    checkNotNull(governedStore)
+                        .createGovernedApprovalRequest(
+                            request = request,
+                            identity = governedIdentity,
+                            auditIntent = artifacts.auditIntent,
+                            inboxMetadata = artifacts.inboxMetadata,
+                            resumeCredential = artifacts.resumeCredential,
+                        )
+                }
+
+            when (result) {
                 is SovereignOpsApprovalRequestMutationResult.Created -> {
                     ApprovalRequestResult.Suspended(
                         approvalId = ApprovalId(result.approvalId),
@@ -126,6 +135,105 @@ class SovereignOpsTransactionalApprovalGateway(
             throw e
         }
     }
+
+    /**
+     * Resolves the canonical governed identity for this request, or null when the execution is ungoverned.
+     *
+     * A caller may name the run it believes it is suspending, but it may never nominate one run's id
+     * together with another run's identity. When an active scope exists the scope is authoritative, and a
+     * disagreement aborts here — before the factory and before any store.
+     */
+    private suspend fun resolveGovernedIdentity(workflowRunId: WorkflowRunId?): GovernedRunIdentity? {
+        val identity = GovernedRunScope.resolve(currentCoroutineContext()) ?: return null
+        if (workflowRunId != null && workflowRunId.value != identity.runId.value) {
+            throw GovernedRunContinuityException(
+                "Caller supplied workflow run id '${workflowRunId.value}' does not match the active " +
+                    "governed run '${identity.runId.value}': a governed suspension cannot pair one " +
+                    "run's id with another run's identity",
+            )
+        }
+        return identity
+    }
+
+    /**
+     * The effective run id for the factory call: for a governed request the canonical identity supplies
+     * it, so an omitted argument is derived rather than left absent.
+     */
+    private fun effectiveWorkflowRunId(
+        governedIdentity: GovernedRunIdentity?,
+        callerRunId: WorkflowRunId?,
+    ): WorkflowRunId? = governedIdentity?.let { WorkflowRunId(it.runId.value) } ?: callerRunId
+
+    /**
+     * Requires the governed mutation capability up front, so a partially governed wiring cannot commit
+     * the approval and then refuse the attribution.
+     */
+    private fun requireGovernedStore(): GovernedSovereignOpsApprovalRequestMutationStore =
+        mutationStore as? GovernedSovereignOpsApprovalRequestMutationStore
+            ?: throw ConfigurationException(
+                "Governed approval requests require a SovereignOpsApprovalRequestMutationStore " +
+                    "implementing GovernedSovereignOpsApprovalRequestMutationStore; the configured " +
+                    "store '${mutationStore::class.simpleName}' does not",
+            )
+
+    /**
+     * The approval binding is the run-id carrier the gateway owns; the store validates the remaining
+     * carriers against the same identity before its transaction opens.
+     */
+    private fun requireFactoryBindingMatches(
+        request: ApprovalGatewayPersistenceRequest,
+        governedIdentity: GovernedRunIdentity?,
+    ) {
+        if (governedIdentity == null) return
+        val bindingRunId = request.approvalRequest.binding.workflowRunId
+        if (bindingRunId != governedIdentity.runId.value) {
+            throw GovernedRunContinuityException(
+                "Approval request factory produced a binding for run '$bindingRunId' while the active " +
+                    "governed run is '${governedIdentity.runId.value}': a governed request must keep " +
+                    "the canonical run id",
+            )
+        }
+    }
+
+    /**
+     * Builds the optional inbox metadata, audit intent and resume credential for one request. These
+     * are description, not authority: none of them can nominate identity.
+     */
+    private fun artifactsFor(
+        request: ApprovalGatewayPersistenceRequest,
+        subject: ApprovalSubject,
+        recommendation: ApprovalRecommendation,
+        requiredRole: ApproverRole,
+    ): ApprovalRequestArtifacts =
+        ApprovalRequestArtifacts(
+            auditIntent =
+                auditIntentFactory?.approvalRequested(
+                    request = request,
+                    subject = subject,
+                    recommendation = recommendation,
+                    requiredRole = requiredRole,
+                ),
+            inboxMetadata =
+                inboxMetadataFactory?.create(
+                    ApprovalInboxMetadataContext(
+                        approvalId = request.approvalRequest.approvalId,
+                        workflowRunId = request.approvalRequest.binding.workflowRunId,
+                        toolName = request.approvalRequest.binding.toolName,
+                        requestedBy = request.approvalRequest.requestedBy,
+                        requiredRole = requiredRole,
+                        correlationId = request.suspendedInvocationMetadata.correlationId,
+                    ),
+                ),
+            resumeCredential =
+                ApprovalResumeCredentialRecord(
+                    approvalId = ApprovalId(request.approvalRequest.approvalId),
+                    workflowRunId = WorkflowRunId(request.approvalRequest.binding.workflowRunId),
+                    resumeToken = SealedResumeToken.seal(request.resumeToken),
+                    createdAt = request.approvalRequest.requestedAt,
+                    expiresAt = request.approvalRequest.expiresAt,
+                    version = 1L,
+                ),
+        )
 }
 
 private fun ApprovalRequest.toGatewayResult(
@@ -191,21 +299,9 @@ private fun ApprovalRequest.toGatewayResult(
     }
 }
 
-/**
- * Rejects a governed execution before any persistence happens.
- *
- * [ApprovalGatewayPersistenceRequest] carries no governed identity, so a governed run cannot be
- * suspended through this gateway without silently losing its attribution — the downgrade 0.7.1d
- * exists to prevent. [GovernedRunScope.resolve] reads the identity in force for the caller's
- * coroutine, mirroring the guarded suspension path.
- */
-private suspend fun rejectGovernedRun() {
-    val governedRun = GovernedRunScope.resolve(currentCoroutineContext())
-    if (governedRun != null) {
-        throw GovernedRunContinuityException(
-            "Cannot suspend governed run '${governedRun.runId.value}' through the transactional " +
-                "approval gateway: the approval-request persistence contract carries no governed " +
-                "identity, so continuing would silently drop the run's attribution",
-        )
-    }
-}
+/** The optional creation artifacts for one approval request. */
+private data class ApprovalRequestArtifacts(
+    val auditIntent: SovereignOpsAuditOutboxRecord?,
+    val inboxMetadata: ApprovalInboxMetadata?,
+    val resumeCredential: ApprovalResumeCredentialRecord?,
+)

@@ -1111,6 +1111,15 @@ public final class dev/tramai/spring/sovereign/ops/outbox/DefaultSovereignOpsAud
 	public fun retryPending (Ljava/lang/Integer;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public abstract interface class dev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore {
+	public abstract fun createGovernedApprovalRequest (Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun createGovernedApprovalRequest$default (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore;Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore$DefaultImpls {
+	public static synthetic fun createGovernedApprovalRequest$default (Ldev/tramai/spring/sovereign/ops/outbox/GovernedSovereignOpsApprovalRequestMutationStore;Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/identity/GovernedRunIdentity;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore {
 	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;)V
 	public fun approveApprovalWithAuditIntent (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

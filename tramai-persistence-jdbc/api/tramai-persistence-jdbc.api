@@ -1,3 +1,16 @@
+public final class dev/tramai/persistence/jdbc/GovernedJdbcApprovalStore : dev/tramai/core/approval/ApprovalStore, dev/tramai/engine/approval/GovernedApprovalStore {
+	public fun attributionOf (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun consumeApprovedOrReplay-LJPQ52o (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/core/approval/ApprovalRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun createGovernedApproval (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/engine/approval/ApprovalRunAttribution$Governed;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transition (Ljava/lang/String;JLdev/tramai/core/approval/ApprovalTransition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/persistence/jdbc/GovernedJdbcApprovalStoreKt {
+	public static final fun asGovernedApprovalStore (Ldev/tramai/persistence/jdbc/JdbcApprovalStore;)Ldev/tramai/engine/approval/GovernedApprovalStore;
+}
+
 public final class dev/tramai/persistence/jdbc/GovernedJdbcSuspendedInvocationStore : dev/tramai/engine/GovernedSuspendedInvocationStore, dev/tramai/engine/SuspendedInvocationStore {
 	public fun <init> (Ldev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore;)V
 	public fun create (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
