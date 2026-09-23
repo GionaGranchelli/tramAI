@@ -62,9 +62,11 @@ exact, test-enforced contract.
 
 ## Current exposure inventory
 
-Classification legend: **SAFE** (approved for generic surfaces) · **AUTHORITY-ONLY** (needed to
-establish/validate authority; must not cross a generic surface) · **PROTECTED** (payload content;
-must never cross) · **OUT OF SCOPE HERE** (different surface/epic).
+Classification legend: **SAFE** (approved for generic *read* surfaces) · **DECLARATION INPUT, NOT
+READABLE** (a client legitimately originates it on the write path; it must never be reflected back) ·
+**INTERNAL AUTHORITY / STORAGE** (needed to establish/validate authority or to persist; must not cross
+a generic surface) · **PROTECTED** (payload content; must never cross) · **OUT OF SCOPE HERE**
+(different surface/epic).
 
 ### Generic control-plane surfaces (in scope)
 
@@ -79,7 +81,7 @@ must never cross) · **OUT OF SCOPE HERE** (different surface/epic).
 | 7 | `consistency` | `QueryConsistency` (derived) | not stored | HTTP only | SAFE | read classification, not workload content |
 | 8 | `observedVersion` | `ClassifiedRead` | not stored | Kotlin read port + HTTP `ETag` | SAFE | the version the read testifies to |
 | 9 | **`configurationFingerprint`** | `ConfigurationFingerprint` | `tramai_configuration_revision.fingerprint` | **Kotlin read port (`ClassifiedRead.registration`) and every non-stale command outcome; deliberately NOT on HTTP** — and legitimately an *input* of `register(...)` / the HTTP registration body | **DECLARATION INPUT, NOT READABLE — see ruling** | the witness the store compares to decide mutation authority (`compareAndSet` rejects a caller whose immutable witness differs) and the value that makes `(configurationId, version)` unrebindable. Clients originate it on the write path, so it is not secret material; it must never be reflected back, and must not be mistaken for a checkable credential |
-| 10 | `RegisteredWorkload` as a *type* | internal authority record | — | return/parameter-reachable from both ports | AUTHORITY-ONLY | carrying the witness is its job **as a store record**; as a generic contract type it is the leak vector |
+| 10 | `RegisteredWorkload` as a *type* | internal authority record | — | return/parameter-reachable from both ports | INTERNAL AUTHORITY / STORAGE | carrying the witness is its job **as a store record**; as a generic contract type it is the leak vector |
 | 11 | persisting/runtime records (`JdbcWorkloadRegistrationStore`, `InMemoryWorkloadRegistrationStore`, JDBC `ResultSet` rows) | storage | DB / maps | not reachable through either port | not exposed | E4 holds today; pinned by test |
 | 12 | any `Map<String, Any?>`, `Map<String, String>`, `JsonNode`, `Any`, `Object` metadata bag | — | — | does not exist on any control-plane port or type | does not exist | E2 holds today; pinned by test |
 
@@ -356,8 +358,8 @@ mutation mechanism:
 ## Definition of done
 
 - [x] exposure inventory recorded and frozen (this document)
-- [x] safe / authority-only / protected categories frozen (this document)
-- [x] `configurationFingerprint` ruled AUTHORITY-ONLY and structurally excluded from every generic surface
+- [x] safe / declaration-input / internal-authority-storage / protected categories frozen (this document)
+- [x] `configurationFingerprint` ruled DECLARATION INPUT, NOT READABLE and structurally excluded from every generic read and command outcome
 - [x] generic query port, command outcomes and HTTP all expose only the approved model
 - [x] projection reads cannot widen the surface
 - [x] no arbitrary metadata bag reachable; `WorkloadMetadata` stays bounded
