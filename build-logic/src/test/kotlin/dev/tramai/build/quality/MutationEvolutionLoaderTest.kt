@@ -24,6 +24,30 @@ class MutationEvolutionLoaderTest {
     }
 
     @Test
+    fun `from base sha is loaded`(
+        @TempDir root: File,
+    ) {
+        write(
+            root,
+            """
+            schemaVersion: "1"
+            records:
+              - id: id
+                fromBaseSha: base
+                reason: reason
+            """.trimIndent(),
+        )
+        assertEquals(
+            "base",
+            MutationEvolutionLoader
+                .load(root)
+                .records
+                .single()
+                .fromBaseSha,
+        )
+    }
+
+    @Test
     fun `missing schema version fails`(
         @TempDir root: File,
     ) {
@@ -40,10 +64,12 @@ class MutationEvolutionLoaderTest {
     }
 
     @Test
-    fun `blank id or reason fails`(
+    fun `blank id reason or base sha fails`(
         @TempDir root: File,
     ) {
         write(root, "schemaVersion: \"1\"\nrecords:\n  - id: \" \"\n    reason: ok")
+        assertFailsWith<GradleException> { MutationEvolutionLoader.load(root) }
+        write(root, "schemaVersion: \"1\"\nrecords:\n  - id: id\n    fromBaseSha: \" \"\n    reason: ok")
         assertFailsWith<GradleException> { MutationEvolutionLoader.load(root) }
         write(root, "schemaVersion: \"1\"\nrecords:\n  - id: id\n    reason: \" \"")
         assertFailsWith<GradleException> { MutationEvolutionLoader.load(root) }

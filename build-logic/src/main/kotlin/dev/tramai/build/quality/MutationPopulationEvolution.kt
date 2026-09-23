@@ -33,6 +33,7 @@ enum class MutationPopulationEvolution {
 /** One reviewed population removal: config/quality/mutation-evolution.yml. */
 data class MutationEvolutionRecord(
     val id: String,
+    val fromBaseSha: String,
     val reason: String,
     val issue: String? = null,
     val targetPhase: String? = null,
@@ -109,6 +110,7 @@ object MutationEvolutionLoader {
                 ?: throw GradleException("mutation-evolution.yml: records[$index] must be a mapping")
         return MutationEvolutionRecord(
             id = required(entry, "id", index),
+            fromBaseSha = required(entry, "fromBaseSha", index),
             reason = required(entry, "reason", index),
             issue = optional(entry, "issue"),
             targetPhase = optional(entry, "targetPhase"),

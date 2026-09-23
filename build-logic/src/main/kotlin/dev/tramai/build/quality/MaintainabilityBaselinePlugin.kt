@@ -798,12 +798,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // (test-quality.yml) vs the PR base / master authority. Deliberately
         // runs NO PITest campaign: it compares exact identities and canonical
         // KILLED|NON_KILLED outcomes in memory, so it joins verifyPr without
-        // adding a measurement run. Accepts -PtramaiMutationBaseSha for PR
-        // base SHA comparison (mirrors cancellation safety and coverage).
+        // adding a measurement run. Recorded evolution performs a fresh exact
+        // measurement before it can authorize any removal. Accepts
+        // -PtramaiMutationBaseSha for PR base SHA comparison (mirrors cancellation safety and coverage).
         project.tasks.register("verifyMutationRatchet") {
             group = "maintainability"
             description =
-                "Base-authoritative mutation ratchet: judges candidate mutation population, classifications, " +
+                "Base-authoritative mutation ratchet: judges candidate population and classifications, " +
                 "and target configuration against the PR base / master authority. Accepts " +
                 "-PtramaiMutationBaseSha for PR base SHA comparison and -P${MutationPopulationEvolution.PROPERTY} " +
                 "for population evolution authority. Runs no PITest campaign."
@@ -835,6 +836,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         project.findProperty(MutationPopulationEvolution.PROPERTY)?.toString(),
                     )
                 val evolutionRecords = MutationEvolutionLoader.load(project.rootDir)
+                val exactMeasurement =
+                    if (evolution == MutationPopulationEvolution.RECORDED_EVOLUTION) {
+                        val fresh =
+                            runMutationMeasurement(
+                                MutationMeasurementRequest(
+                                    project,
+                                    generator,
+                                    testQualityConfiguration,
+                                    reportDir,
+                                    measurementName = "mutation-evolution",
+                                    persistCommittedBaseline = false,
+                                ),
+                            )
+                        MutationPopulationEvolutionProof.exactComparison(fresh, candidatePopulation)
+                    } else {
+                        MutationPopulationExactComparison(null, emptyList())
+                    }
                 val candidate =
                     MutationRatchetCandidate(
                         population = candidatePopulation,
@@ -847,9 +865,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         candidate,
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                         evolution = evolution,
-                        evolutionRecords = evolutionRecords,
+                        evolutionEvidence =
+                            MutationEvolutionEvidence(evolutionRecords, exactMeasurement.proof),
                     )
-                verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Mutation ratchet (base $baseSha)",
+                    exactMeasurement.diagnostics + diagnostics,
+                )
             }
         }
 

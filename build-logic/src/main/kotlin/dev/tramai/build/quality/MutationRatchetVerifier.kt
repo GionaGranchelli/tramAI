@@ -67,7 +67,7 @@ class MutationRatchetVerifier {
         candidate: MutationRatchetCandidate,
         executable: MutationAnalyzerSemantics,
         evolution: MutationPopulationEvolution = MutationPopulationEvolution.FORBID,
-        evolutionRecords: MutationEvolutionRecords = MutationEvolutionRecords("1", emptyList()),
+        evolutionEvidence: MutationEvolutionEvidence = MutationEvolutionEvidence(),
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         diagnostics += schemaAndStatusChecks(base.population, candidate.population)
@@ -81,9 +81,12 @@ class MutationRatchetVerifier {
             outcomeRatchet(
                 base.population,
                 candidate.population,
-                evolution,
-                evolutionRecords,
-                AUTHORITY_EXCLUDED_IDENTITIES,
+                MutationEvolutionContext(
+                    evolution,
+                    evolutionEvidence,
+                    base.baseSha,
+                    AUTHORITY_EXCLUDED_IDENTITIES,
+                ),
             )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics +=
@@ -259,9 +262,7 @@ class MutationRatchetVerifier {
     private fun outcomeRatchet(
         basePopulation: MutationPopulationBaseline,
         candidatePopulation: MutationPopulationBaseline,
-        evolution: MutationPopulationEvolution,
-        evolutionRecords: MutationEvolutionRecords,
-        excludedIdentities: Set<String>,
+        evolution: MutationEvolutionContext,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseMutants = basePopulation.mutants
@@ -320,8 +321,6 @@ class MutationRatchetVerifier {
                 basePopulation,
                 candidatePopulation,
                 evolution,
-                evolutionRecords,
-                excludedIdentities,
             )
         return diagnostics
     }
@@ -728,21 +727,153 @@ class MutationRatchetVerifier {
 }
 
 private const val M21_ID_SHORT_LENGTH = 8
+private const val HEX_BYTE_MASK = 0xff
+
+data class MutationEvolutionEvidence(
+    val records: MutationEvolutionRecords = MutationEvolutionRecords("1", emptyList()),
+    val proof: MutationPopulationEvolutionProof? = null,
+)
+
+private data class MutationEvolutionContext(
+    val mode: MutationPopulationEvolution,
+    val evidence: MutationEvolutionEvidence,
+    val baseSha: String,
+    val excludedIdentities: Set<String>,
+)
+
+// No population hash is stored in mutation-evolution.yml: exact measurement
+// equality already binds the candidate, while this proof binds the verifier call.
+class MutationPopulationEvolutionProof private constructor(
+    val identityHash: String,
+    val measuredCommit: String,
+) {
+    fun matches(population: MutationPopulationBaseline): Boolean = identityHash == identityHash(population)
+
+    companion object {
+        fun exactComparison(
+            fresh: MutationPopulationBaseline,
+            candidate: MutationPopulationBaseline,
+        ): MutationPopulationExactComparison {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            val freshById = fresh.mutants.associateBy { it.identity }
+            val candidateById = candidate.mutants.associateBy { it.identity }
+            diagnostics += rowDifferences(freshById, candidateById)
+            val freshTopology = fresh.byFamily.mapValues { it.value.modules.toSet() }
+            val candidateTopology = candidate.byFamily.mapValues { it.value.modules.toSet() }
+            if (freshTopology != candidateTopology) {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        "M21: fresh and committed mutation population family/module topology differs: " +
+                            "fresh=$freshTopology, candidate=$candidateTopology.",
+                    )
+            }
+            (fresh.byFamily + candidate.byFamily).forEach { (family, population) ->
+                if (population.totalMutants == 0) {
+                    diagnostics += exactDifference(family, "family is empty")
+                }
+            }
+            val proof =
+                if (diagnostics.isEmpty()) {
+                    MutationPopulationEvolutionProof(
+                        identityHash = identityHash(fresh),
+                        measuredCommit = fresh.measuredCommit,
+                    )
+                } else {
+                    null
+                }
+            return MutationPopulationExactComparison(proof, diagnostics)
+        }
+
+        private fun exactDifference(
+            id: String,
+            difference: String,
+        ): VerificationDiagnostic =
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: fresh measurement differs from committed candidate for identity " +
+                    "${id.take(M21_ID_SHORT_LENGTH)}: $difference.",
+                findingId = id,
+            )
+
+        private fun rowDifferences(
+            fresh: Map<String, MutationOutcome>,
+            candidate: Map<String, MutationOutcome>,
+        ): List<VerificationDiagnostic> {
+            val diagnostics = mutableListOf<VerificationDiagnostic>()
+            for (id in (fresh.keys union candidate.keys).sorted()) {
+                val measured = fresh[id]
+                val committed = candidate[id]
+                val difference =
+                    when {
+                        measured == null -> {
+                            "identity is absent from fresh measurement"
+                        }
+
+                        committed == null -> {
+                            "identity is absent from committed candidate"
+                        }
+
+                        measured.status != committed.status -> {
+                            "raw status ${measured.status} != ${committed.status}"
+                        }
+
+                        measured.outcome != committed.outcome -> {
+                            "canonical status ${measured.outcome} != ${committed.outcome}"
+                        }
+
+                        measured.family != committed.family -> {
+                            "family ${measured.family} != ${committed.family}"
+                        }
+
+                        measured.module != committed.module -> {
+                            "module ${measured.module} != ${committed.module}"
+                        }
+
+                        else -> {
+                            null
+                        }
+                    }
+                if (difference != null) diagnostics += exactDifference(id, difference)
+            }
+            return diagnostics
+        }
+
+        private fun String.sha256(): String =
+            java.security.MessageDigest
+                .getInstance("SHA-256")
+                .digest(toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it.toInt() and HEX_BYTE_MASK) }
+
+        private fun identityHash(population: MutationPopulationBaseline): String =
+            population.mutants
+                .map { it.identity }
+                .toSet()
+                .sorted()
+                .joinToString("\n")
+                .sha256()
+    }
+}
+
+data class MutationPopulationExactComparison(
+    val proof: MutationPopulationEvolutionProof?,
+    val diagnostics: List<VerificationDiagnostic>,
+)
 
 private fun populationEvolutionDiagnostics(
     basePopulation: MutationPopulationBaseline,
     candidatePopulation: MutationPopulationBaseline,
-    evolution: MutationPopulationEvolution,
-    evolutionRecords: MutationEvolutionRecords,
-    excludedIdentities: Set<String>,
+    evolution: MutationEvolutionContext,
 ): List<VerificationDiagnostic> {
     val diagnostics = mutableListOf<VerificationDiagnostic>()
     val baseById = basePopulation.mutants.associateBy { it.identity }
     val candidateIds = candidatePopulation.mutants.map { it.identity }.toSet()
+    diagnostics += evolutionEvidenceDiagnostics(baseById, candidateIds, candidatePopulation, evolution)
+    val recordsById = evolution.evidence.records.byIdentity()
     for (id in baseById.keys - candidateIds) {
         val base = baseById.getValue(id)
-        if (id in excludedIdentities) continue
-        val record = evolutionRecords.byIdentity()[id]
+        if (id in evolution.excludedIdentities) continue
+        val record = recordsById[id]
         val description =
             "${base.module} ${base.className}#${base.method}${base.methodDescription} " +
                 "[${base.mutator}] family '${base.family}'"
@@ -750,7 +881,7 @@ private fun populationEvolutionDiagnostics(
             "M21: $description (${id.take(M21_ID_SHORT_LENGTH)}) exists in the base authority but is " +
                 "absent from the candidate population. "
         when {
-            evolution == MutationPopulationEvolution.FORBID -> {
+            evolution.mode == MutationPopulationEvolution.FORBID -> {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
@@ -773,18 +904,6 @@ private fun populationEvolutionDiagnostics(
                     )
             }
 
-            candidatePopulation.measuredCommit == basePopulation.measuredCommit -> {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
-                        message +
-                            "An authorized removal requires a population produced by the canonical measurement path, " +
-                            "not a hand-edited shrink.",
-                        findingId = id,
-                        modulePath = base.module,
-                    )
-            }
-
             else -> {
                 diagnostics +=
                     VerificationDiagnostic.warning(
@@ -793,6 +912,54 @@ private fun populationEvolutionDiagnostics(
                             "issue=${record.issue ?: "none"}, targetPhase=${record.targetPhase ?: "none"}.",
                     )
             }
+        }
+    }
+    return diagnostics
+}
+
+private fun evolutionEvidenceDiagnostics(
+    baseById: Map<String, MutationOutcome>,
+    candidateIds: Set<String>,
+    candidatePopulation: MutationPopulationBaseline,
+    evolution: MutationEvolutionContext,
+): List<VerificationDiagnostic> {
+    if (evolution.mode != MutationPopulationEvolution.RECORDED_EVOLUTION) return emptyList()
+    val diagnostics = mutableListOf<VerificationDiagnostic>()
+    val proof = evolution.evidence.proof
+    if (proof == null) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: recorded evolution requires a proof from an exact fresh canonical measurement; " +
+                    "authority without measurement evidence is not accepted.",
+            )
+    } else if (!proof.matches(candidatePopulation)) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: recorded evolution proof does not match the committed candidate population.",
+            )
+    }
+    val removedIds = baseById.keys - candidateIds - evolution.excludedIdentities
+    val records = evolution.evidence.records
+    for (id in records.byIdentity().keys - removedIds) {
+        diagnostics +=
+            VerificationDiagnostic.failure(
+                DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                "M21: evolution record ${id.take(M21_ID_SHORT_LENGTH)} does not name a base identity " +
+                    "disappearing in this transition.",
+                findingId = id,
+            )
+    }
+    for (record in records.records) {
+        if (record.fromBaseSha != evolution.baseSha) {
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                    "M21: evolution record ${record.id.take(M21_ID_SHORT_LENGTH)} is bound to base " +
+                        "${record.fromBaseSha}, not this transition base ${evolution.baseSha}.",
+                    findingId = record.id,
+                )
         }
     }
     return diagnostics

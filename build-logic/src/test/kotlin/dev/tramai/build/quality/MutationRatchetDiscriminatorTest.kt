@@ -178,6 +178,71 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     }
 
     @Test
+    fun `M21 recorded evolution without measurement proof fails`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.RECORDED_EVOLUTION,
+                evolutionRecords = MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+                evolutionProof = null,
+            )
+        assertTrue(diagnostics.any { it.message.contains("exact fresh canonical measurement") })
+    }
+
+    @Test
+    fun `M21 stale record base fails`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.RECORDED_EVOLUTION,
+                evolutionRecords =
+                    MutationEvolutionRecords(
+                        "1",
+                        listOf(evolutionRecord("v1").copy(fromBaseSha = "old-base")),
+                    ),
+            )
+        assertTrue(diagnostics.any { it.message.contains("not this transition base") })
+    }
+
+    @Test
+    fun `M21 extra record fails`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.RECORDED_EVOLUTION,
+                evolutionRecords =
+                    MutationEvolutionRecords(
+                        "1",
+                        listOf(evolutionRecord("v1"), evolutionRecord("extra")),
+                    ),
+            )
+        assertTrue(diagnostics.any { it.message.contains("does not name a base identity") })
+    }
+
+    @Test
+    fun `M21 missing record fails`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.RECORDED_EVOLUTION,
+                evolutionRecords = MutationEvolutionRecords("1", emptyList()),
+            )
+        assertTrue(diagnostics.any { it.message.contains("Authorized evolution does not name") })
+    }
+
+    @Test
     fun `M21 authorized evolution with family missing still fails`() {
         val families = mapOf(policyFamily to policyTarget, retryFamily to retryTarget)
         val base =
@@ -198,7 +263,10 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
                 MutationRatchetCandidate(candidate, classifications(), families),
                 semantics,
                 MutationPopulationEvolution.RECORDED_EVOLUTION,
-                MutationEvolutionRecords("1", listOf(evolutionRecord("v1"), evolutionRecord("r1"))),
+                MutationEvolutionEvidence(
+                    MutationEvolutionRecords("1", listOf(evolutionRecord("v1"), evolutionRecord("r1"))),
+                    MutationPopulationEvolutionProof.exactComparison(candidate, candidate).proof,
+                ),
             )
         assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID), "missing family must fail")
     }
@@ -218,7 +286,10 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
                 MutationRatchetCandidate(candidate, classifications(), baseFamilies),
                 semantics,
                 MutationPopulationEvolution.RECORDED_EVOLUTION,
-                MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+                MutationEvolutionEvidence(
+                    MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+                    MutationPopulationEvolutionProof.exactComparison(candidate, candidate).proof,
+                ),
             )
         assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT), "M15 must fail")
     }
@@ -234,6 +305,7 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     private fun evolutionRecord(marker: String) =
         MutationEvolutionRecord(
             id = identityOf(marker, policyFamily, ":engine"),
+            fromBaseSha = BASE_SHA,
             reason = "source mutation removed",
             issue = "ISSUE-1",
             targetPhase = "0.7.1",
