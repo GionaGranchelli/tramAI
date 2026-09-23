@@ -138,6 +138,15 @@ object MutationPopulationAggregator {
                 throw GradleException("Configured mutation family '$family' produced zero mutants (M02).")
             }
         }
+        rejectUnmeasuredModules(records, configuredFamilies)
+        // M17: no family beyond the configured ones.
+        rejectUnconfiguredFamilies(presentFamilies, configuredFamilies)
+    }
+
+    private fun rejectUnmeasuredModules(
+        records: List<MutationRecord>,
+        configuredFamilies: Map<String, TestQualityConfiguration.MutationTargetFamily>,
+    ) {
         // C6/M02 completeness: judged against the CONFIGURED measurement topology, never against the
         // modules that happened to report. A family spanning several modules stays non-vacuous while
         // one of its modules produces nothing, so family-level non-emptiness alone lets a module
@@ -156,8 +165,6 @@ object MutationPopulationAggregator {
                 )
             }
         }
-        // M17: no family beyond the configured ones.
-        rejectUnconfiguredFamilies(presentFamilies, configuredFamilies)
     }
 
     private fun rejectUnconfiguredFamilies(
