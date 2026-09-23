@@ -45,7 +45,11 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  * - M16/M17/M18 analyzer semantics/mutator/timeout drift, base vs candidate
  *   AND candidate vs the executable PIT renderer               = fail
  * - M19 identity-schema drift                                  = fail
- * - M20 malformed / missing / self-inconsistent authority      = fail closed
+ * - M20 malformed / missing / self-inconsistent authority    = fail closed
+ * - M21 base identity absent from the candidate population   = fail. Measured authority may only
+ *   shrink through the explicit baseline evolution ceremony; a mutant that merely stopped being
+ *   measured (narrowed target, silent module, truncated report, aborted campaign) is indistinguishable
+ *   from one that vanished for a legitimate reason, so it fails closed.
  *
  * Classification authority semantics: a PR may only REMOVE classifications
  * (when the underlying mutant dies), never add or re-author one. New
@@ -292,6 +296,25 @@ class MutationRatchetVerifier {
             }
             // M07: new KILLED identities pass — improved protection is the ratchet's goal.
             // (Only self-consistent kills pass: rowSelfChecks already rejected forged ones.)
+        }
+
+        // M21: a base identity that simply stopped being measured. Absence is not evidence of
+        // improvement — a narrowed target, a module that stopped reporting, a truncated report or an
+        // aborted campaign all look exactly like this. Measured authority may only shrink through the
+        // repository's explicit baseline evolution ceremony, never as a side effect of a measurement.
+        for (id in baseIds - candidateIds) {
+            val base = baseById.getValue(id)
+            if (id in AUTHORITY_EXCLUDED_IDENTITIES) continue
+            diagnostics +=
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                    "M21: ${describe(base)} (${short(id)}) exists in the base authority but is absent from the " +
+                        "candidate population. A measured mutant leaves the authority only through the explicit " +
+                        "baseline evolution ceremony; an identity that stopped being measured means the " +
+                        "measurement changed, not the code.",
+                    findingId = id,
+                    modulePath = base.module,
+                )
         }
         return diagnostics
     }

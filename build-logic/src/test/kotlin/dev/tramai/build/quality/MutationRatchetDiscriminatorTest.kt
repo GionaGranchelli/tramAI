@@ -96,6 +96,41 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
         assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID, "self-inconsistent")
     }
 
+    // ── M21: measured authority may not shrink silently ──
+
+    @Test
+    fun `M21 base identity absent from the candidate fails`() {
+        // A module that stopped reporting, a narrowed target class set or a truncated report all look
+        // exactly like this. Absence is not evidence of improvement: without M21 the ratchet would
+        // accept a silently shrunken authority as the reference for the next PR.
+        val base =
+            population(
+                listOf(
+                    row("k1", status = "KILLED", outcome = "KILLED"),
+                    row("v1", status = "SURVIVED"),
+                ),
+            )
+        val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertFailsWith(
+            diagnostics,
+            DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+            "absent from the candidate population",
+        )
+        assertTrue(
+            failures(diagnostics).any { it.message.contains("apply_v1") },
+            "the disappeared identity must be named: ${failures(diagnostics).map { it.message }}",
+        )
+    }
+
+    @Test
+    fun `M21 an identity that only changed status is not a disappearance`() {
+        // Boundary: "gone" and "still measured, now killed" must stay distinguishable.
+        val base = population(listOf(row("v1", status = "SURVIVED")))
+        val candidate = population(listOf(row("v1", status = "KILLED", outcome = "KILLED")))
+        passes(verify(basePopulation = base, candidatePopulation = candidate))
+    }
+
     // ── M12 / M13: structural integrity, fail closed ──
 
     @Test

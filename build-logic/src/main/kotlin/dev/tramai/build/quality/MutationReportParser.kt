@@ -53,6 +53,25 @@ class MutationReportParser {
             } catch (e: Exception) {
                 throw GradleException("Malformed PITest XML for $family/$module: ${e.message}", e)
             }
+        // Structural validity: a document that is not a PITest mutation report at all must never be
+        // read as one. Without this, any well-formed XML — a stale report from another tool, a
+        // partially written file that happens to close its root early — silently parses to zero
+        // mutants and looks like a legitimately empty measurement.
+        //
+        // Deliberately NOT checked here: ownership of emptiness. A valid `<mutations>` root carrying
+        // zero mutations is a measuring concern, not a syntax concern, and belongs to
+        // MutationPopulationAggregator's non-vacuity check.
+        //
+        // Also deliberately not a signal here: the root's `partial` attribute. PIT writes it in
+        // runStart() from ReportOptions.shouldReportCoverage, i.e. before a single mutant is
+        // analysed — it means "this report carries coverage data", never "the run was incomplete".
+        val root = document.documentElement
+        if (root.tagName != PITEST_ROOT_ELEMENT) {
+            throw GradleException(
+                "Malformed PITest XML for $family/$module: expected <$PITEST_ROOT_ELEMENT> root, found " +
+                    "<${root.tagName}>. A non-PITest document must not be measured as an empty population.",
+            )
+        }
         val elements = document.getElementsByTagName("mutation")
         val records =
             (0 until elements.length)
@@ -246,6 +265,9 @@ class MutationReportParser {
         }
 
     companion object {
+        /** The only document root PITest emits for a mutation report. */
+        const val PITEST_ROOT_ELEMENT: String = "mutations"
+
         /** Terminal PIT statuses we understand. Anything else is a hard failure (M11). */
         val KNOWN_STATUSES =
             setOf(
