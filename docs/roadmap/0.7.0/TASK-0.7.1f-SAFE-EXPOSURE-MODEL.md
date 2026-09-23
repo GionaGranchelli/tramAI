@@ -78,7 +78,7 @@ must never cross) · **OUT OF SCOPE HERE** (different surface/epic).
 | 6 | `stateVersion` | `WorkloadStateVersion` | `tramai_workload_registration.state_version` (CHECK ≥ 1) | same | SAFE | authoritative state version |
 | 7 | `consistency` | `QueryConsistency` (derived) | not stored | HTTP only | SAFE | read classification, not workload content |
 | 8 | `observedVersion` | `ClassifiedRead` | not stored | Kotlin read port + HTTP `ETag` | SAFE | the version the read testifies to |
-| 9 | **`configurationFingerprint`** | `ConfigurationFingerprint` | `tramai_configuration_revision.fingerprint` | **Kotlin read port (`ClassifiedRead.registration`) and every non-stale command outcome; deliberately NOT on HTTP** | **AUTHORITY-ONLY — see ruling** | the witness the store compares to decide mutation authority (`compareAndSet` rejects a caller whose immutable witness differs) and the value that makes `(configurationId, version)` unrebindable. A client cannot present it back (commands take `expectedVersion`, never a record) and must not be invited to treat it as a checkable credential |
+| 9 | **`configurationFingerprint`** | `ConfigurationFingerprint` | `tramai_configuration_revision.fingerprint` | **Kotlin read port (`ClassifiedRead.registration`) and every non-stale command outcome; deliberately NOT on HTTP** — and legitimately an *input* of `register(...)` / the HTTP registration body | **DECLARATION INPUT, NOT READABLE — see ruling** | the witness the store compares to decide mutation authority (`compareAndSet` rejects a caller whose immutable witness differs) and the value that makes `(configurationId, version)` unrebindable. Clients originate it on the write path, so it is not secret material; it must never be reflected back, and must not be mistaken for a checkable credential |
 | 10 | `RegisteredWorkload` as a *type* | internal authority record | — | return/parameter-reachable from both ports | AUTHORITY-ONLY | carrying the witness is its job **as a store record**; as a generic contract type it is the leak vector |
 | 11 | persisting/runtime records (`JdbcWorkloadRegistrationStore`, `InMemoryWorkloadRegistrationStore`, JDBC `ResultSet` rows) | storage | DB / maps | not reachable through either port | not exposed | E4 holds today; pinned by test |
 | 12 | any `Map<String, Any?>`, `Map<String, String>`, `JsonNode`, `Any`, `Object` metadata bag | — | — | does not exist on any control-plane port or type | does not exist | E2 holds today; pinned by test |
@@ -144,18 +144,25 @@ plus the read classification (`QueryConsistency`, `observedVersion`) which trave
 `ClassifiedRead`, never inside it. This is an allowlist of named, typed fields — not permission to
 expose "nearby" fields.
 
-## Authority-only / internal categories (frozen)
+## Classes 2-4 — declaration input, internal authority/storage, protected payload (frozen)
 
-| value | ruling |
-|---|---|
-| `configurationFingerprint` | **AUTHORITY-ONLY. Must not appear on any generic control-plane surface** — programmatic or HTTP. Rationale: it is the value `WorkloadRegistrationStore.compareAndSet` compares to decide whether a caller has mutation authority, and the value that makes a `(configurationId, version)` binding immutable. Exposing it lets a generic client read authority evidence it cannot use and must not be taught to present. The HTTP adapter already ruled this way in 0.7.1e; 0.7.1f makes the Kotlin contract agree instead of leaving a documented-but-enforced-nowhere exception. |
-| `RegisteredWorkload` as a port payload type | **AUTHORITY-ONLY.** It remains public because `WorkloadRegistrationStore` (the persistence SPI) requires the witness; it ceases to be reachable from `WorkloadControlPlaneQueries` / `WorkloadControlPlaneCommands`, including through their outcome hierarchies. |
-| `CreateResult`, store records, `ResultSet` rows | storage-only; never a generic surface (E4). |
+The boundary has four classes, not three. The distinction between class 1 and class 2 is *direction*,
+not secrecy: a client legitimately originates the fingerprint on the write path, and must never read
+it back.
 
-**How to state "safe" — post-fix, the fingerprint is still visible in one legitimate place**: a
-caller of `WorkloadRegistrationStore` (a persistence adapter, or an application that installs its
-own store) sees it. That is the store SPI contract, not the generic control-plane contract, and
-0.7.1f does not change it — the CAS witness must be comparable.
+| class | value | ruling |
+|---|---|---|
+| 1 | `WorkloadExposure` payload (see above) | **SAFE TO READ.** The complete allowlist. |
+| 2 | `configurationFingerprint` | **DECLARATION INPUT, NOT READABLE.** A client supplies it when it declares a registration — `WorkloadControlPlaneCommands.register(...)`, and the HTTP registration body — so it is neither secret material nor a mutation credential, and it is legitimately part of the approved *input* type set. It must never be **reflected back**: it is the witness `WorkloadRegistrationStore.compareAndSet` compares to decide mutation authority and the value that makes a `(configurationId, version)` binding unrebindable, so it is absent from every read model and from every command *outcome*. The HTTP adapter already ruled this way in 0.7.1e; 0.7.1f makes the Kotlin contract agree instead of leaving a documented-but-nowhere-enforced exception. |
+| 3 | `RegisteredWorkload` as a port payload type | **INTERNAL AUTHORITY / STORAGE.** It remains public because `WorkloadRegistrationStore` (the persistence SPI) requires the witness; it ceases to be reachable from `WorkloadControlPlaneQueries` / `WorkloadControlPlaneCommands`, including through their outcome hierarchies. |
+| 3 | `CreateResult`, store records, JDBC `ResultSet` rows | storage-only; reachable through the store SPI, never through a generic surface (E4). |
+| 4 | prompts, model I/O, user content, tool arguments/results, credentials, tokens/secrets, PII, approval/suspension/replay payloads, evidence bodies, provider requests/responses, arbitrary metadata maps | **PROTECTED.** Not representable in any control-plane contract type. |
+
+**Post-fix, the fingerprint is still visible in one legitimate place**: a caller of
+`WorkloadRegistrationStore` (a persistence adapter, or an application that installs its own store)
+sees it, and a registrant supplies it. Those are the store SPI and the declaration contract; neither
+is a generic *read* surface, and 0.7.1f does not change them — the CAS witness must be comparable and
+the registration witness must be declarable.
 
 ## Protected categories (frozen — must remain unreachable)
 
@@ -240,10 +247,10 @@ Status/ETag/`ProblemDetail` semantics are untouched (400/404/409/412/428, `ETag:
 | E1 | a generic control-plane response is constructed from an explicit safe schema, never from the internal record | the only construction path is `WorkloadExposure.from(record)`; HTTP maps the exposure; `WorkloadRegistrationResponse.from` no longer accepts a `RegisteredWorkload` |
 | E2 | no generic public API widens the surface with `Map<*,*>`, `JsonNode`, `Any`, `Object` | exact input/output type-set tests over both ports |
 | E3 | no generic path can return prompts, model/user/tool/approval/evidence/secret payloads | reachable-type test (exact set) + exact exposure property set |
-| E4 | no persistence record is returned by the public contract | reachable-type test asserts nothing from `dev.tramai.persistence` is reachable |
+| E4 | no persistence record is returned by the public contract | reachable-type test walks transitively and **fails loudly** on any type outside the two approved packages — nested getter types included, so a `java.sql.ResultSet` field on an outcome payload cannot disappear from the walk |
 | E5 | `WorkloadMetadata` stays bounded | exact property-set test on `WorkloadMetadata` (owner, purpose only); no bag can be added silently |
 | E6 | query consistency/version semantics preserved | existing 0.7.1e contract tests, unchanged and green |
-| E7 | authority witnesses get an explicit ruling | fingerprint ruled AUTHORITY-ONLY; exclusion asserted on the type graph *and* on HTTP JSON |
+| E7 | authority witnesses get an explicit ruling | fingerprint ruled DECLARATION INPUT, NOT READABLE (never a generic output); exclusion asserted on the type graph *and* on HTTP JSON, while its input position stays approved |
 | E8 | command responses cannot widen reads | outcome payload type-set test + HTTP exact-shape tests on POST and PUT |
 | E9 | additions fail closed | every shape assertion is exact (`==` approved set), so a new field/type/JSON property reddens the build and forces an explicit decision |
 
@@ -257,7 +264,9 @@ Status/ETag/`ProblemDetail` semantics are untouched (400/404/409/412/428, `ETag:
    sentinel contains no trace of it (`toString`, `equals`/`hashCode` inputs), and no exposure field
    type can hold a `ConfigurationFingerprint`.
 3. Port **output** type graph == approved set (exact) — `RegisteredWorkload` and
-   `ConfigurationFingerprint` are absent; nothing from `dev.tramai.persistence` is present.
+   `ConfigurationFingerprint` are absent. The walk is fail-closed: any type outside the approved
+   packages — including a *nested* getter type such as a `java.sql.ResultSet` field on an outcome
+   payload — makes it fail loudly instead of vanishing from the set.
 4. Port **input** type graph == approved set (exact) — the witness may be *submitted* (`register`)
    but no input bag type exists; `RegisteredWorkload` is not an input.
 5. `ClassifiedRead.exposure` is the safe type and the state/version contradiction guard still fires.
@@ -355,9 +364,25 @@ mutation mechanism:
 - [x] no persistence record reachable from the public contract
 - [x] exact-shape/type-graph discriminators implemented and proven to fail when the boundary moves
 - [x] API transition authorized by an ACTIVE migration entry
-- [ ] focused module suites green; repository quality gates green on the reported head
-- [ ] task doc, module doc and PR body agree with the final implementation
-- [ ] working tree clean
+- [x] focused module suites green; repository quality gates green on the reported head
+- [x] task doc, module doc and PR body agree with the final implementation
+- [x] working tree clean
+
+## Review round — 0.7.1f
+
+The first review found one blocker and two contract inconsistencies, all fixed on the same branch:
+
+1. **Nested out-of-package types could silently evade the type-graph walk** (the walk dropped any
+   type outside the two approved packages before asserting, so `val row: java.sql.ResultSet` on an
+   outcome payload left the exact set unchanged). The walk now skips only terminal scalars
+   (primitives, `String`) and `require`s the approved packages for everything else, so it fails
+   loudly. Proven by adding exactly that nested field and observing the discriminator red, then
+   restoring it.
+2. **The fingerprint's classification contradicted the API** ("authority-only" while
+   `register(...)`/the HTTP body accept it). Now frozen as **declaration input, not readable**.
+3. **The API migration text was wrong** (`Rejected.existing` keeps its name; the change is binary
+   incompatible via constructors/`copy`/`componentN`/getters) and now says so, including the
+   recompile requirement.
 
 ## Socratic clause / unresolved risks
 

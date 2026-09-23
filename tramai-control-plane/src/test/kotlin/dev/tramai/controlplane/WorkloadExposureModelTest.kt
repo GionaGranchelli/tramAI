@@ -14,6 +14,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.junit.jupiter.api.Test
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
 
 class WorkloadExposureModelTest {
@@ -50,6 +51,9 @@ class WorkloadExposureModelTest {
     }
 
     private val ports = arrayOf(WorkloadControlPlaneQueries::class.java, WorkloadControlPlaneCommands::class.java)
+
+    /** The only packages a type reachable from the generic control-plane contract may live in. */
+    private val approvedPackages = setOf("dev.tramai.controlplane", "dev.tramai.core.identity")
 
     private val approvedOutputTypes =
         setOf(
@@ -116,7 +120,6 @@ class WorkloadExposureModelTest {
                 it == Any::class.java || Map::class.java.isAssignableFrom(it) ||
                     it.simpleName == "JsonNode"
             }
-            assertThat(type.packageName).isIn("dev.tramai.controlplane", "dev.tramai.core.identity")
         }
     }
 
@@ -149,7 +152,7 @@ class WorkloadExposureModelTest {
                 .isNotEqualTo("JsonNode")
             assertThat(type.packageName)
                 .describedAs("port signature type %s must live in an approved package", type.name)
-                .isIn("dev.tramai.controlplane", "dev.tramai.core.identity")
+                .isIn(approvedPackages)
         }
     }
 
@@ -261,19 +264,28 @@ class WorkloadExposureModelTest {
         }
         while (queue.isNotEmpty()) {
             val type = queue.removeFirst()
-            if (
-                type.packageName !in setOf("dev.tramai.controlplane", "dev.tramai.core.identity") ||
-                !seen.add(type)
-            ) {
-                continue
+            if (!isTerminalScalar(type) && seen.add(type)) {
+                // Fail closed on everything that is not an approved contract type. Silently dropping an
+                // out-of-package type would satisfy the exact-set assertions while hiding exactly what they
+                // exist to catch: a nested getter of, say, java.sql.ResultSet on an outcome payload.
+                require(type.packageName in approvedPackages) {
+                    "forbidden type reachable from the control-plane contract: ${type.name}"
+                }
+                if (type.simpleName.endsWith("Outcome") || type.simpleName.endsWith("Result")) {
+                    type.declaredClasses.forEach(queue::add)
+                }
+                getters(type).values.forEach(queue::add)
             }
-            if (type.simpleName.endsWith("Outcome") || type.simpleName.endsWith("Result")) {
-                type.declaredClasses.forEach(queue::add)
-            }
-            getters(type).values.forEach(queue::add)
         }
         return seen
     }
+
+    /**
+     * Types a contract property may legitimately terminate in: primitives (a non-null Kotlin `Long`
+     * compiles to `long`) and `String`. Anything else must be an approved contract type — the walk
+     * refuses to guess, so a new scalar has to be admitted here deliberately.
+     */
+    private fun isTerminalScalar(type: Class<*>): Boolean = type.isPrimitive || type == String::class.java
 
     private fun suspendReturn(method: Method): Class<*>? =
         method.genericParameterTypes
@@ -287,7 +299,11 @@ class WorkloadExposureModelTest {
     private fun getters(type: Class<*>): Map<String, Class<*>> =
         type.declaredMethods
             .filter {
-                it.parameterCount == 0 &&
+                // Instance accessors only: a static accessor (for example the enum `entries` getter the
+                // Kotlin compiler emits) is not a property of a contract value and would drag unrelated
+                // JDK/Kotlin types into the reachable set.
+                !Modifier.isStatic(it.modifiers) &&
+                    it.parameterCount == 0 &&
                     (it.name.startsWith("get") || it.name.startsWith("is")) &&
                     it.name !in setOf("getClass")
             }.associate {

@@ -112,4 +112,4 @@ migrations:
     toSha256: "71acccdcab31390b76032fc1979384dea72cce7dca8f6a5156254c2fb319e675"
     targetVersion: "0.7.0"
     rationale: "0.7.1f invariant: the generic control-plane payload becomes the explicit safe exposure model, so the CAS/rebinding witness stops being reachable from WorkloadControlPlaneQueries and every non-stale command outcome."
-    migration: "Consumers must change ClassifiedRead.registration to .exposure and outcome payload property registration/existing to .exposure; the safe payload is narrower. No other signature changed."
+    migration: "Binary-incompatible for preview consumers: ClassifiedRead.registration and the outcome payload property registration are renamed to exposure, so constructors, copy(...), componentN() and the getters change descriptor — update those accesses and recompile. RegisterOutcome.Rejected.existing keeps its NAME; only its type changes (RegisteredWorkload -> WorkloadExposure). The payload is strictly narrower: the configuration fingerprint is no longer returned on any generic surface. WorkloadRegistrationStore / CreateResult and every command signature are unchanged."

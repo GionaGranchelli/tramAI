@@ -42,9 +42,11 @@ authoritative mutation and never changes identity.
 
 `WorkloadExposure` is the single generic control-plane payload. It contains only deployment
 identity, bounded owner/purpose metadata, registration lifecycle, and state version. The
-`configurationFingerprint` is AUTHORITY-ONLY: it is the CAS/rebinding witness and is never exposed
-through generic queries, outcomes, or HTTP. `WorkloadRegistrationStore` remains the deliberate
-exception because its SPI must retain `RegisteredWorkload` for CAS.
+`configurationFingerprint` is a DECLARATION INPUT, NOT READABLE: a client originates it when it
+declares a registration, and it is never reflected back through a generic read, an outcome, or HTTP
+— it is the CAS/rebinding witness `WorkloadRegistrationStore.compareAndSet` compares.
+`WorkloadRegistrationStore` remains the deliberate exception because its SPI must retain
+`RegisteredWorkload` for CAS.
 
 ### Thread-safety and concurrency
 
