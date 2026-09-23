@@ -576,7 +576,7 @@ public final class dev/tramai/server/WorkloadRegistrationResponse {
 }
 
 public final class dev/tramai/server/WorkloadRegistrationResponse$Companion {
-	public final fun from (Ldev/tramai/controlplane/RegisteredWorkload;Ljava/lang/String;)Ldev/tramai/server/WorkloadRegistrationResponse;
-	public static synthetic fun from$default (Ldev/tramai/server/WorkloadRegistrationResponse$Companion;Ldev/tramai/controlplane/RegisteredWorkload;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/WorkloadRegistrationResponse;
+	public final fun from (Ldev/tramai/controlplane/WorkloadExposure;Ljava/lang/String;)Ldev/tramai/server/WorkloadRegistrationResponse;
+	public static synthetic fun from$default (Ldev/tramai/server/WorkloadRegistrationResponse$Companion;Ldev/tramai/controlplane/WorkloadExposure;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/WorkloadRegistrationResponse;
 }
 
