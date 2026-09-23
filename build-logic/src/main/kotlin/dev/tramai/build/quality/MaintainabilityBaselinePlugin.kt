@@ -807,7 +807,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "Base-authoritative mutation ratchet: judges candidate population and classifications, " +
                 "and target configuration against the PR base / master authority. Accepts " +
                 "-PtramaiMutationBaseSha for PR base SHA comparison and -P${MutationPopulationEvolution.PROPERTY} " +
-                "for population evolution authority. Runs no PITest campaign."
+                "for population evolution authority. Runs no PITest campaign in the default FORBID " +
+                "mode; recorded evolution runs a fresh canonical campaign first."
             doLast {
                 val baseSha =
                     MutationRatchetAuthorityLoader.resolveBaseSha(

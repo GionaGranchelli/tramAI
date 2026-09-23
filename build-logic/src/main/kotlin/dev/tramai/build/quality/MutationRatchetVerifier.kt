@@ -743,11 +743,14 @@ private data class MutationEvolutionContext(
 
 // No population hash is stored in mutation-evolution.yml: exact measurement
 // equality already binds the candidate, while this proof binds the verifier call.
+// The proof hashes the FULL canonical comparison projection — identity, raw status,
+// canonical outcome, family, module, family/module topology and analyzer semantics —
+// not just the identity set, so it cannot be reused for a population that shares the
+// identities but differs in outcomes.
 class MutationPopulationEvolutionProof private constructor(
-    val identityHash: String,
-    val measuredCommit: String,
+    val projectionHash: String,
 ) {
-    fun matches(population: MutationPopulationBaseline): Boolean = identityHash == identityHash(population)
+    fun matches(population: MutationPopulationBaseline): Boolean = projectionHash == population.projectionHash()
 
     companion object {
         fun exactComparison(
@@ -768,6 +771,13 @@ class MutationPopulationEvolutionProof private constructor(
                             "fresh=$freshTopology, candidate=$candidateTopology.",
                     )
             }
+            if (fresh.analyzer != candidate.analyzer) {
+                diagnostics +=
+                    exactDifference(
+                        "analyzer",
+                        "analyzer semantics fresh=${fresh.analyzer} != candidate=${candidate.analyzer}",
+                    )
+            }
             (fresh.byFamily + candidate.byFamily).forEach { (family, population) ->
                 if (population.totalMutants == 0) {
                     diagnostics += exactDifference(family, "family is empty")
@@ -776,8 +786,7 @@ class MutationPopulationEvolutionProof private constructor(
             val proof =
                 if (diagnostics.isEmpty()) {
                     MutationPopulationEvolutionProof(
-                        identityHash = identityHash(fresh),
-                        measuredCommit = fresh.measuredCommit,
+                        projectionHash = fresh.projectionHash(),
                     )
                 } else {
                     null
@@ -845,13 +854,34 @@ class MutationPopulationEvolutionProof private constructor(
                 .digest(toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it.toInt() and HEX_BYTE_MASK) }
 
-        private fun identityHash(population: MutationPopulationBaseline): String =
-            population.mutants
-                .map { it.identity }
-                .toSet()
-                .sorted()
-                .joinToString("\n")
-                .sha256()
+        private fun MutationPopulationBaseline.projectionHash(): String = canonicalProjection().sha256()
+
+        /**
+         * The canonical exact-comparison projection: the complete, order-independent evidence a
+         * fresh measurement must reproduce. Hashed by [projectionHash] so the proof binds
+         * everything the comparison actually checked, not merely the identity set.
+         */
+        private fun MutationPopulationBaseline.canonicalProjection(): String =
+            buildString {
+                mutants
+                    .map { "${it.identity}|${it.status}|${it.outcome}|${it.family}|${it.module}" }
+                    .sorted()
+                    .forEach { appendLine(it) }
+                appendLine(
+                    "topology=" +
+                        byFamily.toSortedMap().entries.joinToString(",") {
+                            "${it.key}:${it.value.modules.sorted().joinToString("+")}"
+                        },
+                )
+                appendLine(
+                    "analyzer=" +
+                        analyzer.pluginVersion + "|" + analyzer.engineVersion + "|" +
+                        analyzer.mutators
+                            .sorted()
+                            .joinToString("+") + "|" +
+                        analyzer.timeoutConst + "|" + analyzer.timeoutFactor,
+                )
+            }
     }
 }
 

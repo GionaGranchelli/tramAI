@@ -1,6 +1,8 @@
 package dev.tramai.build.quality
 
 import org.junit.jupiter.api.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -190,6 +192,30 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
                 evolutionProof = null,
             )
         assertTrue(diagnostics.any { it.message.contains("exact fresh canonical measurement") })
+    }
+
+    @Test
+    fun `M21 proof binds the full projection not only the identity set`() {
+        val measured =
+            population(listOf(row("k1", status = "KILLED", outcome = "KILLED")), measuredCommit = "m")
+        val sameIdentitiesDifferentStatus =
+            population(listOf(row("k1", status = "SURVIVED", outcome = "NON_KILLED")), measuredCommit = "m")
+        val sameIdentitiesDifferentAnalyzer =
+            population(
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
+                measuredCommit = "m",
+                analyzer = MutationAnalyzerSemantics(pluginVersion = "another-renderer"),
+            )
+        val proof = assertNotNull(MutationPopulationEvolutionProof.exactComparison(measured, measured).proof)
+        assertTrue(proof.matches(measured))
+        assertFalse(
+            proof.matches(sameIdentitiesDifferentStatus),
+            "a proof must not be reusable for the same identities with different outcomes",
+        )
+        assertFalse(
+            proof.matches(sameIdentitiesDifferentAnalyzer),
+            "a proof must not be reusable across analyzer semantics",
+        )
     }
 
     @Test
