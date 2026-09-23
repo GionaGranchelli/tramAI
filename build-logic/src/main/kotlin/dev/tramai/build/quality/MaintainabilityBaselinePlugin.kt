@@ -805,7 +805,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description =
                 "Base-authoritative mutation ratchet: judges candidate mutation population, classifications, " +
                 "and target configuration against the PR base / master authority. Accepts " +
-                "-PtramaiMutationBaseSha for PR base SHA comparison. Runs no PITest campaign."
+                "-PtramaiMutationBaseSha for PR base SHA comparison and -P${MutationPopulationEvolution.PROPERTY} " +
+                "for population evolution authority. Runs no PITest campaign."
             doLast {
                 val baseSha =
                     MutationRatchetAuthorityLoader.resolveBaseSha(
@@ -828,6 +829,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read candidate mutation population: ${e.message}", e)
                     }
                 val candidateClassifications = MutationClassificationLoader.load(project.rootDir)
+                // The property is invocation authority; YAML records are the per-identity audit trail.
+                val evolution =
+                    MutationPopulationEvolution.fromProperty(
+                        project.findProperty(MutationPopulationEvolution.PROPERTY)?.toString(),
+                    )
+                val evolutionRecords = MutationEvolutionLoader.load(project.rootDir)
                 val candidate =
                     MutationRatchetCandidate(
                         population = candidatePopulation,
@@ -839,6 +846,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         authority,
                         candidate,
                         executable = MutationPopulationAggregator.canonicalSemantics(),
+                        evolution = evolution,
+                        evolutionRecords = evolutionRecords,
                     )
                 verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
             }

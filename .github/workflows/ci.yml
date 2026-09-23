@@ -217,13 +217,16 @@ jobs:
         run: |
           ./gradlew verifyMutationRatchet \
             --no-daemon \
+            -PtramaiMutationEvolution=${{ contains(github.event.pull_request.labels.*.name, 'mutation-population-evolution') && 'recorded-evolution' || 'forbid' }} \
             -PtramaiMutationBaseSha="${{ github.event.pull_request.base.sha }}"
 
       - name: Verify mutation ratchet against previous master
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        # Post-merge there is no PR label; durable in-tree records are the authority.
         run: |
           ./gradlew verifyMutationRatchet \
             --no-daemon \
+            -PtramaiMutationEvolution=recorded-evolution \
             -PtramaiMutationBaseSha="${{ github.event.before }}"
 
   consumer-smoke:

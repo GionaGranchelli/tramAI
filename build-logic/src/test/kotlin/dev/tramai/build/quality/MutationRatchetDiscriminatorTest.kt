@@ -99,7 +99,7 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     // ── M21: measured authority may not shrink silently ──
 
     @Test
-    fun `M21 base identity absent from the candidate fails`() {
+    fun `M21 normal PR loses base identity fails`() {
         // A module that stopped reporting, a narrowed target class set or a truncated report all look
         // exactly like this. Absence is not evidence of improvement: without M21 the ratchet would
         // accept a silently shrunken authority as the reference for the next PR.
@@ -124,12 +124,120 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
     }
 
     @Test
+    fun `M21 normal PR removes classification and identity fails`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(emptyList())
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                baseClassifications = approvedClassifications("v1"),
+                candidatePopulation = candidate,
+            )
+        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT), "M21 must fail")
+    }
+
+    @Test
+    fun `M21 manually shrunk baseline fails without evolution authority`() {
+        val base = population(listOf(row("v1")))
+        val candidate = population(emptyList())
+        val diagnostics = verify(basePopulation = base, candidatePopulation = candidate)
+        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT), "FORBID must fail")
+    }
+
+    @Test
+    fun `M21 baseline migration alone remains forbidden`() {
+        val base = population(listOf(row("v1")), measuredCommit = "base")
+        val candidate = population(emptyList(), measuredCommit = "candidate")
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.FORBID,
+                evolutionRecords = MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+            )
+        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT), "FORBID must fail")
+    }
+
+    @Test
+    fun `M21 authorized canonical evolution warns only`() {
+        val base = population(listOf(row("v1")), measuredCommit = "base")
+        val candidate =
+            population(
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
+                measuredCommit = "candidate",
+            )
+        val diagnostics =
+            verify(
+                basePopulation = base,
+                candidatePopulation = candidate,
+                evolution = MutationPopulationEvolution.RECORDED_EVOLUTION,
+                evolutionRecords = MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+            )
+        passes(diagnostics)
+        assertTrue(diagnostics.any { it.severity == DiagnosticSeverity.WARNING && it.message.contains("v1") })
+    }
+
+    @Test
+    fun `M21 authorized evolution with family missing still fails`() {
+        val families = mapOf(policyFamily to policyTarget, retryFamily to retryTarget)
+        val base =
+            population(
+                listOf(row("v1"), row("r1", family = retryFamily)),
+                families = families,
+                measuredCommit = "base",
+            )
+        val candidate =
+            population(
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
+                families = families,
+                measuredCommit = "candidate",
+            )
+        val diagnostics =
+            MutationRatchetVerifier().verify(
+                MutationRatchetAuthority(BASE_SHA, base, classifications(), families),
+                MutationRatchetCandidate(candidate, classifications(), families),
+                semantics,
+                MutationPopulationEvolution.RECORDED_EVOLUTION,
+                MutationEvolutionRecords("1", listOf(evolutionRecord("v1"), evolutionRecord("r1"))),
+            )
+        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID), "missing family must fail")
+    }
+
+    @Test
+    fun `M21 authorized evolution with narrowed target classes still fails`() {
+        val wide = policyTarget.copy(targetClasses = listOf("dev.tramai.policy.*", "dev.tramai.policy.deep.*"))
+        val base = population(listOf(row("v1")), families = mapOf(policyFamily to wide), measuredCommit = "base")
+        val candidate =
+            population(
+                listOf(row("k1", status = "KILLED", outcome = "KILLED")),
+                measuredCommit = "candidate",
+            )
+        val diagnostics =
+            MutationRatchetVerifier().verify(
+                MutationRatchetAuthority(BASE_SHA, base, classifications(), mapOf(policyFamily to wide)),
+                MutationRatchetCandidate(candidate, classifications(), baseFamilies),
+                semantics,
+                MutationPopulationEvolution.RECORDED_EVOLUTION,
+                MutationEvolutionRecords("1", listOf(evolutionRecord("v1"))),
+            )
+        assertTrue(hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT), "M15 must fail")
+    }
+
+    @Test
     fun `M21 an identity that only changed status is not a disappearance`() {
         // Boundary: "gone" and "still measured, now killed" must stay distinguishable.
         val base = population(listOf(row("v1", status = "SURVIVED")))
         val candidate = population(listOf(row("v1", status = "KILLED", outcome = "KILLED")))
         passes(verify(basePopulation = base, candidatePopulation = candidate))
     }
+
+    private fun evolutionRecord(marker: String) =
+        MutationEvolutionRecord(
+            id = identityOf(marker, policyFamily, ":engine"),
+            reason = "source mutation removed",
+            issue = "ISSUE-1",
+            targetPhase = "0.7.1",
+        )
 
     // ── M12 / M13: structural integrity, fail closed ──
 

@@ -46,10 +46,9 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  *   AND candidate vs the executable PIT renderer               = fail
  * - M19 identity-schema drift                                  = fail
  * - M20 malformed / missing / self-inconsistent authority    = fail closed
- * - M21 base identity absent from the candidate population   = fail. Measured authority may only
- *   shrink through the explicit baseline evolution ceremony; a mutant that merely stopped being
- *   measured (narrowed target, silent module, truncated report, aborted campaign) is indistinguishable
- *   from one that vanished for a legitimate reason, so it fails closed.
+ * - M21 base identity absent from the candidate population   = fail by default. A recorded evolution
+ *   invocation may downgrade individually recorded removals to warnings only when the candidate has
+ *   a fresh measured population; all other removals fail closed.
  *
  * Classification authority semantics: a PR may only REMOVE classifications
  * (when the underlying mutant dies), never add or re-author one. New
@@ -67,6 +66,8 @@ class MutationRatchetVerifier {
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
         executable: MutationAnalyzerSemantics,
+        evolution: MutationPopulationEvolution = MutationPopulationEvolution.FORBID,
+        evolutionRecords: MutationEvolutionRecords = MutationEvolutionRecords("1", emptyList()),
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         diagnostics += schemaAndStatusChecks(base.population, candidate.population)
@@ -76,7 +77,14 @@ class MutationRatchetVerifier {
         diagnostics += validateClassificationList("base authority", base.classifications)
         diagnostics += validateClassificationList("candidate", candidate.classifications)
         diagnostics += baseClassificationIntegrity(base)
-        diagnostics += outcomeRatchet(base.population.mutants, candidate.population.mutants)
+        diagnostics +=
+            outcomeRatchet(
+                base.population,
+                candidate.population,
+                evolution,
+                evolutionRecords,
+                AUTHORITY_EXCLUDED_IDENTITIES,
+            )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics +=
             familyAndTargetChecks(
@@ -249,10 +257,15 @@ class MutationRatchetVerifier {
     }
 
     private fun outcomeRatchet(
-        baseMutants: List<MutationOutcome>,
-        candidateMutants: List<MutationOutcome>,
+        basePopulation: MutationPopulationBaseline,
+        candidatePopulation: MutationPopulationBaseline,
+        evolution: MutationPopulationEvolution,
+        evolutionRecords: MutationEvolutionRecords,
+        excludedIdentities: Set<String>,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val baseMutants = basePopulation.mutants
+        val candidateMutants = candidatePopulation.mutants
         val baseById = baseMutants.associateBy { it.identity }
         val candidateById = candidateMutants.associateBy { it.identity }
         val baseIds = baseById.keys
@@ -302,20 +315,14 @@ class MutationRatchetVerifier {
         // improvement — a narrowed target, a module that stopped reporting, a truncated report or an
         // aborted campaign all look exactly like this. Measured authority may only shrink through the
         // repository's explicit baseline evolution ceremony, never as a side effect of a measurement.
-        for (id in baseIds - candidateIds) {
-            val base = baseById.getValue(id)
-            if (id in AUTHORITY_EXCLUDED_IDENTITIES) continue
-            diagnostics +=
-                VerificationDiagnostic.failure(
-                    DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
-                    "M21: ${describe(base)} (${short(id)}) exists in the base authority but is absent from the " +
-                        "candidate population. A measured mutant leaves the authority only through the explicit " +
-                        "baseline evolution ceremony; an identity that stopped being measured means the " +
-                        "measurement changed, not the code.",
-                    findingId = id,
-                    modulePath = base.module,
-                )
-        }
+        diagnostics +=
+            populationEvolutionDiagnostics(
+                basePopulation,
+                candidatePopulation,
+                evolution,
+                evolutionRecords,
+                excludedIdentities,
+            )
         return diagnostics
     }
 
@@ -718,4 +725,75 @@ class MutationRatchetVerifier {
                 "timedOut=${population.timedOutMutants} errors=${population.errorMutants} " +
                 "score=${population.mutationScore}"
     }
+}
+
+private const val M21_ID_SHORT_LENGTH = 8
+
+private fun populationEvolutionDiagnostics(
+    basePopulation: MutationPopulationBaseline,
+    candidatePopulation: MutationPopulationBaseline,
+    evolution: MutationPopulationEvolution,
+    evolutionRecords: MutationEvolutionRecords,
+    excludedIdentities: Set<String>,
+): List<VerificationDiagnostic> {
+    val diagnostics = mutableListOf<VerificationDiagnostic>()
+    val baseById = basePopulation.mutants.associateBy { it.identity }
+    val candidateIds = candidatePopulation.mutants.map { it.identity }.toSet()
+    for (id in baseById.keys - candidateIds) {
+        val base = baseById.getValue(id)
+        if (id in excludedIdentities) continue
+        val record = evolutionRecords.byIdentity()[id]
+        val description =
+            "${base.module} ${base.className}#${base.method}${base.methodDescription} " +
+                "[${base.mutator}] family '${base.family}'"
+        val message =
+            "M21: $description (${id.take(M21_ID_SHORT_LENGTH)}) exists in the base authority but is " +
+                "absent from the candidate population. "
+        when {
+            evolution == MutationPopulationEvolution.FORBID -> {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message +
+                            "Absence alone cannot distinguish a legitimate code evolution from an " +
+                            "incomplete or narrowed measurement, so normal ratchet verification fails " +
+                            "closed. Population removal requires explicit baseline-evolution authority.",
+                        findingId = id,
+                        modulePath = base.module,
+                    )
+            }
+
+            record == null -> {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message + "Authorized evolution does not name this identity.",
+                        findingId = id,
+                        modulePath = base.module,
+                    )
+            }
+
+            candidatePopulation.measuredCommit == basePopulation.measuredCommit -> {
+                diagnostics +=
+                    VerificationDiagnostic.failure(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message +
+                            "An authorized removal requires a population produced by the canonical measurement path, " +
+                            "not a hand-edited shrink.",
+                        findingId = id,
+                        modulePath = base.module,
+                    )
+            }
+
+            else -> {
+                diagnostics +=
+                    VerificationDiagnostic.warning(
+                        DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+                        message + "Authorized population evolution: ${record.reason}; " +
+                            "issue=${record.issue ?: "none"}, targetPhase=${record.targetPhase ?: "none"}.",
+                    )
+            }
+        }
+    }
+    return diagnostics
 }
