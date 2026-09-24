@@ -2,22 +2,24 @@ package dev.tramai.orchestration
 
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
+import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.supervisorScope
 import kotlinx.io.asSink
 import kotlinx.io.asSource
@@ -34,7 +36,12 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
 import java.time.Clock
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.reflect.typeOf
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -45,32 +52,44 @@ class WorkflowMcpStepTest {
 
     @AfterTest
     fun tearDown() {
-        servers.forEach { runCatching { it.close() } }
+        // Every fixture is attempted, and a fixture that cannot shut down fails the test with its own
+        // diagnostic instead of being swallowed (or hanging the test worker).
+        val failures = mutableListOf<Throwable>()
+        servers.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                failures += failure
+            }
+        }
         servers.clear()
+        failures.firstOrNull()?.let { throw it }
     }
 
     @Test
     fun `mcp step calls a tool and returns result`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-                argumentKeys = setOf("message"),
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(
-                    serverCommand = listOf("unused"),
-                    toolName = "echo",
-                    arguments = mapOf("message" to "hello-world"),
-                )
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        argumentKeys = setOf("message"),
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "hello-world"),
+                    )
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -83,19 +102,21 @@ class WorkflowMcpStepTest {
     fun `mcp step returns error result when tool not found`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "missing",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "nonexistent_tool",
-            ),
-            config = McpStepConfig.unrestricted().copy(reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "nonexistent_tool")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "missing",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "nonexistent_tool",
+                    ),
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "nonexistent_tool")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -107,19 +128,21 @@ class WorkflowMcpStepTest {
     fun `mcp step times out if tool exceeds timeout`() {
         val (transportProvider, _) = createSlowServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "slow",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "delay",
-            ),
-            config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "slow",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "delay",
+                    ),
+                config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
 
@@ -133,27 +156,30 @@ class WorkflowMcpStepTest {
     fun `mcp step propagates CancellationException on mid-call coroutine cancellation`() {
         val (transportProvider, _) = createSlowServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "slow",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "delay",
-            ),
-            config = McpStepConfig.unrestricted().copy(timeoutSeconds = 10, reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "slow",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "delay",
+                    ),
+                config = McpStepConfig.unrestricted().copy(timeoutSeconds = 10, reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
 
         runBlocking {
             supervisorScope {
-                val deferred = async {
-                    workflow.run(McpState())
-                }
+                val deferred =
+                    async {
+                        workflow.run(McpState())
+                    }
                 delay(500)
                 deferred.cancel()
                 val result = runCatching { deferred.await() }
@@ -169,36 +195,40 @@ class WorkflowMcpStepTest {
         try {
             withExecutableScript(
                 name = "slow-mcp-descendants",
-                content = """
+                content =
+                    """
                     |#!/bin/sh
                     |echo $$ > '${parentPidFile.toAbsolutePath()}'
                     |sleep 30 &
                     |child=$!
                     |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
                     |wait ${'$'}child
-                """.trimMargin(),
+                    """.trimMargin(),
             ) { serverScript ->
-                val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-                    name = "slow-subprocess",
-                    definition = McpToolCallDefinition(
-                        serverCommand = listOf(serverScript.toString()),
-                        toolName = "delay",
-                    ),
-                    config = McpStepConfig.unrestricted().copy(timeoutSeconds = 30, reconnect = false),
-                    toolCallBuilder = { _, _ ->
-                        McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
-                    },
-                    merge = { state, result, _ -> state.copy(result = result) },
-                    transportProvider = SubprocessMcpTransportProvider(),
-                )
+                val step: InternalWorkflowStep<McpState> =
+                    McpWorkflowStep(
+                        name = "slow-subprocess",
+                        definition =
+                            McpToolCallDefinition(
+                                serverCommand = listOf(serverScript.toString()),
+                                toolName = "delay",
+                            ),
+                        config = McpStepConfig.unrestricted().copy(timeoutSeconds = 30, reconnect = false),
+                        toolCallBuilder = { _, _ ->
+                            McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
+                        },
+                        merge = { state, result, _ -> state.copy(result = result) },
+                        transportProvider = SubprocessMcpTransportProvider(),
+                    )
 
                 val workflow = buildWorkflow(listOf(step))
 
                 runBlocking {
                     supervisorScope {
-                        val deferred = async {
-                            workflow.run(McpState())
-                        }
+                        val deferred =
+                            async {
+                                workflow.run(McpState())
+                            }
                         val parentProcess = checkNotNull(awaitMcpProcessHandle(parentPidFile))
                         val childProcess = checkNotNull(awaitMcpProcessHandle(childPidFile))
                         assertThat(parentProcess.isAlive).isTrue()
@@ -232,28 +262,31 @@ class WorkflowMcpStepTest {
         try {
             withExecutableScript(
                 name = "slow-mcp-descendants",
-                content = """
+                content =
+                    """
                     |#!/bin/sh
                     |echo $$ > '${parentPidFile.toAbsolutePath()}'
                     |sleep 30 &
                     |child=$!
                     |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
                     |wait ${'$'}child
-                """.trimMargin(),
+                    """.trimMargin(),
             ) { serverScript ->
-                val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-                    name = "slow-subprocess",
-                    definition = McpToolCallDefinition(
-                        serverCommand = listOf(serverScript.toString()),
-                        toolName = "delay",
-                    ),
-                    config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
-                    toolCallBuilder = { _, _ ->
-                        McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
-                    },
-                    merge = { state, result, _ -> state.copy(result = result) },
-                    transportProvider = SubprocessMcpTransportProvider(),
-                )
+                val step: InternalWorkflowStep<McpState> =
+                    McpWorkflowStep(
+                        name = "slow-subprocess",
+                        definition =
+                            McpToolCallDefinition(
+                                serverCommand = listOf(serverScript.toString()),
+                                toolName = "delay",
+                            ),
+                        config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
+                        toolCallBuilder = { _, _ ->
+                            McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
+                        },
+                        merge = { state, result, _ -> state.copy(result = result) },
+                        transportProvider = SubprocessMcpTransportProvider(),
+                    )
 
                 val workflow = buildWorkflow(listOf(step))
 
@@ -264,7 +297,8 @@ class WorkflowMcpStepTest {
                         val childProcess = awaitMcpProcessHandle(childPidFile)
 
                         val failure = runCatching { execution.await() }.exceptionOrNull()
-                        assertThat(failure).isInstanceOf(WorkflowMcpException::class.java)
+                        assertThat(failure)
+                            .isInstanceOf(WorkflowMcpException::class.java)
                             .hasMessageContaining("timed out")
 
                         awaitMcpProcessExit(parentProcess)
@@ -285,24 +319,26 @@ class WorkflowMcpStepTest {
         val (transportProvider, _) = createEchoServer()
         val observer = RecordingMcpObserver()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-                argumentKeys = setOf("message"),
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(
-                    serverCommand = listOf("unused"),
-                    toolName = "echo",
-                    arguments = mapOf("message" to "emit"),
-                )
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        argumentKeys = setOf("message"),
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "emit"),
+                    )
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         runBlocking { workflow.run(McpState(), observer = observer) }
@@ -320,29 +356,33 @@ class WorkflowMcpStepTest {
     fun `mcp step validates tool allowlist`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig.unrestricted().copy(
-                toolAllowlist = setOf("approved_tool"),
-                reconnect = false,
-            ),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                    ),
+                config =
+                    McpStepConfig.unrestricted().copy(
+                        toolAllowlist = setOf("approved_tool"),
+                        reconnect = false,
+                    ),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
 
-        val error = runCatching {
-            runBlocking { workflow.run(McpState()) }
-        }.exceptionOrNull()
+        val error =
+            runCatching {
+                runBlocking { workflow.run(McpState()) }
+            }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
         assertThat(error).hasMessage("Workflow mcp step was rejected by policy")
@@ -355,19 +395,21 @@ class WorkflowMcpStepTest {
     fun `mcp step handles structured content`() {
         val (transportProvider, _) = createJsonServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "json",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "get_data",
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "get_data")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "json",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "get_data",
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "get_data")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -381,26 +423,28 @@ class WorkflowMcpStepTest {
     fun `mcp typed overload decodes the tool result before merge`() {
         val (transportProvider, _) = createEchoServer()
 
-        val workflow = workflow<McpState>("typed-mcp-success") {
-            mcpStep(
-                name = "echo",
-                config = McpStepConfig.unrestricted(),
-                definition = McpToolCallDefinition(
-                    serverCommand = listOf("unused"),
-                    toolName = "echo",
-                    argumentKeys = setOf("message"),
-                ),
-                toolCall = { _, _ ->
-                    McpToolCall(
-                        serverCommand = listOf("unused"),
-                        toolName = "echo",
-                        arguments = mapOf("message" to "typed"),
-                    )
-                },
-                decode = { result -> result.content ?: error("missing content") },
-                merge = { state, result, _ -> state.copy(decoded = result) },
-            )
-        }.build { it }.withFirstMcpTransport(transportProvider)
+        val workflow =
+            workflow<McpState>("typed-mcp-success") {
+                mcpStep(
+                    name = "echo",
+                    config = McpStepConfig.unrestricted(),
+                    definition =
+                        McpToolCallDefinition(
+                            serverCommand = listOf("unused"),
+                            toolName = "echo",
+                            argumentKeys = setOf("message"),
+                        ),
+                    toolCall = { _, _ ->
+                        McpToolCall(
+                            serverCommand = listOf("unused"),
+                            toolName = "echo",
+                            arguments = mapOf("message" to "typed"),
+                        )
+                    },
+                    decode = { result -> result.content ?: error("missing content") },
+                    merge = { state, result, _ -> state.copy(decoded = result) },
+                )
+            }.build { it }.withFirstMcpTransport(transportProvider)
 
         val result = runBlocking { workflow.run(McpState(), observer = RecordingMcpObserver()) }
 
@@ -412,26 +456,28 @@ class WorkflowMcpStepTest {
         val (transportProvider, _) = createEchoServer()
         val diagnostics = RecordingDiagnosticObserver()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-                argumentKeys = setOf("message"),
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(
-                    serverCommand = listOf("unused"),
-                    toolName = "echo",
-                    arguments = mapOf("message" to "typed"),
-                )
-            },
-            merge = { state, result, _ ->
-                error("decode failed for '${result.content}'")
-            },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        argumentKeys = setOf("message"),
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "typed"),
+                    )
+                },
+                merge = { state, result, _ ->
+                    error("decode failed for '${result.content}'")
+                },
+                transportProvider = transportProvider,
+            )
         val workflow = buildWorkflow(listOf(step), diagnostics)
 
         assertThatThrownBy {
@@ -450,26 +496,29 @@ class WorkflowMcpStepTest {
     fun `mcp step rejects state-influenced command changes`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("node", "server.js"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig.unrestricted().copy(reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("evil", "command"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("node", "server.js"),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("evil", "command"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
 
-        val error = runCatching {
-            runBlocking { workflow.run(McpState()) }
-        }.exceptionOrNull()
+        val error =
+            runCatching {
+                runBlocking { workflow.run(McpState()) }
+            }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
         assertThat(error).hasMessage("Workflow mcp step validation failed")
@@ -482,30 +531,34 @@ class WorkflowMcpStepTest {
     fun `mcp step enforces command denylist`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("dangerous-cmd"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig(
-                reconnect = false,
-                allowedCommands = setOf("dangerous-cmd"),
-                deniedCommands = setOf("dangerous-cmd"),
-            ),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("dangerous-cmd"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("dangerous-cmd"),
+                        toolName = "echo",
+                    ),
+                config =
+                    McpStepConfig(
+                        reconnect = false,
+                        allowedCommands = setOf("dangerous-cmd"),
+                        deniedCommands = setOf("dangerous-cmd"),
+                    ),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("dangerous-cmd"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
 
-        val error = runCatching {
-            runBlocking { workflow.run(McpState()) }
-        }.exceptionOrNull()
+        val error =
+            runCatching {
+                runBlocking { workflow.run(McpState()) }
+            }.exceptionOrNull()
 
         assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
         assertThat(error).hasMessage("Workflow mcp step was rejected by policy")
@@ -518,24 +571,26 @@ class WorkflowMcpStepTest {
     fun `mcp step config allows only node commands`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("node", "server.js"),
-                toolName = "echo",
-                argumentKeys = setOf("message"),
-            ),
-            config = McpStepConfig(allowedCommands = setOf("node")),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(
-                    serverCommand = listOf("node", "server.js"),
-                    toolName = "echo",
-                    arguments = mapOf("message" to "hello-node"),
-                )
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("node", "server.js"),
+                        toolName = "echo",
+                        argumentKeys = setOf("message"),
+                    ),
+                config = McpStepConfig(allowedCommands = setOf("node")),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("node", "server.js"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "hello-node"),
+                    )
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -547,19 +602,21 @@ class WorkflowMcpStepTest {
     fun `mcp step unrestricted factory preserves old behavior`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -574,10 +631,11 @@ class WorkflowMcpStepTest {
                 mcpStep(
                     name = "echo",
                     config = McpStepConfig(allowedCommands = setOf("node")),
-                    definition = McpToolCallDefinition(
-                        serverCommand = listOf("python", "server.py"),
-                        toolName = "echo",
-                    ),
+                    definition =
+                        McpToolCallDefinition(
+                            serverCommand = listOf("python", "server.py"),
+                            toolName = "echo",
+                        ),
                     toolCall = { _, _ ->
                         McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
                     },
@@ -592,19 +650,21 @@ class WorkflowMcpStepTest {
     fun `dynamic mcp commands violating allowlist fail at execution time`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("python", "server.py"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig(allowedCommands = setOf("node"), reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("python", "server.py"),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig(allowedCommands = setOf("node"), reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
@@ -623,19 +683,21 @@ class WorkflowMcpStepTest {
     @Test
     fun `mcp step redacts server command identifiers in failure errors`() {
         val secretExecutable = "my-secret-mcp-server"
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "secret-server",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf(secretExecutable),
-                toolName = "echo",
-            ),
-            config = McpStepConfig.unrestricted().copy(reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf(secretExecutable), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = SubprocessMcpTransportProvider(),
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "secret-server",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf(secretExecutable),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig.unrestricted().copy(reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf(secretExecutable), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = SubprocessMcpTransportProvider(),
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
@@ -657,19 +719,21 @@ class WorkflowMcpStepTest {
     fun `mcp step with default config denies all dynamic commands at execution time`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("python", "server.py"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig(reconnect = false),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("python", "server.py"),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig(reconnect = false),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val diagnostics = RecordingDiagnosticObserver()
         val workflow = buildWorkflow(listOf(step), diagnostics)
@@ -689,19 +753,21 @@ class WorkflowMcpStepTest {
     fun `mcp step unrestricted factory still allows commands`() {
         val (transportProvider, _) = createEchoServer()
 
-        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
-            name = "echo",
-            definition = McpToolCallDefinition(
-                serverCommand = listOf("unused"),
-                toolName = "echo",
-            ),
-            config = McpStepConfig.unrestricted(),
-            toolCallBuilder = { _, _ ->
-                McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
-            },
-            merge = { state, result, _ -> state.copy(result = result) },
-            transportProvider = transportProvider,
-        )
+        val step: InternalWorkflowStep<McpState> =
+            McpWorkflowStep(
+                name = "echo",
+                definition =
+                    McpToolCallDefinition(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                    ),
+                config = McpStepConfig.unrestricted(),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = transportProvider,
+            )
 
         val workflow = buildWorkflow(listOf(step))
         val result = runBlocking { workflow.run(McpState()) }
@@ -719,27 +785,29 @@ class WorkflowMcpStepTest {
     private fun buildWorkflow(
         steps: List<InternalWorkflowStep<McpState>>,
         diagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
-    ): Workflow<McpState, McpState> = Workflow(
-        name = "test-mcp-workflow",
-        definitionVersion = "1",
-        stateType = typeOf<McpState>(),
-        resultType = typeOf<McpState>(),
-        schedule = null,
-        steps = steps,
-        resultSelector = { it },
-        stopPolicy = StopPolicy(),
-        clock = Clock.systemUTC(),
-        externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
-        failureDiagnosticObserver = diagnosticObserver,
-    )
+    ): Workflow<McpState, McpState> =
+        Workflow(
+            name = "test-mcp-workflow",
+            definitionVersion = "1",
+            stateType = typeOf<McpState>(),
+            resultType = typeOf<McpState>(),
+            schedule = null,
+            steps = steps,
+            resultSelector = { it },
+            stopPolicy = StopPolicy(),
+            clock = Clock.systemUTC(),
+            externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
+            failureDiagnosticObserver = diagnosticObserver,
+        )
 
-    private fun sha256(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun sha256(value: String): String =
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     @Suppress("UNCHECKED_CAST")
-    private fun Workflow<McpState, McpState>.withFirstMcpTransport(
-        transportProvider: McpTransportProvider,
-    ): Workflow<McpState, McpState> {
+    private fun Workflow<McpState, McpState>.withFirstMcpTransport(transportProvider: McpTransportProvider): Workflow<McpState, McpState> {
         val steps = readPrivate<List<InternalWorkflowStep<McpState>>>("steps").toMutableList()
         val existing = steps.first() as McpWorkflowStep<McpState>
         steps[0] = existing.copy(transportProvider = transportProvider)
@@ -781,65 +849,122 @@ class WorkflowMcpStepTest {
         }
     }
 
+    @Test
+    fun `repeated server cycles tear down without leaking fixtures`() {
+        // 100 create/connect/call/close cycles in-process. Each cycle must tear its fixture down
+        // completely: unbounded teardown leaks live servers here and eventually stalls the worker.
+        val cycles = 100
+        servers.clear()
+
+        repeat(cycles) { index ->
+            val (transportProvider, fixture) = createEchoServer()
+            val result = runBlocking { buildWorkflow(listOf(echoStep(transportProvider, "cycle-$index"))).run(McpState()) }
+
+            assertThat(result.result?.content).contains("cycle-$index")
+            fixture.close()
+        }
+
+        assertThat(TestMcpServerFixture.live.get())
+            .describedAs("fixtures still open after $cycles create/call/close cycles")
+            .isZero()
+    }
+
+    /** Minimal echo step bound to [transportProvider]; used by the repeated-teardown cycle test. */
+    private fun echoStep(
+        transportProvider: McpTransportProvider,
+        message: String,
+    ): InternalWorkflowStep<McpState> =
+        McpWorkflowStep(
+            name = "echo",
+            definition =
+                McpToolCallDefinition(
+                    serverCommand = listOf("unused"),
+                    toolName = "echo",
+                    argumentKeys = setOf("message"),
+                ),
+            config = McpStepConfig.unrestricted(),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(
+                    serverCommand = listOf("unused"),
+                    toolName = "echo",
+                    arguments = mapOf("message" to message),
+                )
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
     private fun createEchoServer(): Pair<McpTransportProvider, AutoCloseable> {
         val (clientInput, serverToClient, clientToServer, serverInput, pipeCloseable) = createPipes()
         val scope = CoroutineScope(Job() + Dispatchers.IO)
 
-        val server = Server(
-            serverInfo = Implementation(name = "test-echo", version = "1.0.0"),
-            options = ServerOptions(
-                capabilities = ServerCapabilities(
-                    tools = ServerCapabilities.Tools(listChanged = false),
-                ),
-            ),
-        ) {
-            addTool(
-                Tool(
-                    name = "echo",
-                    description = "Echoes the message back",
-                    inputSchema = io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
-                        properties = buildJsonObject {
-                            put("message", buildJsonObject {
-                                put("type", JsonPrimitive("string"))
-                            })
-                        },
-                        required = listOf("message"),
+        val server =
+            Server(
+                serverInfo = Implementation(name = "test-echo", version = "1.0.0"),
+                options =
+                    ServerOptions(
+                        capabilities =
+                            ServerCapabilities(
+                                tools = ServerCapabilities.Tools(listChanged = false),
+                            ),
                     ),
-                ),
-            ) { request ->
-                val message = request.params.arguments?.get("message")?.jsonPrimitive?.content ?: ""
-                val payload = buildJsonObject { put("echoed", JsonPrimitive(message)) }
-                CallToolResult(
-                    content = listOf(TextContent("echo: $message")),
-                    structuredContent = payload,
+            ) {
+                addTool(
+                    Tool(
+                        name = "echo",
+                        description = "Echoes the message back",
+                        inputSchema =
+                            io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
+                                properties =
+                                    buildJsonObject {
+                                        put(
+                                            "message",
+                                            buildJsonObject {
+                                                put("type", JsonPrimitive("string"))
+                                            },
+                                        )
+                                    },
+                                required = listOf("message"),
+                            ),
+                    ),
+                ) { request ->
+                    val message =
+                        request.params.arguments
+                            ?.get("message")
+                            ?.jsonPrimitive
+                            ?.content ?: ""
+                    val payload = buildJsonObject { put("echoed", JsonPrimitive(message)) }
+                    CallToolResult(
+                        content = listOf(TextContent("echo: $message")),
+                        structuredContent = payload,
+                    )
+                }
+            }
+
+        val session = AtomicReference<ServerSession?>(null)
+        val sessionJob =
+            scope.launch {
+                session.set(
+                    server.createSession(
+                        StdioServerTransport(
+                            serverInput.asSource().buffered(),
+                            serverToClient.asSink().buffered(),
+                        ),
+                    ),
                 )
             }
-        }
 
-        scope.launch {
-            server.createSession(
-                StdioServerTransport(
-                    serverInput.asSource().buffered(),
-                    serverToClient.asSink().buffered(),
-                ),
-            )
-        }
-
-        val closeable = AutoCloseable {
-            runCatching { pipeCloseable.close() }
-            scope.cancel()
-            runBlocking { server.close() }
-        }
+        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
         servers += closeable
 
-        val transportProvider = object : McpTransportProvider {
-            override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
-                return McpTransportConnection(
-                    input = clientInput.asSource().buffered(),
-                    output = clientToServer.asSink().buffered(),
-                )
+        val transportProvider =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
+                    McpTransportConnection(
+                        input = clientInput.asSource().buffered(),
+                        output = clientToServer.asSink().buffered(),
+                    )
             }
-        }
 
         return transportProvider to closeable
     }
@@ -848,53 +973,57 @@ class WorkflowMcpStepTest {
         val (clientInput, serverToClient, clientToServer, serverInput, pipeCloseable) = createPipes()
         val scope = CoroutineScope(Job() + Dispatchers.IO)
 
-        val server = Server(
-            serverInfo = Implementation(name = "test-slow", version = "1.0.0"),
-            options = ServerOptions(
-                capabilities = ServerCapabilities(
-                    tools = ServerCapabilities.Tools(listChanged = false),
-                ),
-            ),
-        ) {
-            addTool(
-                Tool(
-                    name = "delay",
-                    description = "Delays for a long time",
-                    inputSchema = io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
-                        properties = buildJsonObject {},
-                        required = emptyList(),
+        val server =
+            Server(
+                serverInfo = Implementation(name = "test-slow", version = "1.0.0"),
+                options =
+                    ServerOptions(
+                        capabilities =
+                            ServerCapabilities(
+                                tools = ServerCapabilities.Tools(listChanged = false),
+                            ),
                     ),
-                ),
             ) {
-                delay(30.seconds)
-                CallToolResult(content = listOf(TextContent("done")))
+                addTool(
+                    Tool(
+                        name = "delay",
+                        description = "Delays for a long time",
+                        inputSchema =
+                            io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
+                                properties = buildJsonObject {},
+                                required = emptyList(),
+                            ),
+                    ),
+                ) {
+                    delay(30.seconds)
+                    CallToolResult(content = listOf(TextContent("done")))
+                }
             }
-        }
 
-        scope.launch {
-            server.createSession(
-                StdioServerTransport(
-                    serverInput.asSource().buffered(),
-                    serverToClient.asSink().buffered(),
-                ),
-            )
-        }
-
-        val closeable = AutoCloseable {
-            runCatching { pipeCloseable.close() }
-            scope.cancel()
-            runBlocking { server.close() }
-        }
-        servers += closeable
-
-        val transportProvider = object : McpTransportProvider {
-            override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
-                return McpTransportConnection(
-                    input = clientInput.asSource().buffered(),
-                    output = clientToServer.asSink().buffered(),
+        val session = AtomicReference<ServerSession?>(null)
+        val sessionJob =
+            scope.launch {
+                session.set(
+                    server.createSession(
+                        StdioServerTransport(
+                            serverInput.asSource().buffered(),
+                            serverToClient.asSink().buffered(),
+                        ),
+                    ),
                 )
             }
-        }
+
+        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
+        servers += closeable
+
+        val transportProvider =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
+                    McpTransportConnection(
+                        input = clientInput.asSource().buffered(),
+                        output = clientToServer.asSink().buffered(),
+                    )
+            }
 
         return transportProvider to closeable
     }
@@ -903,56 +1032,60 @@ class WorkflowMcpStepTest {
         val (clientInput, serverToClient, clientToServer, serverInput, pipeCloseable) = createPipes()
         val scope = CoroutineScope(Job() + Dispatchers.IO)
 
-        val server = Server(
-            serverInfo = Implementation(name = "test-json", version = "1.0.0"),
-            options = ServerOptions(
-                capabilities = ServerCapabilities(
-                    tools = ServerCapabilities.Tools(listChanged = false),
-                ),
-            ),
-        ) {
-            addTool(
-                Tool(
-                    name = "get_data",
-                    description = "Returns structured data",
-                    inputSchema = io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
-                        properties = buildJsonObject {},
-                        required = emptyList(),
+        val server =
+            Server(
+                serverInfo = Implementation(name = "test-json", version = "1.0.0"),
+                options =
+                    ServerOptions(
+                        capabilities =
+                            ServerCapabilities(
+                                tools = ServerCapabilities.Tools(listChanged = false),
+                            ),
                     ),
-                ),
             ) {
-                val payload = buildJsonObject { put("key", JsonPrimitive("value")) }
-                CallToolResult(
-                    content = listOf(TextContent("""{"key":"value"}""")),
-                    structuredContent = payload,
+                addTool(
+                    Tool(
+                        name = "get_data",
+                        description = "Returns structured data",
+                        inputSchema =
+                            io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
+                                properties = buildJsonObject {},
+                                required = emptyList(),
+                            ),
+                    ),
+                ) {
+                    val payload = buildJsonObject { put("key", JsonPrimitive("value")) }
+                    CallToolResult(
+                        content = listOf(TextContent("""{"key":"value"}""")),
+                        structuredContent = payload,
+                    )
+                }
+            }
+
+        val session = AtomicReference<ServerSession?>(null)
+        val sessionJob =
+            scope.launch {
+                session.set(
+                    server.createSession(
+                        StdioServerTransport(
+                            serverInput.asSource().buffered(),
+                            serverToClient.asSink().buffered(),
+                        ),
+                    ),
                 )
             }
-        }
 
-        scope.launch {
-            server.createSession(
-                StdioServerTransport(
-                    serverInput.asSource().buffered(),
-                    serverToClient.asSink().buffered(),
-                ),
-            )
-        }
-
-        val closeable = AutoCloseable {
-            runCatching { pipeCloseable.close() }
-            scope.cancel()
-            runBlocking { server.close() }
-        }
+        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
         servers += closeable
 
-        val transportProvider = object : McpTransportProvider {
-            override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
-                return McpTransportConnection(
-                    input = clientInput.asSource().buffered(),
-                    output = clientToServer.asSink().buffered(),
-                )
+        val transportProvider =
+            object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
+                    McpTransportConnection(
+                        input = clientInput.asSource().buffered(),
+                        output = clientToServer.asSink().buffered(),
+                    )
             }
-        }
 
         return transportProvider to closeable
     }
@@ -962,12 +1095,13 @@ class WorkflowMcpStepTest {
         val clientInput = PipedInputStream(serverToClient)
         val clientToServer = PipedOutputStream()
         val serverInput = PipedInputStream(clientToServer)
-        val closeable = AutoCloseable {
-            runCatching { clientInput.close() }
-            runCatching { clientToServer.close() }
-            runCatching { serverToClient.close() }
-            runCatching { serverInput.close() }
-        }
+        val closeable =
+            AutoCloseable {
+                runCatching { clientInput.close() }
+                runCatching { clientToServer.close() }
+                runCatching { serverToClient.close() }
+                runCatching { serverInput.close() }
+            }
         return PipeSet(clientInput, serverToClient, clientToServer, serverInput, closeable)
     }
 
@@ -1024,4 +1158,69 @@ private fun awaitMcpProcessExit(process: ProcessHandle?) {
         return
     }
     process.onExit().get(20, TimeUnit.SECONDS)
+}
+
+/**
+ * Lifecycle owner for an in-process MCP test server.
+ *
+ * The SDK's stdio transport reads blocking Java streams, which coroutine cancellation cannot
+ * interrupt. Cancelling the scope before the pipes are closed can therefore leave `Server.close()`
+ * waiting forever on a session whose reader is parked in `PipedInputStream.read()` — the teardown hang
+ * that stalled a CI test worker. Closing the pipes first ends those reads with EOF, and the remaining
+ * shutdown steps run on a daemon thread under a hard bound, so a fixture that cannot shut down fails
+ * its owning test with a diagnostic instead of stalling the worker. [live] exposes the leak that the
+ * repeated-cycle test asserts on.
+ */
+private class TestMcpServerFixture(
+    private val server: Server,
+    private val pipes: AutoCloseable,
+    private val session: AtomicReference<ServerSession?>,
+    private val sessionJob: Job,
+) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    init {
+        live.incrementAndGet()
+    }
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) {
+            return
+        }
+
+        // 1. EOF for the blocking stdio reads. Without this, everything below can wait forever.
+        pipes.close()
+
+        // 2-4. Close the exact session we own, stop the server coroutine, then the server itself.
+        // Bounded because a non-cancellable blocking call must not own the test worker's fate.
+        val shutdown =
+            Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "mcp-fixture-shutdown").apply { isDaemon = true }
+            }
+        try {
+            shutdown
+                .submit {
+                    runBlocking {
+                        session.get()?.close()
+                        sessionJob.cancelAndJoin()
+                        server.close()
+                    }
+                }.get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (timeout: TimeoutException) {
+            throw IllegalStateException(
+                "MCP test server failed to terminate within ${SHUTDOWN_TIMEOUT_SECONDS}s",
+                timeout,
+            )
+        } finally {
+            shutdown.shutdownNow()
+        }
+        live.decrementAndGet()
+    }
+
+    companion object {
+        /** Fixtures created and not yet closed. */
+        val live = AtomicInteger()
+
+        private const val SHUTDOWN_TIMEOUT_SECONDS = 5L
+    }
 }
