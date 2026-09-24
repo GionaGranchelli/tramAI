@@ -239,6 +239,9 @@ class ResidualQualityVerifierTasksTest {
             dir,
             srcRel,
             "tramai-core/src/main/kotlin/dev/tramai/core/annotations",
+            // 0.7.1b workload identity vocabulary — the consumer smoke imports
+            // dev.tramai.core.identity.*, so the fixture must carry the package.
+            "tramai-core/src/main/kotlin/dev/tramai/core/identity",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/Tool.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolResult.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ContentPart.kt",
@@ -246,6 +249,9 @@ class ResidualQualityVerifierTasksTest {
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolFailureCode.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/policy",
         )
+        // The fixture's tramai-core declares no coroutine dependency, and the
+        // run-scope helper is the only identity source that needs one.
+        File(dir, "tramai-core/src/main/kotlin/dev/tramai/core/identity/GovernedRunScope.kt").delete()
         writeFile(
             dir,
             "settings.gradle.kts",

@@ -108,6 +108,20 @@ class TramaiDocsGuardsPluginTest {
         target.writeText(content)
     }
 
+    /**
+     * The version the fixture tree actually declares. The version-alignment
+     * fixture overwrites build.gradle.kts (the real one needs a version
+     * catalog), so its fallback must be derived from the copied
+     * gradle.properties rather than hardcoded — a hardcoded fallback silently
+     * rots every time the project version advances.
+     */
+    private fun fixtureVersion(dir: File): String =
+        File(dir, "gradle.properties")
+            .readLines()
+            .single { it.startsWith("tramaiVersion=") }
+            .substringAfter("=")
+            .trim()
+
     private fun runTask(
         dir: File,
         task: String,
@@ -252,13 +266,15 @@ class TramaiDocsGuardsPluginTest {
         )
         // The real build.gradle.kts uses version-catalog aliases that need a
         // libs.versions.toml; restore a minimal fixture build file that still
-        // carries the orElse("0.6.0") fallback the verifier checks.
+        // carries the fallback the verifier checks — derived from the copied
+        // gradle.properties so it cannot rot when the version advances.
+        val version = fixtureVersion(dir)
         writeFile(
             dir,
             "build.gradle.kts",
             """
             plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("0.6.0")
+            version = providers.gradleProperty("tramaiVersion").orElse("$version")
             """.trimIndent(),
         )
         runTask(dir, "verifyVersionAlignment")
@@ -369,12 +385,13 @@ class TramaiDocsGuardsPluginTest {
             "docs/modules",
         )
         // Restore minimal fixture build file (see positive version-alignment test).
+        val version = fixtureVersion(dir)
         writeFile(
             dir,
             "build.gradle.kts",
             """
             plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("0.6.0")
+            version = providers.gradleProperty("tramaiVersion").orElse("$version")
             """.trimIndent(),
         )
         writeFile(dir, "docs/guides/getting-started.md", "Use dev.tramai:tramai-core:0.5.0-SNAPSHOT now.\n")

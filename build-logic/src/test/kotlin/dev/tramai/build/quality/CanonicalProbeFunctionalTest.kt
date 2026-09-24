@@ -316,11 +316,16 @@ class CanonicalProbeFunctionalTest {
     ) {
         copyFixtureToDir(tempDir)
 
-        // Run gradle compile tasks for lib-core using the system gradle
+        // Compile with the repository's own wrapper. 'gradle' is only guaranteed on CI's PATH
+        // (setup-gradle), so looking it up made this test un-runnable locally — and every CI
+        // command must have a local equivalent (.github/AGENTS.md rule 1).
+        installGradleWrapper(tempDir)
+        val gradlew = File(tempDir, "gradlew")
+        val launcher = if (gradlew.isFile) gradlew.absolutePath else "gradle"
         val process =
             ProcessBuilder(
                 listOf(
-                    "gradle",
+                    launcher,
                     ":lib-core:compileJava",
                     ":lib-core:compileTestJava",
                     "--no-daemon",
