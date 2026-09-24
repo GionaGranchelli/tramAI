@@ -178,7 +178,11 @@ class MutationRatchetClassificationDiscriminatorTest : MutationRatchetTestSuppor
     }
 
     @Test
-    fun `M10 disappeared mutant with classification removed passes`() {
+    fun `M10 removed classification does not excuse a disappeared mutant`() {
+        // Contract change (0.7.1g hardening): removing the classification *because* its mutant
+        // vanished no longer makes the disappearance legitimate. Absence is a measurement claim that
+        // only the explicit baseline evolution ceremony may make, so M21 fails it here — while M11,
+        // which guards a classification removed while its survivor is still measured, stays silent.
         val base =
             population(
                 listOf(
@@ -187,13 +191,22 @@ class MutationRatchetClassificationDiscriminatorTest : MutationRatchetTestSuppor
                 ),
             )
         val candidate = population(listOf(row("k1", status = "KILLED", outcome = "KILLED")))
-        passes(
+        val diagnostics =
             verify(
                 basePopulation = base,
                 baseClassifications = approvedClassifications("s1"),
                 candidatePopulation = candidate,
                 candidateClassifications = classifications(),
-            ),
+            )
+        assertFailsWith(
+            diagnostics,
+            DiagnosticCode.MUTATION_RATCHET_TARGET_DRIFT,
+            "absent from the candidate population",
+        )
+        assertTrue(
+            !hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_REMOVED),
+            "a removed classification must not be reported as M11 when its mutant is gone: " +
+                failures(diagnostics).map { it.message },
         )
     }
 

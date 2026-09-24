@@ -217,13 +217,28 @@ jobs:
         run: |
           ./gradlew verifyMutationRatchet \
             --no-daemon \
+            -PtramaiMutationEvolution=${{ contains(github.event.pull_request.labels.*.name, 'mutation-population-evolution') && 'recorded-evolution' || 'forbid' }} \
             -PtramaiMutationBaseSha="${{ github.event.pull_request.base.sha }}"
 
       - name: Verify mutation ratchet against previous master
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        # Evolution authority follows the transition, not the branch. A merge into master carries a
+        # mutation-population evolution only if it changed BOTH the committed population and the
+        # evolution records; anything else stays FORBID (fast, no PIT) so an ordinary push can never
+        # enter a ~50 minute campaign, and a removal without its records fails closed in FORBID.
+        # A legitimate evolution still has to survive the exact record-set check, which rejects
+        # records that do not match the identities disappearing in this transition.
         run: |
+          CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+          EVOLUTION="forbid"
+          if echo "$CHANGED" | grep -qx 'config/quality/mutation-baseline.json' && \
+             echo "$CHANGED" | grep -qx 'config/quality/mutation-evolution.yml'; then
+            EVOLUTION="recorded-evolution"
+          fi
+          echo "mutation evolution mode: $EVOLUTION"
           ./gradlew verifyMutationRatchet \
             --no-daemon \
+            -PtramaiMutationEvolution="$EVOLUTION" \
             -PtramaiMutationBaseSha="${{ github.event.before }}"
 
   consumer-smoke:
