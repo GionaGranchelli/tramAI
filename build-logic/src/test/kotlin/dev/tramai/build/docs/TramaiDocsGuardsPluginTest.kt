@@ -122,6 +122,52 @@ class TramaiDocsGuardsPluginTest {
             .substringAfter("=")
             .trim()
 
+    /**
+     * Version-alignment fixture: the real version surfaces plus the minimal build file the verifier
+     * needs (the real one requires a version catalog). The version surfaces are copied by directory
+     * where possible, so a release cut cannot leave this fixture pointing at a document that no
+     * longer exists.
+     */
+    private fun versionAlignmentFixture(): File {
+        val dir = fixture()
+        copyFromRepo(
+            dir,
+            "gradle.properties",
+            "build.gradle.kts",
+            "CHANGELOG.md",
+            "docs/STATUS.md",
+            "docs/POST-SOVEREIGNTY-ROADMAP.md",
+            "docs/releases",
+            "README.md",
+            "docs/guides",
+            "docs/module-guide.md",
+            "docs/reference/releasing.md",
+            "examples/README.md",
+            "examples/support-agent/build.gradle.kts",
+            "examples/kotlin-springboot-example/build.gradle.kts",
+            "examples/kotlin-native-smoke-example/build.gradle.kts",
+            "examples/sovereign-runtime-consumer-smoke/build.gradle.kts",
+            "examples/spring-sovereign-starter/build.gradle.kts",
+            "docs/modules",
+        )
+        val version = fixtureVersion(dir)
+        writeFile(
+            dir,
+            "build.gradle.kts",
+            """
+            plugins { id("tramai.docs-guards") }
+            version = providers.gradleProperty("tramaiVersion").orElse("$version")
+            """.trimIndent(),
+        )
+        return dir
+    }
+
+    /** The row of the STATUS.md released-versions table that claims a release is current. */
+    private fun currentReleaseRow(dir: File): String =
+        File(dir, "docs/STATUS.md")
+            .readLines()
+            .first { it.contains("| Current release") }
+
     private fun runTask(
         dir: File,
         task: String,
@@ -242,42 +288,33 @@ class TramaiDocsGuardsPluginTest {
 
     @Test
     fun `verifyVersionAlignment passes on real version surfaces`() {
-        val dir = fixture()
-        copyFromRepo(
-            dir,
-            "gradle.properties",
-            "build.gradle.kts",
-            "CHANGELOG.md",
-            "docs/STATUS.md",
-            "docs/POST-SOVEREIGNTY-ROADMAP.md",
-            "docs/releases/0.6.0-release-readiness.md",
-            "docs/releases/sovereign-runtime-release-readiness.md",
-            "README.md",
-            "docs/guides",
-            "docs/module-guide.md",
-            "docs/reference/releasing.md",
-            "examples/README.md",
-            "examples/support-agent/build.gradle.kts",
-            "examples/kotlin-springboot-example/build.gradle.kts",
-            "examples/kotlin-native-smoke-example/build.gradle.kts",
-            "examples/sovereign-runtime-consumer-smoke/build.gradle.kts",
-            "examples/spring-sovereign-starter/build.gradle.kts",
-            "docs/modules",
+        runTask(versionAlignmentFixture(), "verifyVersionAlignment")
+    }
+
+    @Test
+    fun `verifyVersionAlignment fails when the promoted release is no longer named current`() {
+        val dir = versionAlignmentFixture()
+        val status = File(dir, "docs/STATUS.md")
+        val row = currentReleaseRow(dir)
+        val version = row.split("|")[1].trim()
+        // The exact drift the guard exists to catch: the promoted release still exists in the
+        // table, but the tree no longer claims it is the current one.
+        status.writeText(status.readText().replace(row, row.replaceFirst(version, "0.0.1")))
+        val result = runner(dir, "verifyVersionAlignment", "--no-build-cache").buildAndFail()
+        assertContains(result.output, "as the current release in its released-versions table")
+    }
+
+    @Test
+    fun `verifyVersionAlignment fails when the promoted release date drifts`() {
+        val dir = versionAlignmentFixture()
+        val changelog = File(dir, "CHANGELOG.md")
+        val dated = Regex("""(?m)^## \d+\.\d+\.\d+ - \d{4}-\d{2}-\d{2}$""")
+        val heading = dated.find(changelog.readText())?.value ?: error("no dated release heading in fixture")
+        changelog.writeText(
+            changelog.readText().replace(heading, heading.replace(Regex("""\d{4}-\d{2}-\d{2}"""), "1999-01-01")),
         )
-        // The real build.gradle.kts uses version-catalog aliases that need a
-        // libs.versions.toml; restore a minimal fixture build file that still
-        // carries the fallback the verifier checks — derived from the copied
-        // gradle.properties so it cannot rot when the version advances.
-        val version = fixtureVersion(dir)
-        writeFile(
-            dir,
-            "build.gradle.kts",
-            """
-            plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("$version")
-            """.trimIndent(),
-        )
-        runTask(dir, "verifyVersionAlignment")
+        val result = runner(dir, "verifyVersionAlignment", "--no-build-cache").buildAndFail()
+        assertContains(result.output, "must date the promoted release")
     }
 
     @Test
@@ -362,38 +399,7 @@ class TramaiDocsGuardsPluginTest {
 
     @Test
     fun `verifyVersionAlignment fails on a stale snapshot reference`() {
-        val dir = fixture()
-        copyFromRepo(
-            dir,
-            "gradle.properties",
-            "build.gradle.kts",
-            "CHANGELOG.md",
-            "docs/STATUS.md",
-            "docs/POST-SOVEREIGNTY-ROADMAP.md",
-            "docs/releases/0.6.0-release-readiness.md",
-            "docs/releases/sovereign-runtime-release-readiness.md",
-            "README.md",
-            "docs/guides",
-            "docs/module-guide.md",
-            "docs/reference/releasing.md",
-            "examples/README.md",
-            "examples/support-agent/build.gradle.kts",
-            "examples/kotlin-springboot-example/build.gradle.kts",
-            "examples/kotlin-native-smoke-example/build.gradle.kts",
-            "examples/sovereign-runtime-consumer-smoke/build.gradle.kts",
-            "examples/spring-sovereign-starter/build.gradle.kts",
-            "docs/modules",
-        )
-        // Restore minimal fixture build file (see positive version-alignment test).
-        val version = fixtureVersion(dir)
-        writeFile(
-            dir,
-            "build.gradle.kts",
-            """
-            plugins { id("tramai.docs-guards") }
-            version = providers.gradleProperty("tramaiVersion").orElse("$version")
-            """.trimIndent(),
-        )
+        val dir = versionAlignmentFixture()
         writeFile(dir, "docs/guides/getting-started.md", "Use dev.tramai:tramai-core:0.5.0-SNAPSHOT now.\n")
         val result = runner(dir, "verifyVersionAlignment", "--no-build-cache").buildAndFail()
         assertContains(result.output, "still contains dev.tramai:*:0.5.0-SNAPSHOT dependency reference")

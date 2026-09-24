@@ -318,10 +318,10 @@ class CanonicalProbeFunctionalTest {
 
         // Compile with the repository's own wrapper. 'gradle' is only guaranteed on CI's PATH
         // (setup-gradle), so looking it up made this test un-runnable locally — and every CI
-        // command must have a local equivalent (.github/AGENTS.md rule 1).
-        installGradleWrapper(tempDir)
-        val gradlew = File(tempDir, "gradlew")
-        val launcher = if (gradlew.isFile) gradlew.absolutePath else "gradle"
+        // command must have a local equivalent (.github/AGENTS.md rule 1). No PATH fallback: a
+        // half-installed wrapper must fail here with the real reason, not degrade into an opaque
+        // "gradle not found" later.
+        val launcher = installGradleWrapper(tempDir)
         val process =
             ProcessBuilder(
                 listOf(
@@ -358,39 +358,49 @@ class CanonicalProbeFunctionalTest {
     // ── CanonicalGradleProbe End-to-End Tests ──
 
     /**
-     * Copies the real project's gradlew and gradle-wrapper.jar into the fixture.
-     * Uses the tramai.repositoryRoot system property (set by build.gradle.kts)
-     * to find the project root directly. Falls back to walking up from the fixture
-     * dir if the property isn't set.
+     * Copies the real project's gradlew and gradle-wrapper.jar into the fixture, returns the
+     * fixture's launcher path. Uses the tramai.repositoryRoot system property (set by
+     * build.gradle.kts) to find the project root directly. Falls back to walking up from the
+     * fixture dir if the property isn't set.
+     *
+     * Fails loud when the wrapper cannot be installed. A fixture left with only the script, or
+     * with nothing, previously produced an opaque failure at the call site; falling back to a PATH
+     * `gradle` would also re-introduce the CI-only dependency this helper exists to remove.
      */
-    private fun installGradleWrapper(fixtureDir: File) {
+    private fun installGradleWrapper(fixtureDir: File): String {
         val repoRoot = System.getProperty("tramai.repositoryRoot")
         val projectRoot =
             if (repoRoot != null) {
                 File(repoRoot)
             } else {
                 // Fallback: walk up to find gradlew
-                var candidate = fixtureDir.parentFile ?: return
-                while (candidate.parentFile != null) {
-                    if (File(candidate, "gradlew").isFile) break
+                var candidate = fixtureDir.parentFile ?: error("fixture dir has no parent: $fixtureDir")
+                while (candidate.parentFile != null && !File(candidate, "gradlew").isFile) {
                     candidate = candidate.parentFile!!
                 }
                 candidate
             }
 
         val srcGradlew = File(projectRoot, "gradlew")
-        if (srcGradlew.isFile) {
-            srcGradlew.copyTo(File(fixtureDir, "gradlew"), overwrite = true)
-            File(fixtureDir, "gradlew").setExecutable(true)
-            val jar = File(projectRoot, "gradle/wrapper/gradle-wrapper.jar")
-            if (jar.isFile) {
-                File(fixtureDir, "gradle/wrapper").mkdirs()
-                jar.copyTo(
-                    File(fixtureDir, "gradle/wrapper/gradle-wrapper.jar"),
-                    overwrite = true,
-                )
-            }
+        check(srcGradlew.isFile) {
+            "repository wrapper script not found at $srcGradlew " +
+                "(tramai.repositoryRoot=${repoRoot ?: "unset"}, fixture=$fixtureDir)"
         }
+        srcGradlew.copyTo(File(fixtureDir, "gradlew"), overwrite = true)
+        File(fixtureDir, "gradlew").setExecutable(true)
+
+        val srcJar = File(projectRoot, "gradle/wrapper/gradle-wrapper.jar")
+        check(srcJar.isFile) { "repository wrapper jar not found at $srcJar" }
+        File(fixtureDir, "gradle/wrapper").mkdirs()
+        srcJar.copyTo(File(fixtureDir, "gradle/wrapper/gradle-wrapper.jar"), overwrite = true)
+
+        val properties = File(fixtureDir, "gradle/wrapper/gradle-wrapper.properties")
+        check(properties.isFile) {
+            "fixture gradle-wrapper.properties missing at $properties: the copied wrapper would " +
+                "have no distribution to run"
+        }
+
+        return File(fixtureDir, "gradlew").absolutePath
     }
 
     /**

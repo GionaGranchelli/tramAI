@@ -251,7 +251,10 @@ class ResidualQualityVerifierTasksTest {
         )
         // The fixture's tramai-core declares no coroutine dependency, and the
         // run-scope helper is the only identity source that needs one.
-        File(dir, "tramai-core/src/main/kotlin/dev/tramai/core/identity/GovernedRunScope.kt").delete()
+        val dropped =
+            File(dir, "tramai-core/src/main/kotlin/dev/tramai/core/identity/GovernedRunScope.kt")
+                .delete()
+        check(dropped) { "fixture must drop GovernedRunScope.kt: the copied package changed shape" }
         writeFile(
             dir,
             "settings.gradle.kts",
