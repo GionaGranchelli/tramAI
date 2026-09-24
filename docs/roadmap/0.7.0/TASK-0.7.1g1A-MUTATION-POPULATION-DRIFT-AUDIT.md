@@ -1100,3 +1100,21 @@ and the local `verifyPr` red is a pre-existing environment red that this task is
 
 repair.
 
+## Post-audit addendum
+
+Recorded after this document was committed, for any reader who reaches it later. Nothing above is
+superseded: every measurement here was taken at `0f36ab8744c14ebbdb3b10964311d0416e012ab2`, and that
+evidence is what the verdict rests on.
+
+- The pre-existing `verifyPr` red described above was repaired outside this task, which is what the
+  task required: `#431` fixed the stale TestKit version and identity fixtures and wired the
+  snapshot-aware version gate, and `#432` bounded and made fail-loud the in-process MCP test-server
+  teardown that could stall the `tests` lane. Both merged into
+  `epic/0.7.1-control-plane-authority` (`6ac4c8e2`, then `feae94f7`).
+- The "not pushed" paragraph above records the state at the time of writing. This branch was pushed
+  and opened as `#430` on explicit instruction after the report was reviewed, then rebased onto
+  `feae94f7` and re-certified.
+- The audit findings are unchanged: determinism PASS (`cmp` byte-identical between Campaign A and
+  Campaign B, `sha256 06549e8a21e199b3f4c94fed359a3ae783e7796a29b27d6189c0dd261bc8a457`), 189/189
+  disappearances attributed `SOURCE_REFACTORED`, `UNEXPLAINED` 0, ratchet agreement. Verdict stands:
+  **READY FOR 0.7.1g1B AUTHORITY EVOLUTION**.
