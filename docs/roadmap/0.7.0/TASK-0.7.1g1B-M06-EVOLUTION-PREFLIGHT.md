@@ -180,6 +180,59 @@ M06 total by raw PIT status:
 | SURVIVED | 40 |
 | TIMED_OUT | 46 |
 
+### 3.1 Artifact validity across the audited SHA → current base
+
+The A/B campaigns were measured at `0f36ab87…`; this preflight reasons about the Epic tip `e38ce9f9…`. Three
+commits landed in between, so the measurements are inherited evidence only if none of the inputs that
+determine a mutation population changed. That is verified here rather than assumed.
+
+```
+$ git diff --name-only 0f36ab8744c14ebbdb3b10964311d0416e012ab2 e38ce9f9dbb3519947ffe3ea692932c934eb3f17
+build-logic/src/main/kotlin/dev/tramai/build/docs/DocsContractVerifierTask.kt
+build-logic/src/main/kotlin/dev/tramai/build/docs/PromotedReleaseVerifier.kt
+build-logic/src/main/kotlin/dev/tramai/build/docs/VersionAlignmentVerifier.kt
+build-logic/src/test/kotlin/dev/tramai/build/docs/TramaiDocsGuardsPluginTest.kt
+build-logic/src/test/kotlin/dev/tramai/build/quality/CanonicalProbeFunctionalTest.kt
+build-logic/src/test/kotlin/dev/tramai/build/quality/ResidualQualityVerifierTasksTest.kt
+docs/roadmap/0.7.0/TASK-0.7.1g1A-MUTATION-POPULATION-DRIFT-AUDIT.md
+tramai-orchestration/src/test/kotlin/dev/tramai/orchestration/WorkflowMcpStepTest.kt
+```
+
+Eight files. Four checks decide whether they can move a measurement:
+
+1. **No mutation-target input changed.** `config/quality/test-quality.yml:19-77` configures seven families
+   over five modules — `:tramai-engine`, `:tramai-security`, `:tramai-sovereign`, `:tramai-core`,
+   `:tramai-structured`. Filtering the diff above by those five module prefixes returns **nothing**. The
+   only test change in the range is `WorkflowMcpStepTest.kt` (#432, the MCP fixture teardown fix), and
+   `:tramai-orchestration` is not a configured mutation target module: it contributes neither a target
+   class nor a test input to any family's PIT run. The `routing`, `retry` and `tools` families additionally
+   restrict themselves with `targetTests` (`:40-44`, `:52-58`, `:65-68`); none of those test classes is in
+   the diff either.
+2. **The analyzer, configuration and authority are byte-identical.** `git diff --exit-code` over
+   `config/quality/test-quality.yml`, `config/quality/mutation-baseline.json`,
+   `config/quality/mutation-classifications.yml`, `config/quality/mutation-evolution.yml` and
+   `build-logic/src/main/kotlin/dev/tramai/build/quality` exits **0 with empty output**. The one
+   build-logic package the range does change is `dev.tramai.build.docs` (release/version doc guards), and
+   no file in the mutation path under `build/quality` references it — `git grep dev.tramai.build.docs --
+   build-logic/src/main/kotlin/dev/tramai/build/quality` returns nothing.
+3. **Analyzer semantics, identity schema and topology all match**, measured vs committed: `pluginVersion`
+   1.19.0, `engineVersion` 1.22.1, the same eleven mutators, `timeoutConst` 4000, `timeoutFactor` 1.25,
+   `identitySchemaVersion` 2, and identical family→module topology.
+4. **The delta is confined to the two families the Epic work touched.** Family totals, committed → fresh:
+   `approval` 768 → 918, `evidence` 798 → 808, and `policy`, `retry`, `routing`, `structuredOutput`, `tools`
+   unchanged. That is exactly the growth the g1A audit attributed to `SOURCE_REFACTORED`
+   (`ApprovalResumeCoordinator`, `ApprovalSuspensionCoordinator`, `DefaultApprovalGateway`,
+   `RuntimeEvidenceContractValidator`) — not a measurement artifact.
+
+Recorded caveat, not a defect: the committed authority's `measuredCommit` is `5856530e…`, older than the
+audited `0f36ab87…`. That gap is the pre-existing drift the g1A audit exists to measure; it is why the fresh
+population is 2544 rather than 2384. The claim made here is narrower and is what #433 needs: **the 2544-row
+A/B population measured at `0f36ab87…` is valid evidence at `e38ce9f9…`, because no configured mutation
+target's production source, tests, analyzer, or configuration changed between them.** A test change inside a
+target module *would* have invalidated it; none exists in this range.
+
+No fresh campaign is required for this conclusion, and none was run.
+
 ## 5. Descriptor-aware source-point partition (Phase 3)
 
 ### 5.1 Key definition
@@ -378,6 +431,54 @@ check agree there.
 For A and B the two readings disagree in the way that makes inheritance undecidable from the descriptor
 key alone: the enclosing methods were measured before, but the identities are new and the key that would
 justify inheritance is shared with up to 36 other old identities, including killed ones.
+
+### 5.6 Category A against the whole base authority, not just the disappearing rows
+
+Category A is defined over *base-only* predecessors — the identities that disappeared. That is the task's
+definition, and it leaves a question open that matters for any future lineage design: a key could carry a
+**retained** base identity with a KILLED outcome and still look "unambiguous" under the disappearing-only
+rule, because a retained row is not a base-only row. So the check was repeated against all 2384
+base-authority identities.
+
+Result: **all 11 keys are uniform NON_KILLED across the whole authority**, covering 51 base-authority
+identities (43 that disappeared plus 8 retained siblings), and every one of the 37 category-A identities
+sits at such a key.
+
+| # | class#method | mutator | description | base-only (disappearing) | whole authority at key | outcomes | raw statuses | uniform NON_KILLED |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `ApprovalResumeCoordinator#executeClaimedResume` | `VoidMethodCallMutator` | removed call to kotlin/ResultKt::throwOnFailure | 3 | 5 | NON_KILLED=5 | NO_COVERAGE=4 / SURVIVED=1 | yes |
+| 2 | `ApprovalSuspensionCoordinator#suspendToolExecution` | `VoidMethodCallMutator` | removed call to kotlin/ResultKt::throwOnFailure | 7 | 8 | NON_KILLED=8 | NO_COVERAGE=7 / SURVIVED=1 | yes |
+| 3 | `ApprovalSuspensionCoordinator#suspendToolExecution` | `NullReturnValsMutator` | replaced return value with null | 7 | 7 | NON_KILLED=7 | NO_COVERAGE=7 | yes |
+| 4 | `ApprovalResumeCoordinator#resume` | `VoidMethodCallMutator` | removed call to `CancellationKt::rethrowIfCancellation` | 1 | 1 | NON_KILLED=1 | SURVIVED=1 | yes |
+| 5 | `ApprovalSuspensionCoordinator#suspendToolExecution` | `VoidMethodCallMutator` | removed call to `Intrinsics::checkNotNull` | 1 | 1 | NON_KILLED=1 | SURVIVED=1 | yes |
+| 6 | `ApprovalResumeCoordinator#resume` | `VoidMethodCallMutator` | removed call to kotlin/ResultKt::throwOnFailure | 13 | 14 | NON_KILLED=14 | NO_COVERAGE=13 / SURVIVED=1 | yes |
+| 7 | `DefaultApprovalGateway#requestApproval-Atj0Sqo` | `VoidMethodCallMutator` | removed call to kotlin/ResultKt::throwOnFailure | 5 | 6 | NON_KILLED=6 | NO_COVERAGE=5 / SURVIVED=1 | yes |
+| 8 | `ApprovalResumeCoordinator#executeClaimedResume` | `NegateConditionalsMutator` | negated conditional | 3 | 4 | NON_KILLED=4 | TIMED_OUT=4 | yes |
+| 9 | `ApprovalResumeCoordinator#revealAndValidateReplayPayload` | `VoidMethodCallMutator` | removed call to kotlin/ResultKt::throwOnFailure | 1 | 3 | NON_KILLED=3 | NO_COVERAGE=2 / SURVIVED=1 | yes |
+| 10 | `ApprovalSuspensionCoordinator#validateRenewedApprovalRequirement` | `ConditionalsBoundaryMutator` | changed conditional boundary | 1 | 1 | NON_KILLED=1 | SURVIVED=1 | yes |
+| 11 | `ApprovalSuspensionCoordinator#suspendToolExecution` | `VoidMethodCallMutator` | removed call to `Intrinsics::checkNotNullExpressionValue` | 1 | 1 | NON_KILLED=1 | SURVIVED=1 | yes |
+
+The 11 descriptor keys in full:
+
+```
+1.  :tramai-engine|dev.tramai.engine.approval.ApprovalResumeCoordinator|executeClaimedResume|(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/ResultKt::throwOnFailure
+2.  :tramai-engine|dev.tramai.engine.approval.ApprovalSuspensionCoordinator|suspendToolExecution|(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/ResultKt::throwOnFailure
+3.  :tramai-engine|dev.tramai.engine.approval.ApprovalSuspensionCoordinator|suspendToolExecution|(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator|replaced return value with null for dev/tramai/engine/approval/ApprovalSuspensionCoordinator::suspendToolExecution
+4.  :tramai-engine|dev.tramai.engine.approval.ApprovalResumeCoordinator|resume|(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to dev/tramai/core/coroutines/CancellationKt::rethrowIfCancellation
+5.  :tramai-engine|dev.tramai.engine.approval.ApprovalSuspensionCoordinator|suspendToolExecution|(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/jvm/internal/Intrinsics::checkNotNull
+6.  :tramai-engine|dev.tramai.engine.approval.ApprovalResumeCoordinator|resume|(Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/ResultKt::throwOnFailure
+7.  :tramai-engine|dev.tramai.engine.approval.DefaultApprovalGateway|requestApproval-Atj0Sqo|(Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/ResultKt::throwOnFailure
+8.  :tramai-engine|dev.tramai.engine.approval.ApprovalResumeCoordinator|executeClaimedResume|(Ldev/tramai/engine/approval/ResumeExecutionContext;Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuationStore;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator|negated conditional
+9.  :tramai-engine|dev.tramai.engine.approval.ApprovalResumeCoordinator|revealAndValidateReplayPayload|(Ldev/tramai/engine/approval/ResumeUncertainOutcome;Ldev/tramai/engine/ResumeApprovalCommand;Ldev/tramai/engine/SuspendedInvocationMetadata;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/ResultKt::throwOnFailure
+10. :tramai-engine|dev.tramai.engine.approval.ApprovalSuspensionCoordinator|validateRenewedApprovalRequirement|(Ldev/tramai/engine/tool/ToolExecutionRequest;Ldev/tramai/core/policy/PolicyDecision$RequireApproval;Ljava/lang/String;)V|org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator|changed conditional boundary
+11. :tramai-engine|dev.tramai.engine.approval.ApprovalSuspensionCoordinator|suspendToolExecution|(Ldev/tramai/engine/approval/SuspendToolExecutionRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;|org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator|removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue
+```
+
+So the name `UNAMBIGUOUS_INHERITED_NON_KILLED` survives the stronger test and does not need weakening: at
+every category-A key, *no* base-authority identity — disappearing or retained — is KILLED. The word
+"unambiguous" is scoped to one thing only: the outcomes at that key. It is **not** a claim of lineage, and
+Section 9.1 shows why the key still cannot carry one. Categories A and B remain separated by exactly the
+property that matters: B's keys carry KILLED predecessors, A's do not.
 
 ## 6. Complete inventories
 
@@ -1031,8 +1132,10 @@ Not a recommendation — the floor below which the mechanism is unsound:
 
 ### 9.3 Assessment
 
-Category A is plausible as inherited debt and is the only category that could be argued for. It is not
-self-certifying: the 5 clean rekeys are weak evidence in the presence of 83 multi-predecessor identities,
+Category A is the only category that could be argued for, and Section 5.6 strengthens what can honestly be
+said about it: no KILLED identity exists anywhere at its keys, retained or disappearing. That is still not
+lineage — it is a statement about outcomes at a key, not about which mutation point the key describes. Nor is
+it self-certifying: the 5 clean rekeys are weak evidence in the presence of 83 multi-predecessor identities,
 and category A itself is 30 NO_COVERAGE / 4 SURVIVED / 3 TIMED_OUT — that is, 37 new mutants that were
 never killed, most of them never even covered. Nothing in the descriptor key distinguishes "the same
 mutation point, shifted" from "a new mutation point added inside a method that already had mutations and
@@ -1135,11 +1238,15 @@ Reading of the clusters, for whoever picks this up next:
   harness debt rather than missing tests: a timeout means the mutant ran and the test process did not
   finish in budget, not that nothing exercised it. Cluster them by class and check the per-mutant
   timeout budget before writing a single new test.
-- **SURVIVED (36 remaining)** is real missing protection and needs per-mutant tests or explicit
-  classification adjudication on master.
-- **NO_COVERAGE (79 remaining)** is the largest group and the one where a decision is cheapest: these
-  mutants are in code no test enters, so the question is whether the code is reachable and worth
-  covering, or whether the mutation point should not be in the target set at all. `compensateSuspension`
+- **SURVIVED (36 remaining)** is real missing protection and needs stronger tests. It cannot be closed by
+  this candidate classifying its own survivors: Section 2.4 shows every candidate-added classification is
+  an M08/M09 failure, so this path requires a separately designed authority-side adjudication mechanism.
+  No current repository mechanism lets this candidate adjudicate its own new survivors.
+- **NO_COVERAGE (79 remaining)** is the largest group and the one where a decision is cheapest. It means
+  PIT measured no coverage **of that mutation point** — not that the enclosing method or class is never
+  entered; a method can run while a specific mutated instruction is not observed. So the question is
+  whether the point is reachable and worth covering, or whether it should not be in the target set at all.
+  `compensateSuspension`
   and its three synthetic `invokeSuspend` bodies, `persistGoverned`/`persistUngoverned`, and
   `requestApproval-Atj0Sqo` account for most of it.
 - Note the shape of the concentration: the remaining debt is dominated by two classes
@@ -1193,6 +1300,9 @@ What repository policy would have to change to permit it, described without reco
   attribution without re-deriving it.
 - Category C being "genuinely new" means new with respect to the descriptor key and the method-level
   cross-check. I did not diff source revisions to confirm every one of those methods is newly written.
+- The whole-authority check in Section 5.6 establishes the outcomes at every category-A key across all 2384
+  base identities. It does **not** establish that any category-A identity is the same mutation point as any
+  predecessor, and it is not evidence for lineage.
 - The 37/51/107 split is not a safety verdict about any individual mutant, and no count here is a
   recommendation to classify, exempt, or waive anything.
 - The base SHA defect in Section 1 is unresolved by design: I used the resolved Epic tip and said so.
@@ -1216,20 +1326,32 @@ committed; the JSON they produced is `/tmp/tramai-071g1b-{phase2,partition,m06}.
 
 ## 15. Working-tree proof
 
+Recorded BEFORE COMMIT, while the analysis ran — at that point the base was the tip and no task commit
+existed yet:
+
 ```
 $ git rev-parse HEAD
-e38ce9f9dbb3519947ffe3ea692932c934eb3f17      # base SHA, not moved by this task
+e38ce9f9dbb3519947ffe3ea692932c934eb3f17
 
 $ git status --porcelain                       # before this document was written
 (empty)
 
-$ git status --porcelain                       # after writing it
+$ git status --porcelain                       # after writing it — one entry, nothing else
 ?? docs/roadmap/0.7.0/TASK-0.7.1g1B-M06-EVOLUTION-PREFLIGHT.md
 ```
 
-The task commit contains exactly that one file — `git show --stat HEAD` on it reports 1 file changed and
-nothing else. No authority, verifier, workflow, classification, threshold, family, baseline, production
-source or test file appears in it, and the base SHA stays the tip this branch was cut from.
+Re-run AFTER COMMIT, against the PR head rather than pasted here: amending this document moves the SHA, so
+any hash quoted in this section would go stale. The expected output is:
+
+```
+$ git rev-parse HEAD^        # e38ce9f9dbb3519947ffe3ea692932c934eb3f17 — the task commit sits on the base
+$ git show --stat --oneline HEAD   # 1 file changed: this document
+$ git status --porcelain     # (empty)
+```
+
+Either way, the task commit contains exactly that one file. No authority, verifier, workflow, classification,
+threshold, family, baseline, production source or test file appears in it, and the base SHA stays the tip
+this branch was cut from.
 
 ## 16. Final verdict
 
@@ -1244,5 +1366,27 @@ failures and is not mergeable. I cannot demonstrate a legitimate resolution of t
 the current verifier without a mechanism narrower than the descriptor key and adjudicated outside the
 transition it authorizes, which does not exist today. 158 of the 195 remain even under the most
 generous reading (category A inheriting), so the path forward is debt repair, not authority evolution.
+
+### 16.1 Durable conclusion
+
+**M21 evolution and M06 debt are separate problems.** The transition in front of us is:
+
+```
+189 disappearing identities        → understood by recorded evolution / M21
+195 candidate-only NON_KILLED      → rejected independently by M06
+```
+
+Even under the most permissive hypothetical reading of category A:
+
+```
+195 candidate-only NON_KILLED
+- 37 possible inherited-debt candidates
+= 158 unresolved M06
+```
+
+So the next slice is not a baseline replacement. It is either a mutation-debt closure slice, or — if lineage
+is judged worth designing — an authority-side lineage design that lands before any ratification of it. M06
+should not be modified: it is currently doing exactly what it was written to do, preventing the candidate
+that introduces new mutation identities from certifying those same survivors.
 
 Stop here. No fix implemented, no authority modified.
