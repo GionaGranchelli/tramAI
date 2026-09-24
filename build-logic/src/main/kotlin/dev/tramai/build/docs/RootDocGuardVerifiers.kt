@@ -1015,20 +1015,7 @@ object RootDocGuardVerifiers {
         }
     }
 
-/**
-     * Pre-release version-alignment closure, extracted from root build.gradle.kts @ 66198f33 (lines
-     * 4287-4453).
-     *
-     * Superseded by [verifyVersionAlignmentSurfaces] in VersionAlignmentVerifier: this closure demands a
-     * dated `## <version>` CHANGELOG section for the *project* version, which is unsatisfiable on a
-     * development line (`0.7.0-SNAPSHOT`). Deprecated at ERROR level so that rewiring the gate to this
-     * implementation — the defect that made `verifyVersionAlignment` red — fails to compile instead of
-     * silently returning.
-     */
-    @Deprecated(
-        "Superseded by verifyVersionAlignmentSurfaces (snapshot-aware); do not wire into DocGuardKind.VERSION_ALIGNMENT",
-        level = DeprecationLevel.ERROR,
-    )
+/** verifyVersionAlignment (root build.gradle.kts @ 66198f33, lines 4287–4453). */
     fun versionAlignment(
         rootDir: File,
         expectedVersion: String,

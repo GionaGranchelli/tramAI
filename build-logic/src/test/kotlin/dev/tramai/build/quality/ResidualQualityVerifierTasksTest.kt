@@ -239,8 +239,7 @@ class ResidualQualityVerifierTasksTest {
             dir,
             srcRel,
             "tramai-core/src/main/kotlin/dev/tramai/core/annotations",
-            // 0.7.1b workload identity vocabulary — the consumer smoke imports
-            // dev.tramai.core.identity.*, so the fixture must carry the package.
+            // 0.7.1b workload identity vocabulary: the consumer smoke imports this package.
             "tramai-core/src/main/kotlin/dev/tramai/core/identity",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/Tool.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolResult.kt",
@@ -249,12 +248,7 @@ class ResidualQualityVerifierTasksTest {
             "tramai-core/src/main/kotlin/dev/tramai/core/model/ToolFailureCode.kt",
             "tramai-core/src/main/kotlin/dev/tramai/core/policy",
         )
-        // The fixture's tramai-core declares no coroutine dependency, and the
-        // run-scope helper is the only identity source that needs one.
-        val dropped =
-            File(dir, "tramai-core/src/main/kotlin/dev/tramai/core/identity/GovernedRunScope.kt")
-                .delete()
-        check(dropped) { "fixture must drop GovernedRunScope.kt: the copied package changed shape" }
+        dropCoroutineBoundIdentitySource(dir)
         writeFile(
             dir,
             "settings.gradle.kts",
@@ -284,6 +278,16 @@ class ResidualQualityVerifierTasksTest {
             """.trimIndent(),
         )
         return dir
+    }
+
+    /**
+     * The fixture's tramai-core declares no coroutine dependency, and the run-scope helper is the
+     * only identity source that needs one. Checked: a blind delete would let the fixture silently
+     * keep a source it cannot compile.
+     */
+    private fun dropCoroutineBoundIdentitySource(dir: File) {
+        val scope = File(dir, "tramai-core/src/main/kotlin/dev/tramai/core/identity/GovernedRunScope.kt")
+        check(scope.delete()) { "fixture must drop GovernedRunScope.kt: the copied package changed shape" }
     }
 
     @Test

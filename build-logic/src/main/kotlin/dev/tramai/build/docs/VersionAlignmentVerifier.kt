@@ -78,9 +78,9 @@ fun verifyVersionAlignmentSurfaces(
     expectedReleaseDate: String,
 ) {
     requireVersionProperties(rootDir, expectedVersion)
-    val promotedRelease = requireChangelogReleaseSection(rootDir, expectedVersion, expectedReleaseDate)
-    requireReleaseSurfaces(rootDir, promotedRelease)
-    requireConsumerDocCoordinates(rootDir, promotedRelease.version)
+    val promotedVersion = requireChangelogReleaseSection(rootDir, expectedVersion, expectedReleaseDate)
+    requireReleaseSurfaces(rootDir, promotedVersion, promotedReleaseDate(rootDir))
+    requireConsumerDocCoordinates(rootDir, promotedVersion)
 }
 
 /** 1-2: the project version is the single authority, and the build fallback agrees with it. */
@@ -122,7 +122,7 @@ private fun requireChangelogReleaseSection(
     rootDir: File,
     expectedVersion: String,
     expectedReleaseDate: String,
-): PromotedRelease {
+): String {
     // 3. CHANGELOG.md has ## Unreleased present above a dated release section.
     //
     // Release-scoped surfaces — the dated CHANGELOG section, the release-readiness document,
@@ -142,36 +142,36 @@ private fun requireChangelogReleaseSection(
         require(afterUnreleased.contains("## $expectedVersion - $expectedReleaseDate")) {
             "CHANGELOG.md must contain a dated $expectedVersion section after ## Unreleased"
         }
-        return PromotedRelease(expectedVersion, expectedReleaseDate)
+        return expectedVersion
     }
 
-    val promoted = promotedRelease(rootDir)
-    require(afterUnreleased.contains("## ${promoted.version} - ${promoted.date}")) {
-        "CHANGELOG.md must contain a dated ${promoted.version} section after ## Unreleased " +
+    val promotedVersion = promotedReleaseVersion(rootDir)
+    val promotedDate = promotedReleaseDate(rootDir)
+    require(afterUnreleased.contains("## $promotedVersion - $promotedDate")) {
+        "CHANGELOG.md must contain a dated $promotedVersion section after ## Unreleased " +
             "(release-scoped surface of the $expectedVersion development line)"
     }
-    require(promoted.date == expectedReleaseDate) {
-        "CHANGELOG.md must date the promoted release ${promoted.version} as " +
-            "$expectedReleaseDate, got '${promoted.date}'"
+    require(promotedDate == expectedReleaseDate) {
+        "CHANGELOG.md must date the promoted release $promotedVersion as " +
+            "$expectedReleaseDate, got '$promotedDate'"
     }
     // The one thing a development line must not do is target a release that is not ahead
     // of the last promoted one: that would mislabel the line rather than merely postpone
     // its promotion.
-    require(compareReleaseVersions(TramaiVersions.releaseVersionOf(expectedVersion), promoted.version) > 0) {
+    require(compareReleaseVersions(TramaiVersions.releaseVersionOf(expectedVersion), promotedVersion) > 0) {
         "Development line $expectedVersion must target a release after the last promoted " +
-            "release ${promoted.version}"
+            "release $promotedVersion"
     }
 
-    return promoted
+    return promotedVersion
 }
 
-/** 5-8, 10: release surfaces, roadmap train and release documents for [promoted]. */
+/** 5-8, 10: release surfaces, roadmap train and release documents for the promoted release. */
 private fun requireReleaseSurfaces(
     rootDir: File,
-    promoted: PromotedRelease,
+    releaseScopedVersion: String,
+    releaseDate: String,
 ) {
-    val releaseScopedVersion = promoted.version
-
     // 5. No active <expectedVersion>-SNAPSHOT references remain
     // 6. STATUS.md names the promoted release — its actual version and date — as the current one.
     //    Asserting a historical literal (0.4.0) plus the loose phrase "Latest published release"
@@ -181,11 +181,11 @@ private fun requireReleaseSurfaces(
     val statusText = statusDoc.readText()
     require(
         statusText.lineSequence().any { line ->
-            line.startsWith("| $releaseScopedVersion | ${promoted.date} |") &&
+            line.startsWith("| $releaseScopedVersion | $releaseDate |") &&
                 line.contains("Current release")
         },
     ) {
-        "STATUS.md must identify $releaseScopedVersion (dated ${promoted.date}) as the " +
+        "STATUS.md must identify $releaseScopedVersion (dated $releaseDate) as the " +
             "current release in its released-versions table"
     }
 
