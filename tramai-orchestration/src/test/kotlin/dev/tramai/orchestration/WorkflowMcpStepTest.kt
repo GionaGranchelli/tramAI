@@ -48,6 +48,9 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
 class WorkflowMcpStepTest {
+    /** Workflow type this suite builds; the explicit form exceeds the line-length limit in signatures. */
+    private typealias McpWorkflow = Workflow<McpState, McpState>
+
     private val servers = mutableListOf<AutoCloseable>()
 
     @AfterTest
@@ -807,7 +810,7 @@ class WorkflowMcpStepTest {
             .joinToString("") { "%02x".format(it) }
 
     @Suppress("UNCHECKED_CAST")
-    private fun Workflow<McpState, McpState>.withFirstMcpTransport(transportProvider: McpTransportProvider): Workflow<McpState, McpState> {
+    private fun McpWorkflow.withFirstMcpTransport(transportProvider: McpTransportProvider): McpWorkflow {
         val steps = readPrivate<List<InternalWorkflowStep<McpState>>>("steps").toMutableList()
         val existing = steps.first() as McpWorkflowStep<McpState>
         steps[0] = existing.copy(transportProvider = transportProvider)
@@ -858,7 +861,10 @@ class WorkflowMcpStepTest {
 
         repeat(cycles) { index ->
             val (transportProvider, fixture) = createEchoServer()
-            val result = runBlocking { buildWorkflow(listOf(echoStep(transportProvider, "cycle-$index"))).run(McpState()) }
+            val result =
+                runBlocking {
+                    buildWorkflow(listOf(echoStep(transportProvider, "cycle-$index"))).run(McpState())
+                }
 
             assertThat(result.result?.content).contains("cycle-$index")
             fixture.close()
@@ -893,6 +899,33 @@ class WorkflowMcpStepTest {
             merge = { state, result, _ -> state.copy(result = result) },
             transportProvider = transportProvider,
         )
+
+    /**
+     * Starts [server]'s session on [scope] and returns the fixture that owns the pipes, the session
+     * and the session job. Shared by every in-process server helper so the lifecycle lives in one
+     * place.
+     */
+    private fun startMcpServerFixture(
+        server: Server,
+        scope: CoroutineScope,
+        pipeCloseable: AutoCloseable,
+        serverInput: PipedInputStream,
+        serverToClient: PipedOutputStream,
+    ): TestMcpServerFixture {
+        val session = AtomicReference<ServerSession?>(null)
+        val sessionJob =
+            scope.launch {
+                session.set(
+                    server.createSession(
+                        StdioServerTransport(
+                            serverInput.asSource().buffered(),
+                            serverToClient.asSink().buffered(),
+                        ),
+                    ),
+                )
+            }
+        return TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
+    }
 
     private fun createEchoServer(): Pair<McpTransportProvider, AutoCloseable> {
         val (clientInput, serverToClient, clientToServer, serverInput, pipeCloseable) = createPipes()
@@ -941,22 +974,8 @@ class WorkflowMcpStepTest {
                 }
             }
 
-        val session = AtomicReference<ServerSession?>(null)
-        val sessionJob =
-            scope.launch {
-                session.set(
-                    server.createSession(
-                        StdioServerTransport(
-                            serverInput.asSource().buffered(),
-                            serverToClient.asSink().buffered(),
-                        ),
-                    ),
-                )
-            }
-
-        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
+        val closeable = startMcpServerFixture(server, scope, pipeCloseable, serverInput, serverToClient)
         servers += closeable
-
         val transportProvider =
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
@@ -1000,22 +1019,8 @@ class WorkflowMcpStepTest {
                 }
             }
 
-        val session = AtomicReference<ServerSession?>(null)
-        val sessionJob =
-            scope.launch {
-                session.set(
-                    server.createSession(
-                        StdioServerTransport(
-                            serverInput.asSource().buffered(),
-                            serverToClient.asSink().buffered(),
-                        ),
-                    ),
-                )
-            }
-
-        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
+        val closeable = startMcpServerFixture(server, scope, pipeCloseable, serverInput, serverToClient)
         servers += closeable
-
         val transportProvider =
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
@@ -1062,22 +1067,8 @@ class WorkflowMcpStepTest {
                 }
             }
 
-        val session = AtomicReference<ServerSession?>(null)
-        val sessionJob =
-            scope.launch {
-                session.set(
-                    server.createSession(
-                        StdioServerTransport(
-                            serverInput.asSource().buffered(),
-                            serverToClient.asSink().buffered(),
-                        ),
-                    ),
-                )
-            }
-
-        val closeable = TestMcpServerFixture(server, pipeCloseable, session, sessionJob)
+        val closeable = startMcpServerFixture(server, scope, pipeCloseable, serverInput, serverToClient)
         servers += closeable
-
         val transportProvider =
             object : McpTransportProvider {
                 override suspend fun connect(toolCall: McpToolCall): McpTransportConnection =
