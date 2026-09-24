@@ -981,3 +981,122 @@ This verdict authorizes a later, separately scoped 0.7.1g1B slice to consider a 
 3. This audit measured only the default local environment (Temurin 21.0.7 Gradle JVM, Linux). The committed authority was also measured locally; CI does not generate the population, so no CI/local measurement divergence could be measured here.
 4. `measuredCommit 5856530e` is a pre-squash PR commit and not an ancestor of the audited Epic head; the authority's provenance field therefore cannot be resolved by ancestry in future audits.
 
+
+## Verification (task §19)
+
+
+
+Commands run after the audit document became the only tracked change:
+
+
+
+```bash
+
+git diff --check          # clean
+
+git status --short        # only the task document
+
+
+
+./gradlew verifyChangePolicy \
+
+  -PchangeClass=documentation -PchangePolicyBase=0f36ab8744c14ebbdb3b10964311d0416e012ab2 --no-configuration-cache
+
+# verifyChangePolicy PASSED — 1 changed file(s), change class: documentation, no policy violations.
+
+
+
+./gradlew verifyPr \
+
+  -PchangeClass=documentation -PchangePolicyBase=0f36ab8744c14ebbdb3b10964311d0416e012ab2 \
+
+  -PtramaiCancellationBaseSha=0f36ab8744c14ebbdb3b10964311d0416e012ab2 --no-configuration-cache
+
+# BUILD FAILED — see below
+
+```
+
+
+
+`verifyPr` is **red**, and the red is not attributable to this change. It fails on three
+
+pre-existing `:build-logic:test` failures:
+
+
+
+```text
+
+TramaiDocsGuardsPluginTest > verifyVersionAlignment fails on a stale snapshot reference() FAILED
+
+TramaiDocsGuardsPluginTest > verifyVersionAlignment passes on real version surfaces() FAILED
+
+ResidualQualityVerifierTasksTest > java consumer smoke compiles real fixture and writes marker() FAILED
+
+29 tests completed, 3 failed
+
+```
+
+
+
+Attribution (rerun with and without the change, as the repository's failure protocol requires):
+
+
+
+| Run | Tree | Change present | Failing tests |
+
+|---|---|---|---|
+
+| A | fresh shared clone at `0f36ab8744c14ebbdb3b10964311d0416e012ab2` | no | the same three |
+
+| B | task branch (this document committed) | yes | the same three |
+
+
+
+Failure causes as reported by the tests themselves:
+
+
+
+- `TramaiDocsGuardsPluginTest`: the TestKit fixture build fails with
+
+  `build.gradle.kts fallback must be 0.7.0-SNAPSHOT`, i.e. the fixture environment,
+
+  not the repository's version surfaces (`tramaiVersion=0.7.0-SNAPSHOT` at the audited SHA).
+
+- `ResidualQualityVerifierTasksTest > java consumer smoke`: the generated fixture build reports
+
+  `"ok" : false, "exitCode" : 1` while compiling its consumer-smoke fixture.
+
+
+
+Classification per `AGENTS.md` (CI failure protocol): `environment-mismatch`, pre-existing at the
+
+audited SHA. Nothing was modified to make it pass: the change under audit is a documentation file
+
+and cannot influence either fixture, and both failures reproduce byte-for-byte with the change absent.
+
+
+
+Two earlier full `verifyPr` runs were killed by the local process supervisor (SIGTERM) before they
+
+could finish; one of them surfaced as `Gradle build daemon disappeared unexpectedly`, which is the
+
+kill of the parent process group, not a repository defect.
+
+
+
+`verifyMutationRatchet` inside `verifyPr` PASSED (base resolved to `41ac9151`, the merge-base with
+
+`origin/master`, because `tramaiMutationBaseSha` is not set by `verifyPr`): the committed population
+
+is unchanged by this task, so the ratchet has nothing to reject. The discriminating run remains the
+
+one in the *Ratchet evidence* section above, where the fresh population was the candidate.
+
+
+
+The branch was **not pushed**: `AGENTS.md` forbids pushing while a required local check is failing,
+
+and the local `verifyPr` red is a pre-existing environment red that this task is not authorized to
+
+repair.
+
