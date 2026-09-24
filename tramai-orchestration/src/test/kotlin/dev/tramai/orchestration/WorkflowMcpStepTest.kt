@@ -36,6 +36,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
 import java.time.Clock
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -45,6 +46,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.reflect.typeOf
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.seconds
 
 class WorkflowMcpStepTest {
@@ -66,7 +68,10 @@ class WorkflowMcpStepTest {
             }
         }
         servers.clear()
-        failures.firstOrNull()?.let { throw it }
+        failures.firstOrNull()?.let { primary ->
+            failures.drop(1).forEach(primary::addSuppressed)
+            throw primary
+        }
     }
 
     @Test
@@ -853,6 +858,32 @@ class WorkflowMcpStepTest {
     }
 
     @Test
+    fun `a failing release step does not strand the resources behind it`() {
+        val attempted = mutableListOf<String>()
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                runBlocking {
+                    releaseAllBestEffort(
+                        {
+                            attempted += "session"
+                            error("session close failed")
+                        },
+                        { attempted += "job" },
+                        {
+                            attempted += "server"
+                            error("server close failed")
+                        },
+                    )
+                }
+            }
+
+        // Every stage ran despite the first failing, and both reasons survived to the report.
+        assertThat(attempted).containsExactly("session", "job", "server")
+        assertThat(failure.message).isEqualTo("session close failed")
+        assertThat(failure.suppressed.map { it.message }).containsExactly("server close failed")
+    }
+
+    @Test
     fun `repeated server cycles tear down without leaking fixtures`() {
         // 100 create/connect/call/close cycles in-process. Each cycle must tear its fixture down
         // completely: unbounded teardown leaks live servers here and eventually stalls the worker.
@@ -1152,6 +1183,28 @@ private fun awaitMcpProcessExit(process: ProcessHandle?) {
 }
 
 /**
+ * Runs every release step in [steps], in order, even when an earlier one fails, then throws the first
+ * failure with the rest attached as suppressed. Closing one owned resource must never strand the
+ * resources behind it, and the reason the teardown failed must survive to the report.
+ */
+private suspend fun releaseAllBestEffort(vararg steps: suspend () -> Unit) {
+    var primaryFailure: Throwable? = null
+    for (step in steps) {
+        try {
+            step()
+        } catch (failure: Throwable) {
+            val primary = primaryFailure
+            if (primary == null) {
+                primaryFailure = failure
+            } else {
+                primary.addSuppressed(failure)
+            }
+        }
+    }
+    primaryFailure?.let { throw it }
+}
+
+/**
  * Lifecycle owner for an in-process MCP test server.
  *
  * The SDK's stdio transport reads blocking Java streams, which coroutine cancellation cannot
@@ -1183,7 +1236,9 @@ private class TestMcpServerFixture(
         pipes.close()
 
         // 2-4. Close the exact session we own, stop the server coroutine, then the server itself.
-        // Bounded because a non-cancellable blocking call must not own the test worker's fate.
+        // Bounded because a non-cancellable blocking call must not own the test worker's fate, and
+        // best-effort across the three stages: one stage failing to release must not strand the
+        // resources behind it. The first failure is preserved and the later ones are attached to it.
         val shutdown =
             Executors.newSingleThreadExecutor { runnable ->
                 Thread(runnable, "mcp-fixture-shutdown").apply { isDaemon = true }
@@ -1192,11 +1247,15 @@ private class TestMcpServerFixture(
             shutdown
                 .submit {
                     runBlocking {
-                        session.get()?.close()
-                        sessionJob.cancelAndJoin()
-                        server.close()
+                        releaseAllBestEffort(
+                            { session.get()?.close() },
+                            { sessionJob.cancelAndJoin() },
+                            { server.close() },
+                        )
                     }
                 }.get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (failure: ExecutionException) {
+            throw failure.cause ?: failure
         } catch (timeout: TimeoutException) {
             throw IllegalStateException(
                 "MCP test server failed to terminate within ${SHUTDOWN_TIMEOUT_SECONDS}s",
