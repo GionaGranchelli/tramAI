@@ -495,6 +495,10 @@ abstract class VerifyArchitectureTask : DefaultTask() {
             DiagnosticCode.MUTATION_RATCHET_SEMANTICS_DRIFT,
             DiagnosticCode.MUTATION_RATCHET_SCHEMA_DRIFT,
             DiagnosticCode.MUTATION_RATCHET_AUTHORITY_INVALID,
+            DiagnosticCode.MUTATION_RATCHET_ENROLLMENT_UNAUTHORIZED,
+            DiagnosticCode.MUTATION_RATCHET_ENROLLMENT_MISMATCH,
+            DiagnosticCode.MUTATION_RATCHET_ENROLLMENT_INVALID,
+            DiagnosticCode.MUTATION_RATCHET_ENROLLMENT_ORPHANED,
             -> null
         }
 

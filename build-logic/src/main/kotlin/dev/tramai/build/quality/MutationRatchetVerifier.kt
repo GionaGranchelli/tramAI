@@ -49,12 +49,24 @@ import dev.tramai.build.quality.TestQualityConfiguration.MutationTargetFamily
  * - M21 base identity absent from the candidate population   = fail by default. A recorded evolution
  *   invocation may downgrade individually recorded removals to warnings only when the candidate has
  *   a fresh measured population; all other removals fail closed.
+ * - M22 base-authorized enrollment: candidate adds a classification whose EXACT record (classification,
+ *   reason, issue, targetPhase) is already authorized by the base enrollment ledger, for a target that is
+ *   an unresolved NON_KILLED survivor in the base population                      = pass (the ceremony)
+ * - M23 candidate adds an enrollment authorization AND enrolls it in the same transition = fail
+ * - M24 enrolled classification payload differs from its base authorization      = fail
+ * - M25 enrollment authorization is duplicated, or targets an identity that is absent from the base
+ *   population, KILLED, or already classified                                    = fail closed
+ * - M26 base authorization removed while its exact authorized classification is enrolled = pass (consumption)
+ * - M27 authorization removed without enrollment, or retained after its classification was enrolled = fail
  *
  * Classification authority semantics: a PR may only REMOVE classifications
  * (when the underlying mutant dies), never add or re-author one. New
  * classifications are adjudicated on master during an enrollment ceremony and
  * become part of the base; anything a candidate adds is either self-approval
- * of its own survivor (M08) or fabrication (M09). byFamily metrics are
+ * of its own survivor (M08) or fabrication (M09). The ceremony itself is the
+ * base-side enrollment ledger (M22-M27): an authorization merged into the base
+ * may be consumed by a LATER transition, so a candidate can never create the
+ * authority it uses. byFamily metrics are
  * derived truth: they are recomputed from the persisted rows and must equal
  * the persisted entry exactly; every configured family must stay non-vacuous.
  *
@@ -89,6 +101,7 @@ class MutationRatchetVerifier {
                 ),
             )
         diagnostics += classificationRatchet(base, candidate)
+        diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
         diagnostics +=
             familyAndTargetChecks(
                 base.population,
@@ -373,11 +386,6 @@ class MutationRatchetVerifier {
             // M03: approved survivor stays NON_KILLED with an identical classification -> pass.
         }
 
-        // Added classifications (M08/M09): a candidate may never add one.
-        (candidateClassById.keys - baseClassById.keys).forEach { id ->
-            diagnostics += addedClassificationDiagnostic(id, candidateById[id], baseById[id], base.baseSha)
-        }
-
         // Removed classifications (M04/M11).
         (baseClassById.keys - candidateClassById.keys).forEach { id ->
             val mutant = candidateById[id]
@@ -395,38 +403,6 @@ class MutationRatchetVerifier {
             // M04: removed + mutant KILLED -> pass. Removed + mutant disappeared -> pass.
         }
         return diagnostics
-    }
-
-    private fun addedClassificationDiagnostic(
-        id: String,
-        candidateMutant: MutationOutcome?,
-        baseMutant: MutationOutcome?,
-        baseSha: String,
-    ): VerificationDiagnostic {
-        val reason =
-            when {
-                candidateMutant == null -> {
-                    "M09: classification ${short(id)} is fabricated — it references no mutant measured " +
-                        "in the candidate population and none certified in the base."
-                }
-
-                baseMutant == null -> {
-                    "M08: candidate self-approval — classification ${short(id)} was added for a mutant that " +
-                        "does not exist in the base authority. A PR cannot approve its own new survivors."
-                }
-
-                else -> {
-                    "M09: classification ${short(id)} was added for a mutant that was never classified in the " +
-                        "base authority (base outcome ${baseMutant.outcome}). New classifications are adjudicated " +
-                        "on master, never by the PR under review."
-                }
-            }
-        return VerificationDiagnostic.failure(
-            DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID,
-            "$reason (base $baseSha)",
-            findingId = id,
-            modulePath = candidateMutant?.module,
-        )
     }
 
     private fun familyAndTargetChecks(
@@ -519,7 +495,7 @@ class MutationRatchetVerifier {
         return diagnostics
     }
 
-    private companion object {
+    internal companion object {
         const val KILLED = "KILLED"
         const val NON_KILLED = "NON_KILLED"
         const val IDENTITY_SCHEMA_VERSION = "2"

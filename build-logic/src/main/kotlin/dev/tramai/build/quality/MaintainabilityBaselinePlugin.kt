@@ -859,6 +859,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         population = candidatePopulation,
                         classifications = candidateClassifications,
                         targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                        enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(
@@ -905,6 +906,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read release mutation authority: ${e.message}", e)
                     }
                 val classifications = MutationClassificationLoader.load(project.rootDir)
+                // The release check compares a fresh measurement against the committed authority in the
+                // same tree, so the enrollment ledger is identical on both sides: an enrollment can never
+                // authorize a classification in the transition that introduces it (M23 still applies).
+                val enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir)
                 verifyTestQualityDiagnostics(
                     project,
                     "Release mutation",
@@ -915,12 +920,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 population = committed,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
                             ),
                         candidate =
                             MutationRatchetCandidate(
                                 population = current,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
                             ),
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                     ),
