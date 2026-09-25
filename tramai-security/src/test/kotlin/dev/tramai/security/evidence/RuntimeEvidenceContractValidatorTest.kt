@@ -168,6 +168,52 @@ class RuntimeEvidenceContractValidatorTest {
         )
     }
 
+    // ─── governed attribution composes into the family vocabulary ───────
+
+    @Test
+    fun `complete governed attribution metadata is accepted`() {
+        // Attribution is framework metadata composed cross-family rather than duplicated into each
+        // family vocabulary, so the accepted case is the discriminator proving the composition is
+        // present: an empty attribution vocabulary rejects the identity tuple as unknown keys.
+        validate(
+            approvalRecord(
+                metadata =
+                    mapOf(
+                        "identity.workloadId" to "claims",
+                        "identity.configurationId" to "claims-prod",
+                        "identity.configurationVersion" to "17",
+                        "identity.environmentId" to "production",
+                        "identity.deploymentId" to "eu-west-amsterdam-01",
+                    ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a partial governed attribution is corruption rather than legacy`() {
+        val failure =
+            assertThrows<IllegalStateException> {
+                RuntimeEvidenceContractValidator.validate(
+                    listOf(approvalRecord(metadata = mapOf("identity.workloadId" to "claims"))),
+                )
+            }
+        assertTrue(
+            failure.message.orEmpty().contains("partial governed attribution"),
+            "expected the atomicity rule to reject the partial tuple, got: ${failure.message}",
+        )
+    }
+
+    @Test
+    fun `approval metadata accepts a zero approvalVersion`() {
+        validate(approvalRecord(metadata = mapOf("approvalVersion" to "0")))
+    }
+
+    @Test
+    fun `provider route metadata accepts a zero attempt and route index`() {
+        // The first attempt of a route is 0; a strict positivity rule would reject ordinary evidence.
+        validate(providerRouteRecord(metadata = mapOf("attempt" to "0", "routeIndex" to "0")))
+    }
+
     // ─── reason codes are family-scoped ─────────────────────────────────
 
     @Test
@@ -204,6 +250,11 @@ class RuntimeEvidenceContractValidatorTest {
         metadata: Map<String, String>,
         reasonCode: String = "tool_allowed",
     ) = record("tool.permission", "policy-engine", "ALLOW", reasonCode, metadata)
+
+    private fun providerRouteRecord(
+        metadata: Map<String, String>,
+        reasonCode: String = "provider-selected",
+    ) = record("provider.route", "provider-router", "SELECTED", reasonCode, metadata)
 
     private fun record(
         eventType: String,
