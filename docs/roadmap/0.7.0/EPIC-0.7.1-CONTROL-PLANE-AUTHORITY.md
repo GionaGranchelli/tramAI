@@ -53,6 +53,7 @@ stale privileged mutation cannot silently overwrite newer authoritative state
 | 0.7.1f | Safe exposure model | Implement the explicit `WorkloadExposure` safe exposure model; protected payloads have no generic query surface |
 | 0.7.1g | Evidence/compatibility proof | Typed identity/lifecycle evidence, API/TCK impact, adversarial and mutation proof |
 | 0.7.1h | Integration/docs | Update architecture/docs/reference fixtures and prove exact-head Epic acceptance |
+| 0.7.1i | Integration closure / master promotion authority | Bind API migrations to the frozen `master → final-0.7.1` hashes, certify the release-sovereign population pin from measurement, and establish a promotion sequence that keeps analyzer/build-logic changes out of the runtime transition — without weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md)) |
 
 ## Acceptance criteria
 
