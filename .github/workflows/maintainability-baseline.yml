@@ -110,11 +110,19 @@ jobs:
   # CHANGELOG.md, so ExampleGuideReleaseAssertionTest (+3) enters release-sovereign = 174 -> 179.
   # The same measurement certifies accumulated policy-maintainability drift = 303 -> 305
   # (both reproduced with the exact filters below; 0 failures).
+  # 0.7.1g1F follow-up (split out of the ceremony PR by review, scope hygiene): the pin is corrected to
+  # a MEASURED value. Measured through this lane's own 13 filters (extracted from the matrix below, not
+  # approximated): 333 on the epic line before the ceremony suite, 364 with it (0 failures both times;
+  # 333 + 31 = 364 cross-checks the two runs). The pin had been stale at 305 for the whole epic line
+  # because this workflow only triggers for pull requests targeting master, so epic-targeted PRs never
+  # exercised it.
+  # NOTE: the other lanes' pins in this matrix were NOT re-measured and may carry the same epic-line
+  # drift. Re-derive them before this workflow next runs against master.
   # #426: sibling-catch cancellation recognition adds 8 scanner tests, and the 83-line
   # context-equivalence case is split into three single-scenario tests (1 removed, 3 added).
   # MERGED: master's 264 scanner tests + the epic's ApiStabilityPolicyTest (24) and nine other
   # lane additions = 297, measured through this lane's own 20 filters after merging master in.
-  # Counts: 8 + 71 + 75 + 25 (quality) + 179 + 305 + 297 = 960.
+  # Counts: 8 + 71 + 75 + 25 (quality) + 179 + 364 + 297 = 1019.
   build-logic-tests:
     name: build-logic (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -165,7 +173,7 @@ jobs:
               --tests 'dev.tramai.build.quality.DetektBaselineGrowthDriftTest'
               --tests 'dev.tramai.build.quality.DependencyBaselineVerifierTest'
               --tests 'dev.tramai.build.quality.DependencyEdgeNormalizerTest'
-            expected: 305
+            expected: 364
           - name: scanners-coverage
             test-filter: >-
               --tests 'dev.tramai.build.quality.KotlinCancellationCatchScannerTest'
