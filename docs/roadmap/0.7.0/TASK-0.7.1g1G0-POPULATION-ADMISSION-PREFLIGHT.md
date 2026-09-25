@@ -192,24 +192,41 @@ admitted. There is no legal subset.
 "Admit the 43" therefore has a floor of **195 admissions, not 43**, and only 43 of those carry any
 adjudication today.
 
-### 4.2 A third class the design space does not cover: changed rows (new in this slice)
+### 4.2 Changed rows: no new primitive is required (correction to an earlier draft)
 
-Two identities are present in **both** populations but with a different status/outcome:
+Two identities are present in **both** populations but with a different persisted row:
 
-| Identity | Target | Committed | Fresh |
+| Identity | Target | Committed (base) | Fresh |
 |---|---|---|---|
-| `20b3d3021a…` | `PolicyEnforcementHelper.evaluate` [NullReturnValsMutator], policy, `:tramai-engine` | `NO_COVERAGE` / NON_KILLED | **`KILLED`** |
-| `49f02d5ba7…` | `PolicyEnforcementHelper.evaluate` [VoidMethodCallMutator], policy, `:tramai-engine` | `NO_COVERAGE` / NON_KILLED | **`SURVIVED`** / NON_KILLED |
+| `20b3d3021a…` | `PolicyEnforcementHelper.evaluate` [NullReturnValsMutator], policy, `:tramai-engine` | `NO_COVERAGE` / NON_KILLED | `KILLED` / KILLED |
+| `49f02d5ba7…` | `PolicyEnforcementHelper.evaluate` [VoidMethodCallMutator], policy, `:tramai-engine` | `NO_COVERAGE` / NON_KILLED | `SURVIVED` / NON_KILLED |
 
-Both block M21's exact comparison, which fails on any status/outcome/family/module difference — not only on
-disappearances. And **no ceremony covers this case**: M21 records address *disappearances*, while the
-admission model in §6 addresses *appearances*. A changed row is neither.
+An earlier draft of this record concluded from these two rows that a third authority primitive
+("changed-row resolution") is required. **That conclusion was wrong**, and the error was one of arrow
+direction:
 
-Note the sharp edge: the first of the two is an **improvement** (a previously uncovered mutant is now killed
-by a test) and it still cannot be committed without a mechanism. Any population transition therefore needs a
-third primitive — changed-row resolution — and that requirement is not specific to the 43, the 195 or this
-Epic; it is a general gap in the model. It is also small today (2 rows), which is exactly why it would have
-been discovered late: it does not show up in set-based counts, only in row-wise comparison.
+| Comparison | Where it lives | What it checks |
+|---|---|---|
+| **fresh measurement vs candidate committed population** | `MutationPopulationEvolutionProof.exactComparison` → `rowDifferences`, called from exactly one place (`MutationRatchetVerifier.kt:739`) | per-row `status`, `outcome`, `family`, `module`; identities missing from either side; family/module topology; analyzer identity |
+| **base population vs candidate population** | shared-identity loop, `MutationRatchetVerifier.kt:288-311` | `M01` regression (`base.outcome == KILLED && candidate.outcome == NON_KILLED`) and `M14` family re-homing — **nothing else** |
+
+`rowDifferences` never runs base→candidate. Its messages talk about raw and canonical status, which is what
+made the misreading tempting, but the arrow is fresh→candidate. A legitimate transition commits the exact
+fresh row, so `fresh == candidate` holds by construction and the proof is minted.
+
+Both rows are therefore absorbed by semantics that already exist:
+
+| Transition | Rule | Verdict |
+|---|---|---|
+| base KILLED → candidate NON_KILLED | M01 | FAIL (regression) |
+| base NON_KILLED → candidate KILLED | none | PASS — monotonic improvement needs no authority |
+| base NON_KILLED raw status A → candidate NON_KILLED raw status B | none | PASS — commit the exact fresh row |
+| candidate-only NON_KILLED | M06 | FAIL unless killed or admitted |
+| base-only identity | M21 | FAIL without an evolution record |
+
+Neither row carries a classification (`config/quality/mutation-classifications.yml` has no entry for
+either), so M08/M09 cannot interact with the change. **No changed-row primitive and no third precondition:**
+the first of the two rows is an improvement the ratchet already permits for free.
 
 ## 5. Phase D — M21's trust properties, reconstructed
 
@@ -408,15 +425,22 @@ what unresolved authority work remains?*
 | Work | Count | Nature |
 |---|---|---|
 | M21 disappearance records (bound to `fromBaseSha`) | 189 | bookkeeping, no judgement beyond the reason — but the ceremony has never been used |
-| appearance admissions | 195 | unless some are killed first |
-| changed-row resolutions | 2 | **no primitive exists** (§4.2) |
-| of the 195: tool-limitation adjudication | 46 | 43 done, 3 pending |
-| of the 195: adjudication needed at all | 149 | **only if they are not killed by new tests** |
+| appearance admissions | 195 today | unless some are killed first |
+| … of the 195: clearly remediation | **109** | `NO_COVERAGE`, 0 tests run — no test reaches the mutant |
+| … of the 195: unresolved until diagnosed | **40** | `SURVIVED` with tests running — may add to remediation *or* to the admission/adjudication set |
+| … of the 195: tool-limitation candidate set | **46** | 43 adjudicated, 3 still awaiting adjudication, so 46 is a structural candidate set and **not yet** an authoritative one |
+| changed-row resolution | **0** | not required — absorbed by M01/M06/M21 (§4.2) |
 
-The last row is the whole finding: **149 of the 195 are remediation work, not authority work.** A survivor
-killed by a new test becomes `KILLED` in the next measurement and passes M07 with no admission, no
-authorization and no M06 change. Killing them is both the cheaper path and the one that raises the actual
-protection number, which is what the authority exists to measure.
+The finding, at the strength the evidence actually supports: **109 of the 195 are clearly remediation work,
+not authority work.** A survivor killed by a new test becomes `KILLED` in the next measurement and passes M07
+with no admission, no authorization and no M06 change — which is both the cheaper path and the one that raises
+the measured protection number.
+
+A further **40 require per-identity diagnosis first**, and the order matters: each is either a weak assertion
+(remediation) or an equivalent/redundant mutant (adjudication). Writing killing tests before diagnosing them
+risks spending the effort trying to kill mutants that cannot be killed, and then building authority machinery
+around the wrong residual set. Likewise, the tool-limitation set becomes authoritative at 46 only when the
+last 3 `TIMED_OUT` identities are adjudicated by the g1E standard; until then 46 is a candidate set.
 
 ## 10. Verdict
 
@@ -434,21 +458,21 @@ population authority (§3: 0/43 are base members); and does not silently admit t
 |---|---|
 | `EXACT_MEASUREMENT_MODEL_INCOMPATIBLE_WITH_PARTIAL_ADMISSION` | **TRIGGERED** — proven in §4 |
 | `POPULATION_ADMISSION_REQUIRES_FULL_M06_COHORT_RESOLUTION` | **TRIGGERED** — the floor is 195 admissions, not 43 (§4.1) |
-| `EXACT_ROW_POPULATION_ADMISSION_FEASIBLE` | **CONDITIONALLY TRIGGERED** — a safe model exists (§6, §7); it is not a 43-row increment, and it has three preconditions below |
+| `EXACT_ROW_POPULATION_ADMISSION_FEASIBLE` | **CONDITIONALLY TRIGGERED** — a safe model exists (§6, §7); it is not a 43-row increment, and it has two preconditions below |
 | `CURRENT_POPULATION_CHANGED — REPARTITION_REQUIRED` | **NOT triggered** — three measurements, two heads, zero differences; counts equal g1B; the 43 are 43/43 identical (§2.5) |
 | `NO_SAFE_APPEARING_IDENTITY_CEREMONY_FOUND` | **NOT triggered** — a safe model exists; the guarantee that keeps it safe is Phase F's discriminator 8 (authorized X + unauthorized Y still FAILS for Y) |
 
-### The three preconditions on the feasible model
+### The two preconditions on the feasible model
 
 1. **M06's rejection path must become authorization-aware.** This is a change to M06 — not a weakening if the
    four guarantees hold (authorization read from the **base** SHA, exact row bound, single-use, and every
    unauthorized `NON_KILLED` still failing), but it is new authority and it is **the user's decision**. This
    preflight does not make it.
-2. **A changed-row primitive must be designed** (§4.2). Without it, no transition can be minted even if every
-   appearance and disappearance is resolved, because M21's exact comparison also rejects changed rows — and 2
-   exist today, one of them an improvement.
-3. **The transition remains all-or-nothing.** Staging is possible only in the sense of *authorize first, consume
+2. **The transition remains all-or-nothing.** Staging is possible only in the sense of *authorize first, consume
    later*; a single consuming transition still carries the complete measurement.
+
+No changed-row primitive is needed: §4.2 shows the two changed rows are already covered by M01's one-way
+regression rule and by committing the exact fresh row.
 
 ### Answer to the bounded question
 
@@ -463,8 +487,9 @@ measurement happens to report as surviving.
 **What exact transition would move the 43 into the committed population:** a `RECORDED_EVOLUTION` transition
 that (a) commits the exact fresh measurement, (b) carries an M21 record for each of the 189 disappeared
 identities, (c) carries a base-minted exact-row authorization for each admitted appearing `NON_KILLED`
-identity — 195 of them unless some are killed first — (d) resolves the 2 changed rows, and (e) mints the
-proof by matching the verifier's own fresh measurement. The 43 ride along; they are not separable.
+identity — 195 of them unless some are killed first — and (d) mints the proof by matching the verifier's own
+fresh measurement. The 43 ride along; they are not separable. Changed rows need no step: they are resolved by
+(a) alone (§4.2).
 
 ### Recommendation — the next slice (not implemented here)
 
@@ -472,21 +497,24 @@ proof by matching the verifier's own fresh measurement. The 43 ride along; they 
 the unkillable; the bulk of the wall is a test-coverage problem, and 93 of those 109 rows sit in three
 approval classes in one module.
 
-1. **g1G1a — kill the killable (primary, `runtime-behaviour` class).** Write tests that reach the 109
-   `NO_COVERAGE` identities, starting with the 93 in `ApprovalResumeCoordinator`,
-   `DefaultApprovalGateway` and `ApprovalSuspensionCoordinator`, then strengthen assertions for the
-   `SURVIVED` tranche. Every identity killed this way passes M07 permanently with **no** authority change and
-   raises the measured protection number. Expected residual after the first tranche: roughly the 46
-   `TIMED_OUT` plus whatever `SURVIVED` rows prove to be equivalent mutants.
-2. **g1G1b — finish the tool-limitation adjudication (evidence-only).** Apply the g1E standard to the 3
-   remaining `ApprovalResumeCoordinator.executeClaimedResume` `TIMED_OUT` identities so the unkillable set is
-   closed at 46, not 43.
-3. **g1G2 — design the two missing primitives (design-only, no implementation):** the appearance-admission
-   ceremony (§6 payload, §7 discriminators as its test specification) *and* the changed-row primitive
-   (§4.2), together, because a transition needs both. The M06 authorization branch must be presented as an
-   explicit authority decision, with its negative discriminator as the acceptance test.
-4. **Then, and only then, the population transition PR** — M21 records + admissions + changed rows in one
-   exact-measurement transition, with its failure set already minimized by step 1.
+1. **g1G1a — remediate the clear coverage gaps (primary, `runtime-behaviour` class).** Tests that reach the 109
+   `NO_COVERAGE` identities, starting with the 93 in `ApprovalResumeCoordinator`, `DefaultApprovalGateway` and
+   `ApprovalSuspensionCoordinator`. Every identity killed this way passes M07 permanently with **no** authority
+   change and raises the measured protection number.
+2. **g1G1b — diagnose the 40 `SURVIVED` rows individually, before writing anything.** Diagnosis first: each is
+   either a weak assertion (remediation) or an equivalent/redundant mutant (adjudication). Killing tests written
+   before the diagnosis may chase mutants that cannot be killed, and then build authority around the wrong
+   residual.
+3. **g1G1c — finish the tool-limitation adjudication (evidence-only).** Apply the g1E standard to the 3
+   remaining `ApprovalResumeCoordinator.executeClaimedResume` `TIMED_OUT` identities; only then is the
+   tool-limitation set authoritative at 46 rather than a structural candidate set.
+4. **g1G2 — design only the appearing-NON_KILLED admission ceremony (design-only, no implementation).** §6
+   payload, §7 discriminators as its test specification. The M06 authorization branch is presented as an
+   explicit authority decision, with its negative discriminator (authorized X + unauthorized Y still FAILS for
+   Y) as the acceptance test. No changed-row primitive: §4.2.
+5. **Then, and only then, the population transition PR** — commit the exact fresh population, M21 records for
+   the then-current disappeared identities, consume base-preauthorized admissions for the then-current
+   candidate-only NON_KILLED identities, with the failure set already minimized by steps 1-3.
 
 Sequencing note that is not optional: the **publish gate** (`verify060MaintainabilityRelease` via
 `publish.yml:173`) is blocked while the committed population is stale. This work is on the critical path of
@@ -512,6 +540,31 @@ resting place — it is a deadline.
 Reproducibility scripts live in `/tmp` and are **not committed**: `tramai-071g1g0-analyze.py`,
 `tramai-071g1g0-partition.py`, `tramai-071g1g0-integrity.py`, `tramai-071g1g0-changed2.py`.
 
+### 11.1 The CI failure on this PR — attribution (unrelated; not fixed here)
+
+CI on this PR failed in `:tramai-orchestration:test`:
+`WorkerShutdownCoordinatorTest > shutdown drains a running execution to completion before finishing()` at
+`WorkerShutdownCoordinatorTest.kt:213` (1152 tests, 1 failed, 3 skipped). It is **not** attributable to this
+change, and that is provable rather than asserted:
+
+| Evidence | Value |
+|---|---|
+| `WorkerShutdownCoordinatorTest.kt` blob at the Epic base `06936629…` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| … at this PR's head `642cd07a…` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| … at `origin/master` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| this PR's diff | one documentation file |
+
+The assertion is a real race, not an unexplained flake: `shutdown()` calls `observability.onShutdownStarted(...)`
+(`WorkerShutdownCoordinator.kt:117`) **before** `pollJob?.cancelAndJoin()` (118) and
+`executionSupervisor.activeExecutionsSnapshot()` (119). The test releases its gate as soon as it observes
+`shutdownStarted` (`WorkerShutdownCoordinatorTest.kt:204-206`), so a valid interleaving exists in which the
+execution completes and deregisters before the snapshot is taken — after which the drain legitimately reports
+`drainProgress(0,0)`, while the assertion demands the subsequence `drainProgress(1,0)`. `shutdownStarted`
+cannot prove the coordinator captured the execution; only a synchronization point *after* the snapshot can.
+
+**Deliberately not fixed here**: this record is evidence-only, and the test fix belongs in its own slice.
+The failed CI job was re-run at the same head SHA, not papered over with an empty commit.
+
 ## 12. Non-claims
 
 - No authority file was modified: no population, classification, enrollment or evolution record changed.
@@ -528,8 +581,15 @@ Reproducibility scripts live in `/tmp` and are **not committed**: `tramai-071g1g
 - The Phase H partition is **structural**: raw status, mutator type, `numberOfTestsRun` from the raw PIT XML,
   and class concentration. It does not claim per-identity semantic verdicts, and it does not claim the 40
   `SURVIVED` rows are equivalent mutants or that the 46 `TIMED_OUT` rows are permanently unkillable.
-- The changed-row finding (§4.2) is **new in this slice**. It is not a correction to g1B: the earlier counts
-  are set-based, and a row present in both populations with a changed value appears in neither set.
+- **§4.2 corrects an earlier draft of this same record.** The first revision claimed a changed-row authority
+  primitive was required; that came from reading `rowDifferences` (fresh→candidate) as a base→candidate
+  comparison. The correction is recorded rather than quietly deleted, and the wrong version was the one first
+  published in this PR.
+- The **CI failure on this PR is not attributable to this change** (blob identical at the Epic base, this head
+  and `origin/master`; diff is one documentation file) and was **not** fixed here. §11.1 records the diagnosis
+  for a separate slice.
+- "109 clearly remediation" means no test currently reaches those mutation points. It is not proof that a test
+  can kill each one — that is what writing them establishes.
 - Nothing was implemented: no test was written, no survivor was killed, no build logic changed, no
   authorization or record written. Every forward-looking item in §10 is a proposal, including the M06 change,
   which is explicitly left as the user's decision.
