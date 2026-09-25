@@ -23,6 +23,13 @@ data class MutationRatchetAuthority(
     val population: MutationPopulationBaseline,
     val classifications: MutationClassifications,
     val targetFamilies: Map<String, TestQualityConfiguration.MutationTargetFamily>,
+    /**
+     * Base-side preauthorizations for future classification enrollment
+     * (0.7.1g1F). Defaults to [MutationClassificationEnrollments.NONE], which is
+     * the most restrictive state: no authorization exists, so every
+     * candidate-side classification addition still fails M08/M09.
+     */
+    val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
 )
 
 /**
@@ -34,6 +41,12 @@ data class MutationRatchetCandidate(
     val population: MutationPopulationBaseline,
     val classifications: MutationClassifications,
     val targetFamilies: Map<String, TestQualityConfiguration.MutationTargetFamily>,
+    /**
+     * Enrollments proposed by this transition. They may be *validated* here but
+     * they can never authorize a classification in the same transition: only
+     * [MutationRatchetAuthority.enrollments] is consulted for authorization.
+     */
+    val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
 )
 
 object MutationRatchetAuthorityLoader {
@@ -106,11 +119,24 @@ object MutationRatchetAuthorityLoader {
             val population = readPopulation(baselineFile, baseSha)
             val classifications = MutationClassificationLoader.load(tempDir)
             val configuration = TestQualityConfiguration.load(tempDir)
+            // Enrollment authorizations are OPTIONAL authority: a base that
+            // predates the ledger simply has none, which is the most
+            // restrictive state (no candidate-side classification can be
+            // authorized). A present file is validated by the same loader as
+            // any other authority, so a malformed ledger fails hard.
+            val enrollmentFile = File(qualityDir, "mutation-classification-enrollments.yml")
+            val enrollmentAtBase =
+                runGit(rootDir, listOf("show", "$baseSha:${MutationClassificationEnrollmentLoader.FILE_NAME}"))
+            if (enrollmentAtBase.exitCode == 0) {
+                enrollmentFile.writeText(enrollmentAtBase.output, Charsets.UTF_8)
+            }
+            val enrollments = MutationClassificationEnrollmentLoader.load(tempDir)
             return MutationRatchetAuthority(
                 baseSha = baseSha,
                 population = population,
                 classifications = classifications,
                 targetFamilies = configuration.mutation.targetFamilies,
+                enrollments = enrollments,
             )
         } finally {
             tempDir.deleteRecursively()

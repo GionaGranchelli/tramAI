@@ -180,6 +180,18 @@ enum class DiagnosticCode {
 
     // M20 malformed / missing / self-inconsistent authority or candidate.
     MUTATION_RATCHET_AUTHORITY_INVALID,
+
+    // M23 a transition authorizes an enrollment AND consumes it itself.
+    MUTATION_RATCHET_ENROLLMENT_UNAUTHORIZED,
+
+    // M24 enrolled classification does not match its base authorization payload.
+    MUTATION_RATCHET_ENROLLMENT_MISMATCH,
+
+    // M25 enrollment authorization is malformed or targets an invalid identity.
+    MUTATION_RATCHET_ENROLLMENT_INVALID,
+
+    // M27 authorization removed without enrollment, or retained after enrollment.
+    MUTATION_RATCHET_ENROLLMENT_ORPHANED,
 }
 
 /**
