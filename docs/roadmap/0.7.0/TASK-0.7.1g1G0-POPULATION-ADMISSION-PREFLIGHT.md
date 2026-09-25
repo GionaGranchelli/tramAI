@@ -550,9 +550,14 @@ change, and that is provable rather than asserted:
 | Evidence | Value |
 |---|---|
 | `WorkerShutdownCoordinatorTest.kt` blob at the Epic base `06936629…` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
-| … at this PR's head `642cd07a…` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
-| … at `origin/master` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
-| this PR's diff | one documentation file |
+| … at the **failing CI head** `642cd07a…` (first revision of this PR) | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| … at the **corrected head** `1bbfa088…` (second revision, the review correction) | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| … at `origin/master` and at `origin/epic/0.7.1-control-plane-authority` | `36640558ac4f8482c44007ec8ad775f4d2ea0f61` |
+| this PR's diff vs the Epic base, across both revisions | one documentation file (597 insertions) |
+
+The failing head and the corrected head are different commits, and the blob is identical at both — as it is at
+the base and at both branches. The merge head is deliberately not named here: it is whatever head carries this
+text, and naming it would go stale on the next commit.
 
 The assertion is a real race, not an unexplained flake: `shutdown()` calls `observability.onShutdownStarted(...)`
 (`WorkerShutdownCoordinator.kt:117`) **before** `pollJob?.cancelAndJoin()` (118) and
@@ -563,7 +568,10 @@ execution completes and deregisters before the snapshot is taken — after which
 cannot prove the coordinator captured the execution; only a synchronization point *after* the snapshot can.
 
 **Deliberately not fixed here**: this record is evidence-only, and the test fix belongs in its own slice.
-The failed CI job was re-run at the same head SHA, not papered over with an empty commit.
+
+The failed job was re-run **at its original failing head `642cd07a`**; that rerun is not a gate for any other
+head. Only exact-head CI for the head that actually carries this change is authoritative for merge, and a later
+commit to this branch invalidates a green rather than inheriting it.
 
 ## 12. Non-claims
 
