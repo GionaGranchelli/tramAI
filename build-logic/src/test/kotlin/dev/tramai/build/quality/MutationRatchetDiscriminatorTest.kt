@@ -328,15 +328,6 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
         passes(verify(basePopulation = base, candidatePopulation = candidate))
     }
 
-    private fun evolutionRecord(marker: String) =
-        MutationEvolutionRecord(
-            id = identityOf(marker, policyFamily, ":engine"),
-            fromBaseSha = BASE_SHA,
-            reason = "source mutation removed",
-            issue = "ISSUE-1",
-            targetPhase = "0.7.1",
-        )
-
     // ── M12 / M13: structural integrity, fail closed ──
 
     @Test

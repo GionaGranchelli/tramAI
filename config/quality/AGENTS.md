@@ -12,6 +12,7 @@ This directory contains TramAI's quality baseline and configuration files.
 | `module-boundaries.yml` | Allowed dependency directions between modules. |
 | `test-quality.yml` | Coverage, mutation, and performance targets for critical modules. |
 | `mutation-classifications.yml` | Pitest mutation family classification overrides. |
+| `mutation-population-admissions.yml` | Base-side preauthorizations for admitting *appearing* candidate-only NON_KILLED identities (M30-M39). Empty by default: fail-closed, and every appearing survivor still fails M06. See `TASK-0.7.1g1G3` and `TASK-0.7.1g1G0` §6. |
 | `runtime-protocol-catalog.json` | Registered runtime protocol identifiers (auto-generated). |
 
 ## Rules

@@ -185,6 +185,105 @@ abstract class MutationRatchetTestSupport {
     protected fun failures(diagnostics: List<VerificationDiagnostic>): List<VerificationDiagnostic> =
         diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
 
+    /**
+     * The canonical projection digest the verifier itself computes for a population (the M21
+     * exact-comparison proof). Tests must never invent a digest: the admission ceremony compares
+     * against this value, so using it is what proves the trust direction.
+     */
+    protected fun digestOf(population: MutationPopulationBaseline): String =
+        MutationPopulationEvolutionProof.exactComparison(population, population).proof!!.projectionHash
+
+    /** The verifier's own trusted measurement evidence for a population (the M21 exact comparison). */
+    protected fun evidence(population: MutationPopulationBaseline): MutationEvolutionEvidence =
+        evidence(population, MutationEvolutionRecords("1", emptyList()))
+
+    protected fun evidence(
+        population: MutationPopulationBaseline,
+        records: MutationEvolutionRecords,
+    ): MutationEvolutionEvidence =
+        MutationEvolutionEvidence(
+            records,
+            MutationPopulationEvolutionProof.exactComparison(population, population).proof,
+        )
+
+    /**
+     * A population admission for [marker]'s canonical identity. The row fields use the same identity
+     * arithmetic as [population], so an authorization and the row it admits cannot silently disagree;
+     * tests vary one bound field at a time with `copy(...)`.
+     */
+    protected fun admission(
+        marker: String,
+        populationDigest: String,
+        fromBaseSha: String = BASE_SHA,
+        status: String = "SURVIVED",
+        analyzer: MutationAnalyzerSemantics = semantics,
+    ): MutationPopulationAdmission =
+        MutationPopulationAdmission(
+            identity = identityOf(marker, policyFamily, ":engine"),
+            status = status,
+            outcome = "NON_KILLED",
+            family = policyFamily,
+            module = ":engine",
+            analyzer = analyzer,
+            fromBaseSha = fromBaseSha,
+            populationDigest = populationDigest,
+            reason = "adjudicated: admitted as part of this measured population transition",
+            authorizedBy = "fixture",
+            authorizedAt = "1970-01-01T00:00:00Z",
+        )
+
+    protected fun admissions(vararg records: MutationPopulationAdmission): MutationPopulationAdmissions =
+        MutationPopulationAdmissions(schemaVersion = "1", admissions = records.toList())
+
+    /**
+     * Verify a population-admission transition. [freshPopulation] is the population whose canonical
+     * projection the verifier trusts as its own fresh measurement - by default the candidate, which
+     * is what a legal P2 commits. `null` means no trusted measurement proof exists, and admission
+     * must then fail closed.
+     */
+    protected fun verifyAdmission(
+        basePopulation: MutationPopulationBaseline,
+        candidatePopulation: MutationPopulationBaseline,
+        baseAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+        candidateAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+        evidence: MutationEvolutionEvidence = evidence(candidatePopulation),
+    ): List<VerificationDiagnostic> =
+        MutationRatchetVerifier().verify(
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                classifications(),
+                baseFamilies,
+                MutationClassificationEnrollments.NONE,
+                baseAdmissions,
+            ),
+            MutationRatchetCandidate(
+                candidatePopulation,
+                classifications(),
+                baseFamilies,
+                MutationClassificationEnrollments.NONE,
+                candidateAdmissions,
+            ),
+            MutationPopulationAggregator.canonicalSemantics(),
+            // A transition carrying a trusted measurement proof is an evolution transition; without
+            // one it may not change the population at all (M21 FORBID), and admission fails closed.
+            if (evidence.proof == null) {
+                MutationPopulationEvolution.FORBID
+            } else {
+                MutationPopulationEvolution.RECORDED_EVOLUTION
+            },
+            evidence,
+        )
+
+    protected fun evolutionRecord(marker: String): MutationEvolutionRecord =
+        MutationEvolutionRecord(
+            id = identityOf(marker, policyFamily, ":engine"),
+            fromBaseSha = BASE_SHA,
+            reason = "source mutation removed",
+            issue = "ISSUE-1",
+            targetPhase = "0.7.1",
+        )
+
     protected fun hasCode(
         diagnostics: List<VerificationDiagnostic>,
         code: DiagnosticCode,

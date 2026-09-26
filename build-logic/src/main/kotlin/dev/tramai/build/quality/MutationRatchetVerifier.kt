@@ -89,6 +89,7 @@ class MutationRatchetVerifier {
         diagnostics += validateClassificationList("base authority", base.classifications)
         diagnostics += validateClassificationList("candidate", candidate.classifications)
         diagnostics += baseClassificationIntegrity(base)
+        val freshProjectionHash = evolutionEvidence.proof?.projectionHash
         diagnostics +=
             outcomeRatchet(
                 base.population,
@@ -98,10 +99,14 @@ class MutationRatchetVerifier {
                     evolutionEvidence,
                     base.baseSha,
                     AUTHORITY_EXCLUDED_IDENTITIES,
+                    base.admissions,
+                    candidate.admissions,
+                    freshProjectionHash,
                 ),
             )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
+        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, freshProjectionHash)
         diagnostics +=
             familyAndTargetChecks(
                 base.population,
@@ -309,21 +314,14 @@ class MutationRatchetVerifier {
                     )
             }
         }
-        for (id in candidateIds - baseIds) {
-            val candidate = candidateById.getValue(id)
-            if (candidate.outcome == NON_KILLED) {
-                diagnostics +=
-                    VerificationDiagnostic.failure(
-                        DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
-                        "M06: ${describe(candidate)} (${short(id)}) is a NEW NON_KILLED identity absent from the " +
-                            "base authority. New mutants must be killed; a PR cannot certify its own survivors.",
-                        findingId = id,
-                        modulePath = candidate.module,
-                    )
-            }
-            // M07: new KILLED identities pass — improved protection is the ratchet's goal.
-            // (Only self-consistent kills pass: rowSelfChecks already rejected forged ones.)
-        }
+        diagnostics +=
+            appearingIdentityChecks(
+                newIds = candidateIds - baseIds,
+                candidatePopulation = candidatePopulation,
+                baseAdmissions = evolution.baseAdmissions.byIdentity(),
+                candidateAdmissions = evolution.candidateAdmissions.byIdentity(),
+                freshProjectionHash = evolution.freshProjectionHash,
+            )
 
         // M21: a base identity that simply stopped being measured. Absence is not evidence of
         // improvement — a narrowed target, a module that stopped reporting, a truncated report or an
@@ -335,6 +333,63 @@ class MutationRatchetVerifier {
                 candidatePopulation,
                 evolution,
             )
+        return diagnostics
+    }
+
+    /**
+     * M30-M34: an appearing survivor is admitted only by an exact BASE-SIDE authorization matching
+     * its exact row, the analyzer semantics AND the canonical fresh-population digest. The judgment
+     * is shared with the admission ceremony ([MutationPopulationAdmissionCeremony.appearanceVerdict]),
+     * so an authorized identity is never both admitted and reported as a failure.
+     *
+     * Unauthorized appearances still fail M06, unchanged - that is what keeps this from becoming a
+     * general bypass: authorized X plus unauthorized Y still fails for Y. New KILLED identities pass
+     * through M07, as before.
+     */
+    private fun appearingIdentityChecks(
+        newIds: Set<String>,
+        candidatePopulation: MutationPopulationBaseline,
+        baseAdmissions: Map<String, MutationPopulationAdmission>,
+        candidateAdmissions: Map<String, MutationPopulationAdmission>,
+        freshProjectionHash: String?,
+    ): List<VerificationDiagnostic> {
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val candidateById = candidatePopulation.mutants.associateBy { it.identity }
+        for (id in newIds) {
+            val candidate = candidateById.getValue(id)
+            if (candidate.outcome != NON_KILLED) {
+                continue
+            }
+            diagnostics +=
+                when (
+                    val verdict =
+                        MutationPopulationAdmissionCeremony.appearanceVerdict(
+                            baseAdmission = baseAdmissions[id],
+                            candidateAdmission = candidateAdmissions[id],
+                            mutant = candidate,
+                            candidateAnalyzer = candidatePopulation.analyzer,
+                            freshProjectionHash = freshProjectionHash,
+                        )
+                ) {
+                    is MutationPopulationAdmissionCeremony.AdmissionVerdict.Authorized -> {
+                        VerificationDiagnostic.accepted(
+                            DiagnosticCode.MUTATION_RATCHET_ADMISSION_ACCEPTED,
+                            "M30: ${describe(candidate)} (${short(id)}) is admitted by an exact base-side " +
+                                "population authorization: the persisted row, the analyzer semantics and " +
+                                "the canonical fresh-population digest all match.",
+                        )
+                    }
+
+                    is MutationPopulationAdmissionCeremony.AdmissionVerdict.Rejected -> {
+                        VerificationDiagnostic.failure(
+                            verdict.code,
+                            verdict.message,
+                            findingId = id,
+                            modulePath = candidate.module,
+                        )
+                    }
+                }
+        }
         return diagnostics
     }
 
@@ -715,6 +770,16 @@ private data class MutationEvolutionContext(
     val evidence: MutationEvolutionEvidence,
     val baseSha: String,
     val excludedIdentities: Set<String>,
+    /** Base-side population admissions (M30-M39): the ONLY authority an appearing identity can use. */
+    val baseAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    /** Admissions this transition proposes: validated, but never authority for its own admission. */
+    val candidateAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    /**
+     * Projection hash of the canonical fresh measurement ([MutationEvolutionEvidence.proof]) - the
+     * digest a population authorization must match to be consumable. Null means no trusted
+     * measurement proof exists, and admission then fails closed.
+     */
+    val freshProjectionHash: String? = null,
 )
 
 // No population hash is stored in mutation-evolution.yml: exact measurement

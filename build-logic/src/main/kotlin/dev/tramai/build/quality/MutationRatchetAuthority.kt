@@ -30,6 +30,12 @@ data class MutationRatchetAuthority(
      * candidate-side classification addition still fails M08/M09.
      */
     val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
+    /**
+     * Base-side preauthorizations for admitting *appearing* candidate-only NON_KILLED identities
+     * (0.7.1g1G3, M30-M39). Defaults to [MutationPopulationAdmissions.NONE], the most restrictive
+     * state: no authorization exists, so every appearing survivor still fails M06.
+     */
+    val admissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
 )
 
 /**
@@ -47,6 +53,13 @@ data class MutationRatchetCandidate(
      * [MutationRatchetAuthority.enrollments] is consulted for authorization.
      */
     val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
+    /**
+     * Population admissions proposed by this transition. They may be *validated* here (M35 binds a
+     * new authorization to the base it is proposed against), but they can never authorize an
+     * admission in the same transition: only [MutationRatchetAuthority.admissions] is consulted,
+     * so a candidate that both authorizes and admits fails M31.
+     */
+    val admissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
 )
 
 object MutationRatchetAuthorityLoader {
@@ -131,12 +144,25 @@ object MutationRatchetAuthorityLoader {
                 enrollmentFile.writeText(enrollmentAtBase.output, Charsets.UTF_8)
             }
             val enrollments = MutationClassificationEnrollmentLoader.load(tempDir)
+            // Population admissions (M30-M39) are OPTIONAL authority too, loaded the same way: a
+            // base that predates the ledger simply has none, which is the most restrictive state -
+            // no appearing survivor can be admitted, so M06 still rejects every one of them. A
+            // present ledger is validated by its own loader, so a malformed one fails hard instead
+            // of degrading into "no authorizations".
+            val admissionsFile = File(qualityDir, "mutation-population-admissions.yml")
+            val admissionsAtBase =
+                runGit(rootDir, listOf("show", "$baseSha:${MutationPopulationAdmissionLoader.FILE_NAME}"))
+            if (admissionsAtBase.exitCode == 0) {
+                admissionsFile.writeText(admissionsAtBase.output, Charsets.UTF_8)
+            }
+            val admissions = MutationPopulationAdmissionLoader.load(tempDir)
             return MutationRatchetAuthority(
                 baseSha = baseSha,
                 population = population,
                 classifications = classifications,
                 targetFamilies = configuration.mutation.targetFamilies,
                 enrollments = enrollments,
+                admissions = admissions,
             )
         } finally {
             tempDir.deleteRecursively()
