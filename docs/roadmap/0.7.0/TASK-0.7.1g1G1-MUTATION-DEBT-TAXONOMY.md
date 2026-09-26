@@ -67,11 +67,33 @@ Membership is established by the mutated instruction, never by the row's descrip
 
 The 46 `TIMED_OUT` rows are **measurement-capability limited, not a settled semantic category**. They are `NegateConditionals` mutants with `numberOfTestsRun = 0` (42 attributed to the coroutine sentinel comparison, 4 to synthetic `invokeSuspend` continuations). What is known: no test in the unit completed before the minion was killed, and the tranche has **0 KILLED** siblings at the same site class — i.e. no positive control exists for the bounded-test hypothesis, which is why g1E recorded `CONTROL_MECHANISM_NOT_TRANSFERABLE`.
 
-What is **not** known: whether a different execution capability (a genuinely suspending harness, a different scheduler, a bounded covering test that converts a hang into a failure, or a future PIT/selection capability) would make them diagnosable. Measured harness cost, kept for that evaluation: the scoped two-family probe executed **675 tests, 9.12 per mutation**, so per-mutant execution amplification is a live hypothesis for this tranche alongside mutant semantics and test-harness budget. Therefore:
+A genuinely suspending harness and a bounded covering test that converts a hang into a failure were the first two hypotheses, and they have now been **tested once, negative** (§4.1). Still untested: a different scheduler, and a future PIT mutation-selection or timeout policy. Measured harness cost, kept for that evaluation: the scoped two-family probe executed **675 tests, 9.12 per mutation**, so per-mutant execution amplification remains a live hypothesis for this tranche alongside mutant semantics and test-harness budget. Therefore:
 
 > These 46 are **undetermined**. They are not "non-actionable mutants" and must not be reclassified as glue or equivalent by inference from their neighbour rows.
 
-Nothing in this record changes their count, and no remediation is planned for them in g1G1.
+Nothing in this record changes their count, and no remediation is planned for them in g1G1. Their status is now undetermined **by attempt as well as by assumption**: one representative was pushed with every capability the first two hypotheses named, and it did not move.
+
+### 4.1 Measured attempt on one representative — capability negative
+
+**Subject** — the identity `4245a1aa59c91bc5…`: `DefaultApprovalGateway.kt:105`, block 35, index 243, `NegateConditionalsMutator` (`negated conditional`), on the `approvalStore.get(...)` call inside `requestApproval` (`requestApproval-Atj0Sqo`). Chosen by census rather than by guess: the 46 rows live in exactly three classes, and `DefaultApprovalGateway.requestApproval` holds six of them with the cheapest harness, its first store call being an injected `ApprovalStore` method — so the suspension is genuinely injectable.
+
+**Procedure** (throwaway worktree at the Epic head; no production, PIT-policy, classification, baseline or authority change):
+
+- a delegating store (`ApprovalStore by delegate`) overrides only `get`, incrementing a counter and genuinely suspending via `delay(1)` before delegating;
+- one test drives the public entry point across that suspension and asserts the counter reached 1, so the suspending body provably ran and the state-machine resume path behind line 105 is exercised rather than short-circuited;
+- the call is wrapped in `withTimeout(2_000)` inside `runBlocking` — below PIT's 4s `timeoutConst` — so a mishandled resume should surface as a deterministic test failure rather than a harness timeout;
+- scoped diagnostic campaign over that class only: 79 mutants, 4m11s, provenance confirmed by a name-only diff against the PR head.
+
+**Result**
+
+- positive control passes: the unmutated implementation completes normally (13 tests, 0 failures, the new test green in 18 ms, returning `ApprovalRequestResult.Suspended`);
+- the target identity **`TIMED_OUT` → `TIMED_OUT`**, with PIT recording `status="TIMED_OUT"`, `numberOfTestsRun="0"` and an empty `killingTest`;
+- the class's `TIMED_OUT` census is unchanged (13 → 13); **0** `KILLED → non-KILLED` regressions; identity sets identical (79/79 shared, 0 new);
+- incidental movement only: two rows on the method's declaration line (73) moved `NO_COVERAGE → KILLED` (`NullReturnVals`) and `NO_COVERAGE → SURVIVED` (`VoidMethodCall`) — driving the entry point adds coverage there. Movement on the 124 glue rows is interesting evidence but was never this experiment's success criterion.
+
+**Interpretation** — a test-level suspension harness does not overcome PIT's behaviour for this sentinel class. The operative fact is `numberOfTestsRun = 0`: under the mutant no test completes, so the mutation is recorded `TIMED_OUT` and never credited as killed, even when the suspending path is proven reachable and the calling test is locally bounded.
+
+**Scope limit, stated explicitly** — this is one representative in one class, not all 46. It converts the first two hypotheses from *untested* to *tested once, negative*; it does not license reclassifying the remaining rows, and it does not touch the still-untested hypotheses (a different scheduler, a future PIT selection/timeout policy), which stay open.
 
 ## 5. Weak-assertion debt — 10 identities, and where they went
 
