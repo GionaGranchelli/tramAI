@@ -798,14 +798,17 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // (test-quality.yml) vs the PR base / master authority. Deliberately
         // runs NO PITest campaign: it compares exact identities and canonical
         // KILLED|NON_KILLED outcomes in memory, so it joins verifyPr without
-        // adding a measurement run. Accepts -PtramaiMutationBaseSha for PR
-        // base SHA comparison (mirrors cancellation safety and coverage).
+        // adding a measurement run. Recorded evolution performs a fresh exact
+        // measurement before it can authorize any removal. Accepts
+        // -PtramaiMutationBaseSha for PR base SHA comparison (mirrors cancellation safety and coverage).
         project.tasks.register("verifyMutationRatchet") {
             group = "maintainability"
             description =
-                "Base-authoritative mutation ratchet: judges candidate mutation population, classifications, " +
+                "Base-authoritative mutation ratchet: judges candidate population and classifications, " +
                 "and target configuration against the PR base / master authority. Accepts " +
-                "-PtramaiMutationBaseSha for PR base SHA comparison. Runs no PITest campaign."
+                "-PtramaiMutationBaseSha for PR base SHA comparison and -P${MutationPopulationEvolution.PROPERTY} " +
+                "for population evolution authority. Runs no PITest campaign in the default FORBID " +
+                "mode; recorded evolution runs a fresh canonical campaign first."
             doLast {
                 val baseSha =
                     MutationRatchetAuthorityLoader.resolveBaseSha(
@@ -828,19 +831,50 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read candidate mutation population: ${e.message}", e)
                     }
                 val candidateClassifications = MutationClassificationLoader.load(project.rootDir)
+                // The property is invocation authority; YAML records are the per-identity audit trail.
+                val evolution =
+                    MutationPopulationEvolution.fromProperty(
+                        project.findProperty(MutationPopulationEvolution.PROPERTY)?.toString(),
+                    )
+                val evolutionRecords = MutationEvolutionLoader.load(project.rootDir)
+                val exactMeasurement =
+                    if (evolution == MutationPopulationEvolution.RECORDED_EVOLUTION) {
+                        val fresh =
+                            runMutationMeasurement(
+                                MutationMeasurementRequest(
+                                    project,
+                                    generator,
+                                    testQualityConfiguration,
+                                    reportDir,
+                                    measurementName = "mutation-evolution",
+                                    persistCommittedBaseline = false,
+                                ),
+                            )
+                        MutationPopulationEvolutionProof.exactComparison(fresh, candidatePopulation)
+                    } else {
+                        MutationPopulationExactComparison(null, emptyList())
+                    }
                 val candidate =
                     MutationRatchetCandidate(
                         population = candidatePopulation,
                         classifications = candidateClassifications,
                         targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                        enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(
                         authority,
                         candidate,
                         executable = MutationPopulationAggregator.canonicalSemantics(),
+                        evolution = evolution,
+                        evolutionEvidence =
+                            MutationEvolutionEvidence(evolutionRecords, exactMeasurement.proof),
                     )
-                verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Mutation ratchet (base $baseSha)",
+                    exactMeasurement.diagnostics + diagnostics,
+                )
             }
         }
 
@@ -872,6 +906,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read release mutation authority: ${e.message}", e)
                     }
                 val classifications = MutationClassificationLoader.load(project.rootDir)
+                // The release check compares a fresh measurement against the committed authority in the
+                // same tree, so the enrollment ledger is identical on both sides: an enrollment can never
+                // authorize a classification in the transition that introduces it (M23 still applies).
+                val enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir)
                 verifyTestQualityDiagnostics(
                     project,
                     "Release mutation",
@@ -882,12 +920,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 population = committed,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
                             ),
                         candidate =
                             MutationRatchetCandidate(
                                 population = current,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
                             ),
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                     ),

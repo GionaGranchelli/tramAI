@@ -1,34 +1,41 @@
-package dev.tramai.engine.invocation
+@file:OptIn(ExperimentalTramaiInternalApi::class)
 
-import dev.tramai.core.approval.ApprovalGateCoordinator
-import dev.tramai.core.approval.Sha256Digest
-import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+package dev.tramai.engine.invocation
 import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.IdempotencyKeyUtil
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ToolInvalidInputException
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.ToolCall
-import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolResult
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.provider.ResolvedProviderRoute
-import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContentLocation
+import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.PolicyContextBuilder
 import dev.tramai.engine.PolicyEnforcementHelper
+import dev.tramai.engine.ProviderCircuitBreaker
+import dev.tramai.engine.ProviderRetryDelayPolicy
 import dev.tramai.engine.ReturnKind
+import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.WorkflowDigestHelper
 import dev.tramai.engine.approval.ApprovalSuspensionCoordinator
 import dev.tramai.engine.approval.ClaimedResumeExecutionRequest
@@ -41,7 +48,6 @@ import dev.tramai.engine.components.ApprovalCapability
 import dev.tramai.engine.components.EngineComponents
 import dev.tramai.engine.memory.ConversationMemoryCoordinator
 import dev.tramai.engine.memory.PersistConversationTurnRequest
-import dev.tramai.engine.ModelRegistryEnforcer
 import dev.tramai.engine.planning.ServiceDefinition
 import dev.tramai.engine.provider.ProviderAttemptExecutor
 import dev.tramai.engine.provider.ProviderAuthorizationService
@@ -54,8 +60,6 @@ import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.provider.ProviderResponseSanitizer
 import dev.tramai.engine.provider.ProviderRetryPolicy
-import dev.tramai.engine.ProviderCircuitBreaker
-import dev.tramai.engine.ProviderRetryDelayPolicy
 import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
 import dev.tramai.engine.streaming.StreamingExecutionCoordinator
 import dev.tramai.engine.streaming.StreamingExecutionRequest
@@ -71,9 +75,9 @@ import dev.tramai.engine.tool.ToolInvocationExecutor
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import dev.tramai.engine.tool.ToolResultSanitizer
 import dev.tramai.engine.tool.ToolRetryPolicy
-import dev.tramai.engine.ToolRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import java.time.Clock
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -113,170 +117,254 @@ internal class InvocationExecutionCoordinator(
     private val toolResultFilteringSettings = components.tools.toolResultFilteringSettings
     private val engineEventObserver = components.observation.engineEventObserver
     private val toolFailureDiagnosticObserver = components.observation.toolFailureDiagnosticObserver
-    private val structuredOutputFailureDiagnosticObserver = components.observation.structuredOutputFailureDiagnosticObserver
+    private val structuredOutputFailureDiagnosticObserver =
+        components.observation.structuredOutputFailureDiagnosticObserver
     private val policyDecisionAuditEmitter = components.security.policyDecisionAuditEmitter
     private val suspendedInvocationStore = components.approvals.suspendedInvocationStore
     private val approvalLifecycleAuditEmitter = components.approvals.approvalLifecycleAuditEmitter
     private val clock = components.execution.clock
-    private val approvalContinuationStore = (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
-    private val toolArgumentsDigester = (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
-    private val approvalGateCoordinator = (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
+    private val approvalContinuationStore =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.continuationStore
+    private val toolArgumentsDigester =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.argumentsDigester
+    private val approvalGateCoordinator =
+        (components.approvals.capability as? ApprovalCapability.Enabled)?.gateCoordinator
 
-    private val policyHelper = PolicyEnforcementHelper(components.security.resolvedPolicyEngine, migrationWarningGuard, isLegacyFallback = components.security.isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
+    private val policyHelper =
+        PolicyEnforcementHelper(
+            components.security.resolvedPolicyEngine,
+            migrationWarningGuard,
+            isLegacyFallback = components.security.isLegacyFallback,
+            auditEmitter = policyDecisionAuditEmitter,
+        )
     private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
-    private val providerResponseDlpSanitizer = ProviderResponseDlpSanitizer(
-        dlpInterceptor = dlpInterceptor,
-        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-        serviceDefinition = serviceDefinition,
-    )
-    private val beforeProviderInvocationGate = ProviderInvocationGate { providerId, modelName, correlationId, securityContext -> enforceBeforeProviderInvocation(providerId, modelName, correlationId, securityContext) }
-    private val beforeResolutionGate = ProviderResolutionGate { operation, correlationId, securityContext -> enforceBeforeProviderResolution(operation, correlationId, securityContext) }
-    private val fallbackGate = ProviderFallbackGate { correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext -> enforceFallbackTransition(correlationId, previousProviderId, previousModelName, nextProviderId, reason, securityContext) }
-    private val providerExecutionCoordinator = ProviderExecutionCoordinator(
-        routingPlan = routingPlan,
-        circuitBreaker = circuitBreaker,
-        attemptExecutor = ProviderAttemptExecutor(
-            serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+    private val providerResponseDlpSanitizer =
+        ProviderResponseDlpSanitizer(
+            dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+            serviceDefinition = serviceDefinition,
+        )
+    private val beforeProviderInvocationGate =
+        ProviderInvocationGate {
+            providerId,
+            modelName,
+            correlationId,
+            securityContext,
+            ->
+            enforceBeforeProviderInvocation(providerId, modelName, correlationId, securityContext)
+        }
+    private val beforeResolutionGate =
+        ProviderResolutionGate {
+            operation,
+            correlationId,
+            securityContext,
+            ->
+            enforceBeforeProviderResolution(operation, correlationId, securityContext)
+        }
+    private val fallbackGate =
+        ProviderFallbackGate {
+            correlationId,
+            previousProviderId,
+            previousModelName,
+            nextProviderId,
+            reason,
+            securityContext,
+            ->
+            enforceFallbackTransition(
+                correlationId,
+                previousProviderId,
+                previousModelName,
+                nextProviderId,
+                reason,
+                securityContext,
+            )
+        }
+    private val providerExecutionCoordinator =
+        ProviderExecutionCoordinator(
+            routingPlan = routingPlan,
+            circuitBreaker = circuitBreaker,
+            attemptExecutor =
+                ProviderAttemptExecutor(
+                    serviceInterface =
+                        serviceDefinition.serviceType.qualifiedName
+                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                    operationObserver = operationObserver,
+                    operationInterceptor = operationInterceptor,
+                    circuitBreaker = circuitBreaker,
+                    retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
+                    authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
+                    beforeProviderInvocation = beforeProviderInvocationGate,
+                    responseSanitizer =
+                        ProviderResponseSanitizer {
+                            response,
+                            operation,
+                            providerId,
+                            modelName,
+                            correlationId,
+                            securityContext,
+                            observation,
+                            ->
+                            providerResponseDlpSanitizer.sanitizeProviderResponse(
+                                response,
+                                operation,
+                                providerId,
+                                modelName,
+                                correlationId,
+                                securityContext,
+                                observation,
+                            )
+                        },
+                ),
+            fallbackPolicy = ProviderFallbackPolicy(),
+            beforeResolution = beforeResolutionGate,
+            fallbackGate = fallbackGate,
+        )
+    private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
+    private val conversationMemoryCoordinator =
+        ConversationMemoryCoordinator(
+            chatMemory = chatMemory,
+            conversationIdProvider = conversationIdProvider,
+        )
+    internal val contextFactory = InvocationContextFactory(chatMemory, conversationMemoryCoordinator)
+    private val operationCacheCoordinator =
+        OperationCacheCoordinator(
+            responseCache = responseCache,
+            operationInterceptor = operationInterceptor,
+            dlpInterceptor = dlpInterceptor,
+            modelRegistrySettings = modelRegistrySettings,
+            modelRegistryEnforcer = modelRegistryEnforcer,
+            policyHelper = policyHelper,
+        )
+    private val tokenBudgetCoordinator = TokenBudgetCoordinator(tokenBudgetSettings)
+    private val streamingExecutionCoordinator =
+        StreamingExecutionCoordinator(
+            identitySource = components.execution.identitySource,
+            routingPlan = routingPlan,
+            circuitBreaker = circuitBreaker,
+            lifecycleScope = lifecycleScope,
+            isClosed = isClosed,
+            serviceTypeName =
+                serviceDefinition.serviceType.qualifiedName
+                    ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+            qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
             operationObserver = operationObserver,
             operationInterceptor = operationInterceptor,
-            circuitBreaker = circuitBreaker,
+            toolExposureCoordinator = toolExposureCoordinator,
+            conversationMemoryCoordinator = conversationMemoryCoordinator,
+            tokenBudgetCoordinator = tokenBudgetCoordinator,
+            modelRegistryEnforcer = modelRegistryEnforcer,
             retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
-            authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
-            beforeProviderInvocation = beforeProviderInvocationGate,
-            responseSanitizer = ProviderResponseSanitizer { response, operation, providerId, modelName, correlationId, securityContext, observation -> providerResponseDlpSanitizer.sanitizeProviderResponse(response, operation, providerId, modelName, correlationId, securityContext, observation) },
-        ),
-        fallbackPolicy = ProviderFallbackPolicy(),
-        beforeResolution = beforeResolutionGate,
-        fallbackGate = fallbackGate,
-    )
-    private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
-    private val conversationMemoryCoordinator = ConversationMemoryCoordinator(
-        chatMemory = chatMemory,
-        conversationIdProvider = conversationIdProvider,
-    )
-    internal val contextFactory = InvocationContextFactory(chatMemory, conversationMemoryCoordinator)
-    private val operationCacheCoordinator = OperationCacheCoordinator(
-        responseCache = responseCache,
-        operationInterceptor = operationInterceptor,
-        dlpInterceptor = dlpInterceptor,
-        modelRegistrySettings = modelRegistrySettings,
-        modelRegistryEnforcer = modelRegistryEnforcer,
-        policyHelper = policyHelper,
-    )
-    private val tokenBudgetCoordinator = TokenBudgetCoordinator(tokenBudgetSettings)
-    private val streamingExecutionCoordinator = StreamingExecutionCoordinator(
-        identitySource = components.execution.identitySource,
-        routingPlan = routingPlan,
-        circuitBreaker = circuitBreaker,
-        lifecycleScope = lifecycleScope,
-        isClosed = isClosed,
-        serviceTypeName = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-        qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
-        operationObserver = operationObserver,
-        operationInterceptor = operationInterceptor,
-        toolExposureCoordinator = toolExposureCoordinator,
-        conversationMemoryCoordinator = conversationMemoryCoordinator,
-        tokenBudgetCoordinator = tokenBudgetCoordinator,
-        modelRegistryEnforcer = modelRegistryEnforcer,
-        retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
-        beforeResolution = beforeResolutionGate,
-        beforeInvocation = beforeProviderInvocationGate,
-        fallbackGate = fallbackGate,
-        beforeResponseReturn = StreamingBeforeResponseReturnGate { route, correlationId, securityContext ->
-            enforceBeforeResponseReturn(route, correlationId, securityContext)
-        },
-    )
-    private val toolResultSanitizer = ToolResultSanitizer(
-        toolRegistry = toolRegistry,
-        dlpInterceptor = dlpInterceptor,
-        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-        toolResultFilteringSettings = toolResultFilteringSettings,
-        engineEventObserver = engineEventObserver,
-    )
+            beforeResolution = beforeResolutionGate,
+            beforeInvocation = beforeProviderInvocationGate,
+            fallbackGate = fallbackGate,
+            beforeResponseReturn =
+                StreamingBeforeResponseReturnGate { route, correlationId, securityContext ->
+                    enforceBeforeResponseReturn(route, correlationId, securityContext)
+                },
+        )
+    private val toolResultSanitizer =
+        ToolResultSanitizer(
+            toolRegistry = toolRegistry,
+            dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+            toolResultFilteringSettings = toolResultFilteringSettings,
+            engineEventObserver = engineEventObserver,
+        )
     private val toolAuthorizationCoordinator = ToolAuthorizationCoordinator(policyHelper)
     private val toolRetryPolicy = ToolRetryPolicy()
-    private val approvalSuspensionCoordinator = ApprovalSuspensionCoordinator(
-        approvalGateCoordinator = approvalGateCoordinator,
-        approvalContinuationStore = approvalContinuationStore,
-        suspendedInvocationStore = suspendedInvocationStore,
-        resumeOperationRegistry = resumeOperationRegistry,
-        serviceDefinition = serviceDefinition,
-        resumeExecutor = this,
-        toolArgumentsDigester = toolArgumentsDigester,
-        clock = clock,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-    )
-    private val toolInvocationExecutor = ToolInvocationExecutor(
-        authorizationCoordinator = toolAuthorizationCoordinator,
-        retryPolicy = toolRetryPolicy,
-        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
-        approvalGate = approvalSuspensionCoordinator,
-    )
-    private val toolReinjectionCoordinator = ToolReinjectionCoordinator(
-        toolRegistry = toolRegistry,
-        policyHelper = policyHelper,
-        invocationExecutor = toolInvocationExecutor,
-        resultSanitizer = toolResultSanitizer,
-    )
-    private val toolLoopCoordinator = ToolLoopCoordinator(
-        providerExecutionCoordinator = providerExecutionCoordinator,
-        toolExposureCoordinator = toolExposureCoordinator,
-        tokenBudgetCoordinator = tokenBudgetCoordinator,
-        toolRegistry = toolRegistry,
-        toolReinjectionCoordinator = toolReinjectionCoordinator,
-    )
-    private val rawResponseCoordinator = RawResponseCoordinator(
-        conversationMemoryCoordinator = conversationMemoryCoordinator,
-        operationCacheCoordinator = operationCacheCoordinator,
-        policyHelper = policyHelper,
-        toolLoopCoordinator = toolLoopCoordinator,
-    )
-    private val structuredResponseCoordinator = StructuredResponseCoordinator(
-        structuredOutputHandler = structuredOutputHandler,
-        structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
-        conversationMemoryCoordinator = conversationMemoryCoordinator,
-        operationCacheCoordinator = operationCacheCoordinator,
-        policyHelper = policyHelper,
-        attemptExecutor = StructuredAttemptExecutor { request ->
-            toolLoopCoordinator.execute(
-                ToolLoopContext(
-                    operation = request.operation,
-                    messages = request.messages,
-                    tokenBudgetTracker = request.tokenBudgetTracker,
-                    correlationId = request.correlationId,
-                    securityContext = request.securityContext,
-                    identity = request.identity,
-                    conversationId = request.conversationId,
-                    historySize = request.historySize,
-                ),
-            )
-        },
-        serviceTypeName = serviceDefinition.serviceType.qualifiedName
-            ?: serviceDefinition.serviceType.simpleName
-            ?: "<unknown>",
-    )
-    private val claimedResumeCoordinator = ClaimedResumeExecutionCoordinator(
-        tokenBudgetCoordinator = tokenBudgetCoordinator,
-        toolInvocationExecutor = toolInvocationExecutor,
-        toolReinjectionCoordinator = toolReinjectionCoordinator,
-        toolLoopCoordinator = toolLoopCoordinator,
-        structuredResponseCoordinator = structuredResponseCoordinator,
-        conversationMemoryCoordinator = conversationMemoryCoordinator,
-        policyHelper = policyHelper,
-        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
-    )
+    private val approvalSuspensionCoordinator =
+        ApprovalSuspensionCoordinator(
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalContinuationStore = approvalContinuationStore,
+            suspendedInvocationStore = suspendedInvocationStore,
+            resumeOperationRegistry = resumeOperationRegistry,
+            serviceDefinition = serviceDefinition,
+            resumeExecutor = this,
+            toolArgumentsDigester = toolArgumentsDigester,
+            clock = clock,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        )
+    private val toolInvocationExecutor =
+        ToolInvocationExecutor(
+            authorizationCoordinator = toolAuthorizationCoordinator,
+            retryPolicy = toolRetryPolicy,
+            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
+            approvalGate = approvalSuspensionCoordinator,
+        )
+    private val toolReinjectionCoordinator =
+        ToolReinjectionCoordinator(
+            toolRegistry = toolRegistry,
+            policyHelper = policyHelper,
+            invocationExecutor = toolInvocationExecutor,
+            resultSanitizer = toolResultSanitizer,
+        )
+    private val toolLoopCoordinator =
+        ToolLoopCoordinator(
+            providerExecutionCoordinator = providerExecutionCoordinator,
+            toolExposureCoordinator = toolExposureCoordinator,
+            tokenBudgetCoordinator = tokenBudgetCoordinator,
+            toolRegistry = toolRegistry,
+            toolReinjectionCoordinator = toolReinjectionCoordinator,
+        )
+    private val rawResponseCoordinator =
+        RawResponseCoordinator(
+            conversationMemoryCoordinator = conversationMemoryCoordinator,
+            operationCacheCoordinator = operationCacheCoordinator,
+            policyHelper = policyHelper,
+            toolLoopCoordinator = toolLoopCoordinator,
+        )
+    private val structuredResponseCoordinator =
+        StructuredResponseCoordinator(
+            structuredOutputHandler = structuredOutputHandler,
+            structuredOutputFailureDiagnosticObserver = structuredOutputFailureDiagnosticObserver,
+            conversationMemoryCoordinator = conversationMemoryCoordinator,
+            operationCacheCoordinator = operationCacheCoordinator,
+            policyHelper = policyHelper,
+            attemptExecutor =
+                StructuredAttemptExecutor { request ->
+                    toolLoopCoordinator.execute(
+                        ToolLoopContext(
+                            operation = request.operation,
+                            messages = request.messages,
+                            tokenBudgetTracker = request.tokenBudgetTracker,
+                            correlationId = request.correlationId,
+                            securityContext = request.securityContext,
+                            identity = request.identity,
+                            conversationId = request.conversationId,
+                            historySize = request.historySize,
+                        ),
+                    )
+                },
+            serviceTypeName =
+                serviceDefinition.serviceType.qualifiedName
+                    ?: serviceDefinition.serviceType.simpleName
+                    ?: "<unknown>",
+        )
+    private val claimedResumeCoordinator =
+        ClaimedResumeExecutionCoordinator(
+            tokenBudgetCoordinator = tokenBudgetCoordinator,
+            toolInvocationExecutor = toolInvocationExecutor,
+            toolReinjectionCoordinator = toolReinjectionCoordinator,
+            toolLoopCoordinator = toolLoopCoordinator,
+            structuredResponseCoordinator = structuredResponseCoordinator,
+            conversationMemoryCoordinator = conversationMemoryCoordinator,
+            policyHelper = policyHelper,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        )
+
     private suspend fun enforceBeforeProviderResolution(
         operation: OperationDefinition,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
     ) {
         policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
-                correlationId = correlationId,
-            ).modelName(operation.operation.model)
+            policyHelper
+                .buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
+                    correlationId = correlationId,
+                ).modelName(operation.operation.model)
                 .applySecurityContext(securityContext)
-                .build()
+                .build(),
         )
     }
 
@@ -286,13 +374,14 @@ internal class InvocationExecutionCoordinator(
         securityContext: ExecutionSecurityContext,
     ) {
         policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                correlationId = correlationId,
-            ).providerId(route.providerName)
+            policyHelper
+                .buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    correlationId = correlationId,
+                ).providerId(route.providerName)
                 .modelName(route.effectiveModelName)
                 .applySecurityContext(securityContext)
-                .build()
+                .build(),
         )
     }
 
@@ -303,13 +392,14 @@ internal class InvocationExecutionCoordinator(
         securityContext: ExecutionSecurityContext,
     ) {
         policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
-                correlationId = correlationId,
-            ).providerId(providerId)
+            policyHelper
+                .buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    correlationId = correlationId,
+                ).providerId(providerId)
                 .modelName(modelName)
                 .applySecurityContext(securityContext)
-                .build()
+                .build(),
         )
     }
 
@@ -326,16 +416,19 @@ internal class InvocationExecutionCoordinator(
         reason: String,
         securityContext: ExecutionSecurityContext,
     ) {
-        val ctx = policyHelper.buildContext(
-            enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
-            correlationId = correlationId,
-        ).applySecurityContext(securityContext)
+        val ctx =
+            policyHelper
+                .buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
+                    correlationId = correlationId,
+                ).applySecurityContext(securityContext)
         if (previousProviderId != null) ctx.providerId(previousProviderId)
         if (previousModelName != null) ctx.modelName(previousModelName)
         ctx.fallbackProviderId(nextProviderId)
         ctx.attribute("fallbackReason", reason)
         policyHelper.enforce(ctx.build())
     }
+
     suspend fun execute(context: InvocationExecutionContext): Any? {
         val operation = context.plan.definition
         val arguments = context.arguments
@@ -343,15 +436,18 @@ internal class InvocationExecutionCoordinator(
         val tokenBudgetTracker = tokenBudgetCoordinator.createTracker()
         val workflowDigest = WorkflowDigestHelper.compute(operation, serviceDefinition)
         return when (operation.returnKind) {
-            ReturnKind.STRING -> rawResponseCoordinator.execute(
-                RawResponseRequest(
-                    plan = context.plan,
-                    arguments = arguments,
-                    tokenBudgetTracker = tokenBudgetTracker,
-                    conversationId = conversationId,
-                    identity = invocationIdentity(workflowDigest),
-                ),
-            )
+            ReturnKind.STRING -> {
+                rawResponseCoordinator.execute(
+                    RawResponseRequest(
+                        plan = context.plan,
+                        arguments = arguments,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                        identity = invocationIdentity(workflowDigest),
+                    ),
+                )
+            }
+
             ReturnKind.UNIT -> {
                 rawResponseCoordinator.execute(
                     RawResponseRequest(
@@ -364,24 +460,30 @@ internal class InvocationExecutionCoordinator(
                 )
                 Unit
             }
-            ReturnKind.STRUCTURED -> structuredResponseCoordinator.execute(
-                StructuredResponseRequest(
-                    operation = operation,
-                    arguments = arguments,
-                    tokenBudgetTracker = tokenBudgetTracker,
-                    conversationId = conversationId,
-                    identity = invocationIdentity(workflowDigest),
-                    operationFingerprint = context.plan.fingerprint,
-                ),
-            )
-            ReturnKind.STREAMING -> streamingExecutionCoordinator.execute(
-                StreamingExecutionRequest(
-                    operation = operation,
-                    arguments = arguments,
-                    tokenBudgetTracker = tokenBudgetTracker,
-                    conversationId = conversationId,
-                ),
-            )
+
+            ReturnKind.STRUCTURED -> {
+                structuredResponseCoordinator.execute(
+                    StructuredResponseRequest(
+                        operation = operation,
+                        arguments = arguments,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                        identity = invocationIdentity(workflowDigest),
+                        operationFingerprint = context.plan.fingerprint,
+                    ),
+                )
+            }
+
+            ReturnKind.STREAMING -> {
+                streamingExecutionCoordinator.execute(
+                    StreamingExecutionRequest(
+                        operation = operation,
+                        arguments = arguments,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                    ),
+                )
+            }
         }
     }
 
@@ -391,9 +493,15 @@ internal class InvocationExecutionCoordinator(
      * a never-collected flow consumes zero identities, so its correlation is
      * sampled inside the flow body (StreamingExecutionCoordinator).
      */
-    private fun invocationIdentity(workflowDigest: Sha256Digest): EngineExecutionIdentity {
+    private suspend fun invocationIdentity(workflowDigest: Sha256Digest): EngineExecutionIdentity {
         val identitySource = components.execution.identitySource
-        val workflowRunId = identitySource.newWorkflowRunId()
+        // 0.7.1d: inside a governed execution the canonical RunId is authoritative and
+        // the engine must NOT mint a second workflow run id for the same execution:
+        // the coroutine context is authoritative, the thread bridge covers the blocking
+        // proxy path (see TramaiInvocationHandler). Outside a governed execution the
+        // generated identity is unchanged.
+        val governedRunId = GovernedRunScope.resolve(currentCoroutineContext())?.runId?.value
+        val workflowRunId = governedRunId ?: identitySource.newWorkflowRunId()
         val correlationId = identitySource.newCorrelationId()
         require(workflowRunId.isNotBlank()) { "Engine workflowRunId must not be blank" }
         require(correlationId.isNotBlank()) { "Engine correlationId must not be blank" }
@@ -405,11 +513,14 @@ internal class InvocationExecutionCoordinator(
             actorId = PolicyEnforcementHelper.ACTOR_ANONYMOUS,
         )
     }
+
     override suspend fun execute(request: ClaimedResumeExecutionRequest): Any? =
-        claimedResumeCoordinator.execute(request)
+        run {
+            val coordinator = claimedResumeCoordinator
+            coordinator.execute(request)
+        }
 }
 
-private fun PolicyContextBuilder.applySecurityContext(
-    securityContext: ExecutionSecurityContext,
-): PolicyContextBuilder = dataClassification(securityContext.dataClassification)
-    .classificationSource(securityContext.classificationSource)
+private fun PolicyContextBuilder.applySecurityContext(securityContext: ExecutionSecurityContext): PolicyContextBuilder =
+    dataClassification(securityContext.dataClassification)
+        .classificationSource(securityContext.classificationSource)

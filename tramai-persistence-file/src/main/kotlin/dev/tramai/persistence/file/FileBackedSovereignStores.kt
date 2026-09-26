@@ -52,7 +52,6 @@ class FileBackedSovereignStores private constructor(
     private val rootDir: Path,
     private val lease: FileStoreLease,
 ) : AutoCloseable {
-
     companion object {
         private const val MAX_KEY_ID_LENGTH = 128
         private val SAFE_KEY_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
@@ -88,7 +87,7 @@ class FileBackedSovereignStores private constructor(
                     approvalStore = stores.approvalStore,
                     approvalContinuationStore = stores.approvalContinuationStore,
                     auditStore = stores.auditStore,
-                    suspendedInvocationStore = stores.suspendedInvocationStore,
+                    suspendedInvocationStore = stores.governedSuspendedInvocationStore,
                     lockFile = lockHandle.file,
                     lock = lockHandle.lock,
                     rootDir = root,
@@ -116,7 +115,11 @@ class FileBackedSovereignStores private constructor(
             val auditStore: FileAuditStore,
             val suspendedInvocationStore: FileSuspendedInvocationStore,
             val lease: FileStoreLease,
-        )
+        ) {
+            /** The app-facing view: same store, plus the governed suspension capability. */
+            val governedSuspendedInvocationStore: SuspendedInvocationStore =
+                GovernedFileSuspendedInvocationStore(suspendedInvocationStore)
+        }
 
         private fun prepareRootDirectory(root: Path) {
             if (root.notExists()) {
@@ -144,8 +147,9 @@ class FileBackedSovereignStores private constructor(
             return try {
                 StoreLockHandle(
                     file = lockFile,
-                    lock = lockFile.channel.tryLock()
-                        ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable"),
+                    lock =
+                        lockFile.channel.tryLock()
+                            ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable"),
                 )
             } catch (e: Exception) {
                 closeQuietly(lockFile)
@@ -171,7 +175,10 @@ class FileBackedSovereignStores private constructor(
             }
         }
 
-        private fun prepareStoreSubdirectory(path: Path, name: String) {
+        private fun prepareStoreSubdirectory(
+            path: Path,
+            name: String,
+        ) {
             if (path.notExists()) {
                 Files.createDirectories(path, PosixFilePermissions.asFileAttribute(DIR_PERMS_0700))
             }
@@ -190,26 +197,28 @@ class FileBackedSovereignStores private constructor(
                 return
             }
 
-            val manifest = StoreManifestV1(
-                formatVersion = 1,
-                module = "tramai-persistence-file",
-                createdAt = Instant.now().toString(),
-            )
-            FileChannel.open(
-                manifestPath,
-                setOf(
-                    StandardOpenOption.CREATE_NEW,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.DSYNC,
-                ),
-                PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
-            ).use { channel ->
-                val buffer = java.nio.ByteBuffer.wrap(manifest.toJson().toByteArray(Charsets.UTF_8))
-                while (buffer.hasRemaining()) {
-                    channel.write(buffer)
+            val manifest =
+                StoreManifestV1(
+                    formatVersion = 1,
+                    module = "tramai-persistence-file",
+                    createdAt = Instant.now().toString(),
+                )
+            FileChannel
+                .open(
+                    manifestPath,
+                    setOf(
+                        StandardOpenOption.CREATE_NEW,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.DSYNC,
+                    ),
+                    PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
+                ).use { channel ->
+                    val buffer = java.nio.ByteBuffer.wrap(manifest.toJson().toByteArray(Charsets.UTF_8))
+                    while (buffer.hasRemaining()) {
+                        channel.write(buffer)
+                    }
+                    channel.force(true)
                 }
-                channel.force(true)
-            }
         }
 
         private fun createStores(

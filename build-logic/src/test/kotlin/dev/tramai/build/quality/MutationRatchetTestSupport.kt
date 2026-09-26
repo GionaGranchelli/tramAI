@@ -152,6 +152,26 @@ abstract class MutationRatchetTestSupport {
 
     protected fun verify(
         basePopulation: MutationPopulationBaseline,
+        candidatePopulation: MutationPopulationBaseline,
+        evolution: MutationPopulationEvolution,
+        evolutionRecords: MutationEvolutionRecords,
+        evolutionProof: MutationPopulationEvolutionProof? =
+            if (evolution == MutationPopulationEvolution.RECORDED_EVOLUTION) {
+                MutationPopulationEvolutionProof.exactComparison(candidatePopulation, candidatePopulation).proof
+            } else {
+                null
+            },
+    ): List<VerificationDiagnostic> =
+        MutationRatchetVerifier().verify(
+            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
+            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies),
+            MutationPopulationAggregator.canonicalSemantics(),
+            evolution,
+            MutationEvolutionEvidence(evolutionRecords, evolutionProof),
+        )
+
+    protected fun verify(
+        basePopulation: MutationPopulationBaseline,
         baseFamilies: Map<String, MutationTargetFamily>,
         candidatePopulation: MutationPopulationBaseline,
         candidateFamilies: Map<String, MutationTargetFamily>,
