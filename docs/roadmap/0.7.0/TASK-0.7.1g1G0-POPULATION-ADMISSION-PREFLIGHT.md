@@ -379,7 +379,7 @@ Wholesale replacement does not remove the authority question, it *is* the author
 | does the whole NON_KILLED cohort need authorization? | **yes, unless killed.** The transition carries the whole measurement, so each candidate-only survivor must either be admitted or be KILLED by the time the measurement is taken (§4.1) |
 | can the 43 be handled independently? | **no** — only as part of a complete fresh-population transition (Phase C) |
 | how does it compose with M21? | cleanly: M21 handles removals, the admission rule handles appearing NON_KILLED identities, both are checked in the same transition against the same exact measurement and the same proof (discriminator 11) |
-| is classification enrollment still separate? | yes, and the order is forced: identities must be admitted to the base population first (g1G2-style), *then* their classifications can be enrolled through the existing M22-M29 ceremony, which requires base-population membership (M25) |
+| is classification enrollment still separate? | yes, and the order is forced: identities must be admitted to the base population first (admission-first; the step formerly labelled `g1G2`), *then* their classifications can be enrolled through the existing M22-M29 ceremony, which requires base-population membership (M25) |
 
 ### 8.4 The shortcut this preflight refuses
 
@@ -508,7 +508,14 @@ approval classes in one module.
 3. **g1G1c — finish the tool-limitation adjudication (evidence-only).** Apply the g1E standard to the 3
    remaining `ApprovalResumeCoordinator.executeClaimedResume` `TIMED_OUT` identities; only then is the
    tool-limitation set authoritative at 46 rather than a structural candidate set.
-4. **g1G2 — design only the appearing-NON_KILLED admission ceremony (design-only, no implementation).** §6
+4. **g1G2 — design only the appearing-NON_KILLED admission ceremony (design-only, no implementation).**
+   ⚠️ **Identifier superseded.** `g1G2` now denotes the residual taxonomy and adjudication slice
+   ([TASK-0.7.1g1G2](TASK-0.7.1g1G2-RESIDUAL-TAXONOMY.md)); this admission step is implemented under a new task
+   id (the admission ceremony, new rules after M29), with the payload and discriminator specification below
+   unchanged. Current floor after the measured closures: **177** residual candidate-only identities, of which
+   **58** carry firm adjudications (12 `EQUIVALENT` + 46 `TOOLING_LIMITATION`), 1 is `DEFERRED_STRUCTURAL` and
+   **118** remain `UNDETERMINED` — the 118 are why this step cannot consume the population yet. **The
+   remainder of this item is unchanged:** §6
    payload, §7 discriminators as its test specification. The M06 authorization branch is presented as an
    explicit authority decision, with its negative discriminator (authorized X + unauthorized Y still FAILS for
    Y) as the acceptance test. No changed-row primitive: §4.2.
