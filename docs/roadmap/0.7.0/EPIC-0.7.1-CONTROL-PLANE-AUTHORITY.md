@@ -53,7 +53,8 @@ stale privileged mutation cannot silently overwrite newer authoritative state
 | 0.7.1f | Safe exposure model | Implement the explicit `WorkloadExposure` safe exposure model; protected payloads have no generic query surface |
 | 0.7.1g | Evidence/compatibility proof | Typed identity/lifecycle evidence, API/TCK impact, adversarial and mutation proof |
 | 0.7.1h | Integration/docs | Update architecture/docs/reference fixtures and prove exact-head Epic acceptance |
-| 0.7.1i | Integration closure / master promotion authority | Bind API migrations to the frozen `master → final-0.7.1` hashes, certify the release-sovereign population pin from measurement, and establish a promotion sequence that keeps analyzer/build-logic changes out of the runtime transition — without weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md)) |
+| 0.7.1i | Integration closure / master promotion authority | Bind API migrations to the frozen `master → final-0.7.1` hashes, certify the release-sovereign population pin from evidence, and establish a promotion sequence that keeps analyzer/build-logic changes out of the runtime transition — without weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md)) |
+| 0.7.1g1G1 | Mutation-debt taxonomy | Classify the 195 candidate-only `NON_KILLED` identities from their mutated instructions: 124 glue, 10 weak-assertion (8 closed by #444, 1 closed by #446, 1 deferred), 4 equivalent, 2 compiler guards, 9 closed by #442 — with the 46 `TIMED_OUT` recorded as **undetermined** rather than a settled category ([TASK-0.7.1g1G1](TASK-0.7.1g1G1-MUTATION-DEBT-TAXONOMY.md)) |
 
 ## Acceptance criteria
 
