@@ -129,3 +129,27 @@ Recording them as zero with the reason is stronger than assigning either to fill
 3. Re-census in a throwaway worktree: narrow `mutation.targetFamilies` to the family owning the residual (all 177 are `approval`), commit the narrowing, run `generateCriticalMutationBaseline`, then confirm `measuredCommit` equals the probe commit and prove provenance with `git diff --name-only <frozen-head> <probe-commit>` — it must list only the throwaway config file.
 4. Group with `javap -p -c -l` per site: a suspend call is an instruction whose descriptor ends `Continuation;)Ljava/lang/Object;`; a sentinel comparison is a line carrying `getCOROUTINE_SUSPENDED`, `if_acmpne` or `if_acmpeq`. Line attribution shifts instructions to neighbouring lines — verify a representative before trusting any per-line split.
 5. Re-derive the accounting equation and assert `lost = 0`, `duplicate = 0`, `unexplained movement = 0` before any admission step.
+
+## 8. Erratum — superseded grouping (added by `TASK-0.7.1g1G4`)
+
+This section corrects two facts in §3. The original text above is preserved as written; the split it records is
+**superseded for reasoning**, exactly as §7 step 4 anticipated.
+
+### 8.1 The `VoidMethodCall` sub-populations (§3, groups G2 and G4)
+
+| Old, PIT-line-attributed | Instruction-exact inspection |
+|---|---|
+| G2 `SUSPENSION_POINT_RETHROW` — 43 | **59** compiler-generated `kotlin/ResultKt::throwOnFailure` removals |
+| G4 `OTHER_VOID_CALL` — 20 | **2** source-level removed calls |
+
+The grouping was derived from PIT's source-line attribution. `javap -p -c` shows a single source line can carry
+both the compiler-generated suspension machinery and ordinary calls from the same expression, so a per-line
+split measures attribution, not instruction shape. The 61 `VoidMethodCall` identities of the residual are
+therefore 59 compiler-generated rethrows at a suspension point and 2 genuine source-level calls; the G2/G4
+counts as printed must not be used as a mechanism split.
+
+### 8.2 Mutator name
+
+`NullReturnVals` is `org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator` (full
+package-qualified name). Identity digests are computed from the fully qualified mutator name; the short form in
+§3 is display-only.
