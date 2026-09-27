@@ -130,13 +130,55 @@ Measurement scaffolding (a `mutation.targetFamilies` narrowing) is **not** part 
 throwaway worktree at the commit that carries the durable tests, and the measurement is joined against the
 committed manifest. See §5.
 
-## 5. Identity-exact results
+## 5. Identity-exact results (Phase D measured)
 
-*(Recorded by the measurement commit — see the section appended after the campaign.)*
+Measurement provenance: throwaway worktree at the tests commit `4fc5c37c` plus one committed narrowing of
+`mutation.targetFamilies` (measurement commit `39599f6a`, not part of this branch). Scope: the three classes
+owning the cohort (`ApprovalResumeCoordinator*`, `ApprovalSuspensionCoordinator*`, `DefaultApprovalGateway*`,
+`:tramai-engine`). 344 mutants, 5 m 29 s, identity census **336 shared with the frozen census, 0 lost, 8 new**
+(additional generated classes matched by the wildcard, outside both the census and the cohort).
+
+Cohort movement, identity-exact:
+
+| | Count |
+|---|---|
+| `NO_COVERAGE` → `KILLED` | **2** |
+| `NO_COVERAGE` → `NO_COVERAGE` | 99 |
+| `SURVIVED` → `SURVIVED` | 17 |
+| newly `TIMED_OUT` | 0 |
+| remaining after this slice | **116** (52 `NullReturnVals`, 60 `VoidMethodCall`, 4 `NegateConditionals`) |
+
+The two settled identities, both closed by tests added in §3.2:
+
+| Identity | Mutator | Site | Before → after |
+|---|---|---|---|
+| `8b52a478cb33035b2af3c59f099290ab6fa8c3812888c33b9893160ce0fa8d22` | `NullReturnVals` | `DefaultApprovalGateway.kt:73`, block 36 / index 247 | `NO_COVERAGE` → `KILLED` (1 test) |
+| `d77706fde05eb954a18854bdc62e90721dca630d7edd3b681c1ca599046c0eb9` | `VoidMethodCall` | `DefaultApprovalGateway.kt:73`, block 37 / index 279 (`ResultKt::throwOnFailure`) | `NO_COVERAGE` → `KILLED` (1 test) |
+
+Controls, all of which hold:
+
+- **regressions `KILLED` → non-`KILLED`: 0** (110 `KILLED` identities stayed `KILLED`);
+- the 46 `TOOLING_LIMITATION` identities are still `TIMED_OUT` (46/46) — the existing adjudication is unchanged;
+- the `DEFERRED_STRUCTURAL` identity (`ApprovalResumeCoordinator` block 76 / index 533) is untouched as
+  `SURVIVED` and is not part of the cohort;
+- no identity was added or lost inside the census population.
+
+**`UNDETERMINED` is therefore 116, not 0.** The exit target of §1 is not met by this slice and no identity was
+forced into a convenient category to meet it.
+
+## 5.1 What the remaining 116 need (grouped by production scenario, not by identity)
+
+| Remaining | Class | Methods (identities) | Required harness |
+|---|---|---|---|
+| 12 `NullReturnVals`, 15 `VoidMethodCall` | `DefaultApprovalGateway` | `requestApproval` (5+5), `persistUngoverned` (3+4), `persistGoverned` (3+4), `requireExistingAttributionMatches` (1+2) | the pattern of §3.2 applied to the remaining seams: suspending `ApprovalGatewayRequestFactory.createRequest`, `SuspendedInvocationStore.create`, `ApprovalContinuationStore.create`, and the governed stores (`createGovernedApproval`, `attributionOf`, `createGoverned`) |
+| 22 `NullReturnVals`, 26 `VoidMethodCall`, 2 `NegateConditionals` | `ApprovalResumeCoordinator` | `resume` (8+9), `prepareResume` (5+6), `authorizeResume` (4+5 +2 NC), `executeClaimedResume` (3+3), `revealAndValidateReplayPayload` (1+1), `$resume$2.invokeSuspend` (1+2) | drive `resume()` with genuinely suspending/failing `ApprovalContinuationStore`, `SuspendedInvocationStore`, `ReplayAuthorizationService`, `ContinuationClaimService` and `ClaimedResumeExecutor` |
+| 18 `NullReturnVals`, 19 `VoidMethodCall`, 2 `NegateConditionals` | `ApprovalSuspensionCoordinator` | `suspendToolExecution` (6+6), `compensateSuspension` (3+4 + 3×2 lambda pairs), `persistSuspendedInvocation` (2+2 +2 NC), `compensateStep` (1+3) | tool-suspension and compensation pipelines with a suspending collaborator; the `compensateSuspension$2$*` lambdas need the compensation path itself to suspend |
+| 4 `NegateConditionals` | both coordinators | `authorizeResume` ×2, `persistSuspendedInvocation` ×2 | per-site analysis only; the two `Nothing`-callee sentinel cases (`:151`, `:155`) may be structurally unreachable rather than uncovered — do not fold into either coroutine harness |
+
 
 ## 6. What this slice does not settle
 
-- 116 of the 118 identities have no durable test in this commit. Each remaining site needs the harness that
+- 116 of the 118 identities have no durable test in this commit (see §5.1 for the per-scenario grouping). Each remaining site needs the harness that
   matches its own semantic obligation and its own collaborator seam; the per-group scenarios are listed in §5.
 - The 4 `NegateConditionals` identities are deliberately excluded from both coroutine harnesses. Two are the
   `Nothing`-callee sentinel cases (`ApprovalResumeCoordinator:151`, `:155`): the post-call comparison can only be
