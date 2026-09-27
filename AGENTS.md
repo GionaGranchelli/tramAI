@@ -75,6 +75,19 @@ Examples of the expected rigor:
 - provider tests should assert deterministic routing, timeout handling, retry behavior, and error mapping
 - observability tests should assert span attributes and parse-failure events, not just that tracing code executed
 
+For governance and authority machinery (mutation ratchets, population admissions, classification
+enrollments, baseline growth gates), the test hierarchy is different, and a single level is never
+enough:
+
+- **pure verifier tests prove semantics** — the rule is correct for the inputs it is handed;
+- **real-task tests prove authority transport** — the Gradle task actually loads the repository
+  state (ledger, baseline, configuration) that the verifier assumes, and changing that real file
+  changes the task's outcome.
+
+Both are required. An authority system can be internally correct and still be ineffective because
+the wrong state reaches it; a verifier-level discriminator cannot detect a missing
+`Loader.load(rootDir)` at the call site.
+
 ## Assertions and Invariants
 
 Write code that defends its invariants early and clearly.
@@ -171,6 +184,17 @@ The architecture map is authoritative for navigation; do not duplicate it here.
 - report every command run and its result
 - report skipped checks explicitly
 - do not push while a required local check is failing
+
+### Merge authorization
+
+An agent may push branches and open or update pull requests. An agent must **never** merge a pull
+request that targets `master` or an `epic/**` branch: those merges require explicit authorization
+from the repository owner, given after the review findings on the exact head have been read.
+
+Epic branches carry no branch protection or required-review rule, and an agent acting through the
+owner's credentials would satisfy any such rule that did exist, so this instruction — not the
+platform — is the merge gate. Green CI is necessary and never sufficient: exact-head CI, the
+Architecture Authority and the Sovereign Runtime RC checks can all pass while no approval exists.
 
 ## CI Failure Protocol
 
