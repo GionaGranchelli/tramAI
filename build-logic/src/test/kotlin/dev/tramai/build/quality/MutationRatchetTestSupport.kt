@@ -62,6 +62,12 @@ abstract class MutationRatchetTestSupport {
 
     protected val semantics: MutationAnalyzerSemantics = MutationPopulationAggregator.canonicalSemantics()
 
+    /**
+     * Fixtures propose no population admissions, and the argument is explicit on purpose: the
+     * production call sites must state their ledger rather than inherit a default.
+     */
+    protected val noAdmissions = MutationPopulationAdmissions.NONE
+
     protected fun row(
         marker: String,
         family: String = policyFamily,
@@ -150,13 +156,13 @@ abstract class MutationRatchetTestSupport {
                 basePopulation,
                 baseClassifications,
                 baseFamilies,
-                admissions = MutationPopulationAdmissions.NONE,
+                admissions = noAdmissions,
             ),
             MutationRatchetCandidate(
                 candidatePopulation,
                 candidateClassifications,
                 baseFamilies,
-                admissions = MutationPopulationAdmissions.NONE,
+                admissions = noAdmissions,
             ),
             executable,
         )
@@ -179,9 +185,9 @@ abstract class MutationRatchetTestSupport {
                 basePopulation,
                 classifications(),
                 baseFamilies,
-                admissions = MutationPopulationAdmissions.NONE,
+                admissions = noAdmissions,
             ),
-            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies, admissions = MutationPopulationAdmissions.NONE),
+            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies, admissions = noAdmissions),
             MutationPopulationAggregator.canonicalSemantics(),
             evolution,
             MutationEvolutionEvidence(evolutionRecords, evolutionProof),
@@ -199,13 +205,13 @@ abstract class MutationRatchetTestSupport {
                 basePopulation,
                 classifications(),
                 baseFamilies,
-                admissions = MutationPopulationAdmissions.NONE,
+                admissions = noAdmissions,
             ),
             MutationRatchetCandidate(
                 candidatePopulation,
                 classifications(),
                 candidateFamilies,
-                admissions = MutationPopulationAdmissions.NONE,
+                admissions = noAdmissions,
             ),
             MutationPopulationAggregator.canonicalSemantics(),
         )

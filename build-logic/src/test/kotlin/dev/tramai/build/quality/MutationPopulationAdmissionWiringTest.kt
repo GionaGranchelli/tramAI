@@ -74,6 +74,12 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
             """.trimIndent(),
         )
         write(dir, "sample/build.gradle.kts", "plugins { `java-library` }")
+        writeQualityConfig(dir)
+        return dir
+    }
+
+    /** The authority surface the ratchet task reads; only the population and the ledger vary per case. */
+    private fun writeQualityConfig(dir: File) {
         write(
             dir,
             "config/quality/module-catalog.yml",
@@ -118,7 +124,6 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
         )
         write(dir, "config/quality/mutation-classifications.yml", "schemaVersion: \"1\"\nclassifications: []\n")
         write(dir, "config/quality/mutation-evolution.yml", "schemaVersion: \"1\"\nrecords: []\n")
-        return dir
     }
 
     private fun write(
@@ -224,7 +229,11 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
         val dir = fixture()
         val baseSha = commitBase(dir)
         writePopulation(dir, candidatePopulation())
-        write(dir, "config/quality/mutation-population-admissions.yml", admissionLedger(appearingIdentity, wrongBaseSha))
+        write(
+            dir,
+            "config/quality/mutation-population-admissions.yml",
+            admissionLedger(appearingIdentity, wrongBaseSha),
+        )
 
         val result = runner(dir, baseSha).buildAndFail()
 
