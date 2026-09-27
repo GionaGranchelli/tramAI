@@ -172,7 +172,7 @@ Controls, all of which hold:
 **`UNDETERMINED` is therefore 116, not 0.** The exit target of §1 is not met by this slice and no identity was
 forced into a convenient category to meet it.
 
-## 5.2 Raw-status transition matrices (movement accounting)
+## 5.1 Raw-status transition matrices (movement accounting)
 
 Movement is recorded in full, not only as a regression check: an unexpected `NO_COVERAGE → SURVIVED` would not be a
 regression but would still belong in an identity-custody record. Both matrices cover the measurement in §5.
@@ -212,7 +212,7 @@ The two matrices reconcile exactly: the 169 measured identities outside the resi
 `KILLED`→`KILLED` 110, `NO_COVERAGE`→`NO_COVERAGE` 27, `SURVIVED`→`SURVIVED` 23 and `TIMED_OUT`→`TIMED_OUT` 9
 (110 + 27 + 23 + 9 = 169), so 175 + 169 = 344 with no transition left unaccounted for.
 
-## 5.1 What the remaining 116 need (grouped by production scenario, not by identity)
+## 5.2 What the remaining 116 need (grouped by production scenario, not by identity)
 
 | Remaining | Class | Methods (identities) | Required harness |
 |---|---|---|---|
@@ -224,7 +224,7 @@ The two matrices reconcile exactly: the 169 measured identities outside the resi
 
 ## 6. What this slice does not settle
 
-- 116 of the 118 identities have no durable test in this commit (see §5.1 for the per-scenario grouping). Each remaining site needs the harness that
+- 116 of the 118 identities have no durable test in this commit (see §5.2 for the per-scenario grouping). Each remaining site needs the harness that
   matches its own semantic obligation and its own collaborator seam; the per-group scenarios are listed in §5.
 - The 4 `NegateConditionals` identities are deliberately excluded from both coroutine harnesses. Two are the
   `Nothing`-callee sentinel cases (`ApprovalResumeCoordinator:151`, `:155`): the post-call comparison can only be
