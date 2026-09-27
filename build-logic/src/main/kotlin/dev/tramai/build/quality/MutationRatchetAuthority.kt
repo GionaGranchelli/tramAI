@@ -32,8 +32,9 @@ data class MutationRatchetAuthority(
     val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
     /**
      * Base-side preauthorizations for admitting *appearing* candidate-only NON_KILLED identities
-     * (0.7.1g1G3, M30-M39). Defaults to [MutationPopulationAdmissions.NONE], the most restrictive
-     * state: no authorization exists, so every appearing survivor still fails M06.
+     * (0.7.1g1G3, M30-M39). A caller that intentionally has no authorizations must pass
+     * [MutationPopulationAdmissions.NONE] explicitly; that is the most restrictive state, in which
+     * every appearing survivor still fails M06.
      *
      * Deliberately has NO default: this input is enforcement authority, and a forgotten call site
      * must fail to compile rather than silently degrade the transition to "no authorizations".

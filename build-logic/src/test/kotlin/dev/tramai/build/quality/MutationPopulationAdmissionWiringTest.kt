@@ -143,11 +143,17 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
         ReportNormalizer.writeJson(population, File(dir, "config/quality/mutation-baseline.json"))
     }
 
+    /**
+     * A ledger entry proposing the appearing identity, written with the canonical analyzer semantics
+     * the population carries (M33 compares them, so a subset would stop the transition there).
+     */
     private fun admissionLedger(
         identity: String,
         fromBaseSha: String,
-    ): String =
-        """
+        reason: String = "wiring fixture",
+    ): String {
+        val mutatorLines = semantics.mutators.sorted().joinToString("\n") { "                - \"$it\"" }
+        return """
         schemaVersion: "1"
         admissions:
           - identity: "$identity"
@@ -156,20 +162,32 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
             family: "$policyFamily"
             module: ":sample"
             analyzer:
-              pluginVersion: "1.19.0"
-              engineVersion: "1.22.1"
+              pluginVersion: "${semantics.pluginVersion}"
+              engineVersion: "${semantics.engineVersion}"
               mutators:
-                - "$MUTATOR"
-              timeoutConst: 4000
-              timeoutFactor: 1.25
+$mutatorLines
+              timeoutConst: ${semantics.timeoutConst}
+              timeoutFactor: ${semantics.timeoutFactor}
             fromBaseSha: "$fromBaseSha"
             populationDigest: "$projectionDigest"
-            reason: "wiring fixture"
-        """.trimIndent() + "\n"
+            reason: "$reason"
+            """.trimIndent() + "\n"
+    }
 
-    /** Commits the base state and leaves the candidate state uncommitted, as a PR working tree is. */
-    private fun commitBase(dir: File): String {
+    /**
+     * Commits the base state and leaves the candidate state uncommitted, as a PR working tree is.
+     *
+     * When [ledger] is given it belongs to the BASE commit — the only place an authorization can be
+     * read from, since the base side is resolved with git and never from the working tree.
+     */
+    private fun commitBase(
+        dir: File,
+        ledger: String? = null,
+    ): String {
         writePopulation(dir, basePopulation())
+        if (ledger != null) {
+            write(dir, "config/quality/mutation-population-admissions.yml", ledger)
+        }
         git(dir, "init")
         git(dir, "add", "-A")
         git(dir, "-c", "user.email=fixture@test", "-c", "user.name=fixture", "commit", "-m", "base")
@@ -204,6 +222,9 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
     private val appearingIdentity = row(appearingMarker, module = ":sample").identity
 
     private val wrongBaseSha = "1".repeat(40)
+
+    /** The base ledger's own fromBaseSha is mint-time provenance; M35 judges candidate-side mints only. */
+    private val neutralBaseSha = "0".repeat(40)
 
     /** Structural only: the loader never validates that a digest corresponds to a real campaign. */
     private val projectionDigest = "a".repeat(64)
@@ -260,6 +281,83 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
         assertTrue(
             result.output.contains("mutation-population-admissions.yml"),
             "expected the loader's own hard failure for the malformed ledger, got:\n${result.output}",
+        )
+    }
+
+    // ── lifecycle at the real task boundary: MINT → RETAIN → CONSUME ──
+
+    @Test
+    fun `a pending authorization retained byte-identically across an unrelated transition passes`() {
+        val dir = fixture()
+        val ledger = admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha)
+        val baseSha = commitBase(dir, ledger)
+        writePopulation(dir, basePopulation())
+
+        // The authorization is still pending: its target has not appeared, so nothing consumes it.
+        // Before the candidate ledger was wired into the task this was a hard M37 failure - the task
+        // judged the candidate as holding no authorizations and read the pending row as a silent
+        // cancellation of base authority.
+        val result = runner(dir, baseSha).build()
+
+        assertTrue(
+            !result.output.contains("M37"),
+            "a byte-identical pending authorization must not be read as a silent removal:\n${result.output}",
+        )
+    }
+
+    @Test
+    fun `a retained authorization rewritten in a bound field fails M36`() {
+        val dir = fixture()
+        val ledger = admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha)
+        val baseSha = commitBase(dir, ledger)
+        writePopulation(dir, basePopulation())
+        write(
+            dir,
+            "config/quality/mutation-population-admissions.yml",
+            admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha, reason = "rewritten after mint"),
+        )
+
+        val result = runner(dir, baseSha).buildAndFail()
+
+        assertTrue(result.output.contains("M36"), "expected the immutable-retention failure, got:\n${result.output}")
+    }
+
+    @Test
+    fun `an authorized row appearing fails closed on analyzer semantics before admission`() {
+        val dir = fixture()
+        val ledger = admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha)
+        val baseSha = commitBase(dir, ledger)
+        writePopulation(dir, candidatePopulation())
+
+        val result = runner(dir, baseSha).buildAndFail()
+
+        // Documents the CURRENT behaviour, including its cause. The admission loader normalizes the
+        // ledger's mutators with `.sorted()`, while the canonical population analyzer carries
+        // MutationProbeInitScript.PIT_MUTATORS in declaration order; M33 compares those two as
+        // order-sensitive lists, so this transition stops at M33 and never reaches M34's fail-closed
+        // digest check. That is a pre-existing defect in M30-M39 which the ledger wiring in this PR
+        // makes reachable for the first time (with the candidate ledger defaulted to NONE it could
+        // never fire at task level). Normalizing either side is an authority-semantics change and is
+        // deliberately NOT made here.
+        assertTrue(
+            result.output.contains("M33"),
+            "expected the analyzer-semantics stop before admission, got:\n${result.output}",
+        )
+    }
+
+    @Test
+    fun `removing a pending authorization while the authorized row appears fails M37`() {
+        val dir = fixture()
+        val ledger = admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha)
+        val baseSha = commitBase(dir, ledger)
+        writePopulation(dir, candidatePopulation())
+        File(dir, "config/quality/mutation-population-admissions.yml").delete()
+
+        val result = runner(dir, baseSha).buildAndFail()
+
+        assertTrue(
+            result.output.contains("M37"),
+            "an authorization may not be cancelled silently, got:\n${result.output}",
         )
     }
 }
