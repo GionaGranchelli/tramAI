@@ -1,6 +1,9 @@
 # TASK-0.7.1g1G4 — Residual Mutation Remediation and Final Adjudication
 
-**Status:** in progress — Phases A–C landed; Phase D measured and recorded in §5
+**Status:** `ACTIVE` — **remediation increment 1 measured (g1G4a)**. Input 118 `UNDETERMINED`; 2 closed by
+measured kills; **116 remain `UNDETERMINED`**. This record does **not** complete g1G4: the parent objective is
+the final identity-exact adjudication of the whole residual cohort, and the roadmap must not mark g1G4 complete
+when this increment merges. The remaining work is scoped in §5.1 and §6.
 **Branch:** `task/0.7.1g1g4-residual-remediation`
 **Exact base:** `80d6847f7ef639fc830f3edcaedb988d8b1d9d20` (Epic tip, verified before branching)
 **Working tree at start:** clean (`git status --porcelain` empty)
@@ -165,6 +168,46 @@ Controls, all of which hold:
 
 **`UNDETERMINED` is therefore 116, not 0.** The exit target of §1 is not met by this slice and no identity was
 forced into a convenient category to meet it.
+
+## 5.2 Raw-status transition matrices (movement accounting)
+
+Movement is recorded in full, not only as a regression check: an unexpected `NO_COVERAGE → SURVIVED` would not be a
+regression but would still belong in an identity-custody record. Both matrices cover the measurement in §5.
+
+All 344 measured identities (336 census-shared + 8 generated-class mutants new to this measurement):
+
+| Before | After | Count |
+|---|---|---|
+| `KILLED` | `KILLED` | 110 |
+| `NO_COVERAGE` | `KILLED` | **2** |
+| `NO_COVERAGE` | `NO_COVERAGE` | 126 |
+| `SURVIVED` | `SURVIVED` | 51 |
+| `TIMED_OUT` | `TIMED_OUT` | 55 |
+| any other transition | — | **0** |
+
+Restricted to the 177 residual cohort (175 measured; see below):
+
+| Before | After | Count |
+|---|---|---|
+| `NO_COVERAGE` | `KILLED` | **2** |
+| `NO_COVERAGE` | `NO_COVERAGE` | 99 |
+| `SURVIVED` | `SURVIVED` | 28 |
+| `TIMED_OUT` | `TIMED_OUT` | 46 |
+| any other transition | — | **0** |
+
+The only movement in the residual cohort is the two kills of §5. Both are `NullReturnVals` /
+`VoidMethodCall` on the same suspension point of `DefaultApprovalGateway.requestApproval`.
+
+Cohort-scope note: 2 of the 177 residual identities are **not** in this measurement —
+`8e18b4b48968d65f…` and `d38ac52f2843448a…`, both `NegateConditionals` in
+`ApprovalRunAttributionKt.decodeApprovalAttribution` (line 174). They are the two `EQUIVALENT` inlined
+`Iterable.filter` negations adjudicated in `TASK-0.7.1g1G2-RESIDUAL-TAXONOMY.md` §3.2, they are **not** part of the
+118, and the measurement scope deliberately covered the three classes that own cohort identities. They therefore
+carry no transition this increment; their disposition is unchanged.
+
+The two matrices reconcile exactly: the 169 measured identities outside the residual cohort contribute
+`KILLED`→`KILLED` 110, `NO_COVERAGE`→`NO_COVERAGE` 27, `SURVIVED`→`SURVIVED` 23 and `TIMED_OUT`→`TIMED_OUT` 9
+(110 + 27 + 23 + 9 = 169), so 175 + 169 = 344 with no transition left unaccounted for.
 
 ## 5.1 What the remaining 116 need (grouped by production scenario, not by identity)
 
