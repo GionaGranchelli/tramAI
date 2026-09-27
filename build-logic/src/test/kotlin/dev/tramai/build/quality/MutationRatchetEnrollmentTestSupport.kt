@@ -39,12 +39,14 @@ abstract class MutationRatchetEnrollmentTestSupport : MutationRatchetTestSupport
                 classifications = ledger.baseClassifications ?: classifications(),
                 targetFamilies = baseFamilies,
                 enrollments = ledger.baseEnrollments,
+                admissions = MutationPopulationAdmissions.NONE,
             ),
             MutationRatchetCandidate(
                 population = candidate,
                 classifications = ledger.candidateClassifications ?: classifications(),
                 targetFamilies = baseFamilies,
                 enrollments = ledger.candidateEnrollments,
+                admissions = MutationPopulationAdmissions.NONE,
             ),
             MutationPopulationAggregator.canonicalSemantics(),
         )
@@ -87,11 +89,12 @@ abstract class MutationRatchetEnrollmentTestSupport : MutationRatchetTestSupport
                 classifications = classifications,
                 targetFamilies = baseFamilies,
                 enrollments = enrollments,
+                admissions = MutationPopulationAdmissions.NONE,
             )
         passes(
             MutationRatchetVerifier().verify(
                 next,
-                MutationRatchetCandidate(population, classifications, baseFamilies, enrollments),
+                MutationRatchetCandidate(population, classifications, baseFamilies, enrollments, MutationPopulationAdmissions.NONE),
                 MutationPopulationAggregator.canonicalSemantics(),
             ),
         )

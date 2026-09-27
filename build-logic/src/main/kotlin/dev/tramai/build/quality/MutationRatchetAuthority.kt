@@ -34,8 +34,11 @@ data class MutationRatchetAuthority(
      * Base-side preauthorizations for admitting *appearing* candidate-only NON_KILLED identities
      * (0.7.1g1G3, M30-M39). Defaults to [MutationPopulationAdmissions.NONE], the most restrictive
      * state: no authorization exists, so every appearing survivor still fails M06.
+     *
+     * Deliberately has NO default: this input is enforcement authority, and a forgotten call site
+     * must fail to compile rather than silently degrade the transition to "no authorizations".
      */
-    val admissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    val admissions: MutationPopulationAdmissions,
 )
 
 /**
@@ -58,8 +61,12 @@ data class MutationRatchetCandidate(
      * new authorization to the base it is proposed against), but they can never authorize an
      * admission in the same transition: only [MutationRatchetAuthority.admissions] is consulted,
      * so a candidate that both authorizes and admits fails M31.
+     *
+     * Deliberately has NO default, for the same reason as [MutationRatchetAuthority.admissions]:
+     * the candidate ledger is the transition's proposal, so a task that forgets to load it must
+     * not compile. Missing it silently turned every candidate proposal into "none".
      */
-    val admissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
+    val admissions: MutationPopulationAdmissions,
 )
 
 object MutationRatchetAuthorityLoader {

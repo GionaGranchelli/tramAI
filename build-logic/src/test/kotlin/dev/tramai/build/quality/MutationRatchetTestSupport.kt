@@ -145,8 +145,19 @@ abstract class MutationRatchetTestSupport {
         executable: MutationAnalyzerSemantics = MutationPopulationAggregator.canonicalSemantics(),
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, baseClassifications, baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, candidateClassifications, baseFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                baseClassifications,
+                baseFamilies,
+                admissions = MutationPopulationAdmissions.NONE,
+            ),
+            MutationRatchetCandidate(
+                candidatePopulation,
+                candidateClassifications,
+                baseFamilies,
+                admissions = MutationPopulationAdmissions.NONE,
+            ),
             executable,
         )
 
@@ -163,8 +174,14 @@ abstract class MutationRatchetTestSupport {
             },
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                classifications(),
+                baseFamilies,
+                admissions = MutationPopulationAdmissions.NONE,
+            ),
+            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies, admissions = MutationPopulationAdmissions.NONE),
             MutationPopulationAggregator.canonicalSemantics(),
             evolution,
             MutationEvolutionEvidence(evolutionRecords, evolutionProof),
@@ -177,8 +194,19 @@ abstract class MutationRatchetTestSupport {
         candidateFamilies: Map<String, MutationTargetFamily>,
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, classifications(), candidateFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                classifications(),
+                baseFamilies,
+                admissions = MutationPopulationAdmissions.NONE,
+            ),
+            MutationRatchetCandidate(
+                candidatePopulation,
+                classifications(),
+                candidateFamilies,
+                admissions = MutationPopulationAdmissions.NONE,
+            ),
             MutationPopulationAggregator.canonicalSemantics(),
         )
 
