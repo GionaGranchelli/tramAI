@@ -1,9 +1,12 @@
 # TASK-0.7.1g1G4 — Residual Mutation Remediation and Final Adjudication
 
-**Status:** `ACTIVE` — **remediation increment 1 measured (g1G4a)**. Input 118 `UNDETERMINED`; 2 closed by
-measured kills; **116 remain `UNDETERMINED`**. This record does **not** complete g1G4: the parent objective is
-the final identity-exact adjudication of the whole residual cohort, and the roadmap must not mark g1G4 complete
-when this increment merges. The remaining work is scoped in §5.1 and §6.
+**Status:** `ACTIVE`. Increment 1 (g1G4a) closed 2 of 118 by measured kills; increment 2 (g1G4b, §9) closed 23
+of the 27 `DefaultApprovalGateway` identities (21 by measured kills, 2 by instruction-level unreachability), leaving
+**93 of the original 118 `UNDETERMINED`** (`ApprovalResumeCoordinator` 50, `ApprovalSuspensionCoordinator` 39,
+`DefaultApprovalGateway` 4). g1G4a's measurements in §5 are preserved as the historical record of that increment and
+are not restated with newer values. This record does **not** complete g1G4: the parent objective is the final
+identity-exact adjudication of the whole residual cohort, and the roadmap must not mark g1G4 complete while any
+identity lacks a supported final disposition.
 **Branch:** `task/0.7.1g1g4-residual-remediation`
 **Exact base:** `80d6847f7ef639fc830f3edcaedb988d8b1d9d20` (Epic tip, verified before branching)
 **Working tree at start:** clean (`git status --porcelain` empty)
@@ -254,3 +257,182 @@ The two matrices reconcile exactly: the 169 measured identities outside the resi
 4. Measurement: throwaway worktree at the tests commit, narrow `mutation.targetFamilies` to the classes owning
    the cohort, commit the narrowing, run `generateCriticalMutationBaseline`, then confirm `measuredCommit`,
    identity-set equality with the census, and the exact per-identity status movement.
+
+## 9. Increment 2 — TASK-0.7.1g1G4b: DefaultApprovalGateway residuals
+
+**Exact base:** `7703685ca78821c6787077763ed6d02143d5da6f` (equal to `origin/epic/0.7.1-control-plane-authority` at branch time).
+**Preconditions verified:** clean worktree; the committed 118-manifest recomputed to `0c2d107d…`; the input cohort derived
+from that manifest **minus** the two identities g1G4a killed.
+
+### 9.1 Input cohort — 27 identities, derived not counted
+
+| Group | Count | Methods |
+|---|---|---|
+| `NullReturnVals` | 12 | `requestApproval` 5, `persistUngoverned` 3, `persistGoverned` 3, `requireExistingAttributionMatches` 1 |
+| `VoidMethodCall` | 15 | `requestApproval` 5, `persistUngoverned` 4, `persistGoverned` 4, `requireExistingAttributionMatches` 2 |
+| `NegateConditionals` | 0 | — |
+
+The two g1G4a identities (`8b52a478…` block 36/247, `d77706fd…` block 37/279) are excluded by measurement, not by
+line matching: they are removed because the g1G4a campaign recorded them `KILLED`.
+
+### 9.2 Instruction mapping (`javap -p -c -l` at the exact base)
+
+Sentinel `areturn`s per method, each after the guarded call, with the paired resume-path `ResultKt::throwOnFailure`:
+
+| Method | Guarded call | sentinel pc | PIT pair |
+|---|---|---|---|
+| `requestApproval` | `resolveGovernedIdentity` | 164 | blocks 10 / 11 |
+| `requestApproval` | `ApprovalGatewayRequestFactory.createRequest` | 309 | blocks 24 / 25 |
+| `requestApproval` | `ApprovalStore.get` | 462 | blocks 36 / 37 *(killed in g1G4a)* |
+| `requestApproval` | `requireExistingAttributionMatches` | 623 | blocks 47 / 48 |
+| `requestApproval` | `persistUngoverned` | 804 | blocks 61 / 62 |
+| `requestApproval` | `persistGoverned` | 973 | blocks 73 / 74 |
+| `persistUngoverned` | `ApprovalStore.create` | 135 | blocks 11 / 12 |
+| `persistUngoverned` | `SuspendedInvocationStore.create` | 190 | blocks 18 / 19 |
+| `persistUngoverned` | `ApprovalContinuationStore.create` | 248 | blocks 26 / 27 |
+| `persistGoverned` | `GovernedApprovalStore.createGovernedApproval` | 150 | blocks 13 / 14 |
+| `persistGoverned` | `GovernedSuspendedInvocationStore.createGoverned` | 233 | blocks 23 / 24 |
+| `persistGoverned` | `ApprovalContinuationStore.create` | 311 | blocks 32 / 33 |
+| `requireExistingAttributionMatches` | `GovernedApprovalStore.attributionOf` | 156 | blocks 15 / 16 |
+
+Mapping method: PIT block/index pairs are ordered as the sentinel `areturn`s are ordered in the bytecode, and the
+correspondence is confirmed twice — g1G4a's killed identity at block 36 / index 247 is the `ApprovalStore.get`
+sentinel at pc 462, and the artifact's own obligation text for block 24 / index 164 names
+`ApprovalGatewayRequestFactory.createRequest` (pc 309). Each method additionally carries a `VoidMethodCall` row at
+block 7 / index 44, the state-machine *entry* rethrow (`javap` pc 97 in `persistUngoverned`), which executes on every
+resume rather than on one seam.
+
+### 9.3 One identity pair settled by proof, not by test — blocks 10 / 11
+
+`resolveGovernedIdentity` is a `suspend` function whose compiled body is 32 instructions and contains **no**
+`IntrinsicsKt.getCOROUTINE_SUSPENDED`, **no** `ResultKt::throwOnFailure`, and no invocation that can suspend
+(`Continuation.getContext`, `GovernedRunScope$Key.resolve`, `Intrinsics.areEqual`, string concat, and
+`GovernedRunContinuityException.<init>`/`athrow` only). It therefore can never return the suspension sentinel, so in
+`requestApproval` the guard `if_acmpne` after its call always branches past the sentinel `areturn` at pc 164, and the
+resume path that the block-11 rethrow belongs to is never entered. Both identities are recorded **UNREACHABLE** on
+that instruction-level proof; the measurement agrees (`NO_COVERAGE`, `numberOfTestsRun = 0`, unchanged).
+
+### 9.4 Durable tests added (10)
+
+`tramai-engine/src/test/kotlin/dev/tramai/engine/approval/GatewaySuspensionContractTest.kt` — a new class rather than
+edits inside the released suite, reusing its `internal` fakes and the governed suite's `TestGoverned*` stores. Each
+test states a contract, not a mutation:
+
+- ungoverned: every persistence collaborator suspends and the saga completes; factory / approval-store /
+  suspended-invocation / continuation failures after suspension each reach the caller and stop the chain;
+- governed: every governed collaborator suspends and the saga completes; governed-approval and governed-suspension
+  failures after suspension reach the caller and write nothing further; an existing governed approval is re-validated
+  across a suspending attribution read; a failure resuming that read reaches the caller.
+
+Four delegating helpers, each with at most one `failAfter…` parameter, express "a collaborator that suspends and then
+fails" — no per-mutation knobs, no PIT-shaped API. `delay(1)` provides the suspension; every call is bounded by
+`withTimeout(2_000)`, below PIT's `timeoutConstInMillis`. No production code was touched, and no identity was pursued
+by restructuring production.
+
+### 9.5 Measurement provenance
+
+Test commit `aa5b003c`; measurement worktree at that commit with one committed narrowing (measurement commit
+`4bb108c7`, not part of the branch); scope `:tramai-engine` / `dev.tramai.engine.approval.DefaultApprovalGateway*`;
+3 m 49 s; **79 mutants, identity set identical to the frozen census (79/79 shared, 0 lost, 0 new)**.
+
+Full transition matrix (`census` → g1G4b):
+
+| Before | After | Count |
+|---|---|---|
+| `KILLED` | `KILLED` | 32 |
+| `NO_COVERAGE` | `KILLED` | **23** |
+| `NO_COVERAGE` | `NO_COVERAGE` | 2 |
+| `NO_COVERAGE` | `SURVIVED` | **1** |
+| `SURVIVED` | `SURVIVED` | 8 |
+| `TIMED_OUT` | `TIMED_OUT` | 13 |
+| any other transition | — | 0 |
+
+Restricted to the 27-identity cohort: `NO_COVERAGE → KILLED` **21**, `NO_COVERAGE → NO_COVERAGE` 2,
+`NO_COVERAGE → SURVIVED` **1**, `SURVIVED → SURVIVED` 3, other transitions 0. Every input identity is accounted for.
+
+Controls: `KILLED → non-KILLED` regressions **0**; new `TIMED_OUT` **0** (13 `TIMED_OUT` unchanged); no identity left
+the scoped cohort; every new kill names its killing test (all `numberOfTestsRun = 1`).
+
+Explicitly reported movement: `NO_COVERAGE → SURVIVED` — `75ec22b0e703bb8a54ddbde9d6edab92e1e3fbbff3318021b9a6d11eccca21ec`
+(`persistGoverned` block 33 / index 197, `removed call to kotlin/ResultKt::throwOnFailure`). It is the resume path of
+the governed continuation write; it now executes (`numberOfTestsRun = 1`) but is not detected, because the governed
+failure tests inject their failure at the first two governed writes and the governed continuation write is exercised
+only across a successful resume. It stays `UNDETERMINED`; the missing obligation is a governed-continuation-write
+failure test, which this increment did not add.
+
+### 9.6 Identity-exact dispositions
+
+**KILLED this increment — 21** (all `NO_COVERAGE → KILLED`, each credited to exactly one test,
+`numberOfTestsRun = 1`):
+
+| Identity (prefix) | Mutator | Site | Killing test |
+|---|---|---|---|
+| `7b156f3a3c6265cf` | NV | `persistUngoverned` 11/65 | an approval write failure after suspension reaches the caller and stops the chain() |
+| `1b309f9a702a4e6c` | VMC | `persistUngoverned` 12/73 | an approval write failure after suspension reaches the caller and stops the chain() |
+| `1e85193edcd55874` | NV | `persistGoverned` 13/78 | a governed approval write failure after suspension reaches the caller and writes nothing() |
+| `f5c807b43f9fe724` | NV | `requireExistingAttributionMatches` 15/83 | a failure resuming the attribution read reaches the caller() |
+| `9c4c3454c7f77259` | VMC | `persistGoverned` 14/90 | a governed approval write failure after suspension reaches the caller and writes nothing() |
+| `5ac56e0a701ab6fc` | VMC | `requireExistingAttributionMatches` 16/100 | a failure resuming the attribution read reaches the caller() |
+| `a4dbacf129987194` | NV | `persistUngoverned` 18/105 | a suspended-invocation write failure after suspension reaches the caller and stops the chain() |
+| `84224c763190937a` | VMC | `persistUngoverned` 19/113 | a suspended-invocation write failure after suspension reaches the caller and stops the chain() |
+| `7e799e77e8c7396e` | NV | `persistGoverned` 23/136 | a governed suspension write failure after suspension reaches the caller and writes no continuation() |
+| `e8276b8096040f41` | NV | `persistUngoverned` 26/146 | a continuation write failure after suspension reaches the caller and leaves no continuation() |
+| `d8e1290f30007d72` | VMC | `persistGoverned` 24/148 | a governed suspension write failure after suspension reaches the caller and writes no continuation() |
+| `15c7def4f5c98cbd` | VMC | `persistUngoverned` 27/154 | a continuation write failure after suspension reaches the caller and leaves no continuation() |
+| `3883b3c127aed304` | NV | `requestApproval-Atj0Sqo` 24/164 | a request factory failure after suspension reaches the caller and writes nothing() |
+| `7d3fc3ab2af8aff6` | NV | `persistGoverned` 32/185 | a governed request completes when every governed persistence collaborator genuinely suspends() |
+| `6a33ba5d985ae4e6` | VMC | `requestApproval-Atj0Sqo` 25/189 | a request factory failure after suspension reaches the caller and writes nothing() |
+| `4dec4f43d11411f4` | NV | `requestApproval-Atj0Sqo` 47/332 | a failure resuming the attribution read reaches the caller() |
+| `8210e97a204f7064` | VMC | `requestApproval-Atj0Sqo` 48/369 | a failure resuming the attribution read reaches the caller() |
+| `5c2981ad80f33214` | NV | `requestApproval-Atj0Sqo` 61/430 | an approval write failure after suspension reaches the caller and stops the chain() |
+| `6dcb09ca1cc8e2bb` | VMC | `requestApproval-Atj0Sqo` 62/467 | an approval write failure after suspension reaches the caller and stops the chain() |
+| `862220d0ea233a54` | NV | `requestApproval-Atj0Sqo` 73/519 | a governed approval write failure after suspension reaches the caller and writes nothing() |
+| `8dc069d5a0f38543` | VMC | `requestApproval-Atj0Sqo` 74/556 | a governed approval write failure after suspension reaches the caller and writes nothing() |
+
+**Proven UNREACHABLE — 2:** `NullReturnVals` `requestApproval` 10/72 and `VoidMethodCall` `requestApproval` 11/92 (§9.3).
+
+**Still UNDETERMINED — 4:**
+
+| Identity (prefix) | Mutator | Site | Observed |
+|---|---|---|---|
+| `75ec22b0e703bb8a` | VMC | `persistGoverned` 33/197 | `NO_COVERAGE → SURVIVED`, executes on successful resume |
+| — | VMC | `persistUngoverned` 7/44 | `SURVIVED → SURVIVED`, 11 tests run |
+| — | VMC | `persistGoverned` 7/44 | `SURVIVED → SURVIVED`, 5 tests run |
+| — | VMC | `requireExistingAttributionMatches` 7/44 | `SURVIVED → SURVIVED`, 11 tests run |
+
+The three entry-rethrow rows are executed on every resume yet their removal is undetected by any test in this slice,
+including the failing-resume tests. That is stated as an observation, not a disposition: it is consistent with the
+nested frame rethrowing first (so the delivered resume value never carries a failure) and would make them
+equivalence candidates, but no equivalence argument is claimed here.
+
+**`EQUIVALENT` proven this increment: 0. `TOOLING_LIMITATION` proven this increment: 0. `UNREACHABLE` proven: 2.**
+
+### 9.7 Accounting
+
+```
+g1G4 parent UNDETERMINED before g1G4b        116
+g1G4b DefaultApprovalGateway input            27
+  KILLED this increment                       21
+  EQUIVALENT proven                            0
+  UNREACHABLE proven                           2
+  TOOLING_LIMITATION proven                    0
+  still UNDETERMINED                           4
+  lost / duplicate / unexplained             0 / 0 / 0
+g1G4 parent UNDETERMINED after g1G4b         116 - 23 = 93
+```
+
+Parent remainder by class: `ApprovalResumeCoordinator` 50, `ApprovalSuspensionCoordinator` 39,
+`DefaultApprovalGateway` 4. Test added is not equated with identity settled: the 21 kills are measured transitions,
+the 2 unreachability findings rest on the bytecode proof in §9.3, and the 4 survivors stay unresolved.
+
+### 9.8 Reproduction
+
+1. Derive the cohort: committed 118-manifest ∩ `className == dev.tramai.engine.approval.DefaultApprovalGateway`
+   minus the identities the previous increment measured `KILLED`.
+2. Positive control: `./gradlew :tramai-engine:test --tests "dev.tramai.engine.approval.GatewaySuspensionContractTest"`
+   — 10 tests, 0 failures, and the `…Resumes` counters must be non-zero (a synchronous fake cannot reach the state).
+3. Gates: `spotlessApply` **before** `verifyStaticAnalysis`; `:tramai-engine:test`; `spotlessCheck`;
+   `verifyStaticAnalysis`; `verifyChangePolicy -PchangePolicyBase=7703685c… -PchangeClass=runtime-behaviour`.
+4. Measurement: throwaway worktree at the test commit, narrow `mutation.targetFamilies` to
+   `dev.tramai.engine.approval.DefaultApprovalGateway*`, commit the narrowing, run
+   `generateCriticalMutationBaseline`, compare identity sets with the census, then regenerate the two matrices in §9.5.
