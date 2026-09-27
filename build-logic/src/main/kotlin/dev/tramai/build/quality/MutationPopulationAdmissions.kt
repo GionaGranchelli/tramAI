@@ -42,7 +42,7 @@ package dev.tramai.build.quality
  *   consumption-time protection comes from base-side existence, immutability, the exact row, the
  *   analyzer semantics and the trusted measurement digest.
  * - [reason], [issue], [targetPhase] - the recorded adjudication rationale; rewriting them after
- *   the decision fails (the M24/M28 lesson).
+ *   the decision fails (M36, retained immutability).
  * - [authorizedBy], [authorizedAt] - **audit only, no enforcement value.** Recording them is fine;
  *   letting identity or actor carry trust would make them a bypass.
  *

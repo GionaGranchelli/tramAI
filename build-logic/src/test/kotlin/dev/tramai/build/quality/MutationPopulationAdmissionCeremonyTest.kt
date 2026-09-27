@@ -224,21 +224,23 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
     }
 
     @Test
-    fun `pending authorization survives intermediate merges and is consumable much later`() {
-        // The authorization was minted against an older authority base; the current base is
-        // several merges ahead. That is the expected state, not an error - requiring the recorded
-        // SHA to track the immediate base would make delayed consumption impossible.
+    fun `an authorization minted against an older base is consumable much later`() {
+        // The authorization records the authority base it was MINTED against; the current base is
+        // newer. That is the expected state, not an error - requiring the recorded SHA to track the
+        // immediate base would make delayed consumption impossible. So this transition consumes it:
+        // the exact authorized row appears, the ledger entry is removed, the digest matches.
         val mintingSha = "1111111111111111111111111111111111111111"
-        val minted =
-            admission("target", fromBaseSha = mintingSha, populationDigest = digestOf(population(listOf(anchor))))
+        val candidate = population(listOf(anchor, row("target")))
+        val minted = admission("target", populationDigest = digestOf(candidate), fromBaseSha = mintingSha)
         val diagnostics =
             verifyAdmission(
                 basePopulation = population(listOf(anchor)),
                 baseAdmissions = admissions(minted),
-                candidatePopulation = population(listOf(anchor)),
-                candidateAdmissions = admissions(minted),
+                candidatePopulation = candidate,
+                candidateAdmissions = MutationPopulationAdmissions.NONE,
             )
         passes(diagnostics)
+        assertTrue(accepted(diagnostics), "expected the M30 acceptance for a delayed consumption")
     }
 
     @Test
@@ -424,18 +426,27 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
     // ── the shared verdict is public API of the ceremony: a null authorization is M06, verbatim ──
 
     @Test
-    fun `appearance verdict keeps the M06 wording for an unauthorized identity`() {
-        val verdict =
+    fun `appearance verdict reproduces the M06 diagnostic verbatim`() {
+        val target = row("target")
+        val rejected =
             MutationPopulationAdmissionCeremony.appearanceVerdict(
                 baseAdmission = null,
                 candidateAdmission = null,
-                mutant = row("target"),
+                mutant = target,
                 candidateAnalyzer = semantics,
                 freshProjectionHash = "0".repeat(64),
-            )
-        val rejected = verdict as? AdmissionVerdict.Rejected
+            ) as? AdmissionVerdict.Rejected
         assertNotNull(rejected)
         assertEquals(DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR, rejected.code)
-        assertTrue(rejected.message.startsWith("M06:"))
+        // Full equality against the literal diagnostic: the ceremony narrows M06 for authorized
+        // identities and must not restate it. The 8-character identity slice, the row rendering and
+        // the sentence are all pinned here - a prefix check would not prove any of that.
+        val short = identityOf("target", policyFamily, ":engine").take(8)
+        val expected =
+            "M06: :engine dev.tramai.policy.Policy#apply_target()V " +
+                "[org.pitest.mutationtest.engine.gregor.mutators.MathMutator] family 'policy' ($short) is a " +
+                "NEW NON_KILLED identity absent from the base authority. New mutants must be killed; a PR " +
+                "cannot certify its own survivors."
+        assertEquals(expected, rejected.message)
     }
 }

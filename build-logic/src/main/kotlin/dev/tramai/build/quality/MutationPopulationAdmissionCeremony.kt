@@ -83,23 +83,10 @@ object MutationPopulationAdmissionCeremony {
         candidateAnalyzer: MutationAnalyzerSemantics,
         freshProjectionHash: String?,
     ): AdmissionVerdict {
-        val short = shortId(mutant.identity)
+        val short = short(mutant.identity)
         return when {
-            baseAdmission == null && candidateAdmission != null -> {
-                reject(
-                    DiagnosticCode.MUTATION_RATCHET_ADMISSION_UNAUTHORIZED,
-                    "M31: ${describe(mutant)} ($short) is authorized only by this transition: the " +
-                        "authorization is declared in the candidate ledger and absent from the base. A " +
-                        "transition cannot create the authority it consumes.",
-                )
-            }
-
             baseAdmission == null -> {
-                reject(
-                    DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
-                    "M06: ${describe(mutant)} ($short) is a NEW NON_KILLED identity absent from the " +
-                        "base authority. New mutants must be killed; a PR cannot certify its own survivors.",
-                )
+                unauthorizedAppearanceVerdict(mutant, candidateAdmission)
             }
 
             candidateAdmission != null && isRetainedRewrite(baseAdmission, candidateAdmission) -> {
@@ -141,8 +128,8 @@ object MutationPopulationAdmissionCeremony {
                 reject(
                     DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
                     "M34: $short was authorized against population digest " +
-                        "${shortId(baseAdmission.populationDigest)}, but this transition's canonical " +
-                        "fresh measurement hashes to ${shortId(freshProjectionHash)}. An authorization " +
+                        "${short(baseAdmission.populationDigest)}, but this transition's canonical " +
+                        "fresh measurement hashes to ${short(freshProjectionHash)}. An authorization " +
                         "binds the complete measured population.",
                 )
             }
@@ -150,6 +137,34 @@ object MutationPopulationAdmissionCeremony {
             else -> {
                 AdmissionVerdict.Authorized
             }
+        }
+    }
+
+    /**
+     * The verdict for an appearing identity with no base authorization. The M06 rendering here is
+     * byte-identical to the ratchet's own unauthorized-survivor diagnostic ([MutationRatchetVerifier]),
+     * because it is produced by the same formatters: this ceremony narrows M06 for authorized
+     * identities and must not restate it. M31 differs only in naming the self-authorization.
+     */
+    private fun unauthorizedAppearanceVerdict(
+        mutant: MutationOutcome,
+        candidateAdmission: MutationPopulationAdmission?,
+    ): AdmissionVerdict {
+        val described = describe(mutant)
+        val short = short(mutant.identity)
+        return if (candidateAdmission != null) {
+            reject(
+                DiagnosticCode.MUTATION_RATCHET_ADMISSION_UNAUTHORIZED,
+                "M31: $described ($short) is authorized only by this transition: the authorization is " +
+                    "declared in the candidate ledger and absent from the base. A transition cannot create " +
+                    "the authority it consumes.",
+            )
+        } else {
+            reject(
+                DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
+                "M06: $described ($short) is a NEW NON_KILLED identity absent from the base authority. " +
+                    "New mutants must be killed; a PR cannot certify its own survivors.",
+            )
         }
     }
 
@@ -166,7 +181,10 @@ object MutationPopulationAdmissionCeremony {
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
         freshProjectionHash: String?,
-    ): List<VerificationDiagnostic> = mintChecks(base, candidate) + consumptionChecks(base, candidate, freshProjectionHash)
+    ): List<VerificationDiagnostic> {
+        val diagnostics = mintChecks(base, candidate)
+        return diagnostics + consumptionChecks(base, candidate, freshProjectionHash)
+    }
 
     /**
      * M35: a newly introduced authorization binds the exact authority base it is proposed against.
@@ -186,7 +204,7 @@ object MutationPopulationAdmissionCeremony {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,
-                        "M35: the population admission for ${shortId(id)} records fromBaseSha " +
+                        "M35: the population admission for ${short(id)} records fromBaseSha " +
                             "'${admission.fromBaseSha}', not the authority base '${base.baseSha}' this " +
                             "transition is proposed against. fromBaseSha is the base of the minting transition.",
                         findingId = id,
@@ -236,7 +254,7 @@ object MutationPopulationAdmissionCeremony {
                     diagnostics +=
                         VerificationDiagnostic.failure(
                             DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,
-                            "M37: the population admission for ${shortId(id)} was removed without being " +
+                            "M37: the population admission for ${short(id)} was removed without being " +
                                 "consumed: the candidate population does not contain the authorized row as " +
                                 "NON_KILLED. An authorization may not be cancelled silently.",
                             findingId = id,
@@ -250,7 +268,7 @@ object MutationPopulationAdmissionCeremony {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,
-                        "M36: the retained population admission for ${shortId(id)} does not match the base " +
+                        "M36: the retained population admission for ${short(id)} does not match the base " +
                             "authorization. An authorization, once introduced, is immutable.",
                         findingId = id,
                         modulePath = candidateAdmission.module,
@@ -260,7 +278,7 @@ object MutationPopulationAdmissionCeremony {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_ADMISSION_RETAINED,
-                        "M38: the population admission for ${shortId(id)} was consumed but is still present " +
+                        "M38: the population admission for ${short(id)} was consumed but is still present " +
                             "in the candidate ledger. An authorization is single-use; retaining it would " +
                             "re-authorize a future transition.",
                         findingId = id,
@@ -305,14 +323,16 @@ object MutationPopulationAdmissionCeremony {
     private fun obsoleteWarning(id: String): VerificationDiagnostic =
         VerificationDiagnostic.warning(
             DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,
-            "M39: the population admission for ${shortId(id)} is obsolete (target already in the committed " +
+            "M39: the population admission for ${short(id)} is obsolete (target already in the committed " +
                 "base population, or no longer NON_KILLED). It authorizes nothing and may be removed as cleanup.",
         )
-
-    private fun shortId(id: String): String = id.take(SHORT_ID_LENGTH)
-
-    private const val SHORT_ID_LENGTH = 12
 }
 
-/** Short human-readable description of a mutated row, for diagnostics. */
-private fun describe(mutant: MutationOutcome): String = "${mutant.className}.${mutant.method} (${mutant.mutator})"
+/**
+ * The ratchet's canonical diagnostic rendering, delegated rather than reimplemented: that is what
+ * makes this ceremony's M06 verdict the SAME string the ratchet itself produces. The aliases exist
+ * only so the message templates stay readable and inside the line-length limit.
+ */
+private fun describe(mutant: MutationOutcome): String = MutationRatchetVerifier.describe(mutant)
+
+private fun short(id: String): String = MutationRatchetVerifier.short(id)

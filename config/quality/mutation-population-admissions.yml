@@ -32,7 +32,7 @@
 #                     NON_KILLED. Compared at consumption against the verifier's own canonical
 #                     fresh measurement, never against candidate-supplied data, so a candidate can
 #                     never construct the evidence that authorizes itself.
-#   reason            the adjudication rationale; rewriting it after the decision fails (M24/M28)
+#   reason            the adjudication rationale; rewriting it after the decision fails (M36)
 #   issue, targetPhase  optional tracking fields; rewriting them after the decision fails
 #   authorizedBy, authorizedAt  audit only - no enforcement value
 schemaVersion: "1"
