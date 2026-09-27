@@ -189,6 +189,13 @@ enum class DiagnosticCode {
 
     // M25 enrollment authorization is malformed or targets an invalid identity.
     MUTATION_RATCHET_ENROLLMENT_INVALID,
+    MUTATION_RATCHET_ADMISSION_UNAUTHORIZED,
+    MUTATION_RATCHET_ADMISSION_MISMATCH,
+    MUTATION_RATCHET_ADMISSION_INVALID,
+    MUTATION_RATCHET_ADMISSION_RETAINED,
+
+    // M30: an appearing survivor admitted by an exact base-side population authorization.
+    MUTATION_RATCHET_ADMISSION_ACCEPTED,
 
     // M27 authorization removed without enrollment, or retained after enrollment.
     MUTATION_RATCHET_ENROLLMENT_ORPHANED,

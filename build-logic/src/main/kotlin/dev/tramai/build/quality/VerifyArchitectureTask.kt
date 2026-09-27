@@ -486,6 +486,13 @@ abstract class VerifyArchitectureTask : DefaultTask() {
             // verifyMutationRatchet task directly, not the maintainability baseline.
             DiagnosticCode.MUTATION_RATCHET_REGRESSION,
             DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR,
+            // Population admission ceremony (0.7.1g1G3): M06's narrow, exact-authorization
+            // exception. Enforced by verifyMutationRatchet, never by the maintainability baseline.
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_UNAUTHORIZED,
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_RETAINED,
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_ACCEPTED,
             DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_INVALID,
             DiagnosticCode.MUTATION_RATCHET_CLASSIFICATION_REMOVED,
             DiagnosticCode.MUTATION_RATCHET_DUPLICATE_IDENTITY,

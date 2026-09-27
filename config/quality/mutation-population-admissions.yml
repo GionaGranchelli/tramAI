@@ -1,0 +1,39 @@
+# Population-admission preauthorizations for appearing candidate-only NON_KILLED identities.
+#
+# Authority: M30-M39 (TASK-0.7.1g1G3). Design and trust properties:
+# TASK-0.7.1g1G0-POPULATION-ADMISSION-PREFLIGHT.md section 6.
+#
+# Trust boundary (same as the classification enrollment ledger, M22-M29): the authorization must
+# already exist in the PR's BASE. A candidate may never create the authority it uses.
+#
+#   P1 - MINT     the identity is absent from the committed population and from this ledger; the
+#                 transition proposes an authorization. The population does not change.
+#   P2 - CONSUME  a LATER transition, whose base already contains the authorization, commits the
+#                 exact fresh measurement. The authorized row must appear as NON_KILLED, the row
+#                 must equal the authorized row field for field, the analyzer semantics must match,
+#                 the measurement digest must equal populationDigest, and the authorization must be
+#                 removed (consumed) in the same transition.
+#
+# An empty list is the fail-closed default: nothing may be admitted and every candidate-only
+# NON_KILLED identity absent from the committed population still fails M06.
+#
+#   identity          canonical 64-hex schema v2 mutation identity - the only key; descriptor or
+#                     source-line similarity is never authority
+#   status, outcome   the exact persisted row: raw status and canonical outcome
+#   family, module    the exact persisted row: family and module
+#   analyzer          the semantics this authorization is valid under (M16-M19); consuming it
+#                     under different settings fails
+#   fromBaseSha       the exact authority base SHA this authorization was first proposed against.
+#                     Enforced on introduction; thereafter immutable provenance, and deliberately
+#                     NOT required to equal the immediate base SHA of later retaining or consuming
+#                     transitions - a pending authorization legitimately survives intermediate
+#                     merges.
+#   populationDigest  projection hash of the measurement in which the identity appears as
+#                     NON_KILLED. Compared at consumption against the verifier's own canonical
+#                     fresh measurement, never against candidate-supplied data, so a candidate can
+#                     never construct the evidence that authorizes itself.
+#   reason            the adjudication rationale; rewriting it after the decision fails (M36)
+#   issue, targetPhase  optional tracking fields; rewriting them after the decision fails
+#   authorizedBy, authorizedAt  audit only - no enforcement value
+schemaVersion: "1"
+admissions: []
