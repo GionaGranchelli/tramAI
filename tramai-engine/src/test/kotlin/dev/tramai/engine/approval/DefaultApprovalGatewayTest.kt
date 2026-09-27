@@ -54,8 +54,10 @@ import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -624,6 +626,77 @@ class DefaultApprovalGatewayTest {
         }
 
     // -----------------------------------------------------------------------
+    // 11. The suspended-run protocol is a real contract, not an artefact of a
+    // synchronous store: it is observable only when a collaborator genuinely
+    // suspends (and, for the failure case, resumes exceptionally).
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `requestApproval resumes across a genuinely suspending approval store get`(): Unit =
+        runBlocking {
+            val approvalId = "suspending-get-resume"
+            factory.defaultApprovalId = approvalId
+            val approvals = SuspendingApprovalStore(approvalStore)
+            val gateway = createGateway(approvals = approvals)
+
+            val result =
+                withTimeout(2_000) {
+                    gateway.requestApproval(
+                        subject = ApprovalSubject("claim-42"),
+                        recommendation = ApprovalRecommendation("review", "Medical review required"),
+                        requiredRole = ApproverRole("medical-reviewer"),
+                    )
+                }
+
+            // The store really suspended and the caller resumed with the real value: a corrupted
+            // suspension protocol (the returned sentinel replaced by null) cannot satisfy this.
+            assertThat(approvals.getCalls).isEqualTo(1)
+            assertThat(approvals.resumedGets).isEqualTo(1)
+            val suspended = result as ApprovalRequestResult.Suspended
+            assertThat(suspended.approvalId.value).isEqualTo(approvalId)
+            assertThat(approvalStore.get(approvalId)).isNotNull
+        }
+
+    @Test
+    fun `a failure that resumes a genuinely suspending approval store get reaches the caller unchanged`(): Unit =
+        runBlocking {
+            val approvalId = "suspending-get-failure"
+            factory.defaultApprovalId = approvalId
+            val approvals =
+                SuspendingApprovalStore(
+                    delegate = approvalStore,
+                    failAfterResume = IllegalStateException("resumed-get-failure"),
+                )
+            val gateway = createGateway(approvals = approvals)
+
+            val thrown: Throwable? =
+                try {
+                    withTimeout(2_000) {
+                        gateway.requestApproval(
+                            subject = ApprovalSubject("claim-42"),
+                            recommendation = ApprovalRecommendation("review", "Medical review required"),
+                            requiredRole = ApproverRole("medical-reviewer"),
+                        )
+                    }
+                    null
+                } catch (e: Throwable) {
+                    e
+                }
+
+            assertThat(approvals.resumedGets).isEqualTo(1)
+
+            // The store's own failure must reach the caller unwrapped; a dropped rethrow on the
+            // resume path turns this into a type-confusion artefact or a silent success instead.
+            assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+            assertThat(thrown!!.message).isEqualTo("resumed-get-failure")
+
+            // Fail closed: a failed resume leaves no durable trace.
+            assertThat(approvalStore.get(approvalId)).isNull()
+            assertThat(continuationStore.get(approvalId)).isNull()
+            assertThat(suspendedInvocationStore.get(approvalId)).isNull()
+        }
+
+    // -----------------------------------------------------------------------
     // Test helpers
     // -----------------------------------------------------------------------
 
@@ -810,6 +883,32 @@ private class CancellingApprovalStore(
     private val delegate: ApprovalStore,
 ) : ApprovalStore by delegate {
     override suspend fun create(request: ApprovalRequest) = throw CancellationException("simulated-cancel")
+}
+
+/**
+ * Delegating approval store whose `get` genuinely suspends before consulting the delegate, and
+ * optionally fails after resuming.
+ *
+ * The in-memory store completes synchronously, so the gateway's suspension protocol — the
+ * `COROUTINE_SUSPENDED` return and the compiler-generated rethrow on the resumed path — is never
+ * reached. Only a genuinely suspending (and, optionally, failing) collaborator exercises it.
+ */
+private class SuspendingApprovalStore(
+    private val delegate: ApprovalStore,
+    private val failAfterResume: Throwable? = null,
+) : ApprovalStore by delegate {
+    var getCalls = 0
+        private set
+    var resumedGets = 0
+        private set
+
+    override suspend fun get(approvalId: String): ApprovalRequest? {
+        getCalls++
+        delay(1)
+        resumedGets++
+        failAfterResume?.let { throw it }
+        return delegate.get(approvalId)
+    }
 }
 
 /**
