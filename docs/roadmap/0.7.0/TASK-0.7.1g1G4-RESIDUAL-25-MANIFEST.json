@@ -11,9 +11,8 @@
  "digestAlgorithm": "sha256 of the sorted canonical identities joined by newline with a trailing newline",
  "residualCount": 25,
  "baseCensus": {
-  "SURVIVED": 24,
-  "KILLED": 1,
-  "note": "measured at the exact base by the CONTROL run; one identity the brief expected as SURVIVED is already killed by the released ApprovalSuspensionCoordinatorTest"
+  "SURVIVED": 25,
+  "note": "one base KILL was reported for eec481d97a by the broader control run and did not reproduce in the single-class run at the same commit (remediation doc 12.2/12.13)"
  },
  "identities": [
   {
@@ -261,7 +260,7 @@
    "line": 295,
    "pc": 33,
    "case": 0,
-   "disposition": "KILLED (at base, not this increment)"
+   "disposition": "EQUIVALENT (case-0 entry check)"
   },
   {
    "identity": "a15f9807befc68bd1e00747e77a09e147656195cac0833b68904cb326ccf0a5b",
@@ -341,5 +340,19 @@
    "case": 0,
    "disposition": "EQUIVALENT (case-0 entry check)"
   }
- ]
+ ],
+ "adjudication": {
+  "killed": 1,
+  "equivalent": 13,
+  "unreachable": 0,
+  "toolingLimitation": 0,
+  "undetermined": 11,
+  "alreadyDisposedAtBase": 0,
+  "note": "evidence only: no classification, admission or baseline authority is granted by this file"
+ },
+ "reproductionRuns": {
+  "control": "36923eee",
+  "singleClass": "36923eee",
+  "note": "same commit; eec481d97a KILLED in the control narrowing and SURVIVED in the single-class narrowing"
+ }
 }

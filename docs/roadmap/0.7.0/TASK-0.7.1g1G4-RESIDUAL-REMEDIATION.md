@@ -895,18 +895,22 @@ Derived as the original frozen 118 **minus** every identity firmly disposed by g
 
 Composition: `ApprovalResumeCoordinator` 9, `ApprovalSuspensionCoordinator` 12, `DefaultApprovalGateway` 4; by mutator **22 VoidMethodCall + 3 NullReturnVals**. Every block/index also matches the brief's expected sites. Evidence-only manifest: `docs/roadmap/0.7.0/TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json` (explicitly not mutation authority).
 
-**Base-state correction.** The brief expected all 25 to be `SURVIVED` at this base. The exact-base measurement says **24 SURVIVED + 1 KILLED**: `eec481d97a...` (`$compensateSuspension$2$3.invokeSuspend`, 2/12, line 295) is already killed by the released `ApprovalSuspensionCoordinatorTest.compensation failure never replaces the original failure`. Production is byte-identical to the g1G4d measurement, so the difference is in the narrowed run's test selection, not in the code under test. It is reported here rather than silently inherited, and its movement is not claimed as a g1G4e result.
+**Base-state correction, resolved.** The brief expected all 25 `SURVIVED`; the exact-base control run reported `eec481d97a...` (`$compensateSuspension$2$3.invokeSuspend`, 2/12, line 295) as `KILLED` by the released `ApprovalSuspensionCoordinatorTest.compensation failure never replaces the original failure`.
+
+That report does not survive reproduction. A second measurement at the same commit, narrowed to that single class, reports the same mutant **`SURVIVED`** with 11 tests run, and the class's other kills are attributed to *different* tests in the two runs (NC 4/29 killed by `a failure after the challenge but before...` in the control and by `metadata create failure compensates cont...` in the single-class run). Same commit, same tests, same production bytecode, different outcome: the earlier `KILLED` was a per-run attribution artifact, not a semantic kill. The identity is therefore adjudicated on bytecode evidence (12.7) instead of on that report.
 
 ### 12.3 Instruction classification
 
 `javap -p -c -l` on the compiled base for `DefaultApprovalGateway`, `ApprovalResumeCoordinator`, `ApprovalResumeCoordinator$resume$2`, `ApprovalSuspensionCoordinator` and the three `$compensateSuspension$2$*` lambdas. PIT's complete mutant list per method (control run) was aligned positionally with the pc-ordered `ResultKt::throwOnFailure` / `areturn` instructions, and each identity's enclosing **state-machine case label** was read from the `tableswitch` dispatch.
 
+The alignment is anchored, not positional: PIT's own non-`throwOnFailure` mutants pin the numbering on the lambda class -- `NegateConditionals` 4/29 is the `aload_2; if_acmpne` at pc 63, `NullReturnVals` 5/33 is the sentinel `areturn` at pc 67, `NullReturnVals` 8/44 is the `Unit.INSTANCE` `areturn` at pc 77 -- leaving `VoidMethodCall` 2/12 = pc 33 (case 0) and 6/37 = pc 69 (case 1), exactly the parsed instruction order. A purely positional alignment cannot show this, which is why `resume` (11 mutants vs 9 parsed instructions) stays flagged in 12.11.
+
 The value under every mutated `throwOnFailure` is the local named **`$result`** -- for methods the final `Continuation` parameter (verified in each generated signature: `prepareResume`, `compensateStep`, `compensateSuspension`, `persistGoverned`, `persistUngoverned`, `requireExistingAttributionMatches` all end in `kotlin.coroutines.Continuation<...>`), for the lambdas the `invokeSuspend` parameter.
 
 Two families fall out:
 
-- **case 0 = initial entry** (9 identities): the check runs on the incoming completion before any assignment; a `Continuation` (or `Unit.INSTANCE`) is never a `Result.Failure`.
-- **case N>0 = resumed frame** (13 identities): the check is the delivery point for a failure from the child that resumed us.
+- **case 0 = initial entry** (10 identities): the check runs on the incoming completion before any assignment; a `Continuation` (or `Unit.INSTANCE`) is never a `Result.Failure`.
+- **case N>0 = resumed frame** (12 identities): the check is the delivery point for a failure from the child that resumed us.
 
 ### 12.4 Falsification attempts
 
@@ -929,7 +933,7 @@ No other test was added: for the remaining families the gap is proof, not observ
 
 ### 12.7 Proofs
 
-**EQUIVALENT -- case-0 entry checks (9).** The mutated instruction is `throwOnFailure($result)` in the state-machine's label-0 case. For the four generated lambdas, `invoke` cannot call it with anything but `Unit.INSTANCE` (bridge quoted above) and label 0 is never resumed. For the six methods, `$result` at label 0 is the method's final `Continuation` parameter. `kotlin.ResultKt.throwOnFailure` throws only when its argument is a `Result.Failure`; neither `Unit.INSTANCE` nor a `Continuation` can be one. Removing the call therefore cannot change any reachable production execution.
+**EQUIVALENT -- case-0 entry checks (10).** The mutated instruction is `throwOnFailure($result)` in the state-machine's label-0 case. For the four generated lambdas, `invoke` cannot call it with anything but `Unit.INSTANCE` (bridge quoted above) and label 0 is never resumed. For the six methods, `$result` at label 0 is the method's final `Continuation` parameter. `kotlin.ResultKt.throwOnFailure` throws only when its argument is a `Result.Failure`; neither `Unit.INSTANCE` nor a `Continuation` can be one. Removing the call therefore cannot change any reachable production execution.
 
 **EQUIVALENT -- discarded lambda results (3).** The mutated `areturn` is the label-1 return of `$compensateSuspension$2$1/$2/$3`. Its sole consumer is `compensateStep`'s action invocation, which compares the value against `getCOROUTINE_SUSPENDED`, runs `throwOnFailure` on it (`null` passes), and discards it (`pop`) before returning `Unit.INSTANCE`. The lambdas' declared result is `Unit` and no caller reads the value, so `null` and `Unit.INSTANCE` are indistinguishable to every reachable consumer.
 
@@ -994,15 +998,16 @@ The measured kill:
 | `eb8827c4f4` | DefaultApprovalGateway | requireExistingAttributionMatches | VoidMethodCall | 7/44 | 90 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
 
 ```
-input                          25
-KILLED                          1   (measured this increment)
-KILLED at base                  1   (not this increment)
-EQUIVALENT                     12
-UNREACHABLE                     0
-TOOLING_LIMITATION              0
+residual input                 25
+  already disposed at base      0   (one reported KILL did not reproduce: 12.2)
+newly settled in g1G4e         14   (KILLED 1 + EQUIVALENT 13)
+  KILLED                        1
+  EQUIVALENT                   13
+  UNREACHABLE                   0
+  TOOLING_LIMITATION            0
 still UNDETERMINED             11
 -----------------------------------
-sum                            25
+0 + 14 + 11                    25
 
 identity loss                   0
 identity gain                   0
@@ -1014,10 +1019,12 @@ new TIMED_OUT                   0
 ### 12.10 Parent accounting and closure
 
 ```
-parent before          25
-settled in g1G4e       13   (KILLED 1 + EQUIVALENT 12 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
-parent after           11
+parent before          25   (already disposed at the exact base: 0 -- the one reported base kill did not reproduce)
+settled in g1G4e       14   (KILLED 1 + EQUIVALENT 13 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
+parent after           11   (25 - 14)
 ```
+
+Ledger identity: 0 + 14 + 11 = 25 and 1 + 13 + 11 = 25.
 
 **TASK-0.7.1g1G4 does not close.** Eleven identities remain explicitly UNDETERMINED, all of them resumed-frame `throwOnFailure` removals. No classification, adoption, admission, baseline, timeout, ceiling or CI-gate authority was changed; none of these identities was admitted through any mechanism, and the canonical mutation baseline, `mutation-classifications.yml` and the population-admission ledger are untouched.
 
@@ -1037,3 +1044,10 @@ One caveat stated plainly: for `ApprovalResumeCoordinator.resume` the complete m
 - no production change, no baseline, classification, admission, mutator, timeout, ceiling or gate change;
 - no reflective continuation probe (12.6);
 - g1G4 stays open; no successor task is created, because the remaining eleven have one shared, already-identified investigation rather than a new one.
+
+### 12.13 Review response (PR #457)
+
+- **Finding 1 (case-0 theorem vs an observed KILL): resolved, and the resolution improves the ledger.** The `$compensateSuspension$2$3` mapping is anchored, not positional: PIT's NC/NV mutants pin `VoidMethodCall` 2/12 to pc 33 (case 0) and 6/37 to pc 69 (case 1). The bridge of all four generated lambdas is explicit -- `invoke(p1)` -> `create(p1)` -> `invokeSuspend(getstatic kotlin/Unit.INSTANCE)` -- so case 0 can only receive `Unit.INSTANCE`. The reported KILL did not reproduce: at the same commit, narrowed to that single class, the same mutant is `SURVIVED` (11 tests), and the class's other kills drift between tests across the two runs. It was a per-run attribution artifact, not a counterexample, so the theorem stands and `eec481d97a...` counts as the tenth proven case-0 entry rather than a base kill.
+- **Finding 2 (ledger arithmetic): fixed.** Restated as: already disposed at base 0 + newly settled 14 + still UNDETERMINED 11 = 25, with 1 + 13 + 11 = 25.
+- **Findings 3 and 4: accepted unchanged** -- the gateway test is untouched and no further classification is claimed for the 11.
+- **Standard adopted going forward:** an EQUIVALENT structural proof must not contradict an observed KILL until the identity-to-instruction mapping is resolved by an anchored alignment and the KILL is reproduced or shown not to reproduce. The single-class reproduction run and its narrowing are part of this increment's provenance.
