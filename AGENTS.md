@@ -211,9 +211,14 @@ When a pipeline fails:
    - `workflow-defect` — CI workflow configuration is wrong
    - `flaky-external` — network, rate limit, or transient dependency failure
 4. State the diagnosed category and evidence before editing.
-5. Do not modify a gate until evidence shows the gate is incorrect.
-6. Do not modify a deviation until the current and canonical populations have been measured.
-7. After two unsuccessful fixes, stop and provide a root-cause report rather than applying another speculative patch.
+5. Before attributing a failing required check to the candidate change, reproduce the same failing test
+   or suite at the exact pristine base when feasible. A failure may be classified as
+   pre-existing/environmental only when the base reproduces the same relevant failure signature; file
+   ownership or apparent unrelatedness alone is not evidence. Record both candidate and base
+   commands/results in the completion report.
+6. Do not modify a gate until evidence shows the gate is incorrect.
+7. Do not modify a deviation until the current and canonical populations have been measured.
+8. After two unsuccessful fixes, stop and provide a root-cause report rather than applying another speculative patch.
 
 ## Completion Report Format
 
