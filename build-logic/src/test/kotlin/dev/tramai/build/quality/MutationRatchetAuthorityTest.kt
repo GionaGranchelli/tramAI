@@ -85,6 +85,7 @@ class MutationRatchetAuthorityTest {
                         population = candidatePopulation,
                         classifications = candidateClassifications,
                         targetFamilies = candidateConfiguration.mutation.targetFamilies,
+                        admissions = MutationPopulationAdmissions.NONE,
                     ),
                     executable = MutationPopulationAggregator.canonicalSemantics(),
                 ).filter { it.severity == DiagnosticSeverity.FAILURE }
@@ -140,6 +141,7 @@ class MutationRatchetAuthorityTest {
                         candidatePopulation,
                         authority.classifications,
                         configuration.mutation.targetFamilies,
+                        admissions = MutationPopulationAdmissions.NONE,
                     ),
                     MutationPopulationAggregator.canonicalSemantics(),
                 ).filter { it.severity == DiagnosticSeverity.FAILURE }

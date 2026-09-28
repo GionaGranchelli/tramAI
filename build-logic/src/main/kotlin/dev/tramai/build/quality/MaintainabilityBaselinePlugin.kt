@@ -860,6 +860,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         classifications = candidateClassifications,
                         targetFamilies = testQualityConfiguration.mutation.targetFamilies,
                         enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir),
+                        // The transition's own proposal must be loaded from the repository, not
+                        // defaulted away: without it M35 cannot bind a minted authorization to its
+                        // base, and M36-M38 cannot see retention or rewriting of a pending row.
+                        admissions = MutationPopulationAdmissionLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(
@@ -910,6 +914,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 // same tree, so the enrollment ledger is identical on both sides: an enrollment can never
                 // authorize a classification in the transition that introduces it (M23 still applies).
                 val enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir)
+                // Release verification reasons over the committed authority surface on both sides,
+                // exactly like the enrollment ledger above, so the candidate side supplies the same
+                // loaded ledger instead of a default.
+                val admissions = MutationPopulationAdmissionLoader.load(project.rootDir)
                 verifyTestQualityDiagnostics(
                     project,
                     "Release mutation",
@@ -921,6 +929,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
                                 enrollments = enrollments,
+                                admissions = admissions,
                             ),
                         candidate =
                             MutationRatchetCandidate(
@@ -928,6 +937,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
                                 enrollments = enrollments,
+                                admissions = admissions,
                             ),
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                     ),

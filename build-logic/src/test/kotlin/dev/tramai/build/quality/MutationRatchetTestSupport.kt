@@ -62,6 +62,12 @@ abstract class MutationRatchetTestSupport {
 
     protected val semantics: MutationAnalyzerSemantics = MutationPopulationAggregator.canonicalSemantics()
 
+    /**
+     * Fixtures propose no population admissions, and the argument is explicit on purpose: the
+     * production call sites must state their ledger rather than inherit a default.
+     */
+    protected val noAdmissions = MutationPopulationAdmissions.NONE
+
     protected fun row(
         marker: String,
         family: String = policyFamily,
@@ -145,8 +151,19 @@ abstract class MutationRatchetTestSupport {
         executable: MutationAnalyzerSemantics = MutationPopulationAggregator.canonicalSemantics(),
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, baseClassifications, baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, candidateClassifications, baseFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                baseClassifications,
+                baseFamilies,
+                admissions = noAdmissions,
+            ),
+            MutationRatchetCandidate(
+                candidatePopulation,
+                candidateClassifications,
+                baseFamilies,
+                admissions = noAdmissions,
+            ),
             executable,
         )
 
@@ -163,8 +180,14 @@ abstract class MutationRatchetTestSupport {
             },
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                classifications(),
+                baseFamilies,
+                admissions = noAdmissions,
+            ),
+            MutationRatchetCandidate(candidatePopulation, classifications(), baseFamilies, admissions = noAdmissions),
             MutationPopulationAggregator.canonicalSemantics(),
             evolution,
             MutationEvolutionEvidence(evolutionRecords, evolutionProof),
@@ -177,8 +200,19 @@ abstract class MutationRatchetTestSupport {
         candidateFamilies: Map<String, MutationTargetFamily>,
     ): List<VerificationDiagnostic> =
         MutationRatchetVerifier().verify(
-            MutationRatchetAuthority(BASE_SHA, basePopulation, classifications(), baseFamilies),
-            MutationRatchetCandidate(candidatePopulation, classifications(), candidateFamilies),
+            MutationRatchetAuthority(
+                BASE_SHA,
+                basePopulation,
+                classifications(),
+                baseFamilies,
+                admissions = noAdmissions,
+            ),
+            MutationRatchetCandidate(
+                candidatePopulation,
+                classifications(),
+                candidateFamilies,
+                admissions = noAdmissions,
+            ),
             MutationPopulationAggregator.canonicalSemantics(),
         )
 

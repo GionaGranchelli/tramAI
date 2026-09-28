@@ -285,8 +285,8 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
             )
         val diagnostics =
             MutationRatchetVerifier().verify(
-                MutationRatchetAuthority(BASE_SHA, base, classifications(), families),
-                MutationRatchetCandidate(candidate, classifications(), families),
+                MutationRatchetAuthority(BASE_SHA, base, classifications(), families, admissions = noAdmissions),
+                MutationRatchetCandidate(candidate, classifications(), families, admissions = noAdmissions),
                 semantics,
                 MutationPopulationEvolution.RECORDED_EVOLUTION,
                 MutationEvolutionEvidence(
@@ -308,8 +308,14 @@ class MutationRatchetDiscriminatorTest : MutationRatchetTestSupport() {
             )
         val diagnostics =
             MutationRatchetVerifier().verify(
-                MutationRatchetAuthority(BASE_SHA, base, classifications(), mapOf(policyFamily to wide)),
-                MutationRatchetCandidate(candidate, classifications(), baseFamilies),
+                MutationRatchetAuthority(
+                    BASE_SHA,
+                    base,
+                    classifications(),
+                    mapOf(policyFamily to wide),
+                    admissions = noAdmissions,
+                ),
+                MutationRatchetCandidate(candidate, classifications(), baseFamilies, admissions = noAdmissions),
                 semantics,
                 MutationPopulationEvolution.RECORDED_EVOLUTION,
                 MutationEvolutionEvidence(

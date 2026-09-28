@@ -546,7 +546,10 @@ private class SuspendingGovernedApprovalStore(
     }
 }
 
-/** Governed suspension capability over the shared test store, suspending on the governed write. */
+/**
+ * Governed suspension capability over the shared test store: both write paths suspend, so the
+ * governed path exercises the same suspension protocol as the legacy one.
+ */
 private class SuspendingGovernedSuspendedInvocationStore(
     private val delegate: TestGovernedSuspendedInvocationStore,
     private val failAfterGovernedWriteResumes: Throwable? = null,
