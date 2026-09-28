@@ -875,3 +875,165 @@ The 25 residuals are: 12 `ApprovalSuspensionCoordinator` survivors above, the 9 
 - no baseline, classification, admission-ledger, mutator-set, timeout-policy, deviation-ceiling or gate change;
 - the 9 `ApprovalResumeCoordinator` and 4 `DefaultApprovalGateway` survivors were not touched;
 - g1G4e was not started.
+
+## 12. Increment 5 -- TASK-0.7.1g1G4e: Final residual structural adjudication
+
+### 12.1 Start gate
+
+- **task base**: `36923eeee79145e63281e6378b114404e2cddba5` -- verified as the exact `origin/epic/0.7.1-control-plane-authority` tip (0 commits after, clean tree, `#456 merged=true` with that merge commit).
+- branch: `task/0.7.1g1G4e-final-residual-adjudication`
+- **test commit**: `29ead0226fcfbdb59cce0ecdea279f7e51a74c3f`
+- **narrowings**: candidate `1551a4db`, control `c50b7342` (both throwaway worktrees, committed there only)
+
+### 12.2 The residual 25
+
+Derived as the original frozen 118 **minus** every identity firmly disposed by g1G4a-d, by canonical identity. The derivation is proven by digest, not asserted:
+
+```
+4cd9b668d37657b42e11c4d36836be68ddb36916cb4b27aaaa4e015bacaa8f5c   MATCH
+```
+
+Composition: `ApprovalResumeCoordinator` 9, `ApprovalSuspensionCoordinator` 12, `DefaultApprovalGateway` 4; by mutator **22 VoidMethodCall + 3 NullReturnVals**. Every block/index also matches the brief's expected sites. Evidence-only manifest: `docs/roadmap/0.7.0/TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json` (explicitly not mutation authority).
+
+**Base-state correction.** The brief expected all 25 to be `SURVIVED` at this base. The exact-base measurement says **24 SURVIVED + 1 KILLED**: `eec481d97a...` (`$compensateSuspension$2$3.invokeSuspend`, 2/12, line 295) is already killed by the released `ApprovalSuspensionCoordinatorTest.compensation failure never replaces the original failure`. Production is byte-identical to the g1G4d measurement, so the difference is in the narrowed run's test selection, not in the code under test. It is reported here rather than silently inherited, and its movement is not claimed as a g1G4e result.
+
+### 12.3 Instruction classification
+
+`javap -p -c -l` on the compiled base for `DefaultApprovalGateway`, `ApprovalResumeCoordinator`, `ApprovalResumeCoordinator$resume$2`, `ApprovalSuspensionCoordinator` and the three `$compensateSuspension$2$*` lambdas. PIT's complete mutant list per method (control run) was aligned positionally with the pc-ordered `ResultKt::throwOnFailure` / `areturn` instructions, and each identity's enclosing **state-machine case label** was read from the `tableswitch` dispatch.
+
+The value under every mutated `throwOnFailure` is the local named **`$result`** -- for methods the final `Continuation` parameter (verified in each generated signature: `prepareResume`, `compensateStep`, `compensateSuspension`, `persistGoverned`, `persistUngoverned`, `requireExistingAttributionMatches` all end in `kotlin.coroutines.Continuation<...>`), for the lambdas the `invokeSuspend` parameter.
+
+Two families fall out:
+
+- **case 0 = initial entry** (9 identities): the check runs on the incoming completion before any assignment; a `Continuation` (or `Unit.INSTANCE`) is never a `Result.Failure`.
+- **case N>0 = resumed frame** (13 identities): the check is the delivery point for a failure from the child that resumed us.
+
+### 12.4 Falsification attempts
+
+Per the brief, falsification came first: *what would have to be true for this mutation to be observable?*
+
+1. `75ec22b0e7...` (`persistGoverned`, 33/197) had a named missing obligation -- a governed continuation write that suspends and then fails. The test was written, and the identity **died**: this is the one measured kill of the increment (12.8).
+2. The case-0 entries were attacked through their call chain. For the lambdas the generated bridge is explicit: `invoke(scope, cont)` -> `create(...)` -> `invokeSuspend(getstatic kotlin/Unit.INSTANCE)`, and the `tableswitch` dispatches label 0 to the mutated instruction. Nothing can resume a fresh, label-0 continuation with a failure, so removing the check cannot be observed. The six method cases read the incoming `Continuation` parameter, which is likewise never a failure.
+3. The three `NullReturnVals` areturns were attacked through their consumer. In `compensateStep` case 0 the action invocation is followed by `dup; aload <SUSPENDED>; if_acmpne 143`, then `141: aload 4; 143: pop; 144: goto 158`, then `158: getstatic Unit.INSTANCE; 161: areturn`: the returned value is compared against the sentinel, passed to `throwOnFailure` (a `null` is not a failure) and **discarded**. The lambda's result is never read.
+4. The resumed cases were attacked by inspecting what follows the check. In `compensateSuspension` case 3 the sequence is `536: aload 9; 538: throwOnFailure; 541: aload 9; 543: pop; 544: goto 549` -> `549: getstatic Unit.INSTANCE; 552: areturn`: the value is unwrapped, discarded, and the method returns Unit. So removing that check would *swallow* a failure delivered to that case -- the mutation is not obviously harmless, and no existing test drives a failure into case 3 (the g1G4d cancellation test cancels the **first** compensation action). That is a falsifiable next question, not an equivalence.
+
+### 12.5 Durable test added
+
+One test, in `GatewaySuspensionContractTest`: `a governed continuation write failure after suspension reaches the caller and leaves no continuation`. It suspends the governed continuation write and fails it on the resumed frame, then asserts the failure reaches the caller, that the continuation write genuinely resumed (`writeResumes == 1`), that **no continuation is persisted**, and -- pinning the real partial-creation behavior rather than assuming a rollback -- that the two preceding governed writes *are* durable. It observes something the existing governed tests did not: they fail the governed approval write and the governed suspension write, not the third write.
+
+No other test was added: for the remaining families the gap is proof, not observation (12.11).
+
+### 12.6 Diagnostic probes
+
+**None merged, and none were written.** The brief allowed a throwaway reflective probe to manipulate a private continuation label; the call-chain, case-label and consumer evidence above came from bytecode plus the PIT reports, so no probe was needed and no PIT-shaped reflective test exists in the tree.
+
+### 12.7 Proofs
+
+**EQUIVALENT -- case-0 entry checks (9).** The mutated instruction is `throwOnFailure($result)` in the state-machine's label-0 case. For the four generated lambdas, `invoke` cannot call it with anything but `Unit.INSTANCE` (bridge quoted above) and label 0 is never resumed. For the six methods, `$result` at label 0 is the method's final `Continuation` parameter. `kotlin.ResultKt.throwOnFailure` throws only when its argument is a `Result.Failure`; neither `Unit.INSTANCE` nor a `Continuation` can be one. Removing the call therefore cannot change any reachable production execution.
+
+**EQUIVALENT -- discarded lambda results (3).** The mutated `areturn` is the label-1 return of `$compensateSuspension$2$1/$2/$3`. Its sole consumer is `compensateStep`'s action invocation, which compares the value against `getCOROUTINE_SUSPENDED`, runs `throwOnFailure` on it (`null` passes), and discards it (`pop`) before returning `Unit.INSTANCE`. The lambdas' declared result is `Unit` and no caller reads the value, so `null` and `Unit.INSTANCE` are indistinguishable to every reachable consumer.
+
+### 12.8 Measurement
+
+```
+./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks
+```
+
+Same narrowing in both worktrees: `mutation.targetFamilies.approval` -> `:tramai-engine` + the three residual owners (one file, 2 insertions / 3 deletions, no other family touched). Raw `mutations.xml` consumed; identities recomputed with the repository schema; joined by full canonical identity.
+
+- control `36923eee` (narrowing `c50b7342`) -- **BUILD SUCCESSFUL in 5 m 12 s**, 344 mutants
+- candidate `29ead022` (narrowing `1551a4db`) -- **BUILD SUCCESSFUL in 5 m 19 s**, 344 mutants
+- 344/344 shared, **0 lost, 0 new**
+
+| control -> candidate | count |
+|---|---:|
+| KILLED -> KILLED | 240 |
+| SURVIVED -> KILLED | 1 |
+| SURVIVED -> SURVIVED | 53 |
+| NO_COVERAGE -> NO_COVERAGE | 10 |
+| TIMED_OUT -> TIMED_OUT | 40 |
+
+**0 KILLED regressions. 0 new TIMED_OUT. No identity churn.**
+
+Residual cohort: `KILLED -> KILLED` 1, `SURVIVED -> KILLED` 1, `SURVIVED -> SURVIVED` 23.
+
+The measured kill:
+
+- `75ec22b0e7...` `DefaultApprovalGateway.persistGoverned` 33/197, line 244, `removed call to kotlin/ResultKt::throwOnFailure`
+- killing test: `GatewaySuspensionContractTest.a governed continuation write failure after suspension reaches the caller and leaves no continuation`
+- `numberOfTestsRun`: 1
+
+### 12.9 Final disposition table
+
+| identity | class | method | mutator | block/index | pc | case | mutated instruction | disposition |
+|---|---|---|---|---|---|---|---|---|
+| `63e5372ba3` | ApprovalResumeCoordinator | authorizeResume | VoidMethodCall | 55/292 | 531 | 4 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `ab78ed8577` | ApprovalResumeCoordinator | prepareResume | VoidMethodCall | 7/44 | 106 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `5397c6bf59` | ApprovalResumeCoordinator | resume | VoidMethodCall | 56/395 | 879 | 6 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `ef13cbec0d` | ApprovalResumeCoordinator | resume | VoidMethodCall | 69/501 | 1079 | 7 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `ecb1e83af5` | ApprovalResumeCoordinator | resume | VoidMethodCall | 87/617 | 1292 | 8 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `9026b993fd` | ApprovalResumeCoordinator | resume | VoidMethodCall | 107/746 | None | None | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `62911071da` | ApprovalResumeCoordinator | revealAndValidateReplayPayload | VoidMethodCall | 33/205 | 386 | 2 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `e0ae69141e` | ApprovalResumeCoordinator$resume$2 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `492f9a132e` | ApprovalResumeCoordinator$resume$2 | invokeSuspend | VoidMethodCall | 7/40 | 75 | 1 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `60f7b020e0` | ApprovalSuspensionCoordinator | compensateStep | VoidMethodCall | 7/44 | 90 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `f60db12bdb` | ApprovalSuspensionCoordinator | compensateSuspension | VoidMethodCall | 7/44 | 102 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `887313eb01` | ApprovalSuspensionCoordinator | compensateSuspension | VoidMethodCall | 22/196 | 390 | 2 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `4fc586ff85` | ApprovalSuspensionCoordinator | compensateSuspension | VoidMethodCall | 32/271 | 538 | 3 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `ebc96b3e85` | ApprovalSuspensionCoordinator$compensateSuspension$2$1 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `f802165800` | ApprovalSuspensionCoordinator$compensateSuspension$2$1 | invokeSuspend | NullReturnVals | 9/43 | None | None | `replaced return value with null` | EQUIVALENT (discarded lambda result) |
+| `6cef3fd2e2` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `1c4ca901fd` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | VoidMethodCall | 6/37 | 70 | 1 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `f175e8698d` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | NullReturnVals | 8/44 | None | None | `replaced return value with null` | EQUIVALENT (discarded lambda result) |
+| `eec481d97a` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | KILLED (at base, not this increment) |
+| `a15f9807be` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | VoidMethodCall | 6/37 | 69 | 1 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
+| `70d345f720` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | NullReturnVals | 8/44 | None | None | `replaced return value with null` | EQUIVALENT (discarded lambda result) |
+| `d5b70d305c` | DefaultApprovalGateway | persistGoverned | VoidMethodCall | 7/44 | 98 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `75ec22b0e7` | DefaultApprovalGateway | persistGoverned | VoidMethodCall | 33/197 | 332 | 3 | `removed call to ResultKt::throwOnFailure` | KILLED |
+| `098258d70a` | DefaultApprovalGateway | persistUngoverned | VoidMethodCall | 7/44 | 97 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+| `eb8827c4f4` | DefaultApprovalGateway | requireExistingAttributionMatches | VoidMethodCall | 7/44 | 90 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
+
+```
+input                          25
+KILLED                          1   (measured this increment)
+KILLED at base                  1   (not this increment)
+EQUIVALENT                     12
+UNREACHABLE                     0
+TOOLING_LIMITATION              0
+still UNDETERMINED             11
+-----------------------------------
+sum                            25
+
+identity loss                   0
+identity gain                   0
+duplicates                      0
+KILLED regressions              0
+new TIMED_OUT                   0
+```
+
+### 12.10 Parent accounting and closure
+
+```
+parent before          25
+settled in g1G4e       13   (KILLED 1 + EQUIVALENT 12 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
+parent after           11
+```
+
+**TASK-0.7.1g1G4 does not close.** Eleven identities remain explicitly UNDETERMINED, all of them resumed-frame `throwOnFailure` removals. No classification, adoption, admission, baseline, timeout, ceiling or CI-gate authority was changed; none of these identities was admitted through any mechanism, and the canonical mutation baseline, `mutation-classifications.yml` and the population-admission ledger are untouched.
+
+### 12.11 Residual record (g1G4e output, not a new task)
+
+All eleven share one shape: `throwOnFailure($result)` at a **resumed** case (label N>0), where the value is the failure a child delivered when it resumed the frame. What is established for every one of them: the exact instruction, its case label, and that the case is reachable (the control run executes them). What is missing is the site-specific step from 12.4:2 -- which collaborator owns that case, whether it can complete with a failure after resuming, and whether the value is swallowed or re-checked by the enclosing frame.
+
+Two concrete falsifiable experiments, in priority order:
+
+1. `4fc586ff85...` (`compensateSuspension` case 3) and `887313eb01...` (case 2): drive the **third** compensation action (the gate's `cancelApproval`) to deliver a `CancellationException` on its resumed frame and assert the cancellation still reaches the caller. If it does not, the identity is killable; if it does, the value must be arriving through a different case. This is the same experiment the g1G4d harness ran for the **first** action.
+2. `492f9a132e...`, `1c4ca901fd...`, `a15f9807be...` (the lambdas' label-1 returns): name the frame that performs the check which unwraps the failure this lambdas return, and prove it receives the same exception object. Reason for doubt: the value is returned unchanged (`aload_1; areturn`), so the argument depends on which enclosing frame checks it -- through a coroutine builder that is not visible in this class's bytecode.
+
+One caveat stated plainly: for `ApprovalResumeCoordinator.resume` the complete mutant list per method (11) exceeds the pc-ordered `throwOnFailure` instructions found in the parsed body (9), so positions for its four identities are **positional** and the exact instruction for `9026b993fd...` (107/746) was not resolved. The next step there is an alignment using the full per-block mutant list including non-`throwOnFailure` mutators, not another test.
+
+### 12.12 Not done
+
+- no production change, no baseline, classification, admission, mutator, timeout, ceiling or gate change;
+- no reflective continuation probe (12.6);
+- g1G4 stays open; no successor task is created, because the remaining eleven have one shared, already-identified investigation rather than a new one.
