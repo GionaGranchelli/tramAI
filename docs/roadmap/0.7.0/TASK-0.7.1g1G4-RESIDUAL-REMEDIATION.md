@@ -525,17 +525,19 @@ the instance is not the contract (the tests assert type plus a per-test unique m
 
 ### 10.4 Measurement provenance
 
-Measured test commit `4d772e81`. The shipped head differs from it only by test-harness formatting (line wrapping,
-shortened double names, two fixture knobs moved to fields) with the same 22 tests and the same assertions, and a nested
-measurement at the shipped head failed to compile before that was corrected. **Certified at the shipped head.** The measurement was re-run at the shipped head (`36c50804`, narrowing
-`bfd061af`, 5 m 10 s): the identity set is identical (161/161), the cohort reproduces exactly - 39
-`NO_COVERAGE -> KILLED`, 1 `SURVIVED -> KILLED`, 7 `NO_COVERAGE -> SURVIVED`, 3 `SURVIVED -> SURVIVED` - and there is
-**zero status drift** against the earlier measured head, 0 regressions and 0 new `TIMED_OUT`. An intermediate head
-(`c606501c`) did not compile, which the nested measurement caught before it was certified. Throwaway worktree at
-that commit with one committed narrowing (measurement commit `f01d296e`,
-not part of this branch); command `./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks`;
-**4 m 50 s**, 161 mutants, **identity set identical to the control (161/161 shared, 0 lost, 0 new)**. Control: the same
-narrowing at base `6d798f80`, 5 m 25 s, 782 tests.
+Measured test commits: `4d772e81` (the original harness) and `423779b2` (after the review fix), each in a throwaway
+worktree with one committed narrowing (`f01d296e`, `f9345b2c`).
+
+**Certified.** The measurement was re-run at every test head that mattered: `36c50804` (narrowing `bfd061af`,
+5 m 10 s) and, after the g1G4c review fix, at the shipped head `423779b2` (narrowing `f9345b2c`, 5 m 6 s).
+Both runs: identical identity set (161/161), cohort reproduced exactly - 39 `NO_COVERAGE -> KILLED`,
+1 `SURVIVED -> KILLED`, 7 `NO_COVERAGE -> SURVIVED`, 3 `SURVIVED -> SURVIVED` - zero status drift,
+0 regressions, 0 new `TIMED_OUT`, 0 identity loss or gain. An intermediate head (`c606501c`) did not compile;
+the nested measurement caught it before certification. The review finding - the continuation-store double returned
+copies from claim/complete/cancel without adopting them, so the coordinator could pass against states no real store
+produces - was fixed at `423779b2`, where the double evolves PENDING v3 -> CLAIMED v4 -> COMPLETED v5 (or
+PENDING -> CANCELLED) and the tests assert the resulting state. The outcome did not change; that is recorded, not
+assumed.
 
 Deviation, stated explicitly: the narrowing of `mutation.targetFamilies` was applied by pattern over the `approval`
 family and removed the unrelated families entirely rather than only narrowing `approval`. Candidate and control used the
