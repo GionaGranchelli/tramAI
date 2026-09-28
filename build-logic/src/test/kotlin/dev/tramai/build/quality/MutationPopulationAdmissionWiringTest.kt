@@ -145,14 +145,15 @@ class MutationPopulationAdmissionWiringTest : MutationRatchetTestSupport() {
 
     /**
      * A ledger entry proposing the appearing identity, written with the canonical analyzer semantics
-     * the population carries (M33 compares them, so a subset would stop the transition there).
+     * the population carries: the mutator list is order-sensitive authority (M33), so the ledger
+     * records the canonical declaration order verbatim.
      */
     private fun admissionLedger(
         identity: String,
         fromBaseSha: String,
         reason: String = "wiring fixture",
     ): String {
-        val mutatorLines = semantics.mutators.sorted().joinToString("\n") { "                - \"$it\"" }
+        val mutatorLines = semantics.mutators.joinToString("\n") { "                - \"$it\"" }
         return """
         schemaVersion: "1"
         admissions:
@@ -323,7 +324,7 @@ $mutatorLines
     }
 
     @Test
-    fun `an authorized row appearing fails closed on analyzer semantics before admission`() {
+    fun `an authorized row appearing with no trusted fresh proof fails M34`() {
         val dir = fixture()
         val ledger = admissionLedger(appearingIdentity, fromBaseSha = neutralBaseSha)
         val baseSha = commitBase(dir, ledger)
@@ -331,17 +332,18 @@ $mutatorLines
 
         val result = runner(dir, baseSha).buildAndFail()
 
-        // Documents the CURRENT behaviour, including its cause. The admission loader normalizes the
-        // ledger's mutators with `.sorted()`, while the canonical population analyzer carries
-        // MutationProbeInitScript.PIT_MUTATORS in declaration order; M33 compares those two as
-        // order-sensitive lists, so this transition stops at M33 and never reaches M34's fail-closed
-        // digest check. That is a pre-existing defect in M30-M39 which the ledger wiring in this PR
-        // makes reachable for the first time (with the candidate ledger defaulted to NONE it could
-        // never fire at task level). Normalizing either side is an authority-semantics change and is
-        // deliberately NOT made here.
+        // The ledger records the canonical analyzer order, so the base authorization matches the
+        // appearing row's semantics and the transition reaches the digest check. This invocation is
+        // not RECORDED_EVOLUTION, so no trusted fresh measurement exists and admission must fail
+        // closed rather than admit on the candidate's word. M33 here would mean the load path
+        // re-ordered the authorization, and the transition never got this far.
         assertTrue(
-            result.output.contains("M33"),
-            "expected the analyzer-semantics stop before admission, got:\n${result.output}",
+            result.output.contains("M34"),
+            "expected the fail-closed digest check before admission, got:\n${result.output}",
+        )
+        assertTrue(
+            !result.output.contains("M33"),
+            "the ledger records the canonical order, so the analyzer semantics must match:\n${result.output}",
         )
     }
 

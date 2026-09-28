@@ -118,10 +118,16 @@ object MutationPopulationAdmissionLoader {
             "mutation-population-admissions.yml: admissions[$index].analyzer.timeoutConst must be positive (C1)"
         }
         val timeoutFactor = (analyzer["timeoutFactor"] as? Number)?.toDouble() ?: DEFAULT_TIMEOUT_FACTOR
+        // The mutator list is ORDER-SENSITIVE authority, exactly as it is everywhere else the
+        // analyzer semantics are compared (M16-M19 compare the canonical renderer order). Sorting
+        // here re-ordered the ledger's own record against the population's recorded semantics, so
+        // an authorized row could never reach an admission verdict: every consumption stopped at
+        // M33 instead. Preserve the ledger's declaration order; the canonical order is what a
+        // ledger must record, and M33 still rejects a genuinely different set or order.
         return MutationAnalyzerSemantics(
             pluginVersion = pluginVersion,
             engineVersion = engineVersion,
-            mutators = mutators.sorted(),
+            mutators = mutators,
             timeoutConst = timeoutConst,
             timeoutFactor = timeoutFactor,
         )
