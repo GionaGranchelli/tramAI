@@ -690,3 +690,188 @@ population-admission mechanism.
    identity. Control: the same narrowing at `6d798f80`.
 4. Gates: `verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=6d798f80...`; `:tramai-engine:test`;
    `spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyJUnitTestSignatures`.
+
+## 11. Increment 4 -- TASK-0.7.1g1G4d: ApprovalSuspensionCoordinator residuals
+
+### 11.1 Start gate
+
+- **task base**: `19c3d939291194e849dc42515a516b09cebec7a3` -- the squash merge of #455, verified as the exact `origin/epic/0.7.1-control-plane-authority` tip (0 commits after it, clean tree, `#455 merged=true`, merge commit equal to that SHA).
+- **test commit**: `3aeff5f0b3d86bbed09c604a5d166673869cba42`
+- superseded test commit: `8850c27e040597871e1def7e8177c073976b0df8` (identical tests plus one unused `ResumeOperationReference` import, removed after review; the ledger was recertified at the cleanup commit, see 11.5)
+- **measurement narrowings**: candidate `d6e92f67`, control `5391ee4a` (each committed in its throwaway worktree)
+- branch: `task/0.7.1g1G4d-approval-suspension-residuals`
+
+### 11.2 Frozen input
+
+`docs/roadmap/0.7.0/TASK-0.7.1g1G4-UNDETERMINED-118-MANIFEST.json`, digest recomputed with the manifest's own recipe (sha256 of the sorted identities joined by newline **with a trailing newline**):
+
+```
+0c2d107def8f30c564e648c4a86a11049c4a7cef4bfed5c78e07d3f95b9c77ea   MATCH
+```
+
+The recipe matters: the same list joined without the trailing newline hashes to `2aef6973...`. The cohort is derived by full canonical identity with the class-name **prefix** `dev.tramai.engine.approval.ApprovalSuspensionCoordinator`, which is what pulls in the generated `$compensateSuspension$2$*` lambdas. Result: **39 rows -- 18 NullReturnVals / 19 VoidMethodCall / 2 NegateConditionals**, census **29 NO_COVERAGE + 10 SURVIVED**, area split 12 / 7 / 12 / 4 / 4 exactly as specified. The two `NegateConditionals` are `5d4ca8196b...` and `6dc7341455...`, both in `persistSuspendedInvocation`, both SURVIVED.
+
+### 11.3 Instruction mapping
+
+`javap -p -c -l` on the compiled base for `ApprovalSuspensionCoordinator` and the three lambdas. The mapping below is by block/index order against pc order, and it reconciles exactly:
+
+| area | NV | VMC | NC | sentinel `areturn`s | `throwOnFailure` | reads as |
+|---|---:|---:|---:|---|---|---|
+| `suspendToolExecution` | 6 | 6 | 0 | 6 | 7 (1 excluded) | the six suspend seams, each a sentinel plus its case-entry rethrow |
+| `compensateSuspension` | 3 | 4 | 0 | 4 (1 excluded) | 4 | the three `compensateStep` calls plus the method's entry rethrow |
+| `$compensateSuspension$2$1/2/3` | 6 | 6 | 0 | 2 each | 2 each | one underlying store/gate call per lambda |
+| `compensateStep` | 1 | 3 | 0 | 2 (1 excluded) | 2 + 1 call | the action invocation, its case rethrow, and `rethrowIfCancellation()` |
+| `persistSuspendedInvocation` | 2 | 0 | 2 | 4 (2 excluded) | 0 | `createGoverned` and `create` sentinels; the two branch conditions |
+
+The six `suspendToolExecution` seams, in pc order, are: `resolveGovernedSuspension()`, `approvalGateCoordinator.createApproval(...)`, `approvalContinuationStore.create(...)`, `persistSuspendedInvocation(...)`, `approvalLifecycleAuditEmitter.onToolExecutionSuspended(...)`, `compensateSuspension(...)`. Instructions excluded from the cohort are the ones the frozen census already classified elsewhere; nothing was inferred from source-line attribution (the manifest's lines are historical, and the class was recompiled uneventfully since).
+
+### 11.4 Durable tests added
+
+`tramai-engine/src/test/kotlin/dev/tramai/engine/approval/ApprovalSuspensionSagaContractTest.kt` -- **14 tests**, green. Every collaborator suspends (`delay`) before it answers and can fail on the resumed frame; a single ordered event log proves ordering rather than inference.
+
+Contracts asserted, in domain terms:
+
+- the intended suspension path: challenge created, PENDING continuation persisted, suspended invocation persisted, suspension audit emitted, `ApprovalSuspendedException` carries approval/continuation state, and **compensation never runs for it** (suspension is the outcome, not a failure);
+- governed vs ungoverned persistence: the same dual-SPI store proves `createGoverned` is used when a governed run scope is present and `create` when it is not;
+- the ordinary-failure gradient: refusal before the challenge (nothing to compensate), failure after the challenge but before the continuation, after the continuation, and during the audit;
+- compensation runs in reverse order (`suspendedInvocationStore.remove`, `continuationStore.cancel`, `gate.cancelApproval`) and the initiating failure stays primary when a compensation step fails;
+- a failure on the middle compensation step still runs the last step; a failure on the last step is swallowed;
+- a `CancellationException` as the *initiating* failure propagates without compensation, and one delivered on a compensation action's resumed frame propagates immediately instead of being swallowed, so the later steps do not run;
+- each compensation action genuinely suspends before it runs (resume counters, which a synchronous double cannot produce);
+- a governed scope with a store that cannot persist the governed record is refused before anything is created.
+
+Test-double fidelity, per the #455 lesson: `SagaContinuationStore` is a state machine (PENDING v0 -> CANCELLED v1), refuses a stale expectation and a non-PENDING status with the production exceptions, and refuses cancellation of a continuation that was never persisted. One correction was needed during development and is recorded: the doubles log **after** they act, so a failing injected step logs nothing on the delegate; the failure wrappers therefore count *attempts* explicitly rather than letting a missing event read as a missing attempt.
+
+### 11.5 Measurement
+
+```
+./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks
+```
+
+Run in throwaway worktrees at the exact commits, each with a committed narrowing (`mutation.targetFamilies.approval` -> `:tramai-engine` + `dev.tramai.engine.approval.ApprovalSuspensionCoordinator*`; 2 insertions, 3 deletions, no other family touched). Raw `mutations.xml` consumed; canonical identities recomputed with the repository schema (`\x1f` separator, module `:tramai-engine`); candidate, control and frozen cohort joined by full canonical identity.
+
+- candidate `3aeff5f0` (the cleanup head), narrowing `afe53b5a`: **BUILD SUCCESSFUL in 4 m 2 s**, 104 mutants
+- superseded candidate `8850c27e`, narrowing `d6e92f67`: **BUILD SUCCESSFUL in 3 m 39 s**, 104 mutants
+- control `19c3d939`, narrowing `5391ee4a`: **BUILD SUCCESSFUL in 3 m 41 s**, 104 mutants
+- 104 shared identities, **0 lost, 0 new**, 39/39 cohort joined
+
+The cleanup was recertified rather than assumed, and it did not need a bytecode-identity argument: the class-file hashes of the test class before and after differ (`790e34ae...` vs `47c72b4b...`) because removing line 42 shifts every following debug line number, which is exactly why a hash comparison would have been the wrong proof. Measured instead: recertified candidate vs pre-cleanup candidate -- **104/104 shared, 0 status changes, zero drift**; every matrix in 11.6 and 11.7 is the recertified one.
+
+Two intermediate runs were discarded and are named here rather than silently replaced: an early candidate run at the 11-test revision (superseded by the 14-test revision) and a pair of concurrent runs that failed inside the nested `:tramai-engine:pitest` under resource contention. Reports from a failed build were not used; both numbers below come from builds that reported success.
+
+### 11.6 Full scoped transition matrix
+
+| control → candidate | count |
+|---|---:|
+| KILLED → KILLED | 40 |
+| NO_COVERAGE → KILLED | 25 |
+| NO_COVERAGE → NO_COVERAGE | 2 |
+| NO_COVERAGE → SURVIVED | 5 |
+| SURVIVED → KILLED | 8 |
+| SURVIVED → SURVIVED | 11 |
+| TIMED_OUT → KILLED | 2 |
+| TIMED_OUT → TIMED_OUT | 11 |
+
+**KILLED regressions: 0. New TIMED_OUT: 0.** No other transition occurs.
+
+### 11.7 Cohort transition matrix (frozen census → candidate)
+
+| frozen → candidate | count |
+|---|---:|
+| NO_COVERAGE → KILLED | 22 |
+| SURVIVED → KILLED | 2 |
+| NO_COVERAGE → SURVIVED | 5 |
+| SURVIVED → SURVIVED | 8 |
+| NO_COVERAGE → NO_COVERAGE | 2 |
+
+Cohort **24 KILLED / 39**, census TIMED_OUT 0, candidate TIMED_OUT 0. Every `NO_COVERAGE -> SURVIVED` row is listed in 11.9 and is **not** counted as settled: executing an instruction is not detecting its mutation.
+
+### 11.8 Identity-exact dispositions
+
+| identity | area | mutator | block/index | instruction | frozen → candidate | disposition |
+|---|---|---|---|---|---|---|
+| `95f4d3181b` | compensateStep | NullReturnVals | 11/67 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `60f7b020e0` | compensateStep | VoidMethodCall | 7/44 | removed call to kotlin/ResultKt::throwOnFailure | SURVIVED -> SURVIVED | UNDETERMINED |
+| `38af093087` | compensateStep | VoidMethodCall | 12/77 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `c7774df8cc` | compensateStep | VoidMethodCall | 16/101 | removed call to dev/tramai/core/coroutines/CancellationKt::rethrow | NO_COVERAGE -> SURVIVED | EQUIVALENT |
+| `10ee55f449` | compensateSuspension | NullReturnVals | 13/94 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `e09a3c1cc3` | compensateSuspension | NullReturnVals | 21/168 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `af8cf7ad14` | compensateSuspension | NullReturnVals | 31/243 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `f60db12bdb` | compensateSuspension | VoidMethodCall | 7/44 | removed call to kotlin/ResultKt::throwOnFailure | SURVIVED -> SURVIVED | UNDETERMINED |
+| `1b8938aaab` | compensateSuspension | VoidMethodCall | 14/122 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `887313eb01` | compensateSuspension | VoidMethodCall | 22/196 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> SURVIVED | UNDETERMINED |
+| `4fc586ff85` | compensateSuspension | VoidMethodCall | 32/271 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> SURVIVED | UNDETERMINED |
+| `5d4ca8196b` | persistSuspendedInvocation | NegateConditionals | 7/30 | negated conditional | SURVIVED -> KILLED | KILLED |
+| `6dc7341455` | persistSuspendedInvocation | NegateConditionals | 12/50 | negated conditional | SURVIVED -> KILLED | KILLED |
+| `b4bde9e3e3` | persistSuspendedInvocation | NullReturnVals | 8/31 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `ec0280ffb2` | persistSuspendedInvocation | NullReturnVals | 13/51 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `66c311cf4f` | suspendToolExecution | NullReturnVals | 12/78 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> NO_COVERAGE | UNREACHABLE |
+| `1843d3a31b` | suspendToolExecution | NullReturnVals | 36/210 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `c2be62debe` | suspendToolExecution | NullReturnVals | 61/392 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `4f99ba33ee` | suspendToolExecution | NullReturnVals | 110/672 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `3b12d1a55c` | suspendToolExecution | NullReturnVals | 133/857 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `453e4aaf23` | suspendToolExecution | NullReturnVals | 158/1071 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `564517b2fd` | suspendToolExecution | VoidMethodCall | 13/96 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> NO_COVERAGE | UNREACHABLE |
+| `f1a19c075b` | suspendToolExecution | VoidMethodCall | 37/252 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `62897c202f` | suspendToolExecution | VoidMethodCall | 62/441 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `87fbd8e6ed` | suspendToolExecution | VoidMethodCall | 111/751 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `04c2e1c3f1` | suspendToolExecution | VoidMethodCall | 134/936 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `30f9bb41fa` | suspendToolExecution | VoidMethodCall | 159/1118 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `8abddce868` | suspension$2$1 | NullReturnVals | 6/32 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `f802165800` | suspension$2$1 | NullReturnVals | 9/43 | replaced return value with null for dev/tramai/engine/approval/App | SURVIVED -> SURVIVED | UNDETERMINED |
+| `ebc96b3e85` | suspension$2$1 | VoidMethodCall | 2/12 | removed call to kotlin/ResultKt::throwOnFailure | SURVIVED -> SURVIVED | UNDETERMINED |
+| `ddf6092edb` | suspension$2$1 | VoidMethodCall | 7/36 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> KILLED | KILLED |
+| `980c70e5ac` | suspension$2$2 | NullReturnVals | 5/33 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `f175e8698d` | suspension$2$2 | NullReturnVals | 8/44 | replaced return value with null for dev/tramai/engine/approval/App | SURVIVED -> SURVIVED | UNDETERMINED |
+| `6cef3fd2e2` | suspension$2$2 | VoidMethodCall | 2/12 | removed call to kotlin/ResultKt::throwOnFailure | SURVIVED -> SURVIVED | UNDETERMINED |
+| `1c4ca901fd` | suspension$2$2 | VoidMethodCall | 6/37 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> SURVIVED | UNDETERMINED |
+| `ceab216271` | suspension$2$3 | NullReturnVals | 5/33 | replaced return value with null for dev/tramai/engine/approval/App | NO_COVERAGE -> KILLED | KILLED |
+| `70d345f720` | suspension$2$3 | NullReturnVals | 8/44 | replaced return value with null for dev/tramai/engine/approval/App | SURVIVED -> SURVIVED | UNDETERMINED |
+| `eec481d97a` | suspension$2$3 | VoidMethodCall | 2/12 | removed call to kotlin/ResultKt::throwOnFailure | SURVIVED -> SURVIVED | UNDETERMINED |
+| `a15f9807be` | suspension$2$3 | VoidMethodCall | 6/37 | removed call to kotlin/ResultKt::throwOnFailure | NO_COVERAGE -> SURVIVED | UNDETERMINED |
+
+Counting the table: **KILLED 24, EQUIVALENT 1, UNREACHABLE 2, TOOLING_LIMITATION 0, UNDETERMINED 12 -- sum 39.**
+
+**KILLED (24).** Measured at canonical identity against the durable tests above. Both `NegateConditionals` are in this set: the governed/ungoverned discriminator distinguishes them, so the inverted branch is observable rather than harmless -- neither is compiler scaffolding in the equivalence sense.
+
+**EQUIVALENT (1).** `c7774df8cc...`, `compensateStep`, block 16/index 101, `removed call to dev/tramai/core/coroutines/CancellationKt::rethrowIfCancellation`. Proven from **this method's own exception table**, not by analogy with the g1G4c case:
+
+```
+       from    to  target type
+          93   117   147   Class java/util/concurrent/CancellationException
+         135   144   147   Class java/util/concurrent/CancellationException
+          93   117   150   Class java/lang/Exception
+         135   144   150   Class java/lang/Exception
+```
+
+Handlers are matched in order, so a `CancellationException` thrown anywhere in the protected ranges is handled by target 147 and can never reach target 150. The callee of the mutated call is `if (this is CancellationException) throw this`, and `kotlinx.coroutines.CancellationException` is the same JVM class the table names, so within handler 150 the call cannot throw and removing the invocation cannot change reachable behaviour. g1G4c reached the same conclusion for a similar-looking call; that proof was deliberately not reused, and the reader can see the two tables differ in shape.
+
+**UNREACHABLE (2).** `66c311cf4f...` (NullReturnVals, `suspendToolExecution`, block 12/index 78) and `564517b2fd...` (VoidMethodCall, block 13/index 96) are the sentinel and case-entry rethrow of the **`resolveGovernedSuspension()` seam**. That seam's callee cannot suspend, and the proof is in its own bytecode:
+
+- `resolveGovernedSuspension` contains **no** `IntrinsicsKt.getCOROUTINE_SUSPENDED` and **no** `ResultKt.throwOnFailure`, i.e. it has no suspension point and no state machine; its `currentCoroutineContext()` call is compiled to a plain `getContext()`/`resolve` sequence with a single `areturn`;
+- a suspend function with no suspension point can never return the sentinel, so the caller's `areturn` branch for that seam is never taken and the corresponding state-machine case is never entered;
+- the measurement agrees independently: both rows are `NO_COVERAGE -> NO_COVERAGE`, i.e. no test in the whole suite executes them, before or after this increment.
+
+**UNDETERMINED (12).** Kept explicitly. 5 are `NO_COVERAGE -> SURVIVED` (now executed, still undetected) and 7 are `SURVIVED -> SURVIVED`: the state-machine entry rethrows of `compensateSuspension`, `compensateStep` and the three lambdas, the lambdas' value-returning `areturn`s, and the two newly-executed case-entry rethrows in the lambdas. They are the same compiler-generated family that produced 24 kills here, which is exactly why no equivalence is claimed for the survivors: a repeatable pattern is not evidence. Each would need its own argument, and none is offered.
+
+### 11.9 Parent accounting
+
+```
+parent before          52
+settled in g1G4d       27   (KILLED 24 + EQUIVALENT 1 + UNREACHABLE 2 + TOOLING_LIMITATION 0)
+parent after           25   (52 - 27)
+```
+
+The 25 residuals are: 12 `ApprovalSuspensionCoordinator` survivors above, the 9 `ApprovalResumeCoordinator` survivors recorded in §10, and the 4 `DefaultApprovalGateway` survivors. Parent g1G4 is **not** complete, and `52 - 39 = 13` would be wrong.
+
+### 11.10 Review findings
+
+- `ResumeOperationReference` import in the contract test was unused (line 42, sole occurrence). Removed in the test commit `3aeff5f0`; the review thread is answered with the recertification above. No other review finding was raised.
+- No substantive finding was raised against the 24/1/2/12 adjudication, the compensation ordering or the cancellation contracts.
+
+### 11.11 Not done
+
+- no production change: this slice is test-only, and nothing in it required a production fix;
+- no baseline, classification, admission-ledger, mutator-set, timeout-policy, deviation-ceiling or gate change;
+- the 9 `ApprovalResumeCoordinator` and 4 `DefaultApprovalGateway` survivors were not touched;
+- g1G4e was not started.
