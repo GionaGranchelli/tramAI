@@ -527,8 +527,11 @@ the instance is not the contract (the tests assert type plus a per-test unique m
 
 Measured test commit `4d772e81`. The shipped head differs from it only by test-harness formatting (line wrapping,
 shortened double names, two fixture knobs moved to fields) with the same 22 tests and the same assertions, and a nested
-measurement at the shipped head failed to compile before that was corrected. **The measurement must be re-run at the
-shipped head before this increment is called certified**; the numbers below belong to `4d772e81`. Throwaway worktree at
+measurement at the shipped head failed to compile before that was corrected. **Certified at the shipped head.** The measurement was re-run at the shipped head (`36c50804`, narrowing
+`bfd061af`, 5 m 10 s): the identity set is identical (161/161), the cohort reproduces exactly - 39
+`NO_COVERAGE -> KILLED`, 1 `SURVIVED -> KILLED`, 7 `NO_COVERAGE -> SURVIVED`, 3 `SURVIVED -> SURVIVED` - and there is
+**zero status drift** against the earlier measured head, 0 regressions and 0 new `TIMED_OUT`. An intermediate head
+(`c606501c`) did not compile, which the nested measurement caught before it was certified. Throwaway worktree at
 that commit with one committed narrowing (measurement commit `f01d296e`,
 not part of this branch); command `./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks`;
 **4 m 50 s**, 161 mutants, **identity set identical to the control (161/161 shared, 0 lost, 0 new)**. Control: the same
