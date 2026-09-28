@@ -17,6 +17,8 @@ import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ValidateResumeCommand
+import dev.tramai.core.exception.ApprovalContinuationConflictException
+import dev.tramai.core.exception.ApprovalContinuationNotClaimableException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.NestedApprovalNotSupportedException
 import dev.tramai.core.exception.PolicyViolationException
@@ -56,7 +58,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
@@ -257,6 +258,9 @@ class ApprovalResumeSuspensionContractTest {
             )
 
         assertThat(result).isEqualTo("executed")
+        // The store's own state shows the transition, not a snapshot: PENDING v3 -> CLAIMED v4 -> COMPLETED v5.
+        assertThat(baseContinuations.current.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+        assertThat(baseContinuations.current.version).isEqualTo(5)
         // Every suspension must have been resumed for the saga to reach the executor: a synchronous
         // fake cannot produce these counts.
         assertThat(continuations.readResumes).isEqualTo(2)
@@ -411,6 +415,9 @@ class ApprovalResumeSuspensionContractTest {
         assertReachesCaller(thrown, failure)
         assertThat(baseExecutor.calls).isZero()
         assertThat(baseContinuations.completeCalls).isZero()
+        // The claim never happened, so the continuation is still claimable: PENDING v3, unchanged.
+        assertThat(baseContinuations.current.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        assertThat(baseContinuations.current.version).isEqualTo(3)
     }
 
     @Test
@@ -428,7 +435,13 @@ class ApprovalResumeSuspensionContractTest {
     fun `a claimed-arguments integrity mismatch after suspension is rejected`() {
         val mismatched =
             ClaimedApprovalContinuation(
-                continuation().copy(argumentsDigest = Sha256Digest.of("sha256:" + "9".repeat(64))),
+                continuation().copy(
+                    status = ApprovalContinuationStatus.CLAIMED,
+                    claimedBy = resumedBy,
+                    claimedAt = Instant.now(),
+                    argumentsDigest = Sha256Digest.of("sha256:" + "9".repeat(64)),
+                    version = continuation().version + 1,
+                ),
                 SensitiveToolArguments.of(input),
             )
         baseContinuations.claimWith(mismatched)
@@ -478,6 +491,9 @@ class ApprovalResumeSuspensionContractTest {
             ResumeSuspendingCompletionStore(baseContinuations, failAfterCompleteResumes = failure)
 
         assertReachesCaller(failureOf(coordinator(continuations = continuations)), failure)
+        // The completion write never landed, so the continuation stays claimed and unfinished: CLAIMED v4.
+        assertThat(baseContinuations.current.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(baseContinuations.current.version).isEqualTo(4)
     }
 
     @Test
@@ -572,6 +588,9 @@ class ApprovalResumeSuspensionContractTest {
         assertThat(thrown).isInstanceOf(PolicyViolationException::class.java)
         assertThat(continuations.cancelResumes).isEqualTo(1)
         assertThat(continuations.cancelCalls).isEqualTo(1)
+        // The cancellation is a real state transition, not a returned copy: PENDING v3 -> CANCELLED v4.
+        assertThat(baseContinuations.current.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
+        assertThat(baseContinuations.current.version).isEqualTo(4)
         assertThat(baseContinuations.claimCalls).isZero()
         assertThat(baseExecutor.calls).isZero()
     }
@@ -602,6 +621,8 @@ class ApprovalResumeSuspensionContractTest {
         assertThat(audit.uncertainResumes).isZero()
         assertThat(continuations.cancelResumes).isEqualTo(1)
         assertThat(continuations.cancelCalls).isEqualTo(1)
+        assertThat(baseContinuations.current.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
+        assertThat(baseContinuations.current.version).isEqualTo(4)
         assertThat(baseExecutor.calls).isZero()
     }
 }
@@ -626,8 +647,13 @@ private class SuspensionFakeTool(
     ): ToolResult = ToolResult.Success("{}")
 }
 
+/**
+ * A continuation store whose state evolves the way the production store's does: PENDING v3 -> CLAIMED v4 -> COMPLETED
+ * v5, or PENDING -> CANCELLED, each transition bumping the version and refusing a stale expectation. The coordinator's
+ * contract is about those transitions, so a snapshot double would let it pass against states no real store can reach.
+ */
 private class RecordingSuspensionContinuationStore(
-    private val value: ApprovalContinuation,
+    private var value: ApprovalContinuation,
 ) : ApprovalContinuationStore {
     var reads = 0
         private set
@@ -641,6 +667,10 @@ private class RecordingSuspensionContinuationStore(
         private set
     var claimReturnsWith: ClaimedApprovalContinuation? = null
         private set
+
+    /** The continuation as the store holds it now, after whatever transitions have run. */
+    val current: ApprovalContinuation
+        get() = value
 
     fun claimWith(claimed: ClaimedApprovalContinuation) {
         claimReturnsWith = claimed
@@ -662,6 +692,17 @@ private class RecordingSuspensionContinuationStore(
         claimedBy: String,
     ): ClaimedApprovalContinuation {
         claimCalls++
+        if (value.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
+        if (value.status != ApprovalContinuationStatus.PENDING) {
+            throw ApprovalContinuationNotClaimableException(approvalId)
+        }
+        value =
+            value.copy(
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = claimedBy,
+                claimedAt = Instant.now(),
+                version = value.version + 1,
+            )
         return claimReturnsWith ?: ClaimedApprovalContinuation(value, SensitiveToolArguments.of("""{"x":2}"""))
     }
 
@@ -671,8 +712,17 @@ private class RecordingSuspensionContinuationStore(
         completedBy: String,
     ): ApprovalContinuation {
         completeCalls++
+        if (value.version != expectedVersion || value.status != ApprovalContinuationStatus.CLAIMED) {
+            throw ApprovalContinuationConflictException(approvalId)
+        }
         completedStatus = ApprovalContinuationStatus.COMPLETED
-        return value.copy(status = ApprovalContinuationStatus.COMPLETED, version = expectedVersion)
+        value =
+            value.copy(
+                status = ApprovalContinuationStatus.COMPLETED,
+                completedAt = Instant.now(),
+                version = value.version + 1,
+            )
+        return value
     }
 
     override suspend fun expire(
@@ -685,7 +735,11 @@ private class RecordingSuspensionContinuationStore(
         expectedVersion: Long,
     ): ApprovalContinuation {
         cancelCalls++
-        return value.copy(status = ApprovalContinuationStatus.CANCELLED)
+        if (value.version != expectedVersion || value.status != ApprovalContinuationStatus.PENDING) {
+            throw ApprovalContinuationConflictException(approvalId)
+        }
+        value = value.copy(status = ApprovalContinuationStatus.CANCELLED, version = value.version + 1)
+        return value
     }
 
     override suspend fun findStaleClaimed(
