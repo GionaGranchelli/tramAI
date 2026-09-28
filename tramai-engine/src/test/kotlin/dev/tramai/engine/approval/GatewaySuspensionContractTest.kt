@@ -352,6 +352,43 @@ class GatewaySuspensionContractTest {
         }
 
     @Test
+    fun `a governed continuation write failure after suspension reaches the caller and leaves no continuation`(): Unit =
+        runBlocking {
+            val approvalId = "gov-continuation-failure"
+            factory.defaultApprovalId = approvalId
+            val governedApprovals = TestGovernedApprovalStore(approvalStore)
+            val governedSuspensions = TestGovernedSuspendedInvocationStore(suspendedInvocationStore)
+            val approvals = SuspendingGovernedApprovalStore(governedApprovals)
+            val suspensions = SuspendingGovernedSuspendedInvocationStore(governedSuspensions)
+            val continuations =
+                SuspendingContinuationStore(
+                    continuationStore,
+                    failAfterWriteResumes =
+                        IllegalStateException("governed-continuation-failed-after-suspension"),
+                )
+            val gateway =
+                createGateway(
+                    approvals = approvals,
+                    suspensions = suspensions,
+                    continuations = continuations,
+                    requestFactory = SuspendingRequestFactory(factory),
+                )
+            val identity = governedIdentity("governed-run-1")
+
+            val failure = captureFailure { withContext(GovernedRunScope(identity)) { gateway.request() } }
+
+            assertThat(continuations.writeResumes).isEqualTo(1)
+            assertThat(failure).isInstanceOf(IllegalStateException::class.java)
+            assertThat(failure!!.message).isEqualTo("governed-continuation-failed-after-suspension")
+            assertThat(continuationStore.get(approvalId)).isNull()
+            // The two governed writes that precede the failing write are durable: this pins the real
+            // partial-creation state instead of assuming the saga rolls back.
+            assertThat(governedApprovals.attributionOf(approvalId))
+                .isEqualTo(ApprovalRunAttribution.Governed(identity))
+            assertThat(governedSuspensions.governed.single().runIdentity).isEqualTo(identity)
+        }
+
+    @Test
     fun `an existing governed approval is re-validated across a suspending attribution read`(): Unit =
         runBlocking {
             val approvalId = "gov-existing-suspending-read"
