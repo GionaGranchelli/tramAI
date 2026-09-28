@@ -436,3 +436,257 @@ the 2 unreachability findings rest on the bytecode proof in §9.3, and the 4 sur
 4. Measurement: throwaway worktree at the test commit, narrow `mutation.targetFamilies` to
    `dev.tramai.engine.approval.DefaultApprovalGateway*`, commit the narrowing, run
    `generateCriticalMutationBaseline`, compare identity sets with the census, then regenerate the two matrices in §9.5.
+
+---
+
+## 10. Increment 3 - TASK-0.7.1g1G4c: ApprovalResumeCoordinator residuals (50)
+
+**Exact base:** `6d798f80dd429370ebc03908ea06652366a918be` (equal to `origin/epic/0.7.1-control-plane-authority` at
+branch time; #454 merged into the Epic as this commit).
+**Preconditions verified:** #454 read back as `state=closed`, `merged=true`, `merge_commit_sha=6d798f80...`; clean
+worktree; the committed 118-manifest recomputed to `0c2d107d...`.
+
+### 10.1 Input cohort - 50 identities, derived not counted
+
+Joined on the **full canonical identity**. The cohort is every manifest row whose `className` *starts with*
+`dev.tramai.engine.approval.ApprovalResumeCoordinator`: the three `$resume$2` rows carry the generated class name, and an
+equality filter loses exactly those three.
+
+| Group | Count |
+|---|---|
+| `NullReturnVals` | 22 |
+| `VoidMethodCall` | 26 |
+| `NegateConditionals` | 2 |
+
+Initial census state: **46 `NO_COVERAGE` + 4 `SURVIVED`**; decomposition `resume` 17, `prepareResume` 11,
+`authorizeResume` 11, `executeClaimedResume` 6, `revealAndValidateReplayPayload` 2, `$resume$2.invokeSuspend` 3, all
+reproduced exactly. `ApprovalResumeCoordinator.kt` is bytecode-unchanged since the census commit `a47a759f`, so the
+frozen block/index tuples remain comparable; the manifest's stale *line* numbers were not used for derivation.
+
+**Identity schema.** The manifest documents `module / className / method / methodDescription / mutator / description /
+block / index`; the implemented separator is **`0x1f`**, not the `U+241F` glyph the manifest renders. Recomputed
+identities reproduce both the committed population and the manifest cohort exactly (50/50 join), which is what makes the
+measurement joinable at all.
+
+### 10.2 Instruction mapping (`javap -p -c -l` at the exact base)
+
+Every cohort row is a compiler-generated glue instruction with an exact seam:
+
+- **`NullReturnVals` (22)** - the sentinel `areturn` a suspend call leaves behind (`invoke; dup; if_acmpne L; aload N;
+  areturn`). Executed **only when the callee actually suspends**, which is why a synchronous fake leaves it
+  `NO_COVERAGE`.
+- **`VoidMethodCall` (26)** - `ResultKt::throwOnFailure` at the entry of a generated state-machine case (the rethrow
+  that unwraps a failure delivered on the resumed frame), plus one `CancellationKt::rethrowIfCancellation` call site.
+- **`NegateConditionals` (2)** - `if_acmpne` suspension checks after `denyAndCancel` / `cancelForNestedApproval`.
+
+Seam to callee, read off the `invoke` preceding each sentinel:
+
+| Method | Sentinels (pc) and their guarded call |
+|---|---|
+| `resume` | 148 `prepareResume`, 203 `authorizeResume`, 308 `ContinuationClaimService.claim`, 470 `executeClaimedResume`, 639 `withContext`, 808/1008/1221 `emitResumeUncertainOutcomeOnce` |
+| `prepareResume` | 152 `ApprovalContinuationStore.get`, 262 `SuspendedInvocationStore.get`, 406 `governedRunIdentity`, 573 `loadPendingForResume`, 743 `validateToken` |
+| `authorizeResume` | 149 `decideResumePolicy`, 260 `denyAndCancel`, 376 `cancelForNestedApproval`, 500 `authorize` |
+| `executeClaimedResume` | 181 `revealAndValidateReplayPayload`, 313 `validateClaimedResumeArguments`, 572 `execute`, 809 `completeClaimedResume` |
+| `revealAndValidateReplayPayload` | 148 `revealReplayEnvelope` |
+| `$resume$2.invokeSuspend` | 73 `access$executeClaimedResume` |
+
+The mapping is order-checked, not guessed: within each `(method, line, mutator)` the measurement's block/index order is
+monotone in bytecode pc, and the non-cohort rows fall out consistently (`resume` block 7 is the case-0 entry rethrow;
+`executeClaimedResume` blocks 13/14; `revealAndValidateReplayPayload` blocks 11/12).
+
+**Reachability finding: the two `NegateConditionals` are NOT unreachable.** They are the standard suspension checks after
+`ReplayAuthorizationService.denyAndCancel` / `cancelForNestedApproval`. Both callees are declared `Nothing`, but
+`cancelState` reaches `ApprovalContinuationStore.cancel`, so the callee **can** suspend: suspension is a *normal* return
+of the sentinel, and the method then throws from the resumed frame. Inverting the check sends a suspending cancellation
+to the `KotlinNothingValueException` path instead of returning the sentinel, so the caller would see a compiler artefact
+instead of the domain exception. Both were **killed by measurement**, not written off as compiler-shaped.
+
+### 10.3 Durable tests added (22)
+
+`tramai-engine/src/test/kotlin/dev/tramai/engine/approval/ApprovalResumeSuspensionContractTest.kt` - a new class rather
+than edits inside the released suite. Every collaborator is a delegating double that genuinely `delay(1)`-suspends and
+optionally fails **on the resumed frame**, each with at most one failure per operation it performs:
+
+- a resume completes when every collaborator genuinely suspends (the resumed counters are the positive control: a
+  synchronous fake cannot produce them); a governed resume completes and executes inside the recovered run scope;
+- a failure after suspension at each seam reaches the caller unchanged and stops the chain: continuation eligibility
+  read, claim-time read, metadata load, governed identity read, token validation, authorization, claim write, replay
+  reveal, claimed-arguments integrity mismatch, executor, completion write, policy-decision audit;
+- uncertain-outcome contracts: a `StructuredOutputException` and a `NestedApprovalNotSupportedException` raised after
+  suspension are reported uncertain and propagated; an uncertain-outcome audit failure does not replace the primary
+  failure; a completion-audit failure is recorded and does not fail the resume;
+- denial and nested-approval requirements still cancel and reach the caller **when the cancellation itself suspends**
+  (the two `NegateConditionals`);
+- a replay-envelope digest mismatch is rejected and reports the mismatch before claiming.
+
+Two contract facts the harness forced: kotlinx's stack-trace recovery delivers a *copy* of the failure, so identity of
+the instance is not the contract (the tests assert type plus a per-test unique message); and the denied/nested paths run
+**before** the claim, so they emit no uncertain outcome at all (asserted as zero).
+
+### 10.4 Measurement provenance
+
+Measured test commits: `4d772e81` (the original harness) and `423779b2` (after the review fix), each in a throwaway
+worktree with one committed narrowing (`f01d296e`, `f9345b2c`).
+
+**Certified.** The measurement was re-run at every test head that mattered: `36c50804` (narrowing `bfd061af`,
+5 m 10 s) and, after the g1G4c review fix, at the shipped head `423779b2` (narrowing `f9345b2c`, 5 m 6 s).
+Both runs: identical identity set (161/161), cohort reproduced exactly - 39 `NO_COVERAGE -> KILLED`,
+1 `SURVIVED -> KILLED`, 7 `NO_COVERAGE -> SURVIVED`, 3 `SURVIVED -> SURVIVED` - zero status drift,
+0 regressions, 0 new `TIMED_OUT`, 0 identity loss or gain. An intermediate head (`c606501c`) did not compile;
+the nested measurement caught it before certification. The review finding - the continuation-store double returned
+copies from claim/complete/cancel without adopting them, so the coordinator could pass against states no real store
+produces - was fixed at `423779b2`, where the double evolves PENDING v3 -> CLAIMED v4 -> COMPLETED v5 (or
+PENDING -> CANCELLED) and the tests assert the resulting state. The outcome did not change; that is recorded, not
+assumed.
+
+Deviation, stated explicitly: the narrowing of `mutation.targetFamilies` was applied by pattern over the `approval`
+family and removed the unrelated families entirely rather than only narrowing `approval`. Candidate and control used the
+**identical** narrowing, so the comparison stays scope-matched, and the joined scope is the coordinator's own mutants.
+
+The aggregate `config/quality/mutation-baseline.json` write is admission-gated in this repository state and was not
+produced by either run, so the join is made from PIT's own `mutations.xml` (raw tool output: per-mutant status,
+`numberOfTestsRun`, `killingTest`), with per-mutant identities recomputed from that XML using the committed schema.
+
+### 10.5 Identity-exact results
+
+Full scoped transition matrix (control at base -> candidate), 161 shared identities:
+
+| Before | After | Count |
+|---|---|---|
+| `KILLED` | `KILLED` | 38 |
+| `NO_COVERAGE` | `KILLED` | 53 |
+| `NO_COVERAGE` | `NO_COVERAGE` | 6 |
+| `NO_COVERAGE` | `SURVIVED` | 11 |
+| `SURVIVED` | `KILLED` | 4 |
+| `SURVIVED` | `SURVIVED` | 20 |
+| `TIMED_OUT` | `KILLED` | 7 |
+| `TIMED_OUT` | `TIMED_OUT` | 22 |
+
+Controls: `KILLED -> non-KILLED` regressions **0**; identity loss **0**; new identities **0**; new `TIMED_OUT` **0**
+(22 pre-existing `TIMED_OUT` unchanged, none of them a cohort identity).
+
+Cohort matrix (frozen manifest -> candidate), every one of the 50 exactly once:
+
+| Before | After | Count |
+|---|---|---|
+| `NO_COVERAGE` | `KILLED` | 39 |
+| `NO_COVERAGE` | `SURVIVED` | 7 |
+| `SURVIVED` | `KILLED` | 1 |
+| `SURVIVED` | `SURVIVED` | 3 |
+
+`NO_COVERAGE -> SURVIVED` is reported explicitly rather than disguised as progress: **7**.
+
+### 10.6 Identity-exact dispositions
+
+**KILLED this increment - 40** (39 `NO_COVERAGE -> KILLED`, 1 `SURVIVED -> KILLED`), each naming its killing test and
+`numberOfTestsRun`:
+
+| Identity | Mutator | Site | Killing test | tests run |
+|---|---|---|---|---|
+| `cb90dfa953` | VoidMethodCall | `authorizeResume` 7/44 | deny policy cancels state and never claims or executes() | 1 |
+| `2d1f9e3730` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `authorizeResume` 12/71 | a policy-decision audit failure after suspension reaches the caller() | 1 |
+| `eacdfd8c8a` | VoidMethodCall | `authorizeResume` 13/83 | a policy-decision audit failure after suspension reaches the caller() | 1 |
+| `b36fc3ca50` | NegateConditionals | `authorizeResume` 23/129 | a denied resume cancels and reaches the caller when the cancellation suspends() | 1 |
+| `64b71d7ed9` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `authorizeResume` 24/133 | a denied resume cancels and reaches the caller when the cancellation suspends() | 1 |
+| `9516ca2fa7` | VoidMethodCall | `authorizeResume` 25/150 | a denied resume cancels and reaches the caller when the cancellation suspends() | 1 |
+| `4be603cfac` | NegateConditionals | `authorizeResume` 37/195 | a nested-approval requirement cancels and reaches the caller when the cancellation suspends() | 1 |
+| `6759437252` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `authorizeResume` 38/199 | a nested-approval requirement cancels and reaches the caller when the cancellation suspends() | 1 |
+| `b1d24bc23a` | VoidMethodCall | `authorizeResume` 39/216 | a nested-approval requirement cancels and reaches the caller when the cancellation suspends() | 1 |
+| `5cae2063c9` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `authorizeResume` 54/275 | an authorization failure after suspension reaches the caller before the claim() | 1 |
+| `ef7dc1d6b1` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `executeClaimedResume` 20/171 | a claimed-arguments integrity mismatch after suspension is rejected() | 1 |
+| `577c07309b` | VoidMethodCall | `executeClaimedResume` 21/202 | a claimed-arguments integrity mismatch after suspension is rejected() | 1 |
+| `04c94b4890` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `executeClaimedResume` 40/327 | an executor failure after suspension reaches the caller and completes nothing() | 1 |
+| `021b3c457a` | VoidMethodCall | `executeClaimedResume` 41/378 | an executor failure after suspension reaches the caller and completes nothing() | 1 |
+| `4b1bdb9fc7` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `executeClaimedResume` 55/445 | a completion write failure after suspension reaches the caller() | 1 |
+| `b280cd7e98` | VoidMethodCall | `executeClaimedResume` 56/500 | a completion write failure after suspension reaches the caller() | 1 |
+| `09642639c5` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `invokeSuspend` 6/36 | a governed executor failure after suspension reaches the caller() | 1 |
+| `f8bdda993a` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `prepareResume` 12/72 | a continuation read failure after suspension reaches the caller() | 1 |
+| `f20df64ded` | VoidMethodCall | `prepareResume` 13/85 | a continuation read failure after suspension reaches the caller() | 1 |
+| `8cdddbe077` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `prepareResume` 25/135 | a metadata load failure after suspension reaches the caller() | 1 |
+| `b545c2ae14` | VoidMethodCall | `prepareResume` 26/153 | a metadata load failure after suspension reaches the caller() | 1 |
+| `4cca31fe70` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `prepareResume` 40/228 | a governed identity read failure after suspension reaches the caller before any claim() | 1 |
+| `8510790e92` | VoidMethodCall | `prepareResume` 41/251 | a governed identity read failure after suspension reaches the caller before any claim() | 1 |
+| `e2f022edd7` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `prepareResume` 54/336 | a claim-time read failure after suspension reaches the caller without claiming() | 1 |
+| `613bf2d479` | VoidMethodCall | `prepareResume` 55/369 | a claim-time read failure after suspension reaches the caller without claiming() | 1 |
+| `39f37feb8a` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `prepareResume` 62/427 | a token validation failure after suspension reaches the caller() | 1 |
+| `2f92ef797c` | VoidMethodCall | `prepareResume` 63/470 | a token validation failure after suspension reaches the caller() | 1 |
+| `d3f812e883` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 10/63 | a continuation read failure after suspension reaches the caller() | 1 |
+| `ceba69cd43` | VoidMethodCall | `resume` 11/71 | a continuation read failure after suspension reaches the caller() | 1 |
+| `18ac9e9b9d` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 15/99 | an authorization failure after suspension reaches the caller before the claim() | 1 |
+| `441d334356` | VoidMethodCall | `resume` 16/112 | an authorization failure after suspension reaches the caller before the claim() | 1 |
+| `7cd98a9030` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 27/159 | a claim write failure after suspension reaches the caller() | 1 |
+| `ece7d1190f` | VoidMethodCall | `resume` 28/177 | a claim write failure after suspension reaches the caller() | 1 |
+| `f0effc0ace` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 43/268 | a replay reveal failure after suspension reaches the caller and completes nothing() | 1 |
+| `92b019e1ba` | VoidMethodCall | `resume` 44/303 | a nested-approval requirement raised after suspension is reported uncertain and propagated() | 3 |
+| `13586a6301` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 55/360 | a governed executor failure after suspension reaches the caller() | 1 |
+| `2d5928356b` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 68/463 | a nested-approval requirement raised after suspension is reported uncertain and propagated() | 1 |
+| `5170395637` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 86/579 | a structured-output failure after suspension is reported uncertain and propagated() | 1 |
+| `d20dbac385` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `resume` 106/708 | an uncertain-outcome audit failure after suspension does not replace the primary failure() | 1 |
+| `20ca1a1d8d` | org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator | `revealAndValidateReplayPayload` 32/174 | a replay-envelope digest mismatch is rejected and reports the mismatch before claiming() | 1 |
+
+One of the 40 (`cb90dfa953`, `authorizeResume` 7/44) was already detected by the released
+`ApprovalResumeCoordinatorTest.deny policy cancels state and never claims or executes`; the rest are credited to the new
+contract tests.
+
+**EQUIVALENT proven - 1:** `1ce5967ee6` - `resume` block 91/index 641, line 108, `removed call to
+CancellationKt::rethrowIfCancellation`. The mutated call sits in the **last** catch clause (`catch (e: Exception)`), and
+`rethrowIfCancellation` is exactly `if (this is CancellationException) throw this`. The clause immediately above it is
+`catch (e: CancellationException)` rethrowing `e`, and Kotlin matches catch clauses in order, so no reachable value of
+`e` can be a `CancellationException` or any subclass (`kotlinx.coroutines.CancellationException` is
+`java.util.concurrent.CancellationException` on the JVM). The call is a no-op for every value the site can receive, so
+removing it cannot change behaviour. The measurement agrees (`SURVIVED -> SURVIVED`, 17 tests run).
+
+**UNREACHABLE proven - 0. `TOOLING_LIMITATION` proven - 0.**
+
+**Still UNDETERMINED - 9**, all of them the same construct, and all of them *executed*:
+
+| Identity | Site | Observed | tests run | Mutation |
+|---|---|---|---|---|
+| `63e5372ba3` | `authorizeResume` 55/292 line 144 | NO_COVERAGE -> SURVIVED | 5 | removed call to kotlin/ResultKt::throwOnFailure |
+| `e0ae69141e` | `invokeSuspend` 2/12 line 85 | SURVIVED -> SURVIVED | 4 | removed call to kotlin/ResultKt::throwOnFailure |
+| `492f9a132e` | `invokeSuspend` 7/40 line 85 | NO_COVERAGE -> SURVIVED | 2 | removed call to kotlin/ResultKt::throwOnFailure |
+| `ab78ed8577` | `prepareResume` 7/44 line 119 | SURVIVED -> SURVIVED | 99 | removed call to kotlin/ResultKt::throwOnFailure |
+| `5397c6bf59` | `resume` 56/395 line 64 | NO_COVERAGE -> SURVIVED | 2 | removed call to kotlin/ResultKt::throwOnFailure |
+| `ef13cbec0d` | `resume` 69/501 line 64 | NO_COVERAGE -> SURVIVED | 1 | removed call to kotlin/ResultKt::throwOnFailure |
+| `ecb1e83af5` | `resume` 87/617 line 64 | NO_COVERAGE -> SURVIVED | 1 | removed call to kotlin/ResultKt::throwOnFailure |
+| `9026b993fd` | `resume` 107/746 line 64 | NO_COVERAGE -> SURVIVED | 2 | removed call to kotlin/ResultKt::throwOnFailure |
+| `62911071da` | `revealAndValidateReplayPayload` 33/205 line 212 | NO_COVERAGE -> SURVIVED | 1 | removed call to kotlin/ResultKt::throwOnFailure |
+
+These are the state-machine **case-entry rethrows**: removing the unwrap of a failure delivered on the resumed frame is
+not detected by any test in the slice, including the failing-resume tests. That is recorded as the observation it is -
+it is consistent with the resumed frame delivering the failure through the nested call rather than through the case
+entry - but no equivalence argument is claimed, so they stay `UNDETERMINED`. It is the same family the previous
+increment observed on `DefaultApprovalGateway`; a repeatable pattern is not evidence of equivalence.
+
+### 10.7 Accounting
+
+```
+g1G4 parent UNDETERMINED before g1G4c         93
+g1G4c ApprovalResumeCoordinator input          50
+  KILLED this increment                        40
+  EQUIVALENT proven                             1
+  UNREACHABLE proven                            0
+  TOOLING_LIMITATION proven                     0
+  still UNDETERMINED                            9
+  lost / duplicate / unexplained            0 / 0 / 0
+g1G4 parent UNDETERMINED after g1G4c          93 - 41 = 52
+```
+
+Parent remainder by class: `ApprovalSuspensionCoordinator` 39, `DefaultApprovalGateway` 4, `ApprovalResumeCoordinator` 9.
+g1G4d/g1G4e remain later work; parent g1G4 is **not** complete.
+
+No production code was touched, no baseline regenerated, no classification or admission file edited, no mutator set,
+timeout policy, deviation ceiling or workflow weakened. None of the 50 identities was admitted through the g1G4z2
+population-admission mechanism.
+
+### 10.8 Reproduction
+
+1. Derive the cohort: committed 118-manifest, `className` **prefix** `dev.tramai.engine.approval.ApprovalResumeCoordinator`.
+2. Positive control: `./gradlew :tramai-engine:test --tests "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest"`
+   - 22 tests, 0 failures.
+3. Measurement: throwaway worktree at `4d772e81` (or the shipped head), narrow `mutation.targetFamilies` (measurement commit `f01d296e`),
+   `./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks`, then join
+   `build/reports/maintainability/mutation/approval/tramai-engine/mutations.xml` to the frozen cohort by full canonical
+   identity. Control: the same narrowing at `6d798f80`.
+4. Gates: `verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=6d798f80...`; `:tramai-engine:test`;
+   `spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyJUnitTestSignatures`.
