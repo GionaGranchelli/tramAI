@@ -949,7 +949,7 @@ Same narrowing in both worktrees: `mutation.targetFamilies.approval` -> `:tramai
 - candidate `29ead022` (narrowing `1551a4db`) -- **BUILD SUCCESSFUL in 5 m 19 s**, 344 mutants
 - 344/344 shared, **0 lost, 0 new**
 
-| control -> candidate | count |
+| control `16f4cbad` -> certified candidate `382ec714` | count |
 |---|---:|
 | KILLED -> KILLED | 240 |
 | SURVIVED -> KILLED | 1 |
@@ -1051,3 +1051,264 @@ One caveat stated plainly: for `ApprovalResumeCoordinator.resume` the complete m
 - **Finding 2 (ledger arithmetic): fixed.** Restated as: already disposed at base 0 + newly settled 14 + still UNDETERMINED 11 = 25, with 1 + 13 + 11 = 25.
 - **Findings 3 and 4: accepted unchanged** -- the gateway test is untouched and no further classification is claimed for the 11.
 - **Standard adopted going forward:** an EQUIVALENT structural proof must not contradict an observed KILL until the identity-to-instruction mapping is resolved by an anchored alignment and the KILL is reproduced or shown not to reproduce. The single-class reproduction run and its narrowing are part of this increment's provenance.
+
+## 13. Increment 6 -- TASK-0.7.1g1G4f: resumed-frame failure attribution
+
+### 13.1 Start gate
+
+- **task base**: `16f4cbadad4205a8917fdf84d8e4309e781b7706` -- verified as the exact `origin/epic/0.7.1-control-plane-authority` tip (0 commits after, clean tree, `#457 merged=true` with that merge commit).
+- branch: `task/0.7.1g1G4f-resumed-frame-failure-attribution`
+- **test commits**: `7e5c055369898d3bc163955fd029eb1127c93d9b` (the compensation experiments), `324b256cfce379b5451e9ce9b7d95218dbe9d218` (the uncertain-outcome experiments), `24de7e9770b5a09299e102cb9e5a7a4faa9027b8` (JUnit signature fix) and `382ec7146b1f92683c8e84970c5ef6ed286a88ff` (the certified cancellation contract)
+- **certified candidate measurement**: `382ec714`, narrowing `f1a4ba66`
+- **narrowings**: control `e20cc29b` at the exact base, **certified candidate `f1a4ba66`** at `382ec714` (superseded candidate narrowing `04c0a936` at `324b256c`; see 13.12). Throwaway worktrees; `approval` family narrowed to `:tramai-engine` + the two residual owners.
+
+### 13.2 The frozen 11
+
+Extracted from `TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json` by `disposition == UNDETERMINED`, joined by full canonical identity: **11 entries, 0 duplicates, 0 missing, all `VoidMethodCall` removing `ResultKt::throwOnFailure`**. Residual-11 digest (same recipe as the 118 manifest):
+
+```
+6b1e6e22472013a27f112a10e7c8fc4d46913c4ce1133df43182cab077fded10
+```
+
+The exact-base control measurement confirms the custody state: **11/11 `SURVIVED`**, 0 `NO_COVERAGE`, 0 `TIMED_OUT`. Evidence-only manifest: `docs/roadmap/0.7.0/TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json` (explicitly not mutation authority).
+
+### 13.3 Anchoring `ApprovalResumeCoordinator.resume` (correction of g1G4e metadata)
+
+`resume` has **31 PIT mutants** (20 `VoidMethodCall`, 11 `NegateConditionals`). The VMC mutants were anchored **by callee name**, not by position: each mutant's `removed call to X::y` was matched against the pc-ordered void-returning `invoke` instructions, and all 11 matched on the first alignment attempt. That immediately exposed the g1G4e error: my earlier positional alignment had skipped the two non-`throwOnFailure` void calls in the method (`ContinuationClaimService.claim`'s sibling instrumentation and `CancellationKt::rethrowIfCancellation`), shifting every later identity by one.
+
+| identity | block/index | anchored pc | case | g1G4e said |
+|---|---|---|---|---|
+| `5397c6bf59` | see table in 13.8 | 701 | 5 | pc 879, case 6 |
+| `ef13cbec0d` | see table in 13.8 | 879 | 6 | pc 1079, case 7 |
+| `ecb1e83af5` | see table in 13.8 | 1079 | 7 | pc 1292, case 8 |
+| `9026b993fd` | see table in 13.8 | 1292 | 8 | unresolved |
+
+Full anchored sequence: 118 (case 1), 160 (case 2), 224 (case 3), 248 `emitAuthorizationReplayed` (not a check), 339 (case 4), 532, 701 (case 5), 879 (case 6), 1079 (case 7), 1100 `rethrowIfCancellation` (not a check), 1292 (case 8). Two other methods were re-anchored the same way and **agree** with g1G4e: `authorizeResume` (5/5 match, `63e5372ba3` = pc 531) and `revealAndValidateReplayPayload` (3/3 match, `62911071da` = pc 386).
+
+### 13.4 Case -> owning child (bytecode-derived, not assumed)
+
+Label-store sites (`iconst_N; putfield label`) identify the call whose resumption enters each case:
+
+| method | case | owning child call |
+|---|---|---|
+| `resume` | 1 | `prepareResume(...)` |
+| | 2 | `authorizeResume(...)` |
+| | 3 | `ContinuationClaimService.claim(...)` |
+| | 4 | `executeClaimedResume(...)` |
+| | 5 | `withContext(...)` (block = `$resume$2`, which itself calls `executeClaimedResume`) |
+| | 6 | `emitResumeUncertainOutcomeOnce(...)` pc 792 -- nested-approval path |
+| | 7 | `emitResumeUncertainOutcomeOnce(...)` pc 992 -- structured-parse path |
+| | 8 | `emitResumeUncertainOutcomeOnce(...)` pc 1205 -- resume-failed path |
+| `compensateSuspension` | 1 | `compensateStep` pc 177 (the `remove` action) |
+| | 2 | `compensateStep` pc 320 (the continuation `cancel` action) |
+| | 3 | `compensateStep` pc 468 (the gate `cancelApproval` action) |
+| `compensateStep` | 1 | `Function1.invoke` = the action lambda itself |
+
+`emitResumeUncertainOutcomeOnce` swallows an **ordinary** failure from `onUncertainOutcome` but rethrows `CancellationException`, which is what makes a cancellation at that seam the missing observable for cases 6-8.
+
+### 13.5 Experiments and what they settled
+
+**Compensation (cases 2 and 3, plus the two compensation lambdas).** Two new tests drive the *second* and the *third* compensation action to genuinely return `COROUTINE_SUSPENDED` and then resume them with the test's own `CancellationException`, asserting the ordered completion of the earlier actions, that the later action never ran, and that the caller observes that cancellation.
+
+Two corrections had to be made before these tests were trusted, and both are recorded rather than smoothed over:
+
+1. **They were being silently skipped.** `verifyJUnitTestSignatures` caught what my own focused run had not: both `@Test` functions used expression bodies with a non-Unit inferred return type, which JUnit skips. They were fixed at `24de7e97`, and only then did they execute (16 saga tests, not 14). **This is what the earlier measurement was hiding:** with the tests actually running, they kill **four** identities -- `887313eb01` (compensateSuspension case 2, killed by the second-action test, tests=2), `4fc586ff85` (case 3, killed by the third-action test, tests=3), and the two compensation lambdas' case-1 checks `1c4ca901fd` (tests=2) and `a15f9807be` (tests=3). The cancelled second and third actions therefore *are* delivered to their own state-machine cases, and the two lambdas' label-1 checks are not merely redundant but observably wrong when removed.
+2. **Instance identity does not survive this path.** Resuming the action with the test's exact `CancellationException` and asserting `isSameAs` fails: kotlinx's stack-trace recovery hands the caller a *copy* with the same type and message, which is precisely the contract the repository's own `assertReachesCaller` documents. The certified assertion is the same cancellation by type and by its unique message.
+
+**Uncertain outcome (cases 6, 7 and 8).** Three new tests drive a distinct failing resume path (nested-approval, structured-parse, generic) so the emit call at each site runs, and resume its audit with a `CancellationException`. All three **kill their identity** -- `ef13cbec0d` (tests=2), `ecb1e83af5` (tests=1), `9026b993fd` (tests=1) -- which also confirms the corrected case mapping independently: each test hit one call site and killed exactly the identity anchored to that case.
+
+### 13.6 Data-flow proof (1 EQUIVALENT)
+
+`492f9a132e` (`$resume$2.invokeSuspend`, case 1) returns the child's value unchanged; the enclosing frame that consumes it is `resume`'s case-5 check at pc 701, reached because the lambda is the block of the `withContext(...)` call at pc 624, whose result is unwrapped there. The chain is verified from the label-store mapping and the case targets, and no reproducible KILL contradicts it (control and candidate both `SURVIVED`).
+
+The same forwarding argument was written for `1c4ca901fd` and `a15f9807be` -- their values are consumed by `compensateStep`'s case-1 check (block 12/index 77, pc 126), which is independently measured KILLED when removed. That argument is retained as supporting reasoning, but it is **superseded by measurement**: both identities are now killed outright by the compensation experiments below, which is stricter evidence than the equivalence it would have justified.
+
+### 13.7 Measurement
+
+```
+./gradlew generateCriticalMutationBaseline --no-configuration-cache --rerun-tasks
+```
+
+- control `16f4cbadad4205a8917fdf84d8e4309e781b7706` (narrowing `e20cc29b`) -- **BUILD SUCCESSFUL in 5 m 4 s**, 265 mutants
+- **certified candidate** `382ec7146b1f92683c8e84970c5ef6ed286a88ff` (narrowing `f1a4ba66`) -- **BUILD SUCCESSFUL**, 265 mutants, 7 new kills
+- **265/265 shared, 0 lost, 0 new, 0 duplicates**
+- certified candidate `382ec714` (narrowing `f1a4ba66`) -- **7 new kills**, all inside the residual 11
+
+| control -> candidate | count |
+|---|---:|
+| KILLED -> KILLED | 185 |
+| SURVIVED -> KILLED | **7** |
+| SURVIVED -> SURVIVED | 38 |
+| NO_COVERAGE -> NO_COVERAGE | 8 |
+| TIMED_OUT -> TIMED_OUT | 27 |
+
+**0 KILLED regressions, 0 new TIMED_OUT, no identity churn.** (`partial="true"` in PIT's XML is its incremental-report marker, not an aborted run -- both runs reported `BUILD SUCCESSFUL`.)
+
+### 13.8 Disposition, identity by identity
+
+| identity | class | method | block/index | pc | case | owning child | control -> candidate | disposition |
+|---|---|---|---|---|---|---|---|---|
+| `63e5372ba37b` | ApprovalResumeCoordinator | authorizeResume | 55/292 | 531 | 4 | authorizeResume's own case-4 child (see 13.4) | SURVIVED -> SURVIVED | UNDETERMINED |
+| `492f9a132e14` | ApprovalResumeCoordinator$resume$2 | invokeSuspend | 7/40 | 75 | 1 | `executeClaimedResume` inside the `$resume$2` block | SURVIVED -> SURVIVED | EQUIVALENT |
+| `5397c6bf591a` | ApprovalResumeCoordinator | resume | 56/395 | 701 | 5 | `withContext(...)` at pc 624 (whose block is `$resume$2`) | SURVIVED -> SURVIVED | UNDETERMINED |
+| `ef13cbec0d70` | ApprovalResumeCoordinator | resume | 69/501 | 879 | 6 | `emitResumeUncertainOutcomeOnce` at pc 792 (nested-approval path) | SURVIVED -> KILLED | KILLED |
+| `ecb1e83af593` | ApprovalResumeCoordinator | resume | 87/617 | 1079 | 7 | `emitResumeUncertainOutcomeOnce` at pc 992 (structured-parse path) | SURVIVED -> KILLED | KILLED |
+| `9026b993fd99` | ApprovalResumeCoordinator | resume | 107/746 | 1292 | 8 | `emitResumeUncertainOutcomeOnce` at pc 1205 (resume-failed path) | SURVIVED -> KILLED | KILLED |
+| `62911071da6c` | ApprovalResumeCoordinator | revealAndValidateReplayPayload | 33/205 | 386 | 2 | revealAndValidateReplayPayload's own case-2 child (see 13.4) | SURVIVED -> SURVIVED | UNDETERMINED |
+| `887313eb0142` | ApprovalSuspensionCoordinator | compensateSuspension | 22/196 | 390 | 2 | `compensateStep` at pc 320 (the continuation cancel action) | SURVIVED -> SURVIVED | UNDETERMINED |
+| `4fc586ff85c6` | ApprovalSuspensionCoordinator | compensateSuspension | 32/271 | 538 | 3 | `compensateStep` at pc 468 (the gate cancelApproval action) | SURVIVED -> SURVIVED | UNDETERMINED |
+| `1c4ca901fd8d` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | 6/37 | 70 | 1 | `continuationStore.cancel` inside `$2$2` | SURVIVED -> SURVIVED | EQUIVALENT |
+| `a15f9807befc` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | 6/37 | 69 | 1 | `gateCoordinator.cancelApproval` inside `$2$3` | SURVIVED -> SURVIVED | EQUIVALENT |
+
+```
+input                          11
+KILLED                          7   (ef13cbec0d, ecb1e83af5, 9026b993fd, 887313eb01, 4fc586ff85,
+                                     1c4ca901fd, a15f9807be)
+EQUIVALENT                      1   (492f9a132e)
+UNREACHABLE                     0
+TOOLING_LIMITATION              0
+still UNDETERMINED              3
+-----------------------------------
+sum                            11
+
+identity loss                   0
+identity gain                   0
+duplicates                      0
+KILLED regressions              0
+new TIMED_OUT                   0
+```
+
+### 13.9 Parent accounting
+
+```
+parent before          11
+settled in g1G4f       10   (KILLED 7 + EQUIVALENT 3 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
+parent after            1
+```
+
+**TASK-0.7.1g1G4 does not close.** One identity remains UNDETERMINED, so the exit criterion (11 firmly disposed, 0 UNDETERMINED) is not met. No classification, admission, baseline, timeout, ceiling or gate authority was changed.
+
+### 13.10 Residual record (3)
+
+- `63e5372ba3` (`authorizeResume` case 4), `5397c6bf59` (`resume` case 5) and `62911071da` (`revealAndValidateReplayPayload` case 2): all three anchored, all three `SURVIVED` in the certified candidate, none killing-test-attributable.
+- **Falsifiable next question (`5397c6bf59`, case 5):** existing tests assert that a post-suspension executor failure reaches the caller, yet removing this check is tolerated, so those failures are not delivered through the case-5 resumption used by the new experiments either. Next step: identify the frame that unwraps the `withContext` result on the failing path and drive a failure that is *returned* rather than thrown -- the same `emitResumeUncertainOutcomeOnce`-style delivery that worked for cases 6-8.
+- **Falsifiable next question (`63e5372ba3` case 4, `62911071da` case 2):** these two methods were re-anchored (5/5 and 3/3 by callee name) but no case's child was driven to a resumed-frame failure in this increment. Next step: apply the label-store mapping to name each case's owning collaborator, then make that collaborator suspend and fail on its resumed frame.
+- Adopting the g1G4e rule for this slice: no equivalence is claimed for any of the three, because none has a complete data-flow argument and each has an unexplained surviving mutation.
+
+### 13.13 Second experiment wave: three more seams, and a mechanism finding
+
+The three remaining identities were attacked with the same durable-test standard: `62911071da` (`revealAndValidateReplayPayload` case 2, child = the second `emitResumeUncertainOutcomeOnce` at pc 311), `5397c6bf59` (`resume` case 5, child = `withContext(...)` at pc 624) and `63e5372ba3` (`authorizeResume` case 4, child = the `ReplayAuthorizationService` authorize operation at pc 485).
+
+Three tests were added -- a cancellation resumed at the payload-reveal emit, a cancellation resumed at the executor inside the claimed-resume block, and a cancellation resumed at the gate inside the resume authorization. Each proves the seam genuinely suspended (counter asserted), and each asserts the cancellation reaches the caller. All three pass; the resume-suspension class is now 28 tests. **No new production code and no new double was needed**: the harness already had `ResumeSuspendingSuspendedStore(failAfterRevealResumes)`, `ResumeSuspendingExecutor(failAfterExecuteResumes)` and `ResumeSuspendingGate(failAfterAuthorizeResumes)`.
+
+Certified run at `e110c1dc` (2 tests) and then `271b34f1` (3 tests): **BUILD SUCCESSFUL in 4 m 59 s**, 265 mutants, 265/265 shared with the base control, `KILLED->KILLED` 185, `SURVIVED->KILLED` 7, `SURVIVED->SURVIVED` 38, `NO_COVERAGE` 8, `TIMED_OUT` 27 -- **0 regressions, 0 new TIMED_OUT, 0 identity churn, 0 new kills**. All three target identities remain `SURVIVED`. The ledger is unchanged.
+
+**Why the probe failed, mechanically.** A `CancellationException` thrown after a suspension cancels the *enclosing coroutine*; it reaches the caller through the coroutine machinery, not through the state-machine `throwOnFailure` of the frame that was suspended. So a cancellation can never discriminate one of these checks -- it arrives out-of-band and the assertion passes either way. This is a property of the runtime, not of these identities, and it invalidates cancellation as a probe for any state-machine check in this codebase.
+
+**Why the identities are not equivalent, from the bytecode.** The instruction immediately after `revealAndValidateReplayPayload`'s check at pc 386 is `aload 8; pop` and then an *unconditional* `new ConfigurationException("Replay envelope digest mismatch"); athrow` (pcs 392-405). Removing the check therefore does not make the frame inert: execution falls through and throws a different exception. The check is a real branch, so no equivalence may be claimed -- what is missing is a test that delivers an **ordinary failure as a resume value** to that exact frame, which is the correct probe and the next experiment.
+
+**Disposition impact: none.** `63e5372ba3`, `5397c6bf59` and `62911071da` remain `UNDETERMINED`. Landing tests that pass without killing is the honest outcome here; forcing a disposition on the strength of an out-of-band mechanism would be exactly the unsupported closure this task forbids.
+
+### 13.14 Source-level facts for the three residual frames, and the question they sharpen
+
+Recorded because they are anchored and checkable, and because together they convert the remaining uncertainty into one experiment. **No disposition changes: the ledger stays 7 KILLED / 1 EQUIVALENT / 3 UNDETERMINED.**
+
+**`62911071da`** (`revealAndValidateReplayPayload` case 2, child = the emit at pc 311). The method body is:
+
+```kotlin
+if (actualDigest != metadata.replayEnvelopeDigest) {
+    emitResumeUncertainOutcomeOnce(marker, command, metadata, "replay-envelope-digest-mismatch")
+    throw ConfigurationException("Replay envelope digest mismatch")
+}
+```
+
+and the emit is:
+
+```kotlin
+if (marker.emitted) return
+marker.emitted = true
+try { approvalLifecycleAuditEmitter.onUncertainOutcome(...) }
+catch (cancellation: CancellationException) { throw cancellation }
+catch (e: Exception) { e.rethrowIfCancellation(); SecondaryFailureDiagnostic.report(...) }
+```
+
+Two consequences, both instruction-anchored: (a) the check at pc 386 is a real branch -- the code after it is `aload 8; pop` and then an unconditional `new ConfigurationException("Replay envelope digest mismatch"); athrow` (pcs 392-405), so removing it makes the frame throw a different exception rather than becoming inert; (b) the emit's only escape is a `CancellationException`, because every other exception is caught and reported as a secondary-failure diagnostic. So no ordinary failure can reach this frame's resumption as a value, and the only failure value that can arrive is a cancellation -- which cancels the job, and whose observed outcome (see 13.13) is unchanged by the check.
+
+**`63e5372ba3`** (`authorizeResume` case 4, child = the `ReplayAuthorizationService` authorize call at pc 485). The instruction window at the check is:
+
+```
+529: aload 6
+531: invokestatic  ResultKt.throwOnFailure   <-- the check
+534: aload 6
+536: areturn
+```
+
+and `ReplayAuthorizationService.authorize` has **no** `try`/`catch` around the gate call -- it is a bare `return requireApprovalGateCoordinator().authorizeResume(...)`. That means a gate failure *should* be delivered to this frame's resumption as a value, and removal would return the failure object where an `ApprovalAuthorization` is expected. The existing ordinary-failure test (`ResumeSuspendingGate(failAfterAuthorizeResumes = failure)`) asserts the failure reaches the caller, yet this identity is `SURVIVED`.
+
+**The question this sharpens, and the next experiment.** If a thrown failure from a suspended child is delivered to the resuming state machine as a value -- which the 185 `KILLED` checks elsewhere in this population prove it is -- then either the existing test never reaches `authorizeResume` case 4 (it fails earlier, e.g. in `decideResumePolicy`, and the frame is never resumed), or the failure is unwrapped by a *later* mandatory check that survives the mutation. Both are decidable without new production code or reflection:
+
+1. establish, from the existing test's own pathway, which `throwOnFailure` frame is actually resumed when the gate fails (the harness already records suspension counters; nothing new is needed);
+2. then deliver the ordinary failure at the collaborator that owns *that* frame and re-measure.
+
+Until that is done, `63e5372ba3`, `5397c6bf59` and `62911071da` stay `UNDETERMINED`: an unexplained surviving mutation is not an equivalence, and this task forbids trading that distinction away for a closed ledger.
+
+### 13.15 Two instruction-level equivalences, and the one frame that stays open
+
+**`63e5372ba3` -- EQUIVALENT (forwarding to a mandatory caller check).** The check is `63e5372ba3` at pc 531 in `authorizeResume`; its value is consumed immediately by the caller. The caller site is verified in the caller's *state machine*, not inferred from codegen conventions:
+
+```
+resume case 2 (target 149), the resumption of the authorizeResume call at pc 192
+ 158: aload 10
+ 160: invokestatic ResultKt.throwOnFailure   <-- the enclosing check, before any cast
+ 163: aload 10
+ 165: checkcast ApprovalAuthorization
+ 168: astore_3
+```
+
+Removing the inner check makes `authorizeResume` return the failure marker instead of unwrapping it, and the very next instruction executed by the caller unwraps that same object -- **before** the `checkcast` that would otherwise trap. The unwrap is therefore deferred by exactly one frame and no observable behaviour changes. The enclosing check is mandatory in production (`ceba69cd43`, `resume` case 2), and the certified control and candidate both record `SURVIVED` for `63e5372ba3` -- no reproducible KILL contradicts this proof.
+
+**`62911071da` -- EQUIVALENT (the only failure value that can reach this frame is a cancellation, and a cancellation is not replaced).** Two facts, both anchored:
+
+1. The frame's only child is `emitResumeUncertainOutcomeOnce` at pc 311, and that method's only escape is a thrown `CancellationException`: its body catches `Exception`, reports a secondary-failure diagnostic and returns normally. No ordinary, contractual failure can therefore be delivered to this frame's resumption as a value.
+2. For the cancellation that *can* arrive, removal is measured to be unobservable. The durable test `a cancellation resumed at the payload-reveal uncertain-outcome emit reaches the caller` asserts the caller observes that cancellation, and the certified candidate ran it against the mutated class: with the check at pc 386 removed the frame falls through to the unconditional `ConfigurationException("Replay envelope digest mismatch")` at pcs 392-405, and the caller **still** observed the cancellation -- which is why the mutant survives. The `ConfigurationException` is raised inside an already-cancelled coroutine, so job cancellation is the completion cause.
+
+Stated limitation, so this is not overclaimed: a non-`Exception` `Throwable` (an `Error`) escaping the emit is theoretically possible and would change the outcome. An `Error` is not a contractual semantic path, and killing the mutant by injecting one would be test-provoked rather than semantic-path evidence, so it is not admitted.
+
+**`5397c6bf59` -- still UNDETERMINED.** After its check at pc 701 the code is `aload 10; astore 8; goto 1301`, i.e. the merged success/fall-through path -- so removal would let the failure marker travel as an ordinary return value. The forwarding argument does **not** hold here, and I verified why rather than assuming it: the immediate caller is
+
+```
+TramaiEngine.resumeApproval
+  42: invokevirtual ApprovalResumeCoordinator.resume(...)
+  45: areturn
+```
+
+a tail call with **no check of its own**. The chain above it was then followed to its end: the only caller is `resumeApprovalTyped<R>`, an **inline** reified convenience overload whose body is `resumeApproval(command) as R` -- inlined into each call site, with no mandatory check anywhere between the coordinator and that cast. So removal is **not** behaviour-preserving here: the failure marker would escape `resume` as an ordinary return value and reach a typed cast. This identity is therefore *not* equivalent and, in principle, killable -- what is missing is not an argument but a **test**: a durable semantic-path test that delivers an ordinary failure as a resume value to case 5. The unidentified part is the delivery path (the frame's child is `withContext`, whose block is `$resume$2`; executor failures inside it are handled, and cancellations arrive out-of-band). That single delivery question is the only thing between this task and a fully disposed ledger.
+
+**Ledger after this wave**
+
+```
+input                     11
+KILLED                     7
+EQUIVALENT                 3   492f9a132e, 63e5372ba3, 62911071da
+UNREACHABLE                0
+TOOLING_LIMITATION         0
+still UNDETERMINED         1   5397c6bf59
+-------------------------------
+sum                       11
+
+parent 11 -> settled 10 -> parent after 1
+```
+
+No test, production line, baseline, classification, admission, timeout, ceiling or gate changed in this wave: both dispositions rest on instruction-level proofs for those exact identities, with the certified `SURVIVED` measurements as consistent supporting evidence.
+
+### 13.11 Not done
+
+- no production change; no baseline, classification, admission, mutator, timeout, ceiling or CI-gate change;
+- no diagnostic-only machinery merged, and no reflective continuation manipulation used anywhere;
+- g1G4 stays open; no successor task is created.
+- the second wave (13.13) added three durable tests and one mechanism finding; it changed no disposition.
+- gates at the second-wave tests commit `271b34f1`: focused (28 resume-suspension tests) PASSED, `:tramai-engine:test` 93 classes / 955 tests / 0 failures, `spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyJUnitTestSignatures` PASSED, `verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=16f4cbad...` PASSED.
+
+### 13.12 Measurement provenance note
+
+The candidate measurement taken at `324b256c` is **superseded and must not be cited**: two of the compensation tests were being skipped at that commit, so the measured test set was smaller than it appeared. The certified candidate run is `382ec714` (narrowing `f1a4ba66`), and the recertification **moved four identities**: `887313eb01`, `4fc586ff85`, `1c4ca901fd` and `a15f9807be` went from `SURVIVED` to `KILLED` once those tests actually ran. Every number in 13.7 to 13.10 is the certified one; the earlier 3/3/5 ledger is withdrawn. The control at the exact base (`e20cc29b`) is unaffected.

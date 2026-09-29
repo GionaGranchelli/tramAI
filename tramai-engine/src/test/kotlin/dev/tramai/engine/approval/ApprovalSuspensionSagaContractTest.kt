@@ -44,9 +44,14 @@ import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.tool.ToolExecutionRequest
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
@@ -54,6 +59,7 @@ import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.coroutines.resumeWithException
 
 /**
  * Contract tests for the suspension saga in [ApprovalSuspensionCoordinator].
@@ -174,17 +180,20 @@ class ApprovalSuspensionSagaContractTest {
         assertThat(thrown.message).isEqualTo(expected.message)
     }
 
-    private fun suspensionOf(
-        coordinator: ApprovalSuspensionCoordinator,
-        scope: GovernedRunIdentity? = null,
-    ): Throwable {
+    /** Drives one saga to its outcome, which the suspension contract requires to be a throw. */
+    private suspend fun drive(coordinator: ApprovalSuspensionCoordinator): Throwable {
         try {
-            bounded(scope) { coordinator.requireApproval(request(), requireDecision(), input) }
+            coordinator.requireApproval(request(), requireDecision(), input)
         } catch (thrown: Throwable) {
             return thrown
         }
         throw AssertionError("the suspension saga was expected to terminate by throwing")
     }
+
+    private fun suspensionOf(
+        coordinator: ApprovalSuspensionCoordinator,
+        scope: GovernedRunIdentity? = null,
+    ): Throwable = bounded(scope) { drive(coordinator) }
 
     // ------------------------------------------------------------------
     // The intended suspension path
@@ -417,6 +426,83 @@ class ApprovalSuspensionSagaContractTest {
     }
 
     // ------------------------------------------------------------------
+    // Resumed-frame routing of the later compensation actions
+    //
+    // The g1G4d work cancelled the FIRST compensation action. These two drive the SECOND and the THIRD:
+    // the action genuinely returns COROUTINE_SUSPENDED, the test resumes it later with its own
+    // CancellationException, and the assertion is that the caller still observes that cancellation
+    // instead of compensation swallowing it.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a cancellation delivered to the second compensation action after suspension reaches the caller`(): Unit =
+        bounded {
+            val initiating = IllegalStateException("audit-failed")
+            val cancellation = CancellationException("second-action-cancelled")
+            val second = PausingContinuationStore(continuations)
+            val saga =
+                coordinator(
+                    continuations = second,
+                    audit = FailingAuditEmitter(audit, failOnSuspended = initiating),
+                )
+            var thrown: Throwable? = null
+
+            coroutineScope {
+                val job = launch { thrown = drive(saga) }
+
+                second.suspended.await()
+                assertThat(second.suspendCount).isEqualTo(1)
+                assertThat(events)
+                    .containsExactly("gate.create", "store.create", "suspended.create", "suspended.remove")
+                second.resumeWith(cancellation)
+                job.join()
+            }
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            // The test supplies this exact instance; kotlinx's stack-trace recovery hands the caller a copy of it,
+            // so what is asserted is the same cancellation by type and by its unique message (see assertReachesCaller).
+            assertReachesCaller(thrown!!, cancellation)
+            assertThat(gate.cancelled).isZero()
+        }
+
+    @Test
+    fun `a cancellation delivered to the third compensation action after suspension reaches the caller`(): Unit =
+        bounded {
+            val initiating = IllegalStateException("audit-failed")
+            val cancellation = CancellationException("third-action-cancelled")
+            val third = PausingGate(gate)
+            val saga =
+                coordinator(
+                    gate = third,
+                    audit = FailingAuditEmitter(audit, failOnSuspended = initiating),
+                )
+            var thrown: Throwable? = null
+
+            coroutineScope {
+                val job = launch { thrown = drive(saga) }
+
+                third.suspended.await()
+                assertThat(third.suspendCount).isEqualTo(1)
+                assertThat(events)
+                    .containsExactly(
+                        "gate.create",
+                        "store.create",
+                        "suspended.create",
+                        "suspended.remove",
+                        "store.cancel",
+                    )
+                third.resumeWith(cancellation)
+                job.join()
+            }
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            // The test supplies this exact instance; kotlinx's stack-trace recovery hands the caller a copy of it,
+            // so what is asserted is the same cancellation by type and by its unique message (see assertReachesCaller).
+            assertReachesCaller(thrown!!, cancellation)
+            assertThat(gate.cancelled).isZero()
+            assertThat(continuations.cancelled).isEqualTo(1)
+        }
+
     // Suspension inside the compensation layers
     // ------------------------------------------------------------------
 
@@ -853,5 +939,61 @@ private class FailingAuditEmitter(
             argumentsDigest,
             expiresAt,
         )
+    }
+}
+
+/**
+ * The third compensation action (the gate's `cancelApproval`): genuinely suspends and is resumed only by the test.
+ * A successful resume delegates, so an experiment that never suspended cannot masquerade as a passing one.
+ */
+private class PausingGate(
+    private val delegate: ApprovalGateCoordinator,
+) : ApprovalGateCoordinator by delegate {
+    val suspended = CompletableDeferred<Unit>()
+    private var pending: CancellableContinuation<Unit>? = null
+    var suspendCount = 0
+        private set
+
+    override suspend fun cancelApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        reason: String,
+    ) {
+        suspendCancellableCoroutine<Unit> { continuation ->
+            pending = continuation
+            suspendCount++
+            suspended.complete(Unit)
+        }
+        delegate.cancelApproval(approvalId, expectedVersion, reason)
+    }
+
+    fun resumeWith(failure: Throwable) {
+        requireNotNull(pending) { "the gate cancellation never suspended" }.resumeWithException(failure)
+    }
+}
+
+/** The second compensation action (the continuation store's `cancel`), same resume-only-by-test shape. */
+private class PausingContinuationStore(
+    private val delegate: ApprovalContinuationStore,
+) : ApprovalContinuationStore by delegate {
+    val suspended = CompletableDeferred<Unit>()
+    private var pending: CancellableContinuation<ApprovalContinuation>? = null
+    var suspendCount = 0
+        private set
+
+    override suspend fun cancel(
+        approvalId: String,
+        expectedVersion: Long,
+    ): ApprovalContinuation {
+        suspendCancellableCoroutine<ApprovalContinuation> { continuation ->
+            pending = continuation
+            suspendCount++
+            suspended.complete(Unit)
+        }
+        return delegate.cancel(approvalId, expectedVersion)
+    }
+
+    fun resumeWith(failure: Throwable) {
+        requireNotNull(pending) { "the continuation cancellation never suspended" }.resumeWithException(failure)
     }
 }

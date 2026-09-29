@@ -54,6 +54,7 @@ import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.withCapturedSecondaryDiagnostics
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -511,6 +512,42 @@ class ApprovalResumeSuspensionContractTest {
     }
 
     @Test
+    fun `a cancellation resumed at the payload-reveal uncertain-outcome emit reaches the caller`() {
+        val primary = IllegalStateException("reveal-failed")
+        val cancellation = CancellationException("reveal-uncertain-cancelled")
+        val suspensions = ResumeSuspendingSuspendedStore(baseSuspensions, failAfterRevealResumes = primary)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit, failAfterUncertainResumes = cancellation)
+
+        val thrown = failureOf(coordinator(suspensions = suspensions, audit = audit))
+
+        assertThat(suspensions.revealResumes).isEqualTo(1)
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
+    fun `a cancellation resumed at the executor inside the claimed-resume block reaches the caller`() {
+        val cancellation = CancellationException("execute-cancelled")
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = cancellation)
+
+        val thrown = failureOf(coordinator(executor = executor))
+
+        assertThat(executor.executeResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
+    fun `a cancellation resumed at the gate inside the resume authorization reaches the caller`() {
+        val cancellation = CancellationException("authorize-cancelled")
+        val gate = ResumeSuspendingGate(baseGate, failAfterAuthorizeResumes = cancellation)
+
+        val thrown = failureOf(coordinator(gate = gate))
+
+        assertThat(gate.authorizeResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
     fun `a nested-approval requirement raised after suspension is reported uncertain and propagated`() {
         val failure = NestedApprovalNotSupportedException(approvalId, "Nested approval not supported")
         val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = failure)
@@ -537,6 +574,62 @@ class ApprovalResumeSuspensionContractTest {
         assertReachesCaller(thrown ?: error("the resume was expected to fail"), primary)
         assertThat(audit.uncertainResumes).isEqualTo(1)
         assertThat(diagnostics.joinToString(" ")).contains("onUncertainOutcome")
+    }
+
+    // ------------------------------------------------------------------
+    // Cancellation delivered to the uncertain-outcome audit on its resumed frame
+    //
+    // Each of the three uncertain-outcome call sites resumes into a different state-machine case of `resume`
+    // (nested-approval, structured-parse-failed, resume-failed). `emitResumeUncertainOutcomeOnce` swallows an
+    // ordinary audit failure but rethrows cancellation, so a cancellation resumed into one of those cases must
+    // reach the caller instead of being replaced by the primary failure.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a cancellation resumed into the nested-approval uncertain path is not replaced by the primary failure`() {
+        val primary = NestedApprovalNotSupportedException(approvalId, "Nested approval not supported")
+        val cancellation = CancellationException("nested-approval-cancelled")
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = primary)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit, failAfterUncertainResumes = cancellation)
+
+        val thrown = failureOf(coordinator(executor = executor, audit = audit))
+
+        assertThat(thrown).isInstanceOf(CancellationException::class.java)
+        assertReachesCaller(thrown, cancellation)
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+        assertThat(audit.uncertainReasons.single()).isEqualTo("nested-approval-not-supported")
+    }
+
+    @Test
+    fun `a cancellation resumed into the structured-parse uncertain path is not replaced by the primary failure`() {
+        val primary = StructuredOutputException("structured-parse-failed")
+        val cancellation = CancellationException("structured-parse-cancelled")
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = primary)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit, failAfterUncertainResumes = cancellation)
+
+        val thrown = failureOf(coordinator(executor = executor, audit = audit))
+
+        assertThat(thrown).isInstanceOf(CancellationException::class.java)
+        assertReachesCaller(thrown, cancellation)
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+        assertThat(audit.uncertainReasons.single()).startsWith("structured-parse-failed")
+    }
+
+    @Test
+    fun `a cancellation resumed into the generic resume-failure uncertain path is not replaced`() {
+        val primary = IllegalStateException("executor-failed")
+        val cancellation = CancellationException("resume-failed-cancelled")
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = primary)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit, failAfterUncertainResumes = cancellation)
+
+        var thrown: Throwable? = null
+        withCapturedSecondaryDiagnostics { thrown = failureOf(coordinator(executor = executor, audit = audit)) }
+
+        val observed = thrown ?: error("the resume was expected to fail")
+        assertThat(observed).isInstanceOf(CancellationException::class.java)
+        assertReachesCaller(observed, cancellation)
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+        assertThat(audit.uncertainReasons.single()).startsWith("resume-failed")
     }
 
     @Test
