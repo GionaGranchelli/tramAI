@@ -1209,6 +1209,49 @@ Certified run at `e110c1dc` (2 tests) and then `271b34f1` (3 tests): **BUILD SUC
 
 **Disposition impact: none.** `63e5372ba3`, `5397c6bf59` and `62911071da` remain `UNDETERMINED`. Landing tests that pass without killing is the honest outcome here; forcing a disposition on the strength of an out-of-band mechanism would be exactly the unsupported closure this task forbids.
 
+### 13.14 Source-level facts for the three residual frames, and the question they sharpen
+
+Recorded because they are anchored and checkable, and because together they convert the remaining uncertainty into one experiment. **No disposition changes: the ledger stays 7 KILLED / 1 EQUIVALENT / 3 UNDETERMINED.**
+
+**`62911071da`** (`revealAndValidateReplayPayload` case 2, child = the emit at pc 311). The method body is:
+
+```kotlin
+if (actualDigest != metadata.replayEnvelopeDigest) {
+    emitResumeUncertainOutcomeOnce(marker, command, metadata, "replay-envelope-digest-mismatch")
+    throw ConfigurationException("Replay envelope digest mismatch")
+}
+```
+
+and the emit is:
+
+```kotlin
+if (marker.emitted) return
+marker.emitted = true
+try { approvalLifecycleAuditEmitter.onUncertainOutcome(...) }
+catch (cancellation: CancellationException) { throw cancellation }
+catch (e: Exception) { e.rethrowIfCancellation(); SecondaryFailureDiagnostic.report(...) }
+```
+
+Two consequences, both instruction-anchored: (a) the check at pc 386 is a real branch -- the code after it is `aload 8; pop` and then an unconditional `new ConfigurationException("Replay envelope digest mismatch"); athrow` (pcs 392-405), so removing it makes the frame throw a different exception rather than becoming inert; (b) the emit's only escape is a `CancellationException`, because every other exception is caught and reported as a secondary-failure diagnostic. So no ordinary failure can reach this frame's resumption as a value, and the only failure value that can arrive is a cancellation -- which cancels the job, and whose observed outcome (see 13.13) is unchanged by the check.
+
+**`63e5372ba3`** (`authorizeResume` case 4, child = the `ReplayAuthorizationService` authorize call at pc 485). The instruction window at the check is:
+
+```
+529: aload 6
+531: invokestatic  ResultKt.throwOnFailure   <-- the check
+534: aload 6
+536: areturn
+```
+
+and `ReplayAuthorizationService.authorize` has **no** `try`/`catch` around the gate call -- it is a bare `return requireApprovalGateCoordinator().authorizeResume(...)`. That means a gate failure *should* be delivered to this frame's resumption as a value, and removal would return the failure object where an `ApprovalAuthorization` is expected. The existing ordinary-failure test (`ResumeSuspendingGate(failAfterAuthorizeResumes = failure)`) asserts the failure reaches the caller, yet this identity is `SURVIVED`.
+
+**The question this sharpens, and the next experiment.** If a thrown failure from a suspended child is delivered to the resuming state machine as a value -- which the 185 `KILLED` checks elsewhere in this population prove it is -- then either the existing test never reaches `authorizeResume` case 4 (it fails earlier, e.g. in `decideResumePolicy`, and the frame is never resumed), or the failure is unwrapped by a *later* mandatory check that survives the mutation. Both are decidable without new production code or reflection:
+
+1. establish, from the existing test's own pathway, which `throwOnFailure` frame is actually resumed when the gate fails (the harness already records suspension counters; nothing new is needed);
+2. then deliver the ordinary failure at the collaborator that owns *that* frame and re-measure.
+
+Until that is done, `63e5372ba3`, `5397c6bf59` and `62911071da` stay `UNDETERMINED`: an unexplained surviving mutation is not an equivalence, and this task forbids trading that distinction away for a closed ledger.
+
 ### 13.11 Not done
 
 - no production change; no baseline, classification, admission, mutator, timeout, ceiling or CI-gate change;
