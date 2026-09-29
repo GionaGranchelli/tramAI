@@ -1215,6 +1215,7 @@ Certified run at `e110c1dc` (2 tests) and then `271b34f1` (3 tests): **BUILD SUC
 - no diagnostic-only machinery merged, and no reflective continuation manipulation used anywhere;
 - g1G4 stays open; no successor task is created.
 - the second wave (13.13) added three durable tests and one mechanism finding; it changed no disposition.
+- gates at the second-wave tests commit `271b34f1`: focused (28 resume-suspension tests) PASSED, `:tramai-engine:test` 93 classes / 955 tests / 0 failures, `spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyJUnitTestSignatures` PASSED, `verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=16f4cbad...` PASSED.
 
 ### 13.12 Measurement provenance note
 
