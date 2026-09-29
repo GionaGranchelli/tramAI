@@ -512,6 +512,31 @@ class ApprovalResumeSuspensionContractTest {
     }
 
     @Test
+    fun `a cancellation resumed at the payload-reveal uncertain-outcome emit reaches the caller`() {
+        val primary = IllegalStateException("reveal-failed")
+        val cancellation = CancellationException("reveal-uncertain-cancelled")
+        val suspensions = ResumeSuspendingSuspendedStore(baseSuspensions, failAfterRevealResumes = primary)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit, failAfterUncertainResumes = cancellation)
+
+        val thrown = failureOf(coordinator(suspensions = suspensions, audit = audit))
+
+        assertThat(suspensions.revealResumes).isEqualTo(1)
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
+    fun `a cancellation resumed at the executor inside the claimed-resume block reaches the caller`() {
+        val cancellation = CancellationException("execute-cancelled")
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = cancellation)
+
+        val thrown = failureOf(coordinator(executor = executor))
+
+        assertThat(executor.executeResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
     fun `a nested-approval requirement raised after suspension is reported uncertain and propagated`() {
         val failure = NestedApprovalNotSupportedException(approvalId, "Nested approval not supported")
         val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = failure)
