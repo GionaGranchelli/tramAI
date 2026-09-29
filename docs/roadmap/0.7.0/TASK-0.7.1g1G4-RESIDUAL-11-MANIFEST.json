@@ -9,12 +9,14 @@
   "24de7e9770b5a09299e102cb9e5a7a4faa9027b8",
   "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
   "e110c1dc4a47d7981c24333c3d726f3c3372a54c",
-  "271b34f1e0e6ab4302a83bd07d51b705740ea2dd"
+  "271b34f1e0e6ab4302a83bd07d51b705740ea2dd",
+  "e04037bf06d62dd16ad0c5254cfd54d447411251"
  ],
  "narrowings": {
-  "control": "e20cc29b",
-  "certifiedCandidate": "f1a4ba66",
-  "supersededCandidate": "04c0a936"
+  "control": "f118383f",
+  "certifiedCandidate": "e745d320",
+  "controlCommit": "3e32020797ec1dcff037f140a1f674f582ab573c",
+  "candidateCommit": "e04037bf06d62dd16ad0c5254cfd54d447411251"
  },
  "parentManifest": "TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json",
  "residualDigest": "6b1e6e22472013a27f112a10e7c8fc4d46913c4ce1133df43182cab077fded10",
@@ -23,11 +25,11 @@
   "SURVIVED": 11
  },
  "adjudication": {
-  "killed": 7,
+  "killed": 8,
   "equivalent": 3,
   "unreachable": 0,
   "toolingLimitation": 0,
-  "undetermined": 1
+  "undetermined": 0
  },
  "identities": [
   {
@@ -58,11 +60,11 @@
    "pc": 701,
    "case": 5,
    "controlStatus": "SURVIVED",
-   "candidateStatus": "SURVIVED",
-   "killingTest": null,
-   "disposition": "UNDETERMINED",
-   "numberOfTestsRun": "2",
-   "proof": "UNDETERMINED: forwarded to TramaiEngine.resumeApproval, which tail-calls with areturn and no check"
+   "candidateStatus": "KILLED",
+   "killingTest": "ApprovalResumeSuspensionContractTest.a ordinary executor failure after suspension inside the governed resume reaches the caller",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1",
+   "proof": "KILLED: governed withContext branch selected (observedIdentity != null); executor entered, suspended and resumed; ordinary RuntimeException delivered as a resume value to case 5 and propagated to the public caller"
   },
   {
    "identity": "ef13cbec0d70fb8ec493cc6ed0709275f5ea9d9d73b2a661ef9c4d782f531af3",
@@ -210,7 +212,7 @@
    "numberOfTestsRun": "3"
   }
  ],
- "certifiedTestCommit": "271b34f1e0e6ab4302a83bd07d51b705740ea2dd",
+ "certifiedTestCommit": "e04037bf06d62dd16ad0c5254cfd54d447411251",
  "provenance": "All statuses, killing tests and dispositions below are from the certified candidate run 382ec714 (narrowing f1a4ba66) against the control at the exact base 16f4cbad (narrowing e20cc29b). The earlier candidate run 324b256c (narrowing 04c0a936) is superseded: two compensation tests were skipped at that commit and it is not citable.",
  "secondWave": {
   "commits": [
@@ -218,5 +220,6 @@
    "271b34f1e0e6ab4302a83bd07d51b705740ea2dd"
   ],
   "result": "3 durable tests pass; 0 new kills; cancellation cannot discriminate a state-machine check because the coroutine machinery delivers it out-of-band"
- }
+ },
+ "parentClosed": "TASK-0.7.1g1G4 closed at 11/11 settled (8 KILLED, 3 EQUIVALENT, 0 UNDETERMINED)"
 }

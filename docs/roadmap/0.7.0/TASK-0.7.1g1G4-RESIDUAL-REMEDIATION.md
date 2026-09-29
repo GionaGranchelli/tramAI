@@ -1312,3 +1312,80 @@ No test, production line, baseline, classification, admission, timeout, ceiling 
 ### 13.12 Measurement provenance note
 
 The candidate measurement taken at `324b256c` is **superseded and must not be cited**: two of the compensation tests were being skipped at that commit, so the measured test set was smaller than it appeared. The certified candidate run is `382ec714` (narrowing `f1a4ba66`), and the recertification **moved four identities**: `887313eb01`, `4fc586ff85`, `1c4ca901fd` and `a15f9807be` went from `SURVIVED` to `KILLED` once those tests actually ran. Every number in 13.7 to 13.10 is the certified one; the earlier 3/3/5 ledger is withdrawn. The control at the exact base (`e20cc29b`) is unaffected.
+
+
+## 14. Increment 7 -- TASK-0.7.1g1G4g: withContext ordinary-failure delivery
+
+Single-identity increment, population exactly `5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930` (`ApprovalResumeCoordinator.resume`, `VoidMethodCall`, block 56/index 395, pc 701, case 5). Diff versus the post-#458 epic tip: **one test file, +19 lines**. No production change.
+
+### 14.1 Start gate
+- base (post-merge Epic tip, #458 squash-merged): `3e32020797ec1dcff037f140a1f674f582ab573c`
+- branch: `task/0.7.1g1G4g-withcontext-ordinary-failure-delivery`
+- test commit: `e04037bf06d62dd16ad0c5254cfd54d447411251`
+
+### 14.2 Why every earlier probe missed this frame
+
+`resume` selects the governed branch on `prepared.persistedGoverned`, and that value is populated only from a `GovernedSuspendedInvocationStore`:
+
+```kotlin
+val persistedGoverned =
+    (suspendedInvocationStore as? GovernedSuspendedInvocationStore)?.governedRunIdentity(command.approvalId)
+...
+if (prepared.persistedGoverned == null) executeClaimedResume(context, claimed, prepared.store)
+else withContext(GovernedRunScope(prepared.persistedGoverned)) { executeClaimedResume(context, claimed, prepared.store) }
+```
+
+Every pre-existing executor-failure test builds the coordinator on the **plain** suspended store, so `persistedGoverned` was `null`, the ungoverned branch ran, and the `withContext` resumption -- and therefore the case-5 check -- was never exercised. Cancellation probes could not discriminate either, because a `CancellationException` cancels the enclosing coroutine and never travels through the suspended frame's check (13.13).
+
+### 14.3 The experiment and its required proofs
+
+One durable test, `an ordinary executor failure after suspension inside the governed resume reaches the caller`, on the governed fixture (`TestGovernedSuspendedInvocationStore` + `ResumeSuspendingGovernedStore`) with `ResumeSuspendingExecutor(failAfterExecuteResumes = uniqueRuntimeException)`. Every proof the increment demanded is asserted in it:
+
+| required proof | how it is established |
+|---|---|
+| `persistedGoverned != null`, governed branch selected | `executor.observedIdentity != null` -- the recovered identity is resolved from the coroutine context on the executor's own resumed frame, which is only possible inside `withContext(GovernedRunScope(...))` |
+| executor entered | `executor.executeResumes == 1` |
+| executor genuinely suspended | the double's `delay(1)` precedes the counter and the throw, so the counter is only reached after a real suspension |
+| failure occurs only after resumption | the throw is the statement after the counter in the double |
+| unmutated production propagates it to the public caller | `assertReachesCaller(thrown, failure)` (type + unique message; no instance identity, because coroutine stack-trace recovery copies the object) |
+| resume-failed uncertain-outcome behaviour observed | `audit.uncertainReasons.single()` starts with `resume-failed:` and `audit.uncertainResumes == 1` |
+
+No reflective continuation manipulation, no synthetic `Result.failure(...)` injection, no manual continuation resumption: the failure is produced by an ordinary collaborator throwing after a real suspension.
+
+### 14.4 Measurement
+
+```
+control     3e32020797ec1dcff037f140a1f674f582ab573c  (narrowing f118383f) -- 265 mutants
+candidate   e04037bf06d62dd16ad0c5254cfd54d447411251    (narrowing e745d320) -- BUILD SUCCESSFUL in 4 m 34 s, 265 mutants
+
+265/265 shared · 0 lost · 0 new · 0 duplicates
+KILLED 190->190 · SURVIVED->KILLED 1 · SURVIVED->SURVIVED 38 · NO_COVERAGE 8->8 · TIMED_OUT 28->28
+0 KILLED regressions · 0 new TIMED_OUT
+```
+
+The single transition is the target: `5397c6bf59` `SURVIVED -> KILLED`, `numberOfTestsRun = 1`, killing test `an ordinary executor failure after suspension inside the governed resume reaches the caller`.
+
+### 14.5 Disposition and parent closure
+
+```
+5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930
+  KILLED -- durable semantic-path test; identity-exact PIT result; killing test identified;
+  genuine suspension demonstrated (governed branch, executor entered, suspended, resumed)
+
+TASK-0.7.1g1G4 residual ledger
+input                     11
+KILLED                     8
+EQUIVALENT                 3   492f9a132e, 63e5372ba3, 62911071da
+UNREACHABLE                0
+TOOLING_LIMITATION         0
+still UNDETERMINED         0
+-------------------------------
+sum                       11
+
+identity loss 0 · identity gain 0 · duplicates 0
+KILLED regressions 0 · new TIMED_OUT 0
+```
+
+**TASK-0.7.1g1G4 closes.** Eleven of eleven identities are firmly disposed, each on identity-exact mutation measurement or on an instruction-level proof for that exact identity, with zero identity loss, gain, duplicates, regressions or new timeouts. The council's challenge in the Socratic clause was correct to distinguish non-equivalence from killability: the proof of 13.15 established the first, this increment established the second by measurement, and the reason the earlier probes could not was the governed-branch selection above -- not the absence of a production path.
+
+Gates at `e04037bf06d62dd16ad0c5254cfd54d447411251`: focused 29 tests PASSED; `:tramai-engine:test` 93 classes / **956 tests** / 0 failures / 0 errors; `spotlessCheck verifyStaticAnalysis verifyStaticSafetyGuards verifyJUnitTestSignatures` PASSED (the last of these is what earlier caught the skipped tests); `verifyChangePolicy -PchangeClass=runtime-behaviour -PchangePolicyBase=3e32020797ec1dcff037f140a1f674f582ab573c` PASSED.
