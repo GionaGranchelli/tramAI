@@ -537,6 +537,17 @@ class ApprovalResumeSuspensionContractTest {
     }
 
     @Test
+    fun `a cancellation resumed at the gate inside the resume authorization reaches the caller`() {
+        val cancellation = CancellationException("authorize-cancelled")
+        val gate = ResumeSuspendingGate(baseGate, failAfterAuthorizeResumes = cancellation)
+
+        val thrown = failureOf(coordinator(gate = gate))
+
+        assertThat(gate.authorizeResumes).isEqualTo(1)
+        assertReachesCaller(thrown, cancellation)
+    }
+
+    @Test
     fun `a nested-approval requirement raised after suspension is reported uncertain and propagated`() {
         val failure = NestedApprovalNotSupportedException(approvalId, "Nested approval not supported")
         val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = failure)
