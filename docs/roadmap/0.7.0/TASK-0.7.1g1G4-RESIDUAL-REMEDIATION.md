@@ -959,7 +959,7 @@ Same narrowing in both worktrees: `mutation.targetFamilies.approval` -> `:tramai
 
 **0 KILLED regressions. 0 new TIMED_OUT. No identity churn.**
 
-Residual cohort: `KILLED -> KILLED` 1, `SURVIVED -> KILLED` 1, `SURVIVED -> SURVIVED` 23.
+**Raw control report** (preserved as provenance, not rewritten): residual cohort `KILLED -> KILLED` 1, `SURVIVED -> KILLED` 1, `SURVIVED -> SURVIVED` 23. Its `KILLED -> KILLED` row is `eec481d97a...`, whose single base `KILLED` **did not reproduce** when the same commit was measured with the narrowing cut down to that class (12.2) -- so the raw `KILLED` is an observation of that run, not the adjudicated base state. Adjudicated base state: 25 SURVIVED, 0 already disposed.
 
 The measured kill:
 
@@ -989,7 +989,7 @@ The measured kill:
 | `6cef3fd2e2` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
 | `1c4ca901fd` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | VoidMethodCall | 6/37 | 70 | 1 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
 | `f175e8698d` | ApprovalSuspensionCoordinator$compensateSuspension$2$2 | invokeSuspend | NullReturnVals | 8/44 | None | None | `replaced return value with null` | EQUIVALENT (discarded lambda result) |
-| `eec481d97a` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | KILLED (at base, not this increment) |
+| `eec481d97a` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | VoidMethodCall | 2/12 | 33 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
 | `a15f9807be` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | VoidMethodCall | 6/37 | 69 | 1 | `removed call to ResultKt::throwOnFailure` | UNDETERMINED |
 | `70d345f720` | ApprovalSuspensionCoordinator$compensateSuspension$2$3 | invokeSuspend | NullReturnVals | 8/44 | None | None | `replaced return value with null` | EQUIVALENT (discarded lambda result) |
 | `d5b70d305c` | DefaultApprovalGateway | persistGoverned | VoidMethodCall | 7/44 | 98 | 0 | `removed call to ResultKt::throwOnFailure` | EQUIVALENT (case-0 entry check) |
