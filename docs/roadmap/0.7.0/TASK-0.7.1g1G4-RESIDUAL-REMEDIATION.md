@@ -1058,7 +1058,8 @@ One caveat stated plainly: for `ApprovalResumeCoordinator.resume` the complete m
 
 - **task base**: `16f4cbadad4205a8917fdf84d8e4309e781b7706` -- verified as the exact `origin/epic/0.7.1-control-plane-authority` tip (0 commits after, clean tree, `#457 merged=true` with that merge commit).
 - branch: `task/0.7.1g1G4f-resumed-frame-failure-attribution`
-- **test commits**: `7e5c055369898d3bc163955fd029eb1127c93d9b` (the compensation experiments) and `324b256cfce379b5451e9ce9b7d95218dbe9d218` (the uncertain-outcome cancellation experiments)
+- **test commits**: `7e5c055369898d3bc163955fd029eb1127c93d9b` (the compensation experiments), `324b256cfce379b5451e9ce9b7d95218dbe9d218` (the uncertain-outcome experiments), `24de7e9770b5a09299e102cb9e5a7a4faa9027b8` (JUnit signature fix) and `382ec7146b1f92683c8e84970c5ef6ed286a88ff` (the certified cancellation contract)
+- **certified candidate measurement**: `382ec714`, narrowing `f1a4ba66`
 - **narrowings**: candidate `04c0a936`, control `e20cc29b` (throwaway worktrees; `approval` family narrowed to `:tramai-engine` + the two residual owners)
 
 ### 13.2 The frozen 11
@@ -1107,7 +1108,14 @@ Label-store sites (`iconst_N; putfield label`) identify the call whose resumptio
 
 ### 13.5 Experiments and what they settled
 
-**Compensation (cases 2 and 3).** Two new tests drive the *second* and the *third* compensation action to genuinely return `COROUTINE_SUSPENDED` and then resume them with the test's own `CancellationException`, asserting instance identity (`isSameAs`), the ordered completion of the earlier actions, and that the later action never ran. Both pass: the cancellation is **not** swallowed and reaches the caller as the exact instance. The mutants for cases 2 and 3 **survive** anyway, so removal of those checks does not change what the caller observes on this path -- the delivery is therefore not through those case entries, and that is recorded as a residual question (13.10) rather than explained away.
+**Compensation (cases 2 and 3).** Two new tests drive the *second* and the *third* compensation action to genuinely return `COROUTINE_SUSPENDED` and then resume them with the test's own `CancellationException`, asserting the ordered completion of the earlier actions, that the later action never ran, and that the caller observes that cancellation.
+
+Two corrections had to be made before these tests were trusted, and both are recorded rather than smoothed over:
+
+1. **They were being silently skipped.** `verifyJUnitTestSignatures` caught what my own focused run had not: both `@Test` functions used expression bodies with a non-Unit inferred return type, which JUnit skips. They were fixed at `24de7e97`; only then did they actually execute (16 saga tests, not 14).
+2. **Instance identity does not survive this path.** Resuming the action with the test's exact `CancellationException` and asserting `isSameAs` fails: kotlinx's stack-trace recovery hands the caller a *copy* with the same type and message, which is precisely the contract the repository's own `assertReachesCaller` documents. Asserting instance identity would have been asserting something this runtime does not provide, so the certified assert is the same cancellation by type and by its unique message.
+
+The mutants for cases 2 and 3 still **survive**, so removing those checks does not change what the caller observes on this path; that is recorded as a residual question (13.10) rather than explained away.
 
 **Uncertain outcome (cases 6, 7 and 8).** Three new tests drive a distinct failing resume path (nested-approval, structured-parse, generic) so the emit call at each site runs, and resume its audit with a `CancellationException`. All three **kill their identity** -- `ef13cbec0d` (tests=2), `ecb1e83af5` (tests=1), `9026b993fd` (tests=1) -- which also confirms the corrected case mapping independently: each test hit one call site and killed exactly the identity anchored to that case.
 
@@ -1195,3 +1203,7 @@ parent after            5
 - no production change; no baseline, classification, admission, mutator, timeout, ceiling or CI-gate change;
 - no diagnostic-only machinery merged, and no reflective continuation manipulation used anywhere;
 - g1G4 stays open; no successor task is created.
+
+### 13.12 Measurement provenance note
+
+The candidate measurement taken at `324b256c` is **superseded and must not be cited**: two of the compensation tests were being skipped at that commit, so the measured test set was smaller than it appeared. The certified candidate run is at `382ec714` (narrowing `f1a4ba66`); the control at the exact base (`e20cc29b`) is unaffected. Any disposition that changes under the recertification is recorded here rather than carried over from the superseded run.
