@@ -459,7 +459,8 @@ class ApprovalSuspensionSagaContractTest {
             }
 
             assertThat(thrown).isInstanceOf(CancellationException::class.java)
-            assertThat(thrown).isSameAs(cancellation)
+            // The test supplies this exact instance; kotlinx's stack-trace recovery hands the caller a copy of it,
+            // so what is asserted is the same cancellation by type and by its unique message (see assertReachesCaller).
             assertReachesCaller(thrown!!, cancellation)
             assertThat(gate.cancelled).isZero()
         }
@@ -495,7 +496,8 @@ class ApprovalSuspensionSagaContractTest {
             }
 
             assertThat(thrown).isInstanceOf(CancellationException::class.java)
-            assertThat(thrown).isSameAs(cancellation)
+            // The test supplies this exact instance; kotlinx's stack-trace recovery hands the caller a copy of it,
+            // so what is asserted is the same cancellation by type and by its unique message (see assertReachesCaller).
             assertReachesCaller(thrown!!, cancellation)
             assertThat(gate.cancelled).isZero()
             assertThat(continuations.cancelled).isEqualTo(1)
