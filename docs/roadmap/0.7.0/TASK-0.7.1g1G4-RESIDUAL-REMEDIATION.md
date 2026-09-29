@@ -1108,25 +1108,20 @@ Label-store sites (`iconst_N; putfield label`) identify the call whose resumptio
 
 ### 13.5 Experiments and what they settled
 
-**Compensation (cases 2 and 3).** Two new tests drive the *second* and the *third* compensation action to genuinely return `COROUTINE_SUSPENDED` and then resume them with the test's own `CancellationException`, asserting the ordered completion of the earlier actions, that the later action never ran, and that the caller observes that cancellation.
+**Compensation (cases 2 and 3, plus the two compensation lambdas).** Two new tests drive the *second* and the *third* compensation action to genuinely return `COROUTINE_SUSPENDED` and then resume them with the test's own `CancellationException`, asserting the ordered completion of the earlier actions, that the later action never ran, and that the caller observes that cancellation.
 
 Two corrections had to be made before these tests were trusted, and both are recorded rather than smoothed over:
 
-1. **They were being silently skipped.** `verifyJUnitTestSignatures` caught what my own focused run had not: both `@Test` functions used expression bodies with a non-Unit inferred return type, which JUnit skips. They were fixed at `24de7e97`; only then did they actually execute (16 saga tests, not 14).
-2. **Instance identity does not survive this path.** Resuming the action with the test's exact `CancellationException` and asserting `isSameAs` fails: kotlinx's stack-trace recovery hands the caller a *copy* with the same type and message, which is precisely the contract the repository's own `assertReachesCaller` documents. Asserting instance identity would have been asserting something this runtime does not provide, so the certified assert is the same cancellation by type and by its unique message.
-
-The mutants for cases 2 and 3 still **survive**, so removing those checks does not change what the caller observes on this path; that is recorded as a residual question (13.10) rather than explained away.
+1. **They were being silently skipped.** `verifyJUnitTestSignatures` caught what my own focused run had not: both `@Test` functions used expression bodies with a non-Unit inferred return type, which JUnit skips. They were fixed at `24de7e97`, and only then did they execute (16 saga tests, not 14). **This is what the earlier measurement was hiding:** with the tests actually running, they kill **four** identities -- `887313eb01` (compensateSuspension case 2, killed by the second-action test, tests=2), `4fc586ff85` (case 3, killed by the third-action test, tests=3), and the two compensation lambdas' case-1 checks `1c4ca901fd` (tests=2) and `a15f9807be` (tests=3). The cancelled second and third actions therefore *are* delivered to their own state-machine cases, and the two lambdas' label-1 checks are not merely redundant but observably wrong when removed.
+2. **Instance identity does not survive this path.** Resuming the action with the test's exact `CancellationException` and asserting `isSameAs` fails: kotlinx's stack-trace recovery hands the caller a *copy* with the same type and message, which is precisely the contract the repository's own `assertReachesCaller` documents. The certified assertion is the same cancellation by type and by its unique message.
 
 **Uncertain outcome (cases 6, 7 and 8).** Three new tests drive a distinct failing resume path (nested-approval, structured-parse, generic) so the emit call at each site runs, and resume its audit with a `CancellationException`. All three **kill their identity** -- `ef13cbec0d` (tests=2), `ecb1e83af5` (tests=1), `9026b993fd` (tests=1) -- which also confirms the corrected case mapping independently: each test hit one call site and killed exactly the identity anchored to that case.
 
-### 13.6 Data-flow proofs (3 EQUIVALENT)
+### 13.6 Data-flow proof (1 EQUIVALENT)
 
-The three label-1 returns only *forward* the failure. In each case the returned object is consumed by an enclosing frame's own `throwOnFailure`, which is present in production and mandatory:
+`492f9a132e` (`$resume$2.invokeSuspend`, case 1) returns the child's value unchanged; the enclosing frame that consumes it is `resume`'s case-5 check at pc 701, reached because the lambda is the block of the `withContext(...)` call at pc 624, whose result is unwrapped there. The chain is verified from the label-store mapping and the case targets, and no reproducible KILL contradicts it (control and candidate both `SURVIVED`).
 
-- `1c4ca901fd` (`$compensateSuspension$2$2.invokeSuspend`) and `a15f9807be` (`$2$3`): the value is returned to `compensateStep`'s case-1 check (block 12/index 77, pc 126). That check is **independently measured KILLED** when removed, i.e. it is required, so the inner check is redundant for every reachable execution.
-- `492f9a132e` (`ApprovalResumeCoordinator$resume$2.invokeSuspend`): the value is returned as the block result of the `withContext(...)` call at pc 624, whose result is unwrapped by `resume`'s case-5 check at pc 701 -- the chain `lambda -> withContext -> resume case 5` is verified from the label-store mapping and the case targets.
-
-Each proof names the exact enclosing instruction and does not rely on `aload_1; areturn` alone.
+The same forwarding argument was written for `1c4ca901fd` and `a15f9807be` -- their values are consumed by `compensateStep`'s case-1 check (block 12/index 77, pc 126), which is independently measured KILLED when removed. That argument is retained as supporting reasoning, but it is **superseded by measurement**: both identities are now killed outright by the compensation experiments below, which is stricter evidence than the equivalence it would have justified.
 
 ### 13.7 Measurement
 
@@ -1137,12 +1132,13 @@ Each proof names the exact enclosing instruction and does not rely on `aload_1; 
 - control `16f4cbadad4205a8917fdf84d8e4309e781b7706` (narrowing `e20cc29b`) -- **BUILD SUCCESSFUL in 5 m 4 s**, 265 mutants
 - candidate `324b256cfce379b5451e9ce9b7d95218dbe9d218` (narrowing `04c0a936`) -- **BUILD SUCCESSFUL in 4 m 37 s**, 265 mutants
 - **265/265 shared, 0 lost, 0 new, 0 duplicates**
+- certified candidate `382ec714` (narrowing `f1a4ba66`) -- **7 new kills**, all inside the residual 11
 
 | control -> candidate | count |
 |---|---:|
 | KILLED -> KILLED | 185 |
-| SURVIVED -> KILLED | 3 |
-| SURVIVED -> SURVIVED | 42 |
+| SURVIVED -> KILLED | **7** |
+| SURVIVED -> SURVIVED | 38 |
 | NO_COVERAGE -> NO_COVERAGE | 8 |
 | TIMED_OUT -> TIMED_OUT | 27 |
 
@@ -1166,11 +1162,12 @@ Each proof names the exact enclosing instruction and does not rely on `aload_1; 
 
 ```
 input                          11
-KILLED                          3   (ef13cbec0d, ecb1e83af5, 9026b993fd)
-EQUIVALENT                      3   (492f9a132e, 1c4ca901fd, a15f9807be)
+KILLED                          7   (ef13cbec0d, ecb1e83af5, 9026b993fd, 887313eb01, 4fc586ff85,
+                                     1c4ca901fd, a15f9807be)
+EQUIVALENT                      1   (492f9a132e)
 UNREACHABLE                     0
 TOOLING_LIMITATION              0
-still UNDETERMINED              5
+still UNDETERMINED              3
 -----------------------------------
 sum                            11
 
@@ -1185,18 +1182,18 @@ new TIMED_OUT                   0
 
 ```
 parent before          11
-settled in g1G4f        6   (KILLED 3 + EQUIVALENT 3 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
-parent after            5
+settled in g1G4f        8   (KILLED 7 + EQUIVALENT 1 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
+parent after            3
 ```
 
-**TASK-0.7.1g1G4 does not close.** Five identities remain UNDETERMINED, so the exit criterion (11 firmly disposed, 0 UNDETERMINED) is not met. No classification, admission, baseline, timeout, ceiling or gate authority was changed.
+**TASK-0.7.1g1G4 does not close.** Three identities remain UNDETERMINED, so the exit criterion (11 firmly disposed, 0 UNDETERMINED) is not met. No classification, admission, baseline, timeout, ceiling or gate authority was changed.
 
-### 13.10 Residual record (5)
+### 13.10 Residual record (3)
 
-- `ef...`-style cases aside, the five are: `63e5372ba3` (`authorizeResume` case 4), `5397c6bf59` (`resume` case 5), `62911071da` (`revealAndValidateReplayPayload` case 2), `887313eb01` (`compensateSuspension` case 2) and `4fc586ff85` (`compensateSuspension` case 3).
-- **Falsifiable next question (compensation cases 2 and 3):** the new experiments prove the cancellation *does* reach the caller, yet removing those two checks changes nothing observable. So either the cancellation is delivered to a different case than the action's own resumption, or a later mandatory check restores it. Next step: trace the resumption of `compensateSuspension` when `compensateStep` rethrows a cancellation -- instrument the case actually entered (by measurement, not reflection) and then assert on the frame that does unwrap it.
-- **Falsifiable next question (`5397c6bf59`, case 5):** existing tests already assert a post-suspension executor failure reaches the caller, yet removing this check is tolerated. That means those failures are not delivered through the case-5 resumption. Next step: establish which frame unwraps the `withContext` result on the failing path, and drive a failure that is returned rather than thrown.
-- **Falsifiable next question (`63e5372ba3` case 4 and `62911071da` case 2):** both live in methods whose own state machines were not the target of any new experiment in this increment. Next step: apply the same label-store anchoring to `authorizeResume` and `revealAndValidateReplayPayload`, name each case's child collaborator, then drive that collaborator's resumed-frame failure.
+- `63e5372ba3` (`authorizeResume` case 4), `5397c6bf59` (`resume` case 5) and `62911071da` (`revealAndValidateReplayPayload` case 2): all three anchored, all three `SURVIVED` in the certified candidate, none killing-test-attributable.
+- **Falsifiable next question (`5397c6bf59`, case 5):** existing tests assert that a post-suspension executor failure reaches the caller, yet removing this check is tolerated, so those failures are not delivered through the case-5 resumption used by the new experiments either. Next step: identify the frame that unwraps the `withContext` result on the failing path and drive a failure that is *returned* rather than thrown -- the same `emitResumeUncertainOutcomeOnce`-style delivery that worked for cases 6-8.
+- **Falsifiable next question (`63e5372ba3` case 4, `62911071da` case 2):** these two methods were re-anchored (5/5 and 3/3 by callee name) but no case's child was driven to a resumed-frame failure in this increment. Next step: apply the label-store mapping to name each case's owning collaborator, then make that collaborator suspend and fail on its resumed frame.
+- Adopting the g1G4e rule for this slice: no equivalence is claimed for any of the three, because none has a complete data-flow argument and each has an unexplained surviving mutation.
 
 ### 13.11 Not done
 
@@ -1206,4 +1203,4 @@ parent after            5
 
 ### 13.12 Measurement provenance note
 
-The candidate measurement taken at `324b256c` is **superseded and must not be cited**: two of the compensation tests were being skipped at that commit, so the measured test set was smaller than it appeared. The certified candidate run is at `382ec714` (narrowing `f1a4ba66`); the control at the exact base (`e20cc29b`) is unaffected. Any disposition that changes under the recertification is recorded here rather than carried over from the superseded run.
+The candidate measurement taken at `324b256c` is **superseded and must not be cited**: two of the compensation tests were being skipped at that commit, so the measured test set was smaller than it appeared. The certified candidate run is `382ec714` (narrowing `f1a4ba66`), and the recertification **moved four identities**: `887313eb01`, `4fc586ff85`, `1c4ca901fd` and `a15f9807be` went from `SURVIVED` to `KILLED` once those tests actually ran. Every number in 13.7 to 13.10 is the certified one; the earlier 3/3/5 ledger is withdrawn. The control at the exact base (`e20cc29b`) is unaffected.

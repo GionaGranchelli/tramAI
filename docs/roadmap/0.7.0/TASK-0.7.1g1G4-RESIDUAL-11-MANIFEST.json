@@ -5,11 +5,14 @@
  "base": "16f4cbadad4205a8917fdf84d8e4309e781b7706",
  "testCommits": [
   "7e5c055369898d3bc163955fd029eb1127c93d9b",
-  "324b256cfce379b5451e9ce9b7d95218dbe9d218"
+  "324b256cfce379b5451e9ce9b7d95218dbe9d218",
+  "24de7e9770b5a09299e102cb9e5a7a4faa9027b8",
+  "382ec7146b1f92683c8e84970c5ef6ed286a88ff"
  ],
  "narrowings": {
-  "candidate": "04c0a936",
-  "control": "e20cc29b"
+  "control": "e20cc29b",
+  "candidate": "f1a4ba66",
+  "certifiedCandidateCommit": "382ec7146b1f92683c8e84970c5ef6ed286a88ff"
  },
  "parentManifest": "TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json",
  "residualDigest": "6b1e6e22472013a27f112a10e7c8fc4d46913c4ce1133df43182cab077fded10",
@@ -18,11 +21,11 @@
   "SURVIVED": 11
  },
  "adjudication": {
-  "killed": 3,
-  "equivalent": 3,
+  "killed": 7,
+  "equivalent": 1,
   "unreachable": 0,
   "toolingLimitation": 0,
-  "undetermined": 5
+  "undetermined": 3
  },
  "identities": [
   {
@@ -38,7 +41,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "UNDETERMINED"
+   "disposition": "UNDETERMINED",
+   "numberOfTestsRun": "5"
   },
   {
    "identity": "5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930",
@@ -53,7 +57,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "UNDETERMINED"
+   "disposition": "UNDETERMINED",
+   "numberOfTestsRun": "2"
   },
   {
    "identity": "ef13cbec0d70fb8ec493cc6ed0709275f5ea9d9d73b2a661ef9c4d782f531af3",
@@ -68,7 +73,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "KILLED",
    "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the nested-approval uncertain path is not replaced by the primary failure()]",
-   "disposition": "KILLED"
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2"
   },
   {
    "identity": "ecb1e83af59393d1b5232a58ff15d691a148b163c854160584245a09ca6b31a5",
@@ -83,7 +89,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "KILLED",
    "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the structured-parse uncertain path is not replaced by the primary failure()]",
-   "disposition": "KILLED"
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1"
   },
   {
    "identity": "9026b993fd997eb85a94ed6bde3b111ec4e411a59c6362b6fb0af2e99bca27bf",
@@ -98,7 +105,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "KILLED",
    "killingTest": "dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalResumeSuspensionContractTest]/[method:a cancellation resumed into the generic resume-failure uncertain path is not replaced()]",
-   "disposition": "KILLED"
+   "disposition": "KILLED",
+   "numberOfTestsRun": "1"
   },
   {
    "identity": "62911071da6c7a9fe85f76a41c5a23d56b1156e2d1447dd96ccce962aabeff3b",
@@ -113,7 +121,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "UNDETERMINED"
+   "disposition": "UNDETERMINED",
+   "numberOfTestsRun": "1"
   },
   {
    "identity": "492f9a132e141f512c5690d8b0d43c6e5925b488de13d80ef71504bcf61b62d4",
@@ -128,7 +137,8 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "EQUIVALENT"
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "2"
   },
   {
    "identity": "887313eb0142a0add13da39b7d198c8bcc351ac8cd2dd1639028d47d7a2fd38e",
@@ -141,9 +151,10 @@
    "pc": 390,
    "case": 2,
    "controlStatus": "SURVIVED",
-   "candidateStatus": "SURVIVED",
-   "killingTest": null,
-   "disposition": "UNDETERMINED"
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the second compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2"
   },
   {
    "identity": "4fc586ff85c68cfdeca566abb58fcfc7986945efb5540844990d16a75ed127bb",
@@ -156,9 +167,10 @@
    "pc": 538,
    "case": 3,
    "controlStatus": "SURVIVED",
-   "candidateStatus": "SURVIVED",
-   "killingTest": null,
-   "disposition": "UNDETERMINED"
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the third compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "3"
   },
   {
    "identity": "1c4ca901fd8d56ace18e167d294242db6cfdd8a6f551c7860dfaa934ea26ce54",
@@ -171,9 +183,10 @@
    "pc": 70,
    "case": 1,
    "controlStatus": "SURVIVED",
-   "candidateStatus": "SURVIVED",
-   "killingTest": null,
-   "disposition": "EQUIVALENT"
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the second compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "2"
   },
   {
    "identity": "a15f9807befc68bd1e00747e77a09e147656195cac0833b68904cb326ccf0a5b",
@@ -186,9 +199,11 @@
    "pc": 69,
    "case": 1,
    "controlStatus": "SURVIVED",
-   "candidateStatus": "SURVIVED",
-   "killingTest": null,
-   "disposition": "EQUIVALENT"
+   "candidateStatus": "KILLED",
+   "killingTest": "dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest.[engine:junit-jupiter]/[class:dev.tramai.engine.approval.ApprovalSuspensionSagaContractTest]/[method:a cancellation delivered to the third compensation action after suspension reaches the caller()]",
+   "disposition": "KILLED",
+   "numberOfTestsRun": "3"
   }
- ]
+ ],
+ "supersededCandidateCommit": "324b256cfce379b5451e9ce9b7d95218dbe9d218"
 }
