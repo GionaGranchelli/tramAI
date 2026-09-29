@@ -11,8 +11,8 @@
  ],
  "narrowings": {
   "control": "e20cc29b",
-  "candidate": "f1a4ba66",
-  "certifiedCandidateCommit": "382ec7146b1f92683c8e84970c5ef6ed286a88ff"
+  "certifiedCandidate": "f1a4ba66",
+  "supersededCandidate": "04c0a936"
  },
  "parentManifest": "TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json",
  "residualDigest": "6b1e6e22472013a27f112a10e7c8fc4d46913c4ce1133df43182cab077fded10",
@@ -205,5 +205,6 @@
    "numberOfTestsRun": "3"
   }
  ],
- "supersededCandidateCommit": "324b256cfce379b5451e9ce9b7d95218dbe9d218"
+ "certifiedTestCommit": "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
+ "provenance": "All statuses, killing tests and dispositions below are from the certified candidate run 382ec714 (narrowing f1a4ba66) against the control at the exact base 16f4cbad (narrowing e20cc29b). The earlier candidate run 324b256c (narrowing 04c0a936) is superseded: two compensation tests were skipped at that commit and it is not citable."
 }

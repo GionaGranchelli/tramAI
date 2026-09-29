@@ -949,7 +949,7 @@ Same narrowing in both worktrees: `mutation.targetFamilies.approval` -> `:tramai
 - candidate `29ead022` (narrowing `1551a4db`) -- **BUILD SUCCESSFUL in 5 m 19 s**, 344 mutants
 - 344/344 shared, **0 lost, 0 new**
 
-| control -> candidate | count |
+| control `16f4cbad` -> certified candidate `382ec714` | count |
 |---|---:|
 | KILLED -> KILLED | 240 |
 | SURVIVED -> KILLED | 1 |
@@ -1060,7 +1060,7 @@ One caveat stated plainly: for `ApprovalResumeCoordinator.resume` the complete m
 - branch: `task/0.7.1g1G4f-resumed-frame-failure-attribution`
 - **test commits**: `7e5c055369898d3bc163955fd029eb1127c93d9b` (the compensation experiments), `324b256cfce379b5451e9ce9b7d95218dbe9d218` (the uncertain-outcome experiments), `24de7e9770b5a09299e102cb9e5a7a4faa9027b8` (JUnit signature fix) and `382ec7146b1f92683c8e84970c5ef6ed286a88ff` (the certified cancellation contract)
 - **certified candidate measurement**: `382ec714`, narrowing `f1a4ba66`
-- **narrowings**: candidate `04c0a936`, control `e20cc29b` (throwaway worktrees; `approval` family narrowed to `:tramai-engine` + the two residual owners)
+- **narrowings**: control `e20cc29b` at the exact base, **certified candidate `f1a4ba66`** at `382ec714` (superseded candidate narrowing `04c0a936` at `324b256c`; see 13.12). Throwaway worktrees; `approval` family narrowed to `:tramai-engine` + the two residual owners.
 
 ### 13.2 The frozen 11
 
@@ -1130,7 +1130,7 @@ The same forwarding argument was written for `1c4ca901fd` and `a15f9807be` -- th
 ```
 
 - control `16f4cbadad4205a8917fdf84d8e4309e781b7706` (narrowing `e20cc29b`) -- **BUILD SUCCESSFUL in 5 m 4 s**, 265 mutants
-- candidate `324b256cfce379b5451e9ce9b7d95218dbe9d218` (narrowing `04c0a936`) -- **BUILD SUCCESSFUL in 4 m 37 s**, 265 mutants
+- **certified candidate** `382ec7146b1f92683c8e84970c5ef6ed286a88ff` (narrowing `f1a4ba66`) -- **BUILD SUCCESSFUL**, 265 mutants, 7 new kills
 - **265/265 shared, 0 lost, 0 new, 0 duplicates**
 - certified candidate `382ec714` (narrowing `f1a4ba66`) -- **7 new kills**, all inside the residual 11
 
