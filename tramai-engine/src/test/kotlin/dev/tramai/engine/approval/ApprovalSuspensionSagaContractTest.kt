@@ -435,7 +435,7 @@ class ApprovalSuspensionSagaContractTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `a cancellation delivered to the second compensation action after suspension reaches the caller`() =
+    fun `a cancellation delivered to the second compensation action after suspension reaches the caller`(): Unit =
         bounded {
             val initiating = IllegalStateException("audit-failed")
             val cancellation = CancellationException("second-action-cancelled")
@@ -465,7 +465,7 @@ class ApprovalSuspensionSagaContractTest {
         }
 
     @Test
-    fun `a cancellation delivered to the third compensation action after suspension reaches the caller`() =
+    fun `a cancellation delivered to the third compensation action after suspension reaches the caller`(): Unit =
         bounded {
             val initiating = IllegalStateException("audit-failed")
             val cancellation = CancellationException("third-action-cancelled")
