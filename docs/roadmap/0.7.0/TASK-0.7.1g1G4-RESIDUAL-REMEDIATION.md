@@ -1282,7 +1282,7 @@ TramaiEngine.resumeApproval
   45: areturn
 ```
 
-a tail call with **no check of its own**. The marker therefore travels at least one further frame, and whether it is unwrapped or traps on a cast before any check is not established. Deciding it needs the engine-side chain disassembled the same way (`TramaiEngine.resumeApproval`'s caller onward, up to the API boundary) -- that is the single remaining experiment for this task.
+a tail call with **no check of its own**. The chain above it was then followed to its end: the only caller is `resumeApprovalTyped<R>`, an **inline** reified convenience overload whose body is `resumeApproval(command) as R` -- inlined into each call site, with no mandatory check anywhere between the coordinator and that cast. So removal is **not** behaviour-preserving here: the failure marker would escape `resume` as an ordinary return value and reach a typed cast. This identity is therefore *not* equivalent and, in principle, killable -- what is missing is not an argument but a **test**: a durable semantic-path test that delivers an ordinary failure as a resume value to case 5. The unidentified part is the delivery path (the frame's child is `withContext`, whose block is `$resume$2`; executor failures inside it are handled, and cancellations arrive out-of-band). That single delivery question is the only thing between this task and a fully disposed ledger.
 
 **Ledger after this wave**
 
