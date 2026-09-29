@@ -24,10 +24,10 @@
  },
  "adjudication": {
   "killed": 7,
-  "equivalent": 1,
+  "equivalent": 3,
   "unreachable": 0,
   "toolingLimitation": 0,
-  "undetermined": 3
+  "undetermined": 1
  },
  "identities": [
   {
@@ -43,8 +43,9 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "UNDETERMINED",
-   "numberOfTestsRun": "5"
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "5",
+   "proof": "EQUIVALENT: forwarded to resume case-2 check pc160 (ceba69cd43), which precedes the checkcast at pc165"
   },
   {
    "identity": "5397c6bf591a7da840a173f7ef0d751fca2db96db65a57b0de194c6d2e1b2930",
@@ -60,7 +61,8 @@
    "candidateStatus": "SURVIVED",
    "killingTest": null,
    "disposition": "UNDETERMINED",
-   "numberOfTestsRun": "2"
+   "numberOfTestsRun": "2",
+   "proof": "UNDETERMINED: forwarded to TramaiEngine.resumeApproval, which tail-calls with areturn and no check"
   },
   {
    "identity": "ef13cbec0d70fb8ec493cc6ed0709275f5ea9d9d73b2a661ef9c4d782f531af3",
@@ -123,8 +125,9 @@
    "controlStatus": "SURVIVED",
    "candidateStatus": "SURVIVED",
    "killingTest": null,
-   "disposition": "UNDETERMINED",
-   "numberOfTestsRun": "1"
+   "disposition": "EQUIVALENT",
+   "numberOfTestsRun": "1",
+   "proof": "EQUIVALENT: the frame's only child is emitResumeUncertainOutcomeOnce, whose only escape is CancellationException (it catches Exception); removal is measured unobservable for the cancellation that can arrive"
   },
   {
    "identity": "492f9a132e141f512c5690d8b0d43c6e5925b488de13d80ef71504bcf61b62d4",

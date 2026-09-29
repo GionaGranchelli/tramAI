@@ -1182,11 +1182,11 @@ new TIMED_OUT                   0
 
 ```
 parent before          11
-settled in g1G4f        8   (KILLED 7 + EQUIVALENT 1 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
-parent after            3
+settled in g1G4f       10   (KILLED 7 + EQUIVALENT 3 + UNREACHABLE 0 + TOOLING_LIMITATION 0)
+parent after            1
 ```
 
-**TASK-0.7.1g1G4 does not close.** Three identities remain UNDETERMINED, so the exit criterion (11 firmly disposed, 0 UNDETERMINED) is not met. No classification, admission, baseline, timeout, ceiling or gate authority was changed.
+**TASK-0.7.1g1G4 does not close.** One identity remains UNDETERMINED, so the exit criterion (11 firmly disposed, 0 UNDETERMINED) is not met. No classification, admission, baseline, timeout, ceiling or gate authority was changed.
 
 ### 13.10 Residual record (3)
 
@@ -1251,6 +1251,55 @@ and `ReplayAuthorizationService.authorize` has **no** `try`/`catch` around the g
 2. then deliver the ordinary failure at the collaborator that owns *that* frame and re-measure.
 
 Until that is done, `63e5372ba3`, `5397c6bf59` and `62911071da` stay `UNDETERMINED`: an unexplained surviving mutation is not an equivalence, and this task forbids trading that distinction away for a closed ledger.
+
+### 13.15 Two instruction-level equivalences, and the one frame that stays open
+
+**`63e5372ba3` -- EQUIVALENT (forwarding to a mandatory caller check).** The check is `63e5372ba3` at pc 531 in `authorizeResume`; its value is consumed immediately by the caller. The caller site is verified in the caller's *state machine*, not inferred from codegen conventions:
+
+```
+resume case 2 (target 149), the resumption of the authorizeResume call at pc 192
+ 158: aload 10
+ 160: invokestatic ResultKt.throwOnFailure   <-- the enclosing check, before any cast
+ 163: aload 10
+ 165: checkcast ApprovalAuthorization
+ 168: astore_3
+```
+
+Removing the inner check makes `authorizeResume` return the failure marker instead of unwrapping it, and the very next instruction executed by the caller unwraps that same object -- **before** the `checkcast` that would otherwise trap. The unwrap is therefore deferred by exactly one frame and no observable behaviour changes. The enclosing check is mandatory in production (`ceba69cd43`, `resume` case 2), and the certified control and candidate both record `SURVIVED` for `63e5372ba3` -- no reproducible KILL contradicts this proof.
+
+**`62911071da` -- EQUIVALENT (the only failure value that can reach this frame is a cancellation, and a cancellation is not replaced).** Two facts, both anchored:
+
+1. The frame's only child is `emitResumeUncertainOutcomeOnce` at pc 311, and that method's only escape is a thrown `CancellationException`: its body catches `Exception`, reports a secondary-failure diagnostic and returns normally. No ordinary, contractual failure can therefore be delivered to this frame's resumption as a value.
+2. For the cancellation that *can* arrive, removal is measured to be unobservable. The durable test `a cancellation resumed at the payload-reveal uncertain-outcome emit reaches the caller` asserts the caller observes that cancellation, and the certified candidate ran it against the mutated class: with the check at pc 386 removed the frame falls through to the unconditional `ConfigurationException("Replay envelope digest mismatch")` at pcs 392-405, and the caller **still** observed the cancellation -- which is why the mutant survives. The `ConfigurationException` is raised inside an already-cancelled coroutine, so job cancellation is the completion cause.
+
+Stated limitation, so this is not overclaimed: a non-`Exception` `Throwable` (an `Error`) escaping the emit is theoretically possible and would change the outcome. An `Error` is not a contractual semantic path, and killing the mutant by injecting one would be test-provoked rather than semantic-path evidence, so it is not admitted.
+
+**`5397c6bf59` -- still UNDETERMINED.** After its check at pc 701 the code is `aload 10; astore 8; goto 1301`, i.e. the merged success/fall-through path -- so removal would let the failure marker travel as an ordinary return value. The forwarding argument does **not** hold here, and I verified why rather than assuming it: the immediate caller is
+
+```
+TramaiEngine.resumeApproval
+  42: invokevirtual ApprovalResumeCoordinator.resume(...)
+  45: areturn
+```
+
+a tail call with **no check of its own**. The marker therefore travels at least one further frame, and whether it is unwrapped or traps on a cast before any check is not established. Deciding it needs the engine-side chain disassembled the same way (`TramaiEngine.resumeApproval`'s caller onward, up to the API boundary) -- that is the single remaining experiment for this task.
+
+**Ledger after this wave**
+
+```
+input                     11
+KILLED                     7
+EQUIVALENT                 3   492f9a132e, 63e5372ba3, 62911071da
+UNREACHABLE                0
+TOOLING_LIMITATION         0
+still UNDETERMINED         1   5397c6bf59
+-------------------------------
+sum                       11
+
+parent 11 -> settled 10 -> parent after 1
+```
+
+No test, production line, baseline, classification, admission, timeout, ceiling or gate changed in this wave: both dispositions rest on instruction-level proofs for those exact identities, with the certified `SURVIVED` measurements as consistent supporting evidence.
 
 ### 13.11 Not done
 
