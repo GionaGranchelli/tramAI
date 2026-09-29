@@ -1195,11 +1195,26 @@ parent after            3
 - **Falsifiable next question (`63e5372ba3` case 4, `62911071da` case 2):** these two methods were re-anchored (5/5 and 3/3 by callee name) but no case's child was driven to a resumed-frame failure in this increment. Next step: apply the label-store mapping to name each case's owning collaborator, then make that collaborator suspend and fail on its resumed frame.
 - Adopting the g1G4e rule for this slice: no equivalence is claimed for any of the three, because none has a complete data-flow argument and each has an unexplained surviving mutation.
 
+### 13.13 Second experiment wave: three more seams, and a mechanism finding
+
+The three remaining identities were attacked with the same durable-test standard: `62911071da` (`revealAndValidateReplayPayload` case 2, child = the second `emitResumeUncertainOutcomeOnce` at pc 311), `5397c6bf59` (`resume` case 5, child = `withContext(...)` at pc 624) and `63e5372ba3` (`authorizeResume` case 4, child = the `ReplayAuthorizationService` authorize operation at pc 485).
+
+Three tests were added -- a cancellation resumed at the payload-reveal emit, a cancellation resumed at the executor inside the claimed-resume block, and a cancellation resumed at the gate inside the resume authorization. Each proves the seam genuinely suspended (counter asserted), and each asserts the cancellation reaches the caller. All three pass; the resume-suspension class is now 28 tests. **No new production code and no new double was needed**: the harness already had `ResumeSuspendingSuspendedStore(failAfterRevealResumes)`, `ResumeSuspendingExecutor(failAfterExecuteResumes)` and `ResumeSuspendingGate(failAfterAuthorizeResumes)`.
+
+Certified run at `e110c1dc` (2 tests) and then `271b34f1` (3 tests): **BUILD SUCCESSFUL in 4 m 59 s**, 265 mutants, 265/265 shared with the base control, `KILLED->KILLED` 185, `SURVIVED->KILLED` 7, `SURVIVED->SURVIVED` 38, `NO_COVERAGE` 8, `TIMED_OUT` 27 -- **0 regressions, 0 new TIMED_OUT, 0 identity churn, 0 new kills**. All three target identities remain `SURVIVED`. The ledger is unchanged.
+
+**Why the probe failed, mechanically.** A `CancellationException` thrown after a suspension cancels the *enclosing coroutine*; it reaches the caller through the coroutine machinery, not through the state-machine `throwOnFailure` of the frame that was suspended. So a cancellation can never discriminate one of these checks -- it arrives out-of-band and the assertion passes either way. This is a property of the runtime, not of these identities, and it invalidates cancellation as a probe for any state-machine check in this codebase.
+
+**Why the identities are not equivalent, from the bytecode.** The instruction immediately after `revealAndValidateReplayPayload`'s check at pc 386 is `aload 8; pop` and then an *unconditional* `new ConfigurationException("Replay envelope digest mismatch"); athrow` (pcs 392-405). Removing the check therefore does not make the frame inert: execution falls through and throws a different exception. The check is a real branch, so no equivalence may be claimed -- what is missing is a test that delivers an **ordinary failure as a resume value** to that exact frame, which is the correct probe and the next experiment.
+
+**Disposition impact: none.** `63e5372ba3`, `5397c6bf59` and `62911071da` remain `UNDETERMINED`. Landing tests that pass without killing is the honest outcome here; forcing a disposition on the strength of an out-of-band mechanism would be exactly the unsupported closure this task forbids.
+
 ### 13.11 Not done
 
 - no production change; no baseline, classification, admission, mutator, timeout, ceiling or CI-gate change;
 - no diagnostic-only machinery merged, and no reflective continuation manipulation used anywhere;
 - g1G4 stays open; no successor task is created.
+- the second wave (13.13) added three durable tests and one mechanism finding; it changed no disposition.
 
 ### 13.12 Measurement provenance note
 

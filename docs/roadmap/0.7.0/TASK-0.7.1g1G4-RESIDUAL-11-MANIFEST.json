@@ -7,7 +7,9 @@
   "7e5c055369898d3bc163955fd029eb1127c93d9b",
   "324b256cfce379b5451e9ce9b7d95218dbe9d218",
   "24de7e9770b5a09299e102cb9e5a7a4faa9027b8",
-  "382ec7146b1f92683c8e84970c5ef6ed286a88ff"
+  "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
+  "e110c1dc4a47d7981c24333c3d726f3c3372a54c",
+  "271b34f1e0e6ab4302a83bd07d51b705740ea2dd"
  ],
  "narrowings": {
   "control": "e20cc29b",
@@ -205,6 +207,13 @@
    "numberOfTestsRun": "3"
   }
  ],
- "certifiedTestCommit": "382ec7146b1f92683c8e84970c5ef6ed286a88ff",
- "provenance": "All statuses, killing tests and dispositions below are from the certified candidate run 382ec714 (narrowing f1a4ba66) against the control at the exact base 16f4cbad (narrowing e20cc29b). The earlier candidate run 324b256c (narrowing 04c0a936) is superseded: two compensation tests were skipped at that commit and it is not citable."
+ "certifiedTestCommit": "271b34f1e0e6ab4302a83bd07d51b705740ea2dd",
+ "provenance": "All statuses, killing tests and dispositions below are from the certified candidate run 382ec714 (narrowing f1a4ba66) against the control at the exact base 16f4cbad (narrowing e20cc29b). The earlier candidate run 324b256c (narrowing 04c0a936) is superseded: two compensation tests were skipped at that commit and it is not citable.",
+ "secondWave": {
+  "commits": [
+   "e110c1dc4a47d7981c24333c3d726f3c3372a54c",
+   "271b34f1e0e6ab4302a83bd07d51b705740ea2dd"
+  ],
+  "result": "3 durable tests pass; 0 new kills; cancellation cannot discriminate a state-machine check because the coroutine machinery delivers it out-of-band"
+ }
 }
