@@ -390,6 +390,25 @@ class ApprovalResumeSuspensionContractTest {
     }
 
     @Test
+    fun `an ordinary executor failure after suspension inside the governed resume reaches the caller`() {
+        val failure = IllegalStateException("governed-executor-failed")
+        val governed = TestGovernedSuspendedInvocationStore(baseSuspensions).also { it.governed += governedRecord() }
+        val suspensions = ResumeSuspendingGovernedStore(governed)
+        val executor = ResumeSuspendingExecutor(baseExecutor, failAfterExecuteResumes = failure)
+        val audit = ResumeSuspendingAuditEmitter(baseAudit)
+
+        val thrown = failureOf(coordinator(suspensions = suspensions, executor = executor, audit = audit))
+
+        // The recovered governed identity is observed on the executor's own resumed frame, which is
+        // only possible inside withContext(GovernedRunScope(...)): proof the case-5 branch was taken.
+        assertThat(executor.observedIdentity).isNotNull()
+        assertThat(executor.executeResumes).isEqualTo(1)
+        assertReachesCaller(thrown, failure)
+        assertThat(audit.uncertainReasons.single()).startsWith("resume-failed:")
+        assertThat(audit.uncertainResumes).isEqualTo(1)
+    }
+
+    @Test
     fun `a token validation failure after suspension reaches the caller`() {
         val failure = IllegalStateException("token-validation-failed")
         val gate = ResumeSuspendingGate(baseGate, failAfterValidateResumes = failure)
