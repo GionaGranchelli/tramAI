@@ -268,5 +268,36 @@
       "killingTest": null,
       "evidenceProvenance": "javap at the G5d base (classes identical to the measured campaign); PIT row (line/block/index) from the candidate campaign 7acbd868; pitBlock bracketing against in-method calibration points from the committed G5b and G5c manifests"
     }
-  ]
+  ],
+  "regressionCampaign": {
+    "campaign": {
+      "throwaway": "56364ae3970dec4b6edd7e1507b98a9f0d2fc5f1",
+      "base": "cd46f176b20ef7e0e0b2b0e251569214dfc90619",
+      "buildResult": "BUILD SUCCESSFUL",
+      "durationSeconds": 1033,
+      "population": 918,
+      "statuses": {
+        "KILLED": 662,
+        "NO_COVERAGE": 62,
+        "SURVIVED": 132,
+        "TIMED_OUT": 62
+      },
+      "configDiff": "family-list narrowing only: 53 deletions, approval block byte-identical"
+    },
+    "reference": {
+      "campaign": "G5c candidate 7acbd868",
+      "note": "identical production+test content to the G5d base"
+    },
+    "sharedIdentities": 918,
+    "g5dOnly": 0,
+    "referenceOnly": 0,
+    "statusMovements": 0,
+    "previouslyKilledRegressions": 0,
+    "newTimeouts": 0,
+    "cohort": {
+      "allFourPresent": true,
+      "allFourNoCoverage": true,
+      "widening": false
+    }
+  }
 }

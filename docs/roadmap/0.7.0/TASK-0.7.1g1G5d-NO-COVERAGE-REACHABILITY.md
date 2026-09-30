@@ -99,9 +99,23 @@ Parent accounting: 52 = 36 (G5b TOOLING_LIMITATION) + 12 (G5c: 1 KILLED, 11 EQUI
 
 Tests: none. Production: none. Documentation: this report and the four-identity manifest. The measurement narrowing is evidence machinery, never committed.
 
-## Regression gate
+## Regression gate — PASSED
 
-The identity-exact campaign runs from a fresh worktree at `cd46f176b20e` with the proven family-only narrowing (53 deletions, `approval` block byte-identical). Results are appended to this report and to the manifest when it completes: 4/4 accounted, 0 identity loss, 0 gain/substitution, 0 new timeouts, 0 regressions of previously KILLED identities, no widening.
+Identity-exact campaign from a fresh worktree at `cd46f176b20ef7e0e0b2b0e251569214dfc90619`, throwaway `56364ae3970dec4b6edd7e1507b98a9f0d2fc5f1` (family-list narrowing only: 53 deletions, `approval` block byte-identical), BUILD SUCCESSFUL in 17m13s, `measuredCommit` equal to the throwaway commit.
+
+| requirement | result |
+| --- | --- |
+| population | 918 (662 KILLED / 132 SURVIVED / 62 NO_COVERAGE / 62 TIMED_OUT) |
+| 4/4 frozen identities accounted for | yes — all four present, all four NO_COVERAGE |
+| identity loss | 0 |
+| identity gain / substitution | 0 |
+| shared identities vs the reference campaign | 918 / 918 |
+| status movements | 0 |
+| new timeouts | 0 |
+| regressions of previously KILLED identities | 0 |
+| widening beyond the four-target cohort | none (population size unchanged) |
+
+The reference is the G5c candidate campaign (`7acbd868`), whose production+test content is identical to this base; the two campaigns agree exactly — identity for identity, status for status.
 
 ## Limits
 
