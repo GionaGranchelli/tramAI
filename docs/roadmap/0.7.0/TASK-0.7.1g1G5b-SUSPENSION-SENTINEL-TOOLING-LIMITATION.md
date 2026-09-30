@@ -17,6 +17,7 @@ All seven conditions held before any measurement: clean tree (#461 merged); the 
 | item | value |
 | --- | --- |
 | base | `aa0cc52cc30a9ec53467712b85e2343b780cafca` |
+| campaign 1 (discovery) | measured at `18f10dbb2c90fbfeafc374e1d7fe0d8814e342b1` — the P1 discovery campaign that produced population digest `7081ed74…`; not `5856530e`, which is the stale committed population's historical measuredCommit |
 | throwaway measurement commit | `2341829c35d81e6269ac6d92c87a62a5d312da96` |
 | config diff (the whole of it) | family-list narrowing only: 53 deletions in config/quality/test-quality.yml, the approval family block untouched |
 | `measuredCommit` in the generated artifact | `2341829c35d81e6269ac6d92c87a62a5d312da96` — equals the throwaway commit |
