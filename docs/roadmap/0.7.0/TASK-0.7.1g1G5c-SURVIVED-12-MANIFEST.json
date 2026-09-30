@@ -52,9 +52,11 @@
     "statusMovements": 1,
     "movements": [
       {
-        "identity": "a9760bea3a92f",
+        "identity": "a9760bea3a92a752255a2becee7edb3ffa0957cf0e88cb75a0a11db850dcc747",
         "from": "SURVIVED",
-        "to": "KILLED"
+        "to": "KILLED",
+        "killingTest": "ApprovalResumeSuspensionContractTest.[method:a cancellation resumed into the structured-parse uncertain path is not replaced by the primary failure()]",
+        "sourceLine": 102
       }
     ],
     "killedRegressions": 0,
@@ -63,7 +65,8 @@
     "identityGain": 0,
     "recovered": 12,
     "missing": 0,
-    "duplicates": 0
+    "duplicates": 0,
+    "movementIdentityNote": "Full 64-hex canonical identities are carried in movement records. An earlier revision of this manifest recorded a malformed prefix (a9760bea3a92f) here; corrected, superseded not erased."
   },
   "mappingDiscipline": {
     "authority": "MutationIdentity.stableKey(): sha256 over module\u241fclass\u241fmethod\u241fdescriptor\u241fmutator\u241fdescription\u241fblock\u241findex; line deliberately excluded",
@@ -168,8 +171,8 @@
       "sourceLine": 307,
       "pitBlock": 17,
       "pitIndex": 106,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 161,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -180,7 +183,9 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: compensateStep pc161 is areturn, line-table entry 307, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
     },
     {
       "identity": "56d3366434a6608d7b5ccd59b6c1377be7324ab2078ec7a09b872153968e4466",
@@ -192,8 +197,8 @@
       "sourceLine": 205,
       "pitBlock": 9,
       "pitIndex": 50,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 100,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -204,7 +209,9 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: requireExistingAttributionMatches pc100 is areturn, line-table entry 205, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
     },
     {
       "identity": "6a1ce2f46d2ad5cdb7fb857a56fcf4ca0d3d87ffc3825279121386e04c3f7c88",
@@ -216,8 +223,8 @@
       "sourceLine": 219,
       "pitBlock": 26,
       "pitIndex": 141,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 244,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -228,7 +235,9 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: requireExistingAttributionMatches pc244 is areturn, line-table entry 219, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
     },
     {
       "identity": "8e18b4b48968d65f181bd226d6e81d99c6c9abb3427463ae77773eb4c901e658",
@@ -264,8 +273,8 @@
       "sourceLine": 265,
       "pitBlock": 35,
       "pitIndex": 204,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 341,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -276,7 +285,9 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: persistGoverned pc341 is areturn, line-table entry 265, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
     },
     {
       "identity": "a9760bea3a92a752255a2becee7edb3ffa0957cf0e88cb75a0a11db850dcc747",
@@ -360,8 +371,8 @@
       "sourceLine": 284,
       "pitBlock": 9,
       "pitIndex": 38,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 54,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -372,7 +383,9 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: persistSuspendedInvocation pc54 is areturn, line-table entry 284, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
     },
     {
       "identity": "f4463604928886b61038161dfacada30be5fa9dcd62178ac329b83c4568e3ffd",
@@ -384,8 +397,8 @@
       "sourceLine": 234,
       "pitBlock": 29,
       "pitIndex": 161,
-      "bytecodePc": null,
-      "instruction": "areturn of the Unit value at the function's return",
+      "bytecodePc": 267,
+      "instruction": "areturn of kotlin/Unit.INSTANCE (preceded by getstatic kotlin/Unit.INSTANCE)",
       "g5aOriginalMapping": "EXACT",
       "resolvedExactMapping": "EXACT",
       "controlStatus": "SURVIVED",
@@ -396,7 +409,18 @@
       "killingTest": null,
       "finalStatus": "SURVIVED (structurally equivalent)",
       "finalDisposition": "EQUIVALENT",
-      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table"
+      "evidenceProvenance": "control campaign 78458d1e @ 42d9d948; candidate campaign 7acbd868 (child of 78458d1e + test d3837a58); javap at the census base with the SMAP-resolved line table",
+      "bytecodePcVerifiedBy": "javap at the census base: persistUngoverned pc267 is areturn, line-table entry 234, preceded by getstatic kotlin/Unit.INSTANCE",
+      "callSiteDiscardEvidence": "supplementary: the resumed path of every call site pops the result"
+    }
+  ],
+  "corrections": [
+    {
+      "field": "reconciliation.movements[0].identity and the six NullReturnVals bytecodePc values",
+      "supersededClaim": "movement identity recorded as the malformed prefix a9760bea3a92f; the six NullReturnVals rows carried bytecodePc=null despite claiming resolvedExactMapping=EXACT",
+      "correctedClaim": "movement records the full 64-hex canonical identity; the six rows carry the mutated areturn PCs 161, 100, 244, 341, 267, 54, each re-verified by javap at the census base against the line table",
+      "foundDuring": "owner review of #463 at head 5e275ccc",
+      "effectOnDispositions": "none \u2014 1 KILLED / 11 EQUIVALENT stands"
     }
   ]
 }
