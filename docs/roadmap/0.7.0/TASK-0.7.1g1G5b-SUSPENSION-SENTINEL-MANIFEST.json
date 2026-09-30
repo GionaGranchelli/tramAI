@@ -90,7 +90,7 @@
       "1": 36
     }
   },
-  "numberOfTestsRunNote": "Every TIMED_OUT mutation in the raw PIT report carries NO numberOfTestsRun element (62 of 62). The frozen manifest's 0 is the audit's coercion of that absence, not a measured zero. Not one test was reported as executed against these mutants.",
+  "numberOfTestsRunNote": "numberOfTestsRun='0' is an XML ATTRIBUTE on <mutation> and is present on every TIMED_OUT mutation (70/70 discovery, 62/62 approval family in this campaign), as on all 190 NO_COVERAGE mutations. The frozen manifest's 0 is PIT's own measurement. An earlier revision of this manifest wrongly stated the attribute was absent; superseded, not erased.",
   "controls": {
     "ApprovalResumeCoordinator": {
       "KILLED": 107,
@@ -164,12 +164,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -194,12 +195,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -224,12 +226,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -254,12 +257,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -284,12 +288,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -314,12 +319,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -344,12 +350,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -374,12 +381,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -404,12 +412,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -434,12 +443,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -464,12 +474,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -494,12 +505,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -524,12 +536,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -554,12 +567,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -584,12 +598,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -614,12 +629,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -644,12 +660,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -674,12 +691,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -704,12 +722,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -734,12 +753,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -764,12 +784,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -794,12 +815,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -824,12 +846,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -854,12 +877,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -884,12 +908,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -914,12 +939,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -944,12 +970,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -974,12 +1001,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1004,12 +1032,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1034,12 +1063,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1064,12 +1094,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1094,12 +1125,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1124,12 +1156,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1154,12 +1187,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1184,12 +1218,13 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
@@ -1214,18 +1249,28 @@
       "dupBeforeSentinelCompare": true,
       "campaign1": {
         "status": "TIMED_OUT",
-        "testsRun": 0
+        "testsRun": 0,
+        "numberOfTestsRunAttribute": "0"
       },
       "campaign2": {
         "status": "TIMED_OUT",
         "testsRun": -1,
-        "rawNumberOfTestsRunElementPresent": false
+        "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
       "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+    }
+  ],
+  "corrections": [
+    {
+      "field": "numberOfTestsRun",
+      "supersededClaim": "the raw report carries no numberOfTestsRun element for TIMED_OUT mutations, so the frozen 0 was a coercion of that absence",
+      "correctedClaim": "numberOfTestsRun='0' is an attribute present on every TIMED_OUT mutation; the 0 is PIT's own measurement",
+      "foundDuring": "TASK-0.7.1g1G5c phase 1 preparation (PIT XML schema inspection)",
+      "effectOnDispositions": "none \u2014 36/36 TOOLING_LIMITATION stands; the evidence is strengthened"
     }
   ]
 }
