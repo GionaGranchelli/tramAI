@@ -17,9 +17,10 @@
   "campaigns": {
     "campaign1": {
       "role": "frozen discovery measurement (source of the 36 raw statuses)",
-      "measuredCommit": "5856530e",
+      "measuredCommit": "18f10dbb2c90fbfeafc374e1d7fe0d8814e342b1",
       "populationDigest": "7081ed7416f759ecca7cae00c7cf4e6261ef0cd16db49fe32bc3bb6f280bbddd",
-      "reportRoot": "/tmp/xk9p1-fresh"
+      "reportRoot": "/tmp/xk9p1-fresh",
+      "measuredCommitCorrection": "5856530e is the stale committed population's historical measuredCommit, not the discovery campaign commit"
     },
     "campaign2": {
       "role": "independent second measurement for determinism",
@@ -169,14 +170,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4",
@@ -200,14 +201,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6",
@@ -231,14 +232,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101",
@@ -262,14 +263,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04",
@@ -293,14 +294,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53",
@@ -324,14 +325,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb",
@@ -355,14 +356,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf",
@@ -386,14 +387,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4",
@@ -417,14 +418,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318",
@@ -448,14 +449,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848",
@@ -479,14 +480,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f",
@@ -510,14 +511,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1",
@@ -541,14 +542,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0",
@@ -572,14 +573,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe",
@@ -603,14 +604,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593",
@@ -634,14 +635,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512",
@@ -665,14 +666,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada",
@@ -696,14 +697,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31",
@@ -727,14 +728,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204",
@@ -758,14 +759,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2",
@@ -789,14 +790,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d",
@@ -820,14 +821,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf",
@@ -851,14 +852,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851",
@@ -882,14 +883,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164",
@@ -913,14 +914,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff",
@@ -944,14 +945,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610",
@@ -975,14 +976,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289",
@@ -1006,14 +1007,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5",
@@ -1037,14 +1038,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1",
@@ -1068,14 +1069,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590",
@@ -1099,14 +1100,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58",
@@ -1130,14 +1131,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d",
@@ -1161,14 +1162,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42",
@@ -1192,14 +1193,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be",
@@ -1223,14 +1224,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     },
     {
       "identity": "1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1",
@@ -1254,14 +1255,14 @@
       },
       "campaign2": {
         "status": "TIMED_OUT",
-        "testsRun": -1,
+        "testsRun": 0,
         "numberOfTestsRunAttribute": "0"
       },
       "concealmentProof": "BYTECODE_ABSENCE",
       "authoredSiblingIdentity": null,
       "killingTest": null,
       "finalDisposition": "TOOLING_LIMITATION",
-      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with no test count reported in two independent campaigns at the same base; matches the g1E proof form A"
+      "evidenceReason": "exact suspension-sentinel mapping (if_acmpne over the child suspend call's result with the COROUTINE_SUSPENDED sentinel, dup immediately before the branch); exactly one conditional jump on the source-attributed line, so no authored conditional is concealed; TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns at the same base; matches the g1E proof form A"
     }
   ],
   "corrections": [
@@ -1271,6 +1272,13 @@
       "correctedClaim": "numberOfTestsRun='0' is an attribute present on every TIMED_OUT mutation; the 0 is PIT's own measurement",
       "foundDuring": "TASK-0.7.1g1G5c phase 1 preparation (PIT XML schema inspection)",
       "effectOnDispositions": "none \u2014 36/36 TOOLING_LIMITATION stands; the evidence is strengthened"
+    },
+    {
+      "field": "campaign1.measuredCommit; campaign2.testsRun; evidenceReason",
+      "supersededClaim": "campaign1.measuredCommit=5856530e (the stale committed population's historical value); campaign2.testsRun=-1 contradicting its own numberOfTestsRunAttribute=0; evidenceReason said 'TIMED_OUT with no test count reported in two independent campaigns'",
+      "correctedClaim": "campaign1.measuredCommit=18f10dbb2c90fbfeafc374e1d7fe0d8814e342b1 (the P1 discovery campaign tip that produced 7081ed74); campaign2.testsRun=0 consistent with the PIT attribute; evidenceReason now reads 'TIMED_OUT with numberOfTestsRun=0 reported by PIT in both independent campaigns'",
+      "foundDuring": "owner review of #462 at head 162be323",
+      "effectOnDispositions": "none \u2014 36/36 TOOLING_LIMITATION stands"
     }
   ]
 }
