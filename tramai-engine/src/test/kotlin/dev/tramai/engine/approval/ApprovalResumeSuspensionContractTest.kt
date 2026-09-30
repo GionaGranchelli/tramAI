@@ -526,7 +526,7 @@ class ApprovalResumeSuspensionContractTest {
 
         assertReachesCaller(thrown, failure)
         assertThat(audit.uncertainReasons).hasSize(1)
-        assertThat(audit.uncertainReasons.single()).startsWith("structured-parse-failed")
+        assertThat(audit.uncertainReasons.single()).isEqualTo("structured-parse-failed: StructuredOutputException")
         assertThat(audit.uncertainResumes).isEqualTo(1)
     }
 
@@ -631,7 +631,7 @@ class ApprovalResumeSuspensionContractTest {
         assertThat(thrown).isInstanceOf(CancellationException::class.java)
         assertReachesCaller(thrown, cancellation)
         assertThat(audit.uncertainResumes).isEqualTo(1)
-        assertThat(audit.uncertainReasons.single()).startsWith("structured-parse-failed")
+        assertThat(audit.uncertainReasons.single()).isEqualTo("structured-parse-failed: StructuredOutputException")
     }
 
     @Test
