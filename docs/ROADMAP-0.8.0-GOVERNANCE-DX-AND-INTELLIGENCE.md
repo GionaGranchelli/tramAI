@@ -109,6 +109,34 @@ Existing 0.7 safety defects remain P0 defects if discovered; broader lifecycle p
 
 Detailed design: [`design/APPROVAL-VALIDITY-REPLACEMENT-AND-LIFECYCLE.md`](design/APPROVAL-VALIDITY-REPLACEMENT-AND-LIFECYCLE.md).
 
+### 2.8 Cross-runtime governance DX and adapter compatibility
+
+- turn the 0.7 XR1 reference proof into a reusable adapter SDK/SPI only after the semantic boundary has been proven;
+- define an adapter compatibility/TCK profile for declared enforcement modes;
+- add additional runtime adapters based on adoption value, with candidates including Koog, LangChain4j, Embabel, ADK, MCP execution boundaries, and custom JVM runtimes;
+- preserve the rule that adapters depend inward on stable governance semantics rather than leaking framework-specific agent concepts into core;
+- support developer-local inspection of runtime/framework identity, boundary coverage, adapter health, and known bypass limitations;
+- keep adapter APIs experimental until native plus external paths demonstrate that the contract generalizes.
+
+Candidate TCK assertions include: `DENY` prevents execution at the declared authoritative boundary, `REQUIRE_APPROVAL` cannot execute early, identity/correlation is preserved, stale decisions cannot authorize a new action, fail-open/fail-closed behavior is explicit, and evidence does not overstate enforcement strength.
+
+### 2.9 Runtime capability provenance and effect semantics
+
+- model where executable capabilities originate, including native tools, MCP tools, remote agents, models/providers, external APIs, and network destinations;
+- keep capability registration/discovery/exposure distinct from permission to execute;
+- introduce effect/reversibility metadata where justified:
+
+```text
+READ_ONLY
+REVERSIBLE
+COMPENSATABLE
+IRREVERSIBLE
+UNKNOWN
+```
+
+- allow effect semantics to influence approval, risk findings, evidence, and incident response without pretending compensation is transactional rollback;
+- keep a full saga/compensation engine out of the release unless concrete use cases justify it separately.
+
 ---
 
 ## 3. Dependencies on 0.7
@@ -123,7 +151,9 @@ Detailed design: [`design/APPROVAL-VALIDITY-REPLACEMENT-AND-LIFECYCLE.md`](desig
 - control-plane projection/query;
 - authorized runtime control;
 - authoritative persisted suspended-run cancellation and future-resume fencing;
-- forensic reconstruction without side effects.
+- forensic reconstruction without side effects;
+- one reference external-runtime authority proof showing that governance semantics do not require TramAI to own the agent runtime;
+- evidence authority/provenance semantics that distinguish authoritative enforcement from instrumented, observed, or imported facts.
 
 0.8 may improve authoring and analysis around those contracts but must not redefine their authority model casually.
 
@@ -137,6 +167,7 @@ Detailed design: [`design/APPROVAL-VALIDITY-REPLACEMENT-AND-LIFECYCLE.md`](desig
 - governed raw-content learning capture, dataset export, FinOps breadth, or adaptive optimization owned by 0.10;
 - a generic business-rules engine;
 - a general ontology/knowledge-graph platform;
+- a promise to productize every JVM framework adapter in one release;
 - a second workflow executor;
 - a second policy engine;
 - a visual workflow builder as a release blocker;
@@ -160,6 +191,8 @@ run deterministic governance contract tests
 execute through the same authoritative TramAI runtime
         ↓
 inspect structured reasons/debug information
+        ↓
+govern at least one non-TramAI-authored JVM workload through the same semantic authority
         ↓
 reconstruct/replay deterministic governance meaning where evidence permits
 ```
