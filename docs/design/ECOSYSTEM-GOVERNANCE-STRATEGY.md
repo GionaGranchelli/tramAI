@@ -31,7 +31,7 @@ The strategic implication is not to abandon TramAI's runtime. It is to define a 
 
 > TramAI's durable differentiation is **governance authority**, not generic agent authoring.
 
-A company should not need to rewrite a Koog, Spring AI, LangChain4j, ADK, Genkit, or custom JVM workload merely to gain TramAI governance.
+A company should not need to rewrite a Koog, Spring AI, LangChain4j, Embabel, Google ADK Java, or custom JVM workload merely to gain TramAI governance.
 
 This strategy has four release-owned consequences:
 
@@ -374,20 +374,21 @@ Therefore:
 7. Replayed decision IDs must not accidentally authorize a different action.
 8. Evidence must distinguish adapter-reported facts from TramAI-observed/enforced facts.
 
-### 0.2.6 Initial adapter targets
+### 0.2.6 Reference proof and later adapter targets
 
-0.7.0 does **not** require all of these to ship.
+0.7 XR1 uses **Spring AI** as the single reference external-runtime authority proof. It is intentionally narrow and may use an experimental integration surface.
 
-Candidates for post-contract adapters:
+0.8 candidates after XR1 include:
 
-- Spring AI;
 - Koog;
 - LangChain4j;
+- Embabel;
+- Google ADK Java;
 - plain HTTP/custom JVM model clients;
 - MCP tool execution boundaries;
-- generic OpenAI-compatible provider call boundary.
+- generic OpenAI-compatible provider call boundaries.
 
-The first production adapter should be selected by adoption value and ability to provide meaningful enforcement, not brand visibility.
+Broader production adapters should be selected by adoption value and ability to provide meaningful enforcement, not brand visibility.
 
 ### 0.2.7 Acceptance criteria
 
