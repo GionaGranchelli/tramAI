@@ -297,7 +297,9 @@ The following do **not** block 0.7.0 unless implementation proves that a narrow 
 - dynamic tool-obligation lifecycle refinement;
 - broader metadata-classification ergonomics;
 - richer deterministic findings/incident analysis;
-- approval lifetime/replacement redesign beyond existing safety requirements.
+- approval lifetime/replacement redesign beyond existing safety requirements;
+- broad Spring AI / Koog / LangChain4j / Embabel adapter matrix beyond the single reference external-runtime authority proof;
+- productionized framework-adapter SDK/TCK ergonomics beyond what the reference proof requires.
 
 See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md).
 
@@ -312,8 +314,6 @@ See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE
 - Helm packaging;
 - Kubernetes operator;
 - Spring Boot five-minute adoption layer beyond what P0 implementation itself requires;
-- a broad Spring AI / Koog / LangChain4j / Embabel adapter matrix beyond the single reference external-runtime authority proof;
-- productionized framework-adapter SDK/TCK ergonomics beyond what the reference proof requires;
 - enterprise deployment/security/CISO packaging.
 
 ## Targeted primarily at 0.10.0 — Governed Learning & Optimization
