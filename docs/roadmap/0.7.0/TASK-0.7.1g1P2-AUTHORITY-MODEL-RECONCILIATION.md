@@ -235,10 +235,11 @@ digest uses the authority projection.
 | 11 | authorized identity changing its adjudication-significant row | **M32**, retained status-inclusive — trust question B (existing, deliberately unchanged) |
 | 12 | unknown/tool-failure PIT status becoming NON_KILLED authority | **M13** fail-closed on non-canonical status/outcome + `MutationOutcome.canonical` mapping, unchanged (existing) |
 
-No attack in the list becomes admissible under the split. Attacks 1-13 of the existing matrix keep
-their current rejections; the only relaxation is that a *non-authorized neighbour's* raw status no
-longer invalidates whole-population context, while its canonical outcome, identity, family/module
-and analyzer semantics still do.
+No attack in the list becomes admissible under the split. Attacks 1-12 above keep their current
+rejections; the only relaxation is that a *non-authorized neighbour's* raw status no longer
+invalidates whole-population context, while its canonical outcome, identity, family/module and
+analyzer semantics still do. The migration-certificate design adds its own discriminators, T13-T16
+in §7.
 
 ---
 
@@ -277,44 +278,90 @@ empirically stable across four independent campaigns.
 
 ## 6. Migration of the existing 67 v1 authorizations
 
-Constraints: the 67 records are schema v1, bound to `fromBaseSha 5bcb030c953c425289fad9e640ab65c15936ecda`
-and to the raw digest `9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0`, with statuses
-36 TIMED_OUT / 27 SURVIVED / 4 NO_COVERAGE. **M36** forbids rewriting retained authority; **M37**
-forbids removal without a valid consumption. Under corrected semantics a raw-digest record can never
-be validly consumed against a nondeterministic raw digest, so a migration is a hard requirement.
+### 6.1 Correction — the earlier revision of this section was wrong
 
-### Required properties
+An earlier revision of this section proposed migrating the digest semantics *in place* on the 67
+records while claiming that M36 remained unchanged. That claim was false, and the repository's own
+code proves it:
 
-- no silent reinterpretation of the existing digest;
-- no in-place rewrite of retained authority;
-- no consumption of P1 without a legitimate P2 transition;
-- M36 and M37 not weakened;
-- no grandfathering of arbitrary future records.
+- `MutationPopulationAdmissions.kt:75-88` — `enforcedPayload()` = identity, status, outcome, family,
+  module, analyzer, `fromBaseSha`, **`populationDigest`**, reason, issue, targetPhase. Its own doc
+  comment says base/candidate byte-identity is judged over exactly this list.
+- `MutationPopulationAdmissionCeremony.kt:314-317` — `isRetainedRewrite()` is
+  `candidate.enforcedPayload() != base.enforcedPayload()`, and M36 fails on it.
 
-### Design — versioned digest semantics with a bounded migration ceremony
+Changing `populationDigest` on a retained record is therefore a retained-authority rewrite that M36
+rejects by construction. The earlier proposal would have needed a "M36 except during migration"
+branch — precisely the kind of exception this track refuses to add. The design record must not claim
+an invariant it does not keep, so that proposal is withdrawn and replaced by the design below, which
+keeps **M36 and M37 literally unchanged**.
 
-1. **Per-record digest algorithm.** Each admission record declares its digest semantics
-   (`populationDigestAlgorithm: raw-v1 | authority-v2`). Digest meaning is a property of the record,
-   never inferred from the ledger's `schemaVersion`, so no existing digest is silently reinterpreted.
-2. **The migration transition** is an explicitly declared ceremony that supersedes the digest
-   *semantics* of an enumerated set of v1 records:
-   - every migrated record keeps `identity`, `status`, `outcome`, `family`, `module`, `analyzer`,
-     `fromBaseSha`, `reason`, `issue`, `targetPhase` **byte-identical** — M36's immutability covers
-     the adjudication payload and is not weakened;
-   - it adds `populationDigestAlgorithm: authority-v2` and a new `populationDigest`;
-   - it **records** the superseded value in `supersededPopulationDigest` with
-     `supersededDigestSemantics: raw-v1` — provenance is superseded by recording, never by erasing;
-   - it is bounded to exactly the identities present in the v1 ledger at the migration's base,
-     each proven present and NON_KILLED with a byte-identical row in the migration's own fresh
-     measurement, and each carrying exactly the superseded v1 digest of that base;
-   - it mints no new identity and admits nothing: the authorizations remain *pending*. It is not a
-     consumption, so M37 is untouched.
-3. **After migration**, the records are v2 and M36 applies to them in their new form; a v1 record
-   offered under v2 semantics fails closed; a v2 record may not be migrated back; a record carrying
-   a superseded digest that does not match the migration base's v1 digest fails closed.
-4. **The 67 stay the same 67.** Their original provenance (adjudication category, document
-   reference, bytecode PC, `fromBaseSha`, status) and their exact adjudication set are preserved;
-   only the digest *semantics* and the recorded superseded digest change.
+The empirical conclusion, the C7 reconciliation, the authority-v2 projection, Option A and
+individual-row binding are unaffected by this correction.
+
+### 6.2 Corrected design — a bounded base-side digest-migration certificate
+
+**Not one byte of the 67 admissions changes.** The semantic upgrade is carried by a separate
+base-authoritative artifact: a digest-migration certificate in its own ledger, so M36's payload
+comparison never sees it.
+
+Certificate fields:
+
+- `fromAlgorithm: raw-v1`, `fromDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0`
+- `toAlgorithm: authority-v2`, `toDigest: e6ad01dc1d2966894a6555304bc8ca9a04c8174e3c83ae88760fcfebf1464dad`
+- `admissionSetDigest` — SHA-256 over the sorted exact identities the certificate covers (the 67)
+- `fromBaseSha` — mint-time anti-replay binding, enforceable only at introduction, then immutable
+  provenance (same semantics as `MutationPopulationAdmission.fromBaseSha`)
+- `reason` — the recorded provenance of the supersession
+
+Sequence:
+
+```
+P1 merged (67 v1 authorizations, byte-identical and untouched)
+    ↓
+P1M — mint the bounded digest-migration certificate
+      admissions untouched; no population transition; no consumption;
+      the transition changes only the certificate ledger
+    ↓
+certificate exists in BASE
+    ↓
+P2 — consume the original 67 admissions using:
+      exact admission row (M32), analyzer (M33),
+      and authority-v2 context certified by the base certificate
+      then remove the admissions and the certificate
+```
+
+Consumption-time check (M34, generalised): the verifier's own fresh **authority** projection must
+equal either the admission's own `toAlgorithm`-semantics digest, or the `toDigest` of a
+**base-side** certificate whose `fromAlgorithm`/`fromDigest` match the cited admission's
+`populationDigest` and whose `admissionSetDigest` matches the exact set of authorizations present.
+
+Proposed rules, all fail-closed:
+
+- **M40** consumption citing a certificate whose `toDigest` ≠ the verifier's fresh authority
+  projection → fail.
+- **M41** certificate whose `fromAlgorithm`/`fromDigest` does not match the cited admission's
+  `populationDigest` → fail.
+- **M42** certificate whose `admissionSetDigest` ≠ the exact set of base authorizations → fail
+  (this is what makes the certificate *bounded*: it cannot cover a different or later set).
+- **M43** certificate created by the same transition that consumes it → fail (the M31 analogue for
+  this new authority: the consuming candidate cannot invent the semantic upgrade it consumes).
+- **M44** certificate retained after the consumption it authorised completed → fail (single use,
+  the M38 analogue).
+
+### 6.3 Why the certificate design is the right one
+
+- M36 remains **literally** unchanged: no exception, no permitted-field list, no special branch.
+- M37 remains **literally** unchanged: the 67 are consumed by the same transition as before; the
+  certificate is not an admission and its removal is not a consumption.
+- The P1 records keep their exact historical bytes and provenance — the audit trail of what was
+  actually minted is preserved, not rewritten.
+- The candidate performing P2 cannot invent the semantic upgrade it consumes: the certificate must
+  already exist in the base (the same temporal trust rule as every other authority in this track).
+- Nothing is grandfathered: the certificate names one exact `fromDigest`, one exact `toDigest`, and
+  one exact admission-set digest.
+- If the 67 must ever change their own bytes, that is a different problem requiring its own
+  ceremony, and this record does not authorise it.
 
 ---
 
@@ -337,6 +384,10 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
 | T10 | unknown PIT status or stored outcome contradicting `canonical(status)` | M13 fail closed |
 | T11 | KILLED→NON_KILLED regression | M01 fail |
 | T12 | unauthorized appearing NON_KILLED alongside an authorized one | M06 fail for the unauthorized identity |
+| T13 | migration cannot rewrite admission authority: given an existing v1 admission, `identity/status/outcome/family/module/analyzer/fromBaseSha/reason/issue/targetPhase` must stay **byte-identical**; any modification fails M36; only a separately base-minted digest-migration certificate may translate raw-v1 population context to authority-v2 context | M36 fail on any enforced-payload change (the admitted defect in §6.1) |
+| T14 | candidate creates a digest-migration certificate **and** consumes it in the same transition (the M31 analogue for the new authority) | M43 fail |
+| T15 | consumption citing a certificate whose `fromDigest` does not match the cited admission's `populationDigest`, or whose `admissionSetDigest` does not match the exact base authorization set | M41 / M42 fail (the certificate is bounded, not a general licence) |
+| T16 | certificate retained after the consumption it authorised completed | M44 fail (single use) |
 
 ---
 
@@ -345,13 +396,18 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
 - `build-logic/.../quality/MutationRatchetVerifier.kt` — split the projections: keep
   `projectionHash` raw-exact for the measurement proof; add the authority projection used by M34.
 - `build-logic/.../quality/MutationPopulationAdmissionCeremony.kt` — M34 compares the authority
-  projection; add the migration-ceremony rules and their fail-closed branches.
-- `build-logic/.../quality/MutationPopulationAdmissions.kt` + `MutationPopulationAdmissionLoader.kt`
-  — the per-record `populationDigestAlgorithm` and `supersededPopulationDigest` fields and their
-  validation.
-- `config/quality/mutation-population-admissions.yml` — only in the migration transition.
-- Tests: the T1-T12 matrix, verifier-level and real-task level.
+  projection; add the certificate-aware consumption check and the M40-M44 fail-closed branches.
+  `isRetainedRewrite()` and the M36 path are **not** touched.
+- New certificate authority: a ledger file (e.g. `config/quality/mutation-population-digest-certificates.yml`)
+  with its own loader following the existing loader pattern, plus its `schemaVersion` and
+  fail-closed validation. Separate from the admissions ledger so M36's payload comparison never
+  sees it.
+- Tests: the T1-T16 matrix, verifier-level and real-task level.
 - Docs: this record plus the rule-list updates in the ceremony/verifier headers.
+
+**Not changed:** `MutationPopulationAdmissions.kt` enums/payload (no new enforced field),
+`MutationPopulationAdmissionLoader.kt` validation, `config/quality/mutation-population-admissions.yml`
+(byte-identical), the committed baseline, classifications, and the evolution ledger.
 
 ## 9. Explicitly out of scope
 
