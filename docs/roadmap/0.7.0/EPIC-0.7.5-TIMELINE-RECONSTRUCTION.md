@@ -15,6 +15,7 @@ reconstruction != re-execution
 missing historical evidence remains missing
 current configuration is never silently substituted for historical configuration
 best-effort telemetry remains distinguishable from authoritative evidence
+reconstruction preserves historical enforcement/evidence provenance rather than upgrading it
 ```
 
 ## Scope
@@ -22,6 +23,7 @@ best-effort telemetry remains distinguishable from authoritative evidence
 - semantic run event model;
 - deterministic ordering/grouping rules;
 - authoritative vs best-effort/missing markers;
+- preservation of evidence source, enforcement strength, and runtime/integration provenance from 0.7.4;
 - reconstruction input contract and completeness model;
 - historical configuration/policy/topology identity resolution;
 - side-effect-free reconstruction API/result;
@@ -38,7 +40,7 @@ best-effort telemetry remains distinguishable from authoritative evidence
 | ID | Candidate | Required result |
 |---|---|---|
 | 0.7.5a | Timeline/reconstruction audit | Characterize available evidence and missing historical identities |
-| 0.7.5b | Semantic timeline contract | Typed governance transitions and authority/source markers |
+| 0.7.5b | Semantic timeline contract | Typed governance transitions plus authority/source/enforcement-provenance markers that remain truthful for native and external-runtime evidence |
 | 0.7.5c | Timeline projection/query | Deterministic semantic ordering from 0.7.4 evidence |
 | 0.7.5d | Reconstruction contract | Inputs, completeness states, historical identity requirements |
 | 0.7.5e | Side-effect-free reconstructor | Produce historical governed narrative/state without external invocation |
@@ -52,6 +54,7 @@ best-effort telemetry remains distinguishable from authoritative evidence
 - Missing evidence is visible.
 - Reconstruction causes zero provider/tool/approval/network/workflow side effects.
 - Historical configuration is used when available; absence is explicit.
+- A reconstructed external-runtime event retains whether it was authoritatively enforced, instrumented, observed, or imported according to the evidence available at execution time.
 
 ## Adversarial proof
 
