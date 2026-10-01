@@ -36,4 +36,1680 @@
 #   issue, targetPhase  optional tracking fields; rewriting them after the decision fails
 #   authorizedBy, authorizedAt  audit only - no enforcement value
 schemaVersion: "1"
-admissions: []
+
+admissions:
+  - identity: 050d2b83c8527c768c73ba7fdaa77021fd04a05638d3b665a724cfccd98f9164
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc145"
+  - identity: 098258d70a2379a58e39d24f5f85824705998bb6d3e20cf0bec54ffecc4db0a6
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: 09ea31d4d0e8b35c80543a6c812d206ce3d949fad35e2c5ad14e48e1332f89c0
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc69"
+  - identity: 10512d6c6e0078e866ab5926dcb17a5b3d77edf65a3e0bb77df3820bc8ba65e1
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc321"
+  - identity: 16f71d24dc95007e1a903b98c660c2bf0ec975915a1e9c41ed727689f2ccd5a2
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc1420"
+  - identity: 1b17d7d30c234dcb3e0e8081542d742c2c5ec6b4716c5ba787b4edf3be5a22a1
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc151"
+  - identity: 1ce5967ee60b6f4380d69dead598dde89212eeb17c2b9be6348bf9dfc3928981
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc1100"
+  - identity: 2436750ccd7646d3803f335216c2fdecf27a58b90acb8250b5929a634201d5c5
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc185"
+  - identity: 252596080a3a8e97a347ef98bc08ae9af6fa6c3db5d8c432744148d5109f9848
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc634"
+  - identity: 2b197f5cd3cba2e7f02c6ebfc6701d945e397b4166f04f4218a2e591892b85fe
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc120"
+  - identity: 3658ba45eaedbf6a946036d210a91578d65fda8b0f0f295137393d3454e9a5e0
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc287"
+  - identity: 3a5c5213b226f1f86b48c12172489ee618b9af890d750ab3ac1d7d2032854e0a
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc161"
+  - identity: 4245a1aa59c91bc59bd4fe50b0a42bcef26b9c5b4c39e10771b3f6e3602de63d
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc457"
+  - identity: 43dd0cdff07a1d862bc17951e50cbb1b7d8a5d77d91348744b2910467c01f204
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc1072"
+  - identity: 4865b74caf50c74ee8bfb7994960e3bf640e3a8c6ecc32cd9a99eef5bafc94bf
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc143"
+  - identity: 492f9a132e141f512c5690d8b0d43c6e5925b488de13d80ef71504bcf61b62d4
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+  - identity: 564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67
+    status: NO_COVERAGE
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5d UNREACHABLE, TASK-0.7.1g1G5d-NO-COVERAGE-4-MANIFEST.json, pc194; artifact-relative: if resolveGovernedSuspension()/resolveGovernedIdentity() ever gains a suspension point this becomes a re-adjudication candidate rather than remaining grandfathered"
+  - identity: 56d3366434a6608d7b5ccd59b6c1377be7324ab2078ec7a09b872153968e4466
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc100"
+  - identity: 5a7edac3a982221ce692e032184362a1db8efc49292d9ea0b5716824303ecef1
+    status: NO_COVERAGE
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5d UNREACHABLE, TASK-0.7.1g1G5d-NO-COVERAGE-4-MANIFEST.json, pc204; artifact-relative: if resolveGovernedSuspension()/resolveGovernedIdentity() ever gains a suspension point this becomes a re-adjudication candidate rather than remaining grandfathered"
+  - identity: 5d700610726248849d6141d8f8159c688932d1759e3f3d20bbb6fe966cb670e4
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc308"
+  - identity: 60f7b020e009cc99a8a80e19e34a956e570614449294444db057993e433b1ac6
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: 611bdacfe9f54230f4c152506c0491fa01445042d992cacdfaad2cee031d2cd4
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc198"
+  - identity: 62911071da6c7a9fe85f76a41c5a23d56b1156e2d1447dd96ccce962aabeff3b
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+  - identity: 63e5372ba37bc3b097def60c22bddd050404d168b26c2fa73bc94a99a6705c1e
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+  - identity: 66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e
+    status: NO_COVERAGE
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5d UNREACHABLE, TASK-0.7.1g1G5d-NO-COVERAGE-4-MANIFEST.json, pc163; artifact-relative: if resolveGovernedSuspension()/resolveGovernedIdentity() ever gains a suspension point this becomes a re-adjudication candidate rather than remaining grandfathered"
+  - identity: 6a1ce2f46d2ad5cdb7fb857a56fcf4ca0d3d87ffc3825279121386e04c3f7c88
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc244"
+  - identity: 6cadd3397125ba1bdc4b72d2267c73f6b9ab4fdcd77205691f0d10adc07e5101
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc804"
+  - identity: 6cef3fd2e23d3df1571d390564b8274596c70c97965bc5719603d39116b74b8c
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: 6e83174c379e04bed5f19fcf1b87028e3230064cd5c85e570c00e164acf9dada
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc158"
+  - identity: 6f9609fdbbabaf152fc2ccc4f9728c40bcefc962cd0377592fc6684ae18acb58
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc304"
+  - identity: 70d345f72064e7cea4ebb9cff97f74946f00d582ba38a4e62c5498261494b0a0
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (discarded lambda result)'}]"
+  - identity: 7f06a51c79515d82dcabce9af7ae1d77d8a3691fd2b99528f3e17212204ee512
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc478"
+  - identity: 827431d2f104e64e451d5a2c6993ba211604b8ca06048ea4b681fc017ab4815f
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc803"
+  - identity: 8610dc7e970e4c48ae0d47971626c7769a141837b34d53d5610af7d596bf8593
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc187"
+  - identity: 8d5bb41c2eaa72679422c10b5d20524d7605a23c839b989c83952f93eb0cebcf
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc63"
+  - identity: 8e18b4b48968d65f181bd226d6e81d99c6c9abb3427463ae77773eb4c901e658
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc189"
+  - identity: 9b9bfadffcdc04d8b2b0b8c2a07f6d86863e455634d52cded8e90259765ea318
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc465"
+  - identity: 9e3d60d7a85525416ee27ca9ce1abac74612ec1ba1134a64f13b3148d85cbd04
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc147"
+  - identity: 9f7ce30fc6da401efe187481149db12210e987367a547e032c9cc182d0e187be
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc799"
+  - identity: a25dbb8c0826d5df57d94e0003d897c2ac066acefe43d7f1e087414be5fc3feb
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc738"
+  - identity: a542bbe6db3f9f551bbbea6972a28dc670945d1232221bd1d9a3f98814a6defb
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc341"
+  - identity: ab78ed8577ff2073f4690730365919999ad7f76ddb68bef5c56a08deeef15c31
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: ae609c23ce293d1e7c19723fbfe113c0644d63437e360e323bad136091f7d1e1
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc243"
+  - identity: c3509c6487f8933fbec46bb166eba697f54ba5808453016a45978d21953c7e53
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc568"
+  - identity: c3a3a1cf672fe44f75d9cee697e72d78449b353258d8cba49600c62021beaa31
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc362"
+  - identity: c7774df8ccdcefaaac0c151f68b24313cc511a6a0800951cd375dfe217d265b6
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc155"
+  - identity: c98ac92dc495b7162789fc13c1d2318f1f5d2aa07bb3c051df7946fe638d3cff
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc228"
+  - identity: ce65c0b75a83a7cbaf0ff52ed87aee8fe45d571587e78da263663124ea64326d
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc1785"
+  - identity: d38ac52f2843448a4df4cba789ae27ddf9df3f73356c9c8ef972f2f03cc180c3
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc189"
+  - identity: d5b70d305cec04c7aca39a5a9c629221c88509f4a8ee07d9643b2f8e37d1277f
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: d68d0252ca2d0c4e59ad7655508624e507633be914605effb2324b63022ba289
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc130"
+  - identity: e0ae69141eabff4855f7acc9e498139795c71ae3aca5a096d468101f3ceca1f0
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: e22c7dcc1e36b6956165d91403a12a340160639592be69fe070caa3736bd8851
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc64"
+  - identity: e44e3a71b7ef3e7a1ac87d6f7c96dfb9d33350285ed9dc9512e3d99a88276a42
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc618"
+  - identity: e52f1c1f657020d5f63b247fbc7fd432c886258cf5059a5e2a9a5fdc4981bc32
+    status: NO_COVERAGE
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5d UNREACHABLE, TASK-0.7.1g1G5d-NO-COVERAGE-4-MANIFEST.json, pc164; artifact-relative: if resolveGovernedSuspension()/resolveGovernedIdentity() ever gains a suspension point this becomes a re-adjudication candidate rather than remaining grandfathered"
+  - identity: e602fa9990536c07017cc7764ed989526f964e395f82e05d456f7dca523c4610
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc306"
+  - identity: eb21aaed31923633c541c603ebf29c170343b1e822874768f732093a099b3a18
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc54"
+  - identity: eb8827c4f4ca1d6b1f90686e5335ffb189d78b4694548a6843f7ebc5d1d95a79
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: ebc96b3e8599f671eb60c470b2a259a474aa994c2599547731b9944800e60b57
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: eec481d97a434f85884bdc18877d8a54801c8ba289658e0fb49d92e286cad2f7
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: f175e8698db5459d85e11e56b04155c7b963d148d906f57908c6440dd533fead
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (discarded lambda result)'}]"
+  - identity: f23b4d0921a0e5daca1b271f41357982ca9e52de09f0e1e5d72933b1b87f3ac6
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc567"
+  - identity: f4463604928886b61038161dfacada30be5fa9dcd62178ac329b83c4568e3ffd
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5c EQUIVALENT, TASK-0.7.1g1G5c-SURVIVED-12-MANIFEST.json, pc267"
+  - identity: f571f62614e6f584322a29fa5ef9b4f9bb0e6bf6e5d48f72181d7778088e3a53
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc144"
+  - identity: f5e8c455520a32d816751b0ec4adb9d4619a38afdf67b81256a615a68b779590
+    status: TIMED_OUT
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "G5b TOOLING_LIMITATION, TASK-0.7.1g1G5b-SUSPENSION-SENTINEL-MANIFEST.json, sentinel bytecode pc159"
+  - identity: f60db12bdb9ea3f1b61d5c01867a18b9ebe7f2a8726a8287f8129dad183a4625
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (case-0 entry check)'}]"
+  - identity: f802165800d8737a082118c89e9c5eae4e7d8470cd15c54c57bc19476be9a15c
+    status: SURVIVED
+    outcome: NON_KILLED
+    family: approval
+    module: ":tramai-engine"
+    analyzer:
+      pluginVersion: "1.19.0"
+      engineVersion: "1.22.1"
+      mutators:
+        - CONDITIONALS_BOUNDARY
+        - INCREMENTS
+        - INVERT_NEGS
+        - MATH
+        - NEGATE_CONDITIONALS
+        - TRUE_RETURNS
+        - FALSE_RETURNS
+        - PRIMITIVE_RETURNS
+        - EMPTY_RETURNS
+        - NULL_RETURNS
+        - VOID_METHOD_CALLS
+      timeoutConst: 4000
+      timeoutFactor: 1.25
+    fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
+    populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
+    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json', 'disposition': 'EQUIVALENT (discarded lambda result)'}]"
