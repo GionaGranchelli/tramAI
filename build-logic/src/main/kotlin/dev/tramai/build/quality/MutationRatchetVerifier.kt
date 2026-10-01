@@ -89,7 +89,7 @@ class MutationRatchetVerifier {
         diagnostics += validateClassificationList("base authority", base.classifications)
         diagnostics += validateClassificationList("candidate", candidate.classifications)
         diagnostics += baseClassificationIntegrity(base)
-        val freshProjectionHash = evolutionEvidence.proof?.projectionHash
+        val freshAuthorityProjectionHash = evolutionEvidence.proof?.authorityProjectionHash
         diagnostics +=
             outcomeRatchet(
                 base.population,
@@ -101,12 +101,12 @@ class MutationRatchetVerifier {
                     AUTHORITY_EXCLUDED_IDENTITIES,
                     base.admissions,
                     candidate.admissions,
-                    freshProjectionHash,
+                    freshAuthorityProjectionHash,
                 ),
             )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
-        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, freshProjectionHash)
+        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, freshAuthorityProjectionHash)
         diagnostics +=
             familyAndTargetChecks(
                 base.population,
@@ -320,7 +320,7 @@ class MutationRatchetVerifier {
                 candidatePopulation = candidatePopulation,
                 baseAdmissions = evolution.baseAdmissions.byIdentity(),
                 candidateAdmissions = evolution.candidateAdmissions.byIdentity(),
-                freshProjectionHash = evolution.freshProjectionHash,
+                freshAuthorityProjectionHash = evolution.freshAuthorityProjectionHash,
             )
 
         // M21: a base identity that simply stopped being measured. Absence is not evidence of
@@ -351,7 +351,7 @@ class MutationRatchetVerifier {
         candidatePopulation: MutationPopulationBaseline,
         baseAdmissions: Map<String, MutationPopulationAdmission>,
         candidateAdmissions: Map<String, MutationPopulationAdmission>,
-        freshProjectionHash: String?,
+        freshAuthorityProjectionHash: String?,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val candidateById = candidatePopulation.mutants.associateBy { it.identity }
@@ -368,7 +368,7 @@ class MutationRatchetVerifier {
                             candidateAdmission = candidateAdmissions[id],
                             mutant = candidate,
                             candidateAnalyzer = candidatePopulation.analyzer,
-                            freshProjectionHash = freshProjectionHash,
+                            freshAuthorityProjectionHash = freshAuthorityProjectionHash,
                         )
                 ) {
                     is MutationPopulationAdmissionCeremony.AdmissionVerdict.Authorized -> {
@@ -775,21 +775,27 @@ private data class MutationEvolutionContext(
     /** Admissions this transition proposes: validated, but never authority for its own admission. */
     val candidateAdmissions: MutationPopulationAdmissions = MutationPopulationAdmissions.NONE,
     /**
-     * Projection hash of the canonical fresh measurement ([MutationEvolutionEvidence.proof]) - the
-     * digest a population authorization must match to be consumable. Null means no trusted
-     * measurement proof exists, and admission then fails closed.
+     * Authority projection hash of the canonical fresh measurement
+     * ([MutationPopulationEvolutionProof.authorityProjectionHash]) - the digest a population
+     * authorization must match to be consumable (M34). Raw PIT status is excluded by design (C7).
+     * Null means no trusted measurement proof exists, and admission then fails closed.
      */
-    val freshProjectionHash: String? = null,
+    val freshAuthorityProjectionHash: String? = null,
 )
 
 // No population hash is stored in mutation-evolution.yml: exact measurement
 // equality already binds the candidate, while this proof binds the verifier call.
-// The proof hashes the FULL canonical comparison projection — identity, raw status,
-// canonical outcome, family, module, family/module topology and analyzer semantics —
-// not just the identity set, so it cannot be reused for a population that shares the
-// identities but differs in outcomes.
+// [projectionHash] hashes the FULL canonical comparison projection — identity, raw status,
+// canonical outcome, family, module, family/module topology and analyzer semantics — not just the
+// identity set, so it cannot be reused for a population that shares the identities but differs in
+// outcomes. It stays raw-exact: that is the measurement-truth question.
+// [authorityProjectionHash] hashes the authority projection — identity, canonical outcome, family,
+// module, topology and analyzer semantics, with raw status deliberately excluded. That is the
+// population-context question M34 asks, and it is computed from the same fresh measurement by this
+// verifier, so it can never be supplied by a candidate.
 class MutationPopulationEvolutionProof private constructor(
     val projectionHash: String,
+    val authorityProjectionHash: String,
 ) {
     fun matches(population: MutationPopulationBaseline): Boolean = projectionHash == population.projectionHash()
 
@@ -828,6 +834,7 @@ class MutationPopulationEvolutionProof private constructor(
                 if (diagnostics.isEmpty()) {
                     MutationPopulationEvolutionProof(
                         projectionHash = fresh.projectionHash(),
+                        authorityProjectionHash = fresh.authorityProjectionHash(),
                     )
                 } else {
                     null
@@ -908,6 +915,41 @@ class MutationPopulationEvolutionProof private constructor(
                     .map { "${it.identity}|${it.status}|${it.outcome}|${it.family}|${it.module}" }
                     .sorted()
                     .forEach { appendLine(it) }
+                append(contextLines())
+            }
+
+        /**
+         * The canonical authority projection: the population context a population authorization is
+         * bound to (M34). Raw PIT status is deliberately EXCLUDED.
+         *
+         * C7 ([MutationOutcome]) declares raw `status` diagnostic evidence and not authority, and
+         * anticipates TIMED_OUT↔SURVIVED scheduler races. Four complete unrestricted campaigns at
+         * identical effective PIT inputs produced four distinct raw-status digests while this
+         * projection was byte-identical every time, so binding neighbours' raw status here let a
+         * scheduler race invalidate adjudicated authority that was itself stable.
+         *
+         * What remains is exactly the authority-relevant content: identity, canonical outcome,
+         * family, module, family/module topology and analyzer semantics. Use this for M34; the
+         * raw-exact [canonicalProjection] stays the measurement proof (M21, [exactComparison]).
+         */
+        private fun MutationPopulationBaseline.authorityProjection(): String =
+            buildString {
+                mutants
+                    .map { "${it.identity}|${it.outcome}|${it.family}|${it.module}" }
+                    .sorted()
+                    .forEach { appendLine(it) }
+                append(contextLines())
+            }
+
+        private fun MutationPopulationBaseline.authorityProjectionHash(): String = authorityProjection().sha256()
+
+        /**
+         * The serialization suffix every projection shares: family/module topology, then analyzer
+         * semantics. It lives in one place because the authority projection IS the raw projection
+         * minus raw status - duplicating the suffix would let the two drift apart silently.
+         */
+        private fun MutationPopulationBaseline.contextLines(): String =
+            buildString {
                 appendLine(
                     "topology=" +
                         byFamily.toSortedMap().entries.joinToString(",") {

@@ -100,7 +100,7 @@ class MutationPopulationAdmissionIntegrationTest {
         // C: the authority base. It carries the base state plus the authorization a FUTURE transition
         // consumes: an authorization is merged into the base, never created by the transition that uses
         // it (M31). `fromBaseSha` records the base of the minting transition.
-        writeAdmissionLedger(candidate, mintingBaseSha, projectionDigest(candidate))
+        writeAdmissionLedger(candidate, mintingBaseSha, authorityProjectionDigest(candidate))
         commit("authority base with minted population authorizations")
         baseSha = headSha()
         git("branch", "authority-base")
@@ -427,14 +427,18 @@ class MutationPopulationAdmissionIntegrationTest {
     }
 
     /**
-     * The verifier's own trusted digest computation, never a value this test invents: the same call
-     * the task makes to derive the proof it compares an authorization against.
+     * The verifier's own trusted **authority projection** digest computation, never a value this
+     * test invents: the same call the task makes to derive the proof M34 compares an authorization
+     * against. It must be the authority projection (identity, canonical outcome, family, module,
+     * topology, analyzer) and NOT the raw-exact measurement proof: production M34 compares
+     * `authorityProjectionHash`, so a fixture minting `projectionHash` would exercise the wrong
+     * digest semantics and pass while the real transport is broken.
      */
-    private fun projectionDigest(population: MutationPopulationBaseline): String =
+    private fun authorityProjectionDigest(population: MutationPopulationBaseline): String =
         MutationPopulationEvolutionProof
             .exactComparison(population, population)
             .proof
-            ?.projectionHash
+            ?.authorityProjectionHash
             ?: error("the fixture population is not self-comparable, so no digest can be minted")
 
     private fun assertAuthorityTransportPreconditions(
@@ -459,7 +463,10 @@ class MutationPopulationAdmissionIntegrationTest {
             "the candidate source must produce at least one appearing NON_KILLED identity, otherwise " +
                 "the admission ceremony is never reached: base=$baseIds candidate=$candidateIds",
         )
-        assertTrue(projectionDigest(base) != projectionDigest(candidate), "the two populations must differ")
+        assertTrue(
+            authorityProjectionDigest(base) != authorityProjectionDigest(candidate),
+            "the two populations must differ",
+        )
     }
 
     // ── task driving ──

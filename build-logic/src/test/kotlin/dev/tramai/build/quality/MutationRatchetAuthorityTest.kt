@@ -85,7 +85,13 @@ class MutationRatchetAuthorityTest {
                         population = candidatePopulation,
                         classifications = candidateClassifications,
                         targetFamilies = candidateConfiguration.mutation.targetFamilies,
-                        admissions = MutationPopulationAdmissions.NONE,
+                        // An identity transition must RETAIN the base's pending authorizations: M37
+                        // forbids an authorization disappearing without a valid consumption, so
+                        // passing NONE here asserted a transition this authority cannot validly make.
+                        // Retained authorizations whose target is absent from the committed
+                        // population are M39 warnings, not failures. This test failed at the
+                        // pristine base ec8b4da5 for exactly that reason.
+                        admissions = authority.admissions,
                     ),
                     executable = MutationPopulationAggregator.canonicalSemantics(),
                 ).filter { it.severity == DiagnosticSeverity.FAILURE }

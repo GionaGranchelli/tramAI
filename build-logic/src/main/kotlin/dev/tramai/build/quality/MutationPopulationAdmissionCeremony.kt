@@ -32,13 +32,21 @@ package dev.tramai.build.quality
  * general M06 bypass is therefore preserved by construction: authorized X plus unauthorized Y in
  * the same measurement fails for Y, through unchanged M06.
  *
- * The digest binds the *whole* transition, not just the identity's row: the authorization records
- * the projection hash of the complete canonical fresh measurement it was minted against, and
- * consumption compares it with the verifier's own fresh measurement
+ * The digest binds the *whole* transition's AUTHORITY content, not just the identity's row: the
+ * authorization records the **authority projection** — identity, canonical outcome, family, module,
+ * family/module topology and analyzer semantics — of the canonical fresh measurement it was minted
+ * against, and consumption compares it with the verifier's own fresh authority projection
  * ([MutationEvolutionEvidence.proof]). "Binds the neighbours" is what makes this all-or-nothing: if
- * any other identity in the population changes between minting and consumption, the digest no
- * longer matches and the authorization must be re-minted against the new measurement. A candidate
- * can never construct that measurement, because the hash compared is never read from the ledger.
+ * another identity's canonical outcome, family or module changes between minting and consumption,
+ * the digest no longer matches and the authorization must be re-minted. A candidate can never
+ * construct that projection, because the hash compared is never read from the ledger.
+ *
+ * Raw PIT status is deliberately outside this digest. C7 ([MutationOutcome]) declares raw status
+ * diagnostic evidence rather than authority, and four complete unrestricted campaigns at identical
+ * effective PIT inputs produced four distinct raw-status digests (SURVIVED↔TIMED_OUT on three
+ * identities of 2544, all NON_KILLED in every campaign) while this projection was byte-identical.
+ * Raw status remains fully authoritative where it belongs: the fresh↔committed exact comparison
+ * (M21) and each individual authorization's exact row (M32).
  *
  * ## Division of responsibility (one implementation, two call sites)
  *
@@ -65,8 +73,8 @@ object MutationPopulationAdmissionCeremony {
     fun checks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshProjectionHash: String?,
-    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, freshProjectionHash)
+        freshAuthorityProjectionHash: String?,
+    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, freshAuthorityProjectionHash)
 
     /**
      * The verdict for one identity that is present in the candidate population and absent from the
@@ -81,7 +89,7 @@ object MutationPopulationAdmissionCeremony {
         candidateAdmission: MutationPopulationAdmission?,
         mutant: MutationOutcome,
         candidateAnalyzer: MutationAnalyzerSemantics,
-        freshProjectionHash: String?,
+        freshAuthorityProjectionHash: String?,
     ): AdmissionVerdict {
         val short = short(mutant.identity)
         return when {
@@ -116,7 +124,7 @@ object MutationPopulationAdmissionCeremony {
                 )
             }
 
-            freshProjectionHash == null -> {
+            freshAuthorityProjectionHash == null -> {
                 reject(
                     DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
                     "M34: $short cannot be admitted: no proof of the canonical fresh measurement exists, " +
@@ -124,13 +132,16 @@ object MutationPopulationAdmissionCeremony {
                 )
             }
 
-            baseAdmission.populationDigest != freshProjectionHash -> {
+            baseAdmission.populationDigest != freshAuthorityProjectionHash -> {
                 reject(
                     DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
                     "M34: $short was authorized against population digest " +
                         "${short(baseAdmission.populationDigest)}, but this transition's canonical " +
-                        "fresh measurement hashes to ${short(freshProjectionHash)}. An authorization " +
-                        "binds the complete measured population.",
+                        "authority projection hashes to ${short(freshAuthorityProjectionHash)}. An " +
+                        "authorization binds the measured population's AUTHORITY content — identity, " +
+                        "canonical outcome, family, module, topology and analyzer semantics — and " +
+                        "deliberately not raw PIT status, which C7 declares diagnostic evidence rather " +
+                        "than authority.",
                 )
             }
 
@@ -180,10 +191,10 @@ object MutationPopulationAdmissionCeremony {
     private fun lifecycleChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshProjectionHash: String?,
+        freshAuthorityProjectionHash: String?,
     ): List<VerificationDiagnostic> {
         val diagnostics = mintChecks(base, candidate)
-        return diagnostics + consumptionChecks(base, candidate, freshProjectionHash)
+        return diagnostics + consumptionChecks(base, candidate, freshAuthorityProjectionHash)
     }
 
     /**
@@ -222,7 +233,7 @@ object MutationPopulationAdmissionCeremony {
     private fun consumptionChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshProjectionHash: String?,
+        freshAuthorityProjectionHash: String?,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseAdmissions = base.admissions.byIdentity()
@@ -243,7 +254,7 @@ object MutationPopulationAdmissionCeremony {
                         candidateAdmission = candidateAdmission,
                         mutant = mutant,
                         candidateAnalyzer = candidate.population.analyzer,
-                        freshProjectionHash = freshProjectionHash,
+                        freshAuthorityProjectionHash = freshAuthorityProjectionHash,
                     ) is AdmissionVerdict.Authorized
             if (candidateAdmission == null) {
                 // M37: a retained authorization may only disappear by being consumed. Otherwise a
