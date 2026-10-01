@@ -220,11 +220,22 @@ abstract class MutationRatchetTestSupport {
         diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
 
     /**
-     * The canonical projection digest the verifier itself computes for a population (the M21
-     * exact-comparison proof). Tests must never invent a digest: the admission ceremony compares
-     * against this value, so using it is what proves the trust direction.
+     * The canonical projection digest the verifier itself computes for a population.
+     *
+     * This is the **authority projection** digest (identity, canonical outcome, family, module,
+     * topology and analyzer semantics; raw PIT status deliberately excluded), i.e. the M34
+     * population context. Tests must never invent a digest: the admission ceremony compares against
+     * this value, so using it is what proves the trust direction. For the raw-exact measurement
+     * proof (M21) use `rawDigestOf`.
      */
     protected fun digestOf(population: MutationPopulationBaseline): String =
+        MutationPopulationEvolutionProof
+            .exactComparison(population, population)
+            .proof!!
+            .authorityProjectionHash
+
+    /** The raw-exact measurement projection digest (M21 exact comparison), raw status included. */
+    protected fun rawDigestOf(population: MutationPopulationBaseline): String =
         MutationPopulationEvolutionProof.exactComparison(population, population).proof!!.projectionHash
 
     /** The verifier's own trusted measurement evidence for a population (the M21 exact comparison). */

@@ -4,6 +4,7 @@ import dev.tramai.build.quality.MutationPopulationAdmissionCeremony.AdmissionVer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -147,7 +148,7 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
                 baseAdmissions = admissions(admission("target", populationDigest = digestOf(base))),
                 candidatePopulation = candidate,
             )
-        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH, "complete measured population")
+        assertFailsWith(diagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH, "authority projection")
     }
 
     @Test
@@ -434,7 +435,7 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
                 candidateAdmission = null,
                 mutant = target,
                 candidateAnalyzer = semantics,
-                freshProjectionHash = "0".repeat(64),
+                freshAuthorityProjectionHash = "0".repeat(64),
             ) as? AdmissionVerdict.Rejected
         assertNotNull(rejected)
         assertEquals(DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR, rejected.code)
@@ -448,5 +449,42 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
                 "NEW NON_KILLED identity absent from the base authority. New mutants must be killed; a PR " +
                 "cannot certify its own survivors."
         assertEquals(expected, rejected.message)
+    }
+
+    // ── T1 (ceremony level): the case-3 discriminator ──
+    //
+    // Four campaigns produced four distinct raw-status digests: three identities of 2544 oscillating
+    // only SURVIVED<->TIMED_OUT, all NON_KILLED in every campaign, while identity, outcome, family,
+    // module and analyzer semantics were identical. An authorization minted against one such
+    // measurement must remain consumable in another. Binding neighbouring raw status (the previous
+    // behaviour) rejected it, which is the defect this slice removes.
+
+    @Test
+    fun `T1 a neighbour's raw status movement does not invalidate an authorized consumption`() {
+        val target = row("target")
+        val neighbourMinted = row("neighbour", status = "SURVIVED")
+        val neighbourConsumed = row("neighbour", status = "TIMED_OUT")
+        val mintedAgainst = population(listOf(target, neighbourMinted))
+        val fresh = population(listOf(target, neighbourConsumed))
+
+        // Raw status moved between the two measurements; authority content did not.
+        assertEquals(digestOf(mintedAgainst), digestOf(fresh))
+        // The raw-exact measurement proof still distinguishes them, so nothing was relaxed where raw
+        // status genuinely is authority (M21 exact comparison / M32 exact row).
+        assertNotEquals(rawDigestOf(mintedAgainst), rawDigestOf(fresh))
+
+        // The authorization was minted against the measurement where the neighbour was SURVIVED and
+        // is consumed in the measurement where it is TIMED_OUT. It must still be authorized: the
+        // target is candidate-only NON_KILLED, the row matches exactly, and the population context
+        // is unchanged in authority terms.
+        val diagnostics =
+            verifyAdmission(
+                basePopulation = population(listOf(neighbourMinted)),
+                baseAdmissions = admissions(admission("target", populationDigest = digestOf(mintedAgainst))),
+                candidatePopulation = fresh,
+                candidateAdmissions = MutationPopulationAdmissions.NONE,
+                evidence = evidence(fresh),
+            )
+        passes(diagnostics)
     }
 }
