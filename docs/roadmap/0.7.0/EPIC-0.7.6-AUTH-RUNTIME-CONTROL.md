@@ -12,7 +12,7 @@ Expose privileged control-plane commands only through an identity-provider-neutr
 
 - generic OIDC/Spring Security integration boundary;
 - authenticated control-plane principal;
-- capability-based server-side authorization;
+- operator/control-plane capability-based server-side authorization, explicitly distinct from runtime capabilities such as tools, MCP operations, remote agents, models, or network destinations;
 - command/target/version/precondition contracts;
 - typed lifecycle/control commands for supported P0 operations;
 - actor/reason/previous/resulting-state/evidence correlation;
@@ -31,7 +31,7 @@ Expose privileged control-plane commands only through an identity-provider-neutr
 | ID | Candidate | Required result |
 |---|---|---|
 | 0.7.6a | Security/control baseline audit | Map current auth hooks, lifecycle APIs, stores and unsafe direct mutations |
-| 0.7.6b | Principal + capability contract | IdP-neutral authenticated identity and server-side capability model |
+| 0.7.6b | Principal + operator capability contract | IdP-neutral authenticated identity and server-side operator/control-plane capability model; terminology must not collapse operator authority with runtime capability governance |
 | 0.7.6c | OIDC/Spring boundary | Generic adapter/integration seam without vendor authority semantics in core |
 | 0.7.6d | Typed control commands | Target identity, expected version/precondition, reason and supported lifecycle operations |
 | 0.7.6e | Runtime authorization path | Authenticate → authorize → validate → mutate authority; no bypass store path |
@@ -46,6 +46,7 @@ UI visibility != authorization
 privileged mutation requires authenticated actor + server-side authorization
 stale command cannot silently overwrite newer authoritative state
 dashboard/client cannot directly mutate authoritative persistence
+operator capability != runtime capability
 ```
 
 ## Acceptance criteria
@@ -54,6 +55,7 @@ dashboard/client cannot directly mutate authoritative persistence
 - Authorization is enforced server-side and is IdP-neutral at the governance boundary.
 - Successful controls are attributable and reconstructable.
 - Direct-store/client bypasses are absent from supported control paths.
+- Operator authorization vocabulary is unambiguous and does not become the canonical representation for runtime tool/MCP/model capabilities.
 
 ## Adversarial proof
 

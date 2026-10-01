@@ -48,6 +48,8 @@ Authorized provider/model candidates + stable reason paths
         ↓
 Policy-constrained selection and execution
         ↓
+Reference external-runtime authority proof
+        ↓
 Authoritative typed governance evidence
         ↓
 Control-plane projection/query API
@@ -86,6 +88,7 @@ Unless an implementation finding makes one necessary for P0 correctness or secur
 - key rotation/KMS breadth;
 - Docker/Helm product packaging;
 - broad Spring adoption sugar;
+- broad framework-adapter matrix beyond the single 0.7 reference authority proof;
 - broad compliance-framework mapping.
 
 Those concerns remain valuable architectural inputs, but they belong to later release themes.
@@ -122,7 +125,9 @@ See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE
 - governance contract testing;
 - developer-local governance debugger;
 - deterministic findings and richer incident analysis;
-- approval-lifetime and safe-replacement refinement where still needed.
+- approval-lifetime and safe-replacement refinement where still needed;
+- cross-runtime governance adapter SDK/TCK and additional framework integrations after the 0.7 reference proof;
+- runtime capability provenance and effect/reversibility semantics (`READ_ONLY`, `REVERSIBLE`, `COMPENSATABLE`, `IRREVERSIBLE`, `UNKNOWN`) where justified.
 
 ## Core invariants
 
@@ -279,6 +284,10 @@ Examples:
 | Learning traces | audit/telemetry must not silently become training-data collection |
 | Adaptive optimization | authorization, viability, and selection must remain distinct stages |
 | Helm/reference deployment | Dashboard/control plane must remain headless/API-first and not own policy authority |
+| Cross-runtime governance adapters | 0.7 workload identity, decisions, approval, and evidence must not depend on TramAI owning the agent runtime |
+| Governance simulation/testing | 0.7 deterministic policy/authorization evaluation must remain side-effect-free and reusable rather than embedding execution side effects into decision meaning |
+| Effect-aware governance/compensation | 0.7 cancellation and evidence must distinguish fencing future execution from reversing or compensating external effects that already occurred |
+| Enforcement provenance | 0.7 evidence/query contracts must preserve the difference between authoritative enforcement, partial instrumentation, observation, and imported evidence |
 
 Core rule:
 

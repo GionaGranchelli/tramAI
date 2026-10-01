@@ -12,6 +12,7 @@ Deliver Dashboard 2.0 as a first-party, replaceable client of the headless contr
 
 - workload inventory/detail;
 - identity/version/owner/purpose/environment/lifecycle posture;
+- runtime/framework identity plus integration/enforcement provenance where relevant, without implying that TramAI authored external workloads;
 - effective classification/policy/trust posture;
 - provider/model authorization/selection reasons;
 - semantic run timeline;
@@ -35,7 +36,7 @@ Deliver Dashboard 2.0 as a first-party, replaceable client of the headless contr
 |---|---|---|
 | 0.7.8a | Dashboard baseline/API inventory | Remove/avoid hidden authority assumptions; map required headless APIs |
 | 0.7.8b | Control-plane client layer | Typed client models for workload/run/decision/timeline/control/reconstruction |
-| 0.7.8c | Workload/detail surface | P0 governance posture and recent operational state |
+| 0.7.8c | Workload/detail surface | P0 governance posture, recent operational state, runtime/framework identity, and truthful integration/enforcement provenance |
 | 0.7.8d | Semantic run/timeline surface | Render authoritative/best-effort/missing distinctions |
 | 0.7.8e | Approval/control surface | Only server-authorized actions; stale/denied states handled safely |
 | 0.7.8f | Reconstruction/evidence surface | Expose availability/completeness without re-execution |
@@ -56,6 +57,7 @@ protected payloads remain hidden by default
 
 - Full P0 loop is usable headlessly and through Dashboard 2.0.
 - UI displays structured reasons/evidence from control-plane contracts rather than recreating decisions.
+- The XR1 reference external workload can display its runtime separately from TramAI governance authority and cannot be visually upgraded from observed/instrumented evidence to authoritative enforcement.
 - Authorized controls flow through typed server APIs.
 - Reference sensitive-input scenario proves classification → policy → authorized route → evidence → observation/control → reconstruction.
 - Persisted suspended-run scenario proves authoritative cancellation and no-reactivation.
@@ -63,4 +65,4 @@ protected payloads remain hidden by default
 
 ## Adversarial proof
 
-Reject hidden frontend authorization, direct persistence access, reconstructed policy logic in TypeScript/UI, stale controls without server rejection, protected-payload default exposure, and reconstruction implemented as rerun/retry.
+Reject hidden frontend authorization, direct persistence access, reconstructed policy logic in TypeScript/UI, stale controls without server rejection, protected-payload default exposure, reconstruction implemented as rerun/retry, or UI language that represents observed/instrumented external-runtime evidence as authoritative TramAI enforcement.

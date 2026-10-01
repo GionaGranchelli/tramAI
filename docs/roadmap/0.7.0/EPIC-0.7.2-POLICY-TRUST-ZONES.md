@@ -6,7 +6,7 @@
 
 ## Executive decision
 
-Resolve classification, concrete provider-deployment trust topology, effective policy, and the provider-bound data-release decision before a model invocation can cross a trust boundary. Authorization answers whether a provider may be used; the provider-input release boundary separately answers what exact representation of the governed input that provider may receive.
+Resolve classification, concrete provider-deployment trust topology, effective policy, and the provider-bound data-release decision before a model invocation can cross a trust boundary. Authorization answers whether a provider may be used; the provider-input release boundary separately answers what exact representation of the governed input that provider may receive. The governance decision path must remain deterministic and side-effect-free so later execution, external-runtime integration, simulation, and testing can reuse one meaning rather than invent parallel policy engines.
 
 ## Scope
 
@@ -24,6 +24,7 @@ Resolve classification, concrete provider-deployment trust topology, effective p
 - fail closed before invocation when required input minimization/inspection cannot be completed;
 - emit safe typed evidence for provider-input release/minimization without persisting raw matched sensitive values;
 - stable safe reason paths for denial/constraint decisions;
+- a side-effect-free deterministic evaluation boundary for classification/policy/release meaning;
 - typed evidence sufficient for downstream projection/reconstruction.
 
 ## Non-goals
@@ -52,6 +53,8 @@ providerBoundInput = projection(canonicalInput, selectedDeployment, effectivePol
 providerBoundInput transformation never mutates canonicalInput
 fallback to a different deployment => derive a new providerBoundInput
 required minimization/inspection failure => no provider invocation
+same authoritative facts + same effective policy => same governance decision
+policy evaluation itself performs no provider/tool/network side effects
 safe evidence never contains raw matched sensitive values
 ```
 
@@ -65,7 +68,7 @@ The provider-input release decision is distinct from provider authorization. A p
 | 0.7.2b | Provider deployment + named zone contract | Introduce/normalize deployment identity and named-zone/category association |
 | 0.7.2c | Classification-before-exposure integration | Move/guard orchestration ordering so required classification precedes eligibility/exposure |
 | 0.7.2d | Provider-input data-release/minimization contract | Define canonical input vs provider-bound projection, typed release outcomes, fail-closed transformation semantics, provider-specific recomputation, and safe evidence |
-| 0.7.2e | Restrictive policy composition | Deterministic org/environment/workload intersection with no widening path; provider-input release obligations derive from the same effective policy authority |
+| 0.7.2e | Restrictive policy composition | Deterministic org/environment/workload intersection with no widening path; provider-input release obligations derive from the same effective policy authority; evaluation remains side-effect-free |
 | 0.7.2f | Missing/unknown/failure semantics | Fail closed where classification/topology or required provider-input minimization/inspection is unavailable |
 | 0.7.2g | Reason/evidence model | Stable safe reasons for classification/trust/policy/data-release outcomes without raw sensitive values |
 | 0.7.2h | Adversarial/TCK/mutation proof | Prove ordering, no downgrade, no brand trust, no widening, no pre-release invocation, no cross-provider projection reuse, and no fail-open sanitizer path |
@@ -84,10 +87,12 @@ The provider-input release decision is distinct from provider authorization. A p
 - Lower scope cannot authorize something denied above it.
 - Missing required classification/topology cannot silently become permissive.
 - Decisions expose safe stable reasons usable by 0.7.3/0.7.4.
+- Equivalent authoritative facts under the same policy/configuration produce the same deterministic decision for the supported profile.
+- Decision evaluation can be exercised with provider/tool/network traps and produces no external side effects.
 
 ## Adversarial proof
 
-Reject implementations that classify after exposure, downgrade an explicit strong class, infer EU/local trust from vendor name, union policies instead of intersecting them, treat unknown as allow, invoke the provider before the release/minimization decision, mutate canonical input in place, reuse an OpenAI-authorized/minimized projection after fallback to a different provider deployment, expose raw matched values in evidence, or pass raw input through when required DLP/minimization fails.
+Reject implementations that classify after exposure, downgrade an explicit strong class, infer EU/local trust from vendor name, union policies instead of intersecting them, treat unknown as allow, invoke the provider before the release/minimization decision, mutate canonical input in place, reuse an OpenAI-authorized/minimized projection after fallback to a different provider deployment, expose raw matched values in evidence, pass raw input through when required DLP/minimization fails, or make policy evaluation itself depend on an external provider/tool/network side effect.
 
 ## Mutation expectations
 
