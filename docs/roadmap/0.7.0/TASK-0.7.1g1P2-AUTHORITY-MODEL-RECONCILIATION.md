@@ -377,7 +377,7 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
 | T3 | authorized row's own raw status changes | M32 fail (status-inclusive binding retained) |
 | T4 | v1-digest record presented under v2 semantics | fail closed |
 | T5 | migration names an identity absent from the v1 ledger | fail |
-| T6 | migration omits or misstates `supersededPopulationDigest` | fail |
+| T6 | certificate omits or misstates `fromDigest` / `toDigest` / `admissionSetDigest` | fail |
 | T7 | authority digest computed from candidate-supplied data rather than the verifier's fresh measurement | fail (transport test: the fresh path is used) |
 | T8 | analyzer/mutator/timeout semantics drift under the authority digest | fail (analyzer stays inside the digest) |
 | T9 | family/module re-homing of an authorized identity | M32 fail |
