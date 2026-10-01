@@ -169,7 +169,22 @@ class MutationAuthorityDigestCertificateLoaderTest {
         return assertFailsWith { MutationAuthorityDigestCertificateLoader.load(tempDir) }
     }
 
-    private fun repositoryRoot(): File = File(System.getProperty("user.dir")).let { File(it, "..") }
+    /**
+     * The repository root, found by walking up to the `gradlew` marker (the same idiom
+     * `CanonicalProbeFunctionalTest` uses) rather than assuming this test starts a fixed number of
+     * levels below it. This test is deliberately pinned against the real committed admission ledger,
+     * so a brittle path guess would fail for a reason that has nothing to do with the recipe.
+     */
+    private fun repositoryRoot(): File {
+        var candidate = File(System.getProperty("user.dir"))
+        while (candidate.parentFile != null && !File(candidate, "gradlew").isFile) {
+            candidate = candidate.parentFile!!
+        }
+        check(File(candidate, "gradlew").isFile) {
+            "no repository root (directory containing gradlew) above ${System.getProperty("user.dir")}"
+        }
+        return candidate
+    }
 
     private fun auditedEntry(
         authorizedBy: String,

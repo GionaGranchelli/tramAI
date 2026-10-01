@@ -80,13 +80,13 @@ object MutationAuthorityDigestCertificateLoader {
         return schemaVersion
     }
 
-    private fun parseCertificates(raw: Map<String, Any?>): List<MutationAuthorityDigestCertificate> {
-        val raw =
-            raw["certificates"] as? List<*>
+    private fun parseCertificates(ledger: Map<String, Any?>): List<MutationAuthorityDigestCertificate> {
+        val certificatesRaw =
+            ledger["certificates"] as? List<*>
                 ?: throw GradleException(
                     "mutation-authority-digest-certificates.yml: certificates must be a list",
                 )
-        return raw.mapIndexed { index, item ->
+        return certificatesRaw.mapIndexed { index, item ->
             val entry =
                 item as? Map<*, *>
                     ?: throw GradleException(
