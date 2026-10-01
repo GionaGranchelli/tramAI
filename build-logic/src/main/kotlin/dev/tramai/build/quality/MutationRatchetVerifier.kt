@@ -915,20 +915,7 @@ class MutationPopulationEvolutionProof private constructor(
                     .map { "${it.identity}|${it.status}|${it.outcome}|${it.family}|${it.module}" }
                     .sorted()
                     .forEach { appendLine(it) }
-                appendLine(
-                    "topology=" +
-                        byFamily.toSortedMap().entries.joinToString(",") {
-                            "${it.key}:${it.value.modules.sorted().joinToString("+")}"
-                        },
-                )
-                appendLine(
-                    "analyzer=" +
-                        analyzer.pluginVersion + "|" + analyzer.engineVersion + "|" +
-                        analyzer.mutators
-                            .sorted()
-                            .joinToString("+") + "|" +
-                        analyzer.timeoutConst + "|" + analyzer.timeoutFactor,
-                )
+                append(contextLines())
             }
 
         /**
@@ -951,6 +938,18 @@ class MutationPopulationEvolutionProof private constructor(
                     .map { "${it.identity}|${it.outcome}|${it.family}|${it.module}" }
                     .sorted()
                     .forEach { appendLine(it) }
+                append(contextLines())
+            }
+
+        private fun MutationPopulationBaseline.authorityProjectionHash(): String = authorityProjection().sha256()
+
+        /**
+         * The serialization suffix every projection shares: family/module topology, then analyzer
+         * semantics. It lives in one place because the authority projection IS the raw projection
+         * minus raw status - duplicating the suffix would let the two drift apart silently.
+         */
+        private fun MutationPopulationBaseline.contextLines(): String =
+            buildString {
                 appendLine(
                     "topology=" +
                         byFamily.toSortedMap().entries.joinToString(",") {
@@ -966,8 +965,6 @@ class MutationPopulationEvolutionProof private constructor(
                         analyzer.timeoutConst + "|" + analyzer.timeoutFactor,
                 )
             }
-
-        private fun MutationPopulationBaseline.authorityProjectionHash(): String = authorityProjection().sha256()
     }
 }
 
