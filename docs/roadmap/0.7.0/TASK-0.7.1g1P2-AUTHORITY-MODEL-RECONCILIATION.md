@@ -238,8 +238,8 @@ digest uses the authority projection.
 No attack in the list becomes admissible under the split. Attacks 1-12 above keep their current
 rejections; the only relaxation is that a *non-authorized neighbour's* raw status no longer
 invalidates whole-population context, while its canonical outcome, identity, family/module and
-analyzer semantics still do. The migration-certificate design adds its own discriminators, T13-T16
-in §7.
+analyzer semantics still do. The migration-certificate design adds its own discriminators, T13-T19
+in §7, covering its full lifecycle.
 
 ---
 
@@ -336,7 +336,19 @@ equal either the admission's own `toAlgorithm`-semantics digest, or the `toDiges
 **base-side** certificate whose `fromAlgorithm`/`fromDigest` match the cited admission's
 `populationDigest` and whose `admissionSetDigest` matches the exact set of authorizations present.
 
-Proposed rules, all fail-closed:
+Proposed rules, all fail-closed. The certificate's **enforced payload** — the field set over which
+retained immutability is judged, mirroring `MutationPopulationAdmission.enforcedPayload()` — is:
+`fromAlgorithm, fromDigest, toAlgorithm, toDigest, admissionSetDigest, fromBaseSha, reason`. Audit-only
+metadata (who/when) is excluded, exactly as the admissions ledger excludes `authorizedBy`/`authorizedAt`.
+
+Target lifecycle, each step with its own rule:
+
+```
+mint against the exact base        (M45)
+  → retain byte-identically        (M46)
+  → consume only from base         (M43 + M42 + M41 + M40)
+  → remove in the valid consuming transition  (M44 + M47)
+```
 
 - **M40** consumption citing a certificate whose `toDigest` ≠ the verifier's fresh authority
   projection → fail.
@@ -344,10 +356,29 @@ Proposed rules, all fail-closed:
   `populationDigest` → fail.
 - **M42** certificate whose `admissionSetDigest` ≠ the exact set of base authorizations → fail
   (this is what makes the certificate *bounded*: it cannot cover a different or later set).
-- **M43** certificate created by the same transition that consumes it → fail (the M31 analogue for
-  this new authority: the consuming candidate cannot invent the semantic upgrade it consumes).
+- **M43** certificate introduced by the same transition that consumes it → fail (the M31 analogue
+  for this new authority: the consuming candidate cannot invent the semantic upgrade it consumes).
 - **M44** certificate retained after the consumption it authorised completed → fail (single use,
   the M38 analogue).
+- **M45** **mint-time base binding:** a newly introduced certificate whose `fromBaseSha` ≠ the
+  authority base the transition is proposed against → fail (the M35 analogue).
+- **M46** **retained immutability:** a certificate present in the base whose enforced payload differs
+  from the base copy in any field → fail (the M36 analogue). A certificate is immutable from the
+  moment it is introduced; correcting a certificate means minting a new one in a later transition,
+  never editing a retained one.
+- **M47** **removal custody:** a base certificate that is absent from the candidate, unless it was
+  validly consumed by that same transition, → fail (the M37 analogue). A certificate may only
+  disappear by being consumed; it may not be cancelled silently.
+
+**These rules are explicit and must not be assumed from existing machinery.** The existing loaders
+(`MutationPopulationAdmissionLoader`, `MutationClassificationEnrollmentLoader`) validate *shape*
+only — required fields, canonical 64-hex identity, 40-hex `fromBaseSha`, duplicate ids,
+`schemaVersion` — and cannot enforce mint-time base binding, retained immutability or removal
+custody. For the admissions ledger those guarantees come from the ceremony rules themselves
+(`MutationPopulationAdmissionCeremony.kt`: mint binding at `:190-213`, retention/removal/single-use
+at `:218-281`, `isRetainedRewrite()` at `:314-317`). The certificate needs its own equivalent rules
+for the same reason; a new ledger file whose lifecycle is left to a generic loader would have none
+of these properties.
 
 ### 6.3 Why the certificate design is the right one
 
@@ -388,6 +419,9 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
 | T14 | candidate creates a digest-migration certificate **and** consumes it in the same transition (the M31 analogue for the new authority) | M43 fail |
 | T15 | consumption citing a certificate whose `fromDigest` does not match the cited admission's `populationDigest`, or whose `admissionSetDigest` does not match the exact base authorization set | M41 / M42 fail (the certificate is bounded, not a general licence) |
 | T16 | certificate retained after the consumption it authorised completed | M44 fail (single use) |
+| T17 | newly introduced certificate whose `fromBaseSha` ≠ the authority base the transition is proposed against | M45 fail (mint-time base binding) |
+| T18 | certificate present in the base with any enforced payload field rewritten (`fromAlgorithm/fromDigest/toAlgorithm/toDigest/admissionSetDigest/fromBaseSha/reason`) | M46 fail (retained immutability) |
+| T19 | base certificate absent from the candidate without a valid consumption in that same transition | M47 fail (removal custody — never silent cancellation) |
 
 ---
 
@@ -402,7 +436,7 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
   with its own loader following the existing loader pattern, plus its `schemaVersion` and
   fail-closed validation. Separate from the admissions ledger so M36's payload comparison never
   sees it.
-- Tests: the T1-T16 matrix, verifier-level and real-task level.
+- Tests: the T1-T19 matrix, verifier-level and real-task level.
 - Docs: this record plus the rule-list updates in the ceremony/verifier headers.
 
 **Not changed:** `MutationPopulationAdmissions.kt` enums/payload (no new enforced field),
