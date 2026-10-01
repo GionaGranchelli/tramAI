@@ -12,6 +12,7 @@ Make cancellation of a persisted suspended run an authoritative terminal lifecyc
 
 ```text
 cancelled(run) => no subsequent authoritative execution(run)
+cancelled(run) != already-produced external effects compensated
 ```
 
 Once cancellation wins, no model, tool, approval continuation, network action, or workflow side effect may resume that run.
@@ -26,13 +27,16 @@ Once cancellation wins, no model, tool, approval continuation, network action, o
 - restart survival;
 - idempotent repeated cancellation;
 - terminal evidence/timeline/reconstruction support;
-- cleanup behavior that cannot erase authoritative cancellation semantics.
+- cleanup behavior that cannot erase authoritative cancellation semantics;
+- evidence semantics that distinguish fencing future execution from compensating or reversing side effects that already occurred.
 
 ## Non-goals
 
 - redesigning all approval lifetime/replacement semantics;
 - generic distributed workflow engine rewrite;
-- application-emulated cancellation flags.
+- application-emulated cancellation flags;
+- generic saga/compensation engine;
+- claiming that terminal cancellation automatically reverses an email, payment, deployment, external API mutation, or other already-completed side effect.
 
 ## Tasks
 
@@ -55,6 +59,7 @@ Once cancellation wins, no model, tool, approval continuation, network action, o
 - Repeated cancellation is idempotent.
 - Late approval cannot authorize continuation.
 - Cancellation remains visible to timeline/reconstruction.
+- Timeline/evidence never represents cancellation itself as proof that external side effects completed before cancellation were reversed or compensated.
 
 ## Adversarial proof
 
@@ -68,7 +73,7 @@ Required scenarios:
 6. cleanup/checkpoint removal after cancellation;
 7. stale worker attempts continuation after cancellation.
 
-Any model/tool/network/workflow side effect after authoritative cancellation is a release blocker.
+Any model/tool/network/workflow side effect after authoritative cancellation is a release blocker. A run cancelled after an earlier external side effect must also remain reconstructable without implying that cancellation compensated that already-completed effect.
 
 ## Mutation expectations
 
