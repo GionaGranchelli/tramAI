@@ -463,7 +463,10 @@ class MutationPopulationAdmissionIntegrationTest {
             "the candidate source must produce at least one appearing NON_KILLED identity, otherwise " +
                 "the admission ceremony is never reached: base=$baseIds candidate=$candidateIds",
         )
-        assertTrue(authorityProjectionDigest(base) != authorityProjectionDigest(candidate), "the two populations must differ")
+        assertTrue(
+            authorityProjectionDigest(base) != authorityProjectionDigest(candidate),
+            "the two populations must differ",
+        )
     }
 
     // ── task driving ──
