@@ -437,7 +437,7 @@ admissions:
       timeoutFactor: 1.25
     fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
     populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
-    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+    reason: "final adjudication EQUIVALENT in TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json; predecessor TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json disposition UNDETERMINED"
   - identity: 564517b2fdab899eceefac4eb9dbb40f3a60139a5c6f917f5fe7c1b172fc9d67
     status: NO_COVERAGE
     outcome: NON_KILLED
@@ -612,7 +612,7 @@ admissions:
       timeoutFactor: 1.25
     fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
     populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
-    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+    reason: "final adjudication EQUIVALENT in TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json; predecessor TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json disposition UNDETERMINED"
   - identity: 63e5372ba37bc3b097def60c22bddd050404d168b26c2fa73bc94a99a6705c1e
     status: SURVIVED
     outcome: NON_KILLED
@@ -637,7 +637,7 @@ admissions:
       timeoutFactor: 1.25
     fromBaseSha: 5bcb030c953c425289fad9e640ab65c15936ecda
     populationDigest: 9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0
-    reason: "prior adjudication recorded in TASK-0.7.1g1P1-CANDIDATE-ONLY-68-MANIFEST.json: [{'source': 'TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json', 'disposition': 'EQUIVALENT'}, {'source': 'TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json',"
+    reason: "final adjudication EQUIVALENT in TASK-0.7.1g1G4-RESIDUAL-11-MANIFEST.json; predecessor TASK-0.7.1g1G4-RESIDUAL-25-MANIFEST.json disposition UNDETERMINED"
   - identity: 66c311cf4f0ae36396880146f9059264308168b0286cdee72b852076560df61e
     status: NO_COVERAGE
     outcome: NON_KILLED
