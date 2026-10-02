@@ -20,20 +20,28 @@ package dev.tramai.build.quality
  */
 object MutationAuthorityDigestCertificateCeremony {
     /**
-     * M45, M46 and M47 over the base/candidate certificate ledgers.
+     * M44, M45, M46 and M47 over the base/candidate certificate ledgers.
      *
      * @param base the certificate ledger as it exists in the PR's authority base
      * @param candidate the certificate ledger as the PR proposes it
      * @param baseSha the exact authority base SHA this transition is proposed against
+     * @param validConsumptions the proven consumptions this transition established through
+     *   [verifyCertificateConsumption]. Only attributed [CertificateConsumption.Valid] facts can be
+     *   passed, so a caller cannot state "this digest was consumed" - the fact carries its own
+     *   proof. M44 and M47 never re-derive it and never treat the absence of a certificate as
+     *   evidence that it was consumed. An empty set is the fail-closed state, so a caller that
+     *   establishes nothing gets the strictest behaviour.
      */
     fun checks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
         baseSha: String,
+        validConsumptions: Set<CertificateConsumption.Valid> = emptySet(),
     ): List<VerificationDiagnostic> =
         mintChecks(base, candidate, baseSha) +
             retentionChecks(base, candidate) +
-            removalChecks(base, candidate)
+            singleUseChecks(base, candidate, validConsumptions) +
+            removalChecks(base, candidate, validConsumptions)
 
     /**
      * M45: a newly introduced certificate binds the exact authority base it is proposed against.
@@ -95,24 +103,58 @@ object MutationAuthorityDigestCertificateCeremony {
     }
 
     /**
+     * M44: single use. A certificate that was consumed in this transition must not also be retained.
+     * Leaving it in place would let the same migration authority be consumed again by a later
+     * transition, so consumption and retention are mutually exclusive.
+     *
+     * Judged only over consumptions that were **independently established** (M40-M43). A source
+     * digest that is not in the base is not this rule's business - M43 refuses that citation - so a
+     * candidate cannot use this rule to fail a transition by citing certificates that do not exist.
+     */
+    private fun singleUseChecks(
+        base: MutationAuthorityDigestCertificates,
+        candidate: MutationAuthorityDigestCertificates,
+        validConsumptions: Set<CertificateConsumption.Valid>,
+    ): List<VerificationDiagnostic> {
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
+        val baseByFromDigest = base.byFromDigest()
+        val candidateByFromDigest = candidate.byFromDigest()
+        for (consumed in validConsumptions.sortedBy { it.fromDigest }) {
+            val fromDigest = consumed.fromDigest
+            if (fromDigest !in baseByFromDigest) continue
+            if (fromDigest in candidateByFromDigest) {
+                diagnostics +=
+                    certificateFailure(
+                        fromDigest,
+                        "M44: the digest-migration certificate for source digest " +
+                            "${short(fromDigest)} was consumed by this transition but is retained in " +
+                            "the candidate. A certificate authorises one migration once.",
+                    )
+            }
+        }
+        return diagnostics
+    }
+
+    /**
      * M47: removal custody. A certificate may only disappear by being consumed; it may not be
      * cancelled silently.
      *
-     * Until the certificate-aware consumption path exists there is no way to *prove* a valid
-     * consumption, so this rule takes its strictly fail-closed half: **any** base certificate absent
-     * from the candidate fails. That is deliberate, not an unfinished branch. A disappearance is
-     * never its own evidence - when M40-M44 land, this becomes "unless validly consumed by the same
-     * transition", judged against an independently established consumption, and never against the
-     * mere absence of the certificate.
+     * The consuming half is [validConsumptions] - the fact established by M40-M43, taken here as an
+     * input rather than rediscovered. That is structural, not conventional: this function has no
+     * access to the semantic predicates, so a disappearance can never become its own evidence. If
+     * nothing valid was established (empty set, including the fail-closed default), every base
+     * certificate absent from the candidate fails, exactly as before the consumption path existed.
      */
     private fun removalChecks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
+        validConsumptions: Set<CertificateConsumption.Valid>,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val candidateByFromDigest = candidate.byFromDigest()
         for ((fromDigest, _) in base.byFromDigest()) {
-            if (fromDigest !in candidateByFromDigest) {
+            val consumed = validConsumptions.any { it.fromDigest == fromDigest }
+            if (fromDigest !in candidateByFromDigest && !consumed) {
                 diagnostics +=
                     certificateFailure(
                         fromDigest,
