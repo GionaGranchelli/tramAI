@@ -128,6 +128,29 @@ class CertificateCustodyTransportTest {
     )
 
     @Test
+    fun `T7 the real committed baseline cannot supply the authority context itself`() {
+        val committed =
+            ReportNormalizer.readJson(
+                File(repositoryRoot, "config/quality/mutation-baseline.json"),
+                MutationPopulationBaseline::class.java,
+            )
+
+        // The real task's authority context is derived from the fresh measurement: an identical
+        // committed population yields the proof, and its authority projection is the measured one.
+        val matched = MutationPopulationEvolutionProof.exactComparison(committed, committed)
+        assertTrue(matched.diagnostics.isEmpty(), matched.diagnostics.toString())
+        assertTrue(matched.proof != null, "an identical measurement must produce a proof")
+
+        // A baseline edited on the candidate side - here by one extra row - obtains no proof at all,
+        // so an edited ledger cannot put its own authority context in front of M34/M44/M47.
+        val tampered =
+            committed.copy(
+                mutants = committed.mutants + committed.mutants.first().copy(identity = "fabricated-identity"),
+            )
+        assertEquals(null, MutationPopulationEvolutionProof.exactComparison(committed, tampered).proof)
+    }
+
+    @Test
     fun `the authority facts are produced exactly once and shared with every consumer`() {
         val verifier = source("MutationRatchetVerifier.kt")
         val ceremony = source("MutationPopulationAdmissionCeremony.kt")
