@@ -2,7 +2,7 @@
 
 **Branch:** `epic/0.7.4-evidence-projection`  
 **Status:** ⚪ Planned  
-**Dependencies:** 0.7.1 HARD; 0.7.2/0.7.3 SOFT
+**Dependencies:** 0.7.1 HARD; 0.7.2/0.7.3 SOFT; XR1 required before evidence/projection contracts are frozen
 
 ## Executive decision
 
@@ -11,7 +11,7 @@ Project authoritative runtime truth into a stable operational read model without
 ## Architecture
 
 ```text
-runtime authority → typed evidence → projection/read model → query API → clients
+runtime authority / governed external boundary → typed evidence → projection/read model → query API → clients
 ```
 
 OTEL and best-effort telemetry may mirror facts but remain non-authoritative.
@@ -20,6 +20,8 @@ OTEL and best-effort telemetry may mirror facts but remain non-authoritative.
 
 - typed governance evidence/events;
 - workload/run/config/classification/policy/routing/approval/control correlation;
+- runtime/framework/integration identity where relevant to evidence interpretation;
+- explicit evidence source, enforcement strength, and provenance sufficient to distinguish enforced, instrumented, observed, and imported facts;
 - idempotent projection application;
 - ordering/version handling;
 - explicit projection lag/consistency/source authority;
@@ -40,11 +42,11 @@ OTEL and best-effort telemetry may mirror facts but remain non-authoritative.
 | ID | Candidate | Required result |
 |---|---|---|
 | 0.7.4a | Evidence baseline audit | Inventory authoritative events/stores, audit evidence and telemetry gaps |
-| 0.7.4b | Governance evidence schema | Typed/versioned evidence families with identity and source authority |
+| 0.7.4b | Governance evidence schema | Typed/versioned evidence families with identity, source authority, runtime/integration context where relevant, and explicit enforcement/evidence provenance |
 | 0.7.4c | Projection contract | Idempotency, ordering/version, lag and rebuild semantics |
 | 0.7.4d | Materialized read model | Durable/queryable operational projection without mutation authority |
 | 0.7.4e | Query API | Stable headless workload/run/decision/control-state query contracts |
-| 0.7.4f | Safe exposure/OTEL mapping | Protected-payload defaults and non-authoritative telemetry distinction |
+| 0.7.4f | Safe exposure/OTEL mapping | Protected-payload defaults; observed/instrumented/imported evidence remains distinguishable from authoritative enforcement; OTEL never upgrades telemetry into proof of prevention |
 | 0.7.4g | Adversarial/rebuild/mutation proof | Duplicate/reorder/stale/missing-source and privacy discriminators |
 | 0.7.4h | Integration/docs | Evidence schema/query docs and Epic acceptance |
 
@@ -55,6 +57,8 @@ projection cannot create or widen authority
 same authoritative event applied twice => same projection as once
 projection lag is never presented as stronger authority than source
 missing evidence != inferred success
+observed telemetry != proof of enforcement
+integration/client metadata cannot self-upgrade enforcement strength
 protected payloads are excluded by default
 ```
 
@@ -65,7 +69,9 @@ protected payloads are excluded by default
 - Duplicate/reordered evidence obeys explicit semantics.
 - Projection lag/source authority is observable.
 - Query/telemetry defaults do not leak protected payloads.
+- The XR1 Spring AI reference path can be projected without pretending TramAI authored the workload.
+- Clients can distinguish a TramAI-enforced boundary from instrumented, observed, or imported evidence.
 
 ## Adversarial proof
 
-Reject projection-side policy decisions, duplicate evidence changing final state incorrectly, stale event overwriting newer version, unavailable source reported as PASS/current, and payload leakage through generic DTO/telemetry.
+Reject projection-side policy decisions, duplicate evidence changing final state incorrectly, stale event overwriting newer version, unavailable source reported as PASS/current, payload leakage through generic DTO/telemetry, observed telemetry represented as authoritative prevention, client-supplied enforcement strength accepted without authoritative validation, and external-runtime evidence projected as though TramAI authored or governed boundaries it did not control.

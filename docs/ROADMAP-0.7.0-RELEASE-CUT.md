@@ -247,6 +247,37 @@ P0 behavior is protected by deterministic tests, compatibility/TCK coverage wher
 - reconstruction side effects;
 - sensitive payload exposure.
 
+### Reference external-runtime authority proof
+
+0.7.0 must include one narrow proof that TramAI can authoritatively govern an execution boundary initiated by a **non-TramAI-authored JVM AI workload** without introducing a second policy model.
+
+The reference target is **Spring AI**. This is an architecture proof, not a productionized adapter programme.
+
+The proof must demonstrate, at the declared governed boundary:
+
+```text
+external runtime intent
+        ↓
+TramAI workload/run identity
+        ↓
+authoritative TramAI governance decision
+        ↓
+ALLOW / DENY / REQUIRE_APPROVAL
+        ↓
+execution or governed suspension
+```
+
+Required properties:
+
+- `DENY` prevents execution at the declared boundary;
+- `REQUIRE_APPROVAL` cannot execute before authoritative approval;
+- workload/configuration/run and decision correlation survive the external-runtime boundary;
+- an authoritative integration does not silently fail open when TramAI evaluation is unavailable;
+- the external runtime does not gain a second policy/authorization model;
+- evidence identifies the runtime/integration boundary and does not overstate TramAI's enforcement strength.
+
+The first integration contract may remain experimental. The stable commitment is the governance meaning, not a framework-shaped adapter API.
+
 ---
 
 # 4. Explicitly not part of 0.7.0
@@ -266,7 +297,9 @@ The following do **not** block 0.7.0 unless implementation proves that a narrow 
 - dynamic tool-obligation lifecycle refinement;
 - broader metadata-classification ergonomics;
 - richer deterministic findings/incident analysis;
-- approval lifetime/replacement redesign beyond existing safety requirements.
+- approval lifetime/replacement redesign beyond existing safety requirements;
+- broad Spring AI / Koog / LangChain4j / Embabel adapter matrix beyond the single reference external-runtime authority proof;
+- productionized framework-adapter SDK/TCK ergonomics beyond what the reference proof requires.
 
 See [`ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md`](ROADMAP-0.8.0-GOVERNANCE-DX-AND-INTELLIGENCE.md).
 
@@ -344,6 +377,46 @@ The canonical/authoritative execution input remains distinct from provider-speci
 
 Existing model-output/tool-result DLP remains valid; 0.7 must preserve compatibility or provide an explicit migration path if implementation changes its public contracts.
 
+## J. Framework-independent governance authority
+
+A governed workload is not synonymous with a TramAI-authored workflow.
+
+Core workload identity, policy, decision, approval, and evidence semantics must remain usable when execution intent originates in another JVM AI runtime. Framework/runtime identity is metadata about the execution source, not the source of governance authority.
+
+```text
+governed workload != TramAI-authored workflow
+```
+
+## K. Deterministic, side-effect-free governance decisions
+
+Where a governance decision is defined as deterministic, equivalent authoritative facts under the same policy/configuration must produce the same pre-execution decision.
+
+```text
+same authoritative facts + same policy/configuration
+= same governance decision
+```
+
+The evaluator that determines policy/authorization meaning must not itself invoke providers, execute tools, create external side effects, or depend on Dashboard behavior. Public simulation remains 0.8 scope; 0.7 preserves the semantic boundary that makes simulation possible without a second engine.
+
+## L. Enforcement and evidence provenance
+
+Observation is not enforcement.
+
+Evidence/query contracts must preserve enough source/authority information to distinguish a TramAI-enforced decision from an instrumented, observed, or imported fact. Exact public enum names are an implementation decision.
+
+```text
+observed != enforced
+telemetry != proof of prevention
+```
+
+An external runtime or client must not be able to upgrade its own claimed enforcement strength merely by supplying metadata.
+
+## M. Stable semantics, experimental integrations
+
+0.7 should stabilize governance meaning before stabilizing framework-specific adapter APIs.
+
+Stable commitments should center on workload identity, policy/decision semantics, structured reasons, authority/provenance, and evidence correlation. Initial external-runtime integration APIs may remain experimental until at least one reference adapter has proved the boundary.
+
 ---
 
 # 6. Critical dependency graph
@@ -404,6 +477,7 @@ Classification/policy work may define provider-input release obligations before 
 3. Policy-constrained selection/fallback.
 4. Provider-specific release/minimization integration immediately before invocation, including recomputation on provider-changing fallback/retry.
 5. Decision/configuration identity/digest where required for evidence.
+6. **Reference external-runtime authority proof using Spring AI**, after the 0.7.2/0.7.3 decision semantics exist and before 0.7.4 evidence/projection contracts are considered frozen.
 
 ## Wave C — evidence and control plane
 
@@ -453,6 +527,9 @@ Only the authorized provider-bound representation may cross
 into the provider invocation
         ↓
 Authoritative decision/evidence emitted
+        ↓
+Reference external-runtime boundary proves the same governance authority
+without TramAI owning the agent runtime
         ↓
 Control plane projects the run safely
         ↓

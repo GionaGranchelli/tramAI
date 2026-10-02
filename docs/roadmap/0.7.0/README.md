@@ -63,6 +63,7 @@ Status values: `⚪ Planned` · `🟡 Active` · `🟣 Review` · `✅ Complete`
 
 ### Wave B — Authoritative decisions
 - 0.7.3 Authorized provider/model selection
+- [XR1 External-runtime authority proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) — Spring AI reference integration; required before 0.7.4 evidence/projection contracts are frozen
 
 ### Wave C — Evidence & observability
 - 0.7.4 Evidence/projection/query API
@@ -87,7 +88,11 @@ providerBoundInput = projection(canonicalInput, selectedDeployment, effectivePol
 provider-specific transformation never mutates canonicalInput
 provider-changing fallback => recompute providerBoundInput
 required minimization/inspection failure => no provider invocation
+governed workload != TramAI-authored workflow
+same authoritative facts + same policy/configuration => same governance decision
+observed != enforced
 cancelled(run) => no subsequent authoritative execution(run)
+cancelled(run) != already-produced external effects compensated
 reconstruction != re-execution
 Dashboard != policy authority
 ```
@@ -102,7 +107,8 @@ Dashboard != policy authority
 4. the reference control-plane scenario, provider-input release/minimization scenario, and persisted-cancellation scenario pass end to end;
 5. no deferred 0.8/0.9/0.10 scope has leaked into the release without an explicit release-cut change;
 6. `release/0.7.0 → master` is a certification/promotion PR, not a first-time integration event;
-7. the 0.7.1 integration-closure gates are met — API migration hashes bound to the frozen head, the release-sovereign population pin certified from measurement, and analyzer/build-logic changes kept out of the runtime promotion transition — and meeting them did **not** involve weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md)).
+7. the 0.7.1 integration-closure gates are met — API migration hashes bound to the frozen head, the release-sovereign population pin certified from measurement, and analyzer/build-logic changes kept out of the runtime promotion transition — and meeting them did **not** involve weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md));
+8. the [XR1 external-runtime authority proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) proves that one non-TramAI-authored JVM workload can cross an authoritative TramAI governance boundary without a second policy model or an overstated enforcement claim.
 
 ## Execution documents
 
@@ -110,4 +116,5 @@ Dashboard != policy authority
 - [`DEPENDENCIES.md`](DEPENDENCIES.md)
 - [`QUALITY-GATES.md`](QUALITY-GATES.md)
 - [`SPEC-TEMPLATE.md`](SPEC-TEMPLATE.md)
+- [`CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md`](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md)
 - Epic specs linked in the board above.
