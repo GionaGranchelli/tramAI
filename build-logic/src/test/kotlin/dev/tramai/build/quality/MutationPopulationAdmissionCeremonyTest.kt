@@ -435,7 +435,7 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
                 candidateAdmission = null,
                 mutant = target,
                 candidateAnalyzer = semantics,
-                freshAuthorityProjectionHash = "0".repeat(64),
+                authority = AdmissionAuthority("0".repeat(64)),
             ) as? AdmissionVerdict.Rejected
         assertNotNull(rejected)
         assertEquals(DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR, rejected.code)
@@ -486,5 +486,91 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
                 evidence = evidence(fresh),
             )
         passes(diagnostics)
+    }
+
+    // ── M34 with certified migration (Step 3b) ──
+    //
+    // A raw-v1 authorization is consumable under authority-v2 only when a base certificate translates
+    // exactly its historical digest into this transition's fresh authority projection. Without that
+    // fact M34 must still fail, so the escape cannot be reached by asserting anything.
+
+    private fun certificate(
+        rawDigest: String,
+        toDigest: String,
+        identity: String,
+    ) = MutationAuthorityDigestCertificate(
+        fromAlgorithm = MutationAuthorityDigestCertificates.ALGORITHM_RAW_V1,
+        fromDigest = rawDigest,
+        toAlgorithm = MutationAuthorityDigestCertificates.ALGORITHM_AUTHORITY_V2,
+        toDigest = toDigest,
+        admissionSetDigest =
+            MutationAuthorityDigestCertificates.admissionSetDigest(listOf(identity)),
+        fromBaseSha = "a".repeat(40),
+        reason = "test certificate",
+    )
+
+    @Test
+    fun `certifiedConsumptions produces the fact from a base certificate and refuses it otherwise`() {
+        val target = row("target")
+        val fresh = population(listOf(target))
+        val rawDigest = "1".repeat(64)
+        val certificates =
+            MutationAuthorityDigestCertificates("1", listOf(certificate(rawDigest, digestOf(fresh), target.identity)))
+        val base = admissions(admission("target", populationDigest = rawDigest))
+
+        assertEquals(1, certifiedConsumptions(certificates, base, digestOf(fresh)).size)
+        // A projection this certificate does not certify yields no fact at all (M40).
+        assertTrue(certifiedConsumptions(certificates, base, "0".repeat(64)).isEmpty())
+        // No certificate at all yields no fact: the fail-closed state.
+        assertTrue(
+            certifiedConsumptions(MutationAuthorityDigestCertificates.NONE, base, digestOf(fresh)).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `M34 accepts a raw-v1 admission when a base certificate covers exactly its historical digest`() {
+        val target = row("target")
+        val fresh = population(listOf(target))
+        val rawDigest = "1".repeat(64)
+        val certificate = certificate(rawDigest, digestOf(fresh), target.identity)
+        val fact =
+            verifyCertificateConsumption(
+                certificate = certificate,
+                baseCertificates = MutationAuthorityDigestCertificates("1", listOf(certificate)),
+                citedAdmissionPopulationDigest = rawDigest,
+                baseAdmissionIdentities = listOf(target.identity),
+                freshAuthorityProjectionHash = digestOf(fresh),
+            )
+        assertTrue(fact is CertificateConsumption.Valid, "expected a valid consumption, got $fact")
+
+        val verdict =
+            MutationPopulationAdmissionCeremony.appearanceVerdict(
+                baseAdmission = admission("target", populationDigest = rawDigest),
+                candidateAdmission = null,
+                mutant = target,
+                candidateAnalyzer = fresh.analyzer,
+                authority = AdmissionAuthority(digestOf(fresh), setOf(fact as CertificateConsumption.Valid)),
+            )
+
+        assertTrue(verdict is AdmissionVerdict.Authorized, "expected an authorized verdict, got $verdict")
+    }
+
+    @Test
+    fun `M34 still fails a raw-v1 admission with no certified migration`() {
+        val target = row("target")
+        val fresh = population(listOf(target))
+        val rawDigest = "1".repeat(64)
+
+        val rejected =
+            MutationPopulationAdmissionCeremony.appearanceVerdict(
+                baseAdmission = admission("target", populationDigest = rawDigest),
+                candidateAdmission = null,
+                mutant = target,
+                candidateAnalyzer = fresh.analyzer,
+                authority = AdmissionAuthority(digestOf(fresh)),
+            ) as? AdmissionVerdict.Rejected
+
+        assertNotNull(rejected)
+        assertTrue(rejected.message.startsWith("M34:"), rejected.message)
     }
 }

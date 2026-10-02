@@ -102,6 +102,7 @@ class MutationRatchetVerifier {
                     base.admissions,
                     candidate.admissions,
                     freshAuthorityProjectionHash,
+                    base.admissionAuthority(freshAuthorityProjectionHash),
                 ),
             )
         diagnostics += classificationRatchet(base, candidate)
@@ -320,7 +321,7 @@ class MutationRatchetVerifier {
                 candidatePopulation = candidatePopulation,
                 baseAdmissions = evolution.baseAdmissions.byIdentity(),
                 candidateAdmissions = evolution.candidateAdmissions.byIdentity(),
-                freshAuthorityProjectionHash = evolution.freshAuthorityProjectionHash,
+                authority = evolution.authority,
             )
 
         // M21: a base identity that simply stopped being measured. Absence is not evidence of
@@ -351,7 +352,7 @@ class MutationRatchetVerifier {
         candidatePopulation: MutationPopulationBaseline,
         baseAdmissions: Map<String, MutationPopulationAdmission>,
         candidateAdmissions: Map<String, MutationPopulationAdmission>,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val candidateById = candidatePopulation.mutants.associateBy { it.identity }
@@ -368,7 +369,7 @@ class MutationRatchetVerifier {
                             candidateAdmission = candidateAdmissions[id],
                             mutant = candidate,
                             candidateAnalyzer = candidatePopulation.analyzer,
-                            freshAuthorityProjectionHash = freshAuthorityProjectionHash,
+                            authority = authority,
                         )
                 ) {
                     is MutationPopulationAdmissionCeremony.AdmissionVerdict.Authorized -> {
@@ -781,6 +782,12 @@ private data class MutationEvolutionContext(
      * Null means no trusted measurement proof exists, and admission then fails closed.
      */
     val freshAuthorityProjectionHash: String? = null,
+    /**
+     * Authority context for appearing-identity verdicts (M34, Step 3b): the fresh projection plus the
+     * consumptions it certifies. Defaults to no projection and no consumptions, which is the
+     * fail-closed state: an appearing identity with no trusted measurement proof still fails M34.
+     */
+    val authority: AdmissionAuthority = AdmissionAuthority(null),
 )
 
 // No population hash is stored in mutation-evolution.yml: exact measurement
