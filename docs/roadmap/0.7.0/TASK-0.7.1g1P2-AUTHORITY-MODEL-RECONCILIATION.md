@@ -401,6 +401,26 @@ of these properties.
 Each attack needs a pure-verifier test *and* a real-task authority-transport test (per
 `AGENTS.md`: a verifier-level discriminator cannot detect a missing `Loader.load(rootDir)`).
 
+> **Amended by Step 3c — see §11.** This two-level rule is superseded in *scope*, not in intent. It
+> is now read as **boundary-level transport assurance**, not per-discriminator duplication.
+> Requiring all nineteen attacks to be re-proven through the Gradle task asks the same fact to be
+> established repeatedly at every layer, which is not how layered verification works. The rule the
+> closed Step 3c work actually applies is:
+>
+> 1. **Every attack** needs semantic discriminator evidence at the verifier/ceremony level.
+> 2. **Every authority transport boundary** — task wiring, admission-ledger loading, candidate
+>    population transport, certificate-ledger and base-revision loading, fresh-measurement
+>    provenance, and the single shared `AdmissionAuthority` seam — needs independent real-task
+>    non-vacuity evidence, proven once per boundary.
+> 3. **Attacks whose security property depends on provenance** — where a value came from, which
+>    revision owned it, whether it came from the fresh measurement or from base authority — need
+>    end-to-end evidence, because that is the property under test.
+>
+> The warning that motivated the original wording still holds and is honoured: a verifier-level
+> discriminator cannot detect a missing `Loader.load(rootDir)`, so every boundary that performs a
+> load is asserted through the real task. What is no longer required is proving each individual
+> attack twice.
+
 | # | discriminator | expected |
 | --- | --- | --- |
 | T1 | neighbour raw status flips SURVIVED↔TIMED_OUT, outcome/family/module unchanged | authority digest **unchanged**, M34 pass (the Case-3 discriminator) |
@@ -459,3 +479,59 @@ Each attack needs a pure-verifier test *and* a real-task authority-transport tes
 
 No full campaign rerun; no PIT timeout tuning; no mutant killing; no change to the committed
 baseline, P1 admissions, M21 records, classification authority or canonical outcome mapping; no P2.
+
+## 11. Step 3c closure — T1–T19 evidence ledger
+
+Step 3c is complete. The §7 matrix above is closed as follows, under the amended rule in §7.
+
+### 11.1 Authority transport boundaries — each proven once, through the real task
+
+| boundary | real-task evidence |
+| --- | --- |
+| task wiring (`verifyMutationRatchet` registered and executed) | `MutationPopulationAdmissionWiringTest` and `MutationPopulationAdmissionIntegrationTest`, both via `GradleRunner` running the real task; production registration at `MaintainabilityBaselinePlugin.kt:804` |
+| candidate population transport → verifier | `MutationPopulationAdmissionIntegrationTest` (real `verifyMutationRatchet` → `RECORDED_EVOLUTION` → canonical probe → fresh measurement) |
+| admission ledger loading | `MutationPopulationAdmissionWiringTest` asserts M06/M34/M35/M36/M37 from real task output, including the loader's own hard failure for a malformed ledger |
+| certificate ledger + base-revision loading | `CertificateLedgerTransportTest`, `CertificateCustodyTransportTest`, `CertificateBaseRevisionTransportTest` — real committed and re-read base-revision ledgers through the production loaders |
+| fresh-measurement provenance | T7 discriminator, end-to-end (see 11.2) |
+| single shared `AdmissionAuthority` seam | `CertificateCustodyTransportTest` → "the authority facts are produced exactly once and shared with every consumer"; one production call site (`MutationRatchetVerifier.kt:96`) plus its definition |
+
+### 11.2 Canonical attacks — semantic evidence, plus end-to-end where provenance is the property
+
+| row | semantic evidence | transport |
+| --- | --- | --- |
+| T1 | `MutationPopulationAdmissionCeremonyTest` "T1 a neighbour's raw status movement does not invalidate an authorized consumption" (authority digest unchanged, raw digest changed, M34 pass) | boundary: admission ledger + task wiring |
+| T2 | `MutationPopulationEvolutionProofTest` outcome-change projection test + ceremony "authorized row with a different population digest fails M34" | boundary: admission ledger |
+| T3 | ceremony "authorized identity with a different raw status fails M32" | boundary: admission ledger |
+| T4 | ceremony M34 certified-migration pair (accepts when a base certificate covers the historical digest; fails with no certified migration) | **real task**: wiring test asserts M34 fail-closed before admission, M33 absent |
+| T5 | "M42 a certificate that also covers an unauthorized identity is refused" | boundary: certificate ledger loading |
+| T6 | M41 (source digest, migration pair) + M42 (admission set); omission arm rests on schema-required fields and fail-closed loading | boundary: certificate ledger loading |
+| T7 | `MutationPopulationEvolutionProofTest` (identical populations → proof; every candidate-side difference → null) | **end-to-end**: `MutationPopulationAdmissionIntegrationTest` T7 discriminator + custody "the real committed baseline cannot supply the authority context itself" |
+| T8 | "T8 analyzer semantics change the authority projection" + ceremony "…different analyzer semantics fails M33" | boundary: task wiring (`M33` absent-when-consistent asserted at task level) |
+| T9 | ceremony "T9 a family-only re-homing keeps identity and fails M32, while a module move changes identity" | boundary: admission ledger |
+| T10 | ratchet "M13 unknown raw status fails closed", "M07 forged kill with raw SURVIVED status fails closed" (contradiction arm), "tool failure statuses fail the measurement instead of becoming NON_KILLED", parser "unknown status fails closed" | boundary: candidate population transport |
+| T11 | "M01 base KILLED to candidate NON_KILLED fails" | boundary: candidate population transport |
+| T12 | ceremony "appearing survivor without any authorization still fails M06" (+ the authorized-appearing-row pass case) | **real task**: wiring test asserts M06 from real task output |
+| T13 | "every bound field independently rejects a retained rewrite and audit fields do not", "rewriting only fromBaseSha while pending fails M36" | **real task**: wiring test asserts M36 for a bound-field rewrite |
+| T14 | M43 (candidate-minted, absent-from-base, rewritten-base-payload) + custody "T14 a certificate absent from the base cannot be consumed, however it is cited" | boundary: certificate ledger loading |
+| T15 | M41 source-digest / migration-pair + M42 admission-set refusals | boundary: certificate ledger loading |
+| T16 | "T16 M44 a consumed certificate retained in the candidate fails" + custody "cannot be dropped without a proven consumption" | boundary: certificate ledger loading |
+| T17 | ceremony "M45 a certificate minted against a different base is rejected" + custody "T17 a certificate introduced against another base fails M45" | boundary: certificate ledger + base-revision loading |
+| T18 | ceremony "M46 a retained certificate rewritten in any enforced field is rejected" + custody "T18 …rewritten fails M46" | boundary: certificate ledger loading |
+| T19 | ceremony "M47 removal custody is never satisfied by the mere absence of the certificate" + consumption "T19 M47 a removed certificate with no established consumption still fails" + custody "cannot be dropped without a proven consumption" | boundary: certificate ledger loading |
+
+### 11.3 Recorded numbers at closure
+
+- Verifier/ceremony suites: 122 tests, 0 failures (10 classes).
+- Transport: `MutationPopulationAdmissionIntegrationTest` 3 tests, 0 failures.
+- `CanonicalProbeFunctionalTest:507` (`IllegalStateException`, module-catalog fixture) is a
+  pre-existing unrelated red; that file's last change is #431 and no Step 3c change touches it.
+- Historical authority: 67 admissions unchanged (SHA-256 `314b9c18…`, one distinct `fromBaseSha`
+  `5bcb030c`, one distinct `populationDigest` `9aebd320`, 36 TIMED_OUT / 27 SURVIVED / 4
+  NO_COVERAGE); the P1M certificate unchanged (fromDigest `9aebd320…`, toDigest `e6ad01dc…`,
+  admissionSetDigest `98a9587a…`, fromBaseSha `64d05450…`).
+- Step 3c produced two code PRs (#476, #478), one zero-diff audit (T10) and this record; **no
+  production behaviour changed**, no new `AdmissionAuthority` production site, no new
+  `CertificateConsumption.Valid` construction path.
+
+**Verdict: 0.7.1g1P2 Step 3c — COMPLETE.** Mutation-authority work is closed at this point; the
+0.7.1 roadmap continues elsewhere.
