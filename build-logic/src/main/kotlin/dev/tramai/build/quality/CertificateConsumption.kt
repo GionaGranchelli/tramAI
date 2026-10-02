@@ -14,9 +14,11 @@ package dev.tramai.build.quality
  *   state "trust me, this digest was consumed". The attribution is carried by the value.
  * - M43 provenance is derived here by looking the certificate up in the base ledger. There is no
  *   `fromBase` flag for a caller to assert, so the Boolean cannot drift from the truth.
- * - The Valid constructor is `internal`, so the normal public API cannot fabricate a fact by
- *   bypassing the proof. This is deliberately not a capability system: the goal is that no ordinary
- *   call site can accidentally manufacture consumption authority.
+ * - The Valid constructor is `private` (with `@ConsistentCopyVisibility` on the class), so no code
+ *   outside the verification itself can construct one - not even other files in this module, which
+ *   is where the Gradle call sites live. The proof and the fact share a scope by construction: there
+ *   is no path to a Valid that skips M43-M42. This is deliberately not a capability system: the goal
+ *   is that no ordinary call site can accidentally manufacture consumption authority.
  *
  * Consumption is bounded, not a licence. A certificate names one exact source digest, one exact
  * target digest and one exact admission set, and it may only be consumed by a transition whose fresh
