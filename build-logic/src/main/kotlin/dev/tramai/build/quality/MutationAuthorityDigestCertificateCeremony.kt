@@ -25,17 +25,18 @@ object MutationAuthorityDigestCertificateCeremony {
      * @param base the certificate ledger as it exists in the PR's authority base
      * @param candidate the certificate ledger as the PR proposes it
      * @param baseSha the exact authority base SHA this transition is proposed against
-     * @param validConsumptions the source digests of certificates whose consumption in this
-     *   transition was **independently established** by M40-M43. This is the fact M44 and M47 act on:
-     *   they never re-derive it, and they never treat the absence of a certificate as evidence that
-     *   it was consumed. An empty set is the fail-closed state, so a caller that establishes nothing
-     *   gets the strictest behaviour.
+     * @param validConsumptions the proven consumptions this transition established through
+     *   [verifyCertificateConsumption]. Only attributed [CertificateConsumption.Valid] facts can be
+     *   passed, so a caller cannot state "this digest was consumed" - the fact carries its own
+     *   proof. M44 and M47 never re-derive it and never treat the absence of a certificate as
+     *   evidence that it was consumed. An empty set is the fail-closed state, so a caller that
+     *   establishes nothing gets the strictest behaviour.
      */
     fun checks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
         baseSha: String,
-        validConsumptions: Set<String> = emptySet(),
+        validConsumptions: Set<CertificateConsumption.Valid> = emptySet(),
     ): List<VerificationDiagnostic> =
         mintChecks(base, candidate, baseSha) +
             retentionChecks(base, candidate) +
@@ -113,12 +114,13 @@ object MutationAuthorityDigestCertificateCeremony {
     private fun singleUseChecks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
-        validConsumptions: Set<String>,
+        validConsumptions: Set<CertificateConsumption.Valid>,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseByFromDigest = base.byFromDigest()
         val candidateByFromDigest = candidate.byFromDigest()
-        for (fromDigest in validConsumptions.sorted()) {
+        for (consumed in validConsumptions.sortedBy { it.fromDigest }) {
+            val fromDigest = consumed.fromDigest
             if (fromDigest !in baseByFromDigest) continue
             if (fromDigest in candidateByFromDigest) {
                 diagnostics +=
@@ -146,12 +148,13 @@ object MutationAuthorityDigestCertificateCeremony {
     private fun removalChecks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
-        validConsumptions: Set<String>,
+        validConsumptions: Set<CertificateConsumption.Valid>,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val candidateByFromDigest = candidate.byFromDigest()
         for ((fromDigest, _) in base.byFromDigest()) {
-            if (fromDigest !in candidateByFromDigest && fromDigest !in validConsumptions) {
+            val consumed = validConsumptions.any { it.fromDigest == fromDigest }
+            if (fromDigest !in candidateByFromDigest && !consumed) {
                 diagnostics +=
                     certificateFailure(
                         fromDigest,
