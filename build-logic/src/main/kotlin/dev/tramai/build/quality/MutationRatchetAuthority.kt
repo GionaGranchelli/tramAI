@@ -40,6 +40,17 @@ data class MutationRatchetAuthority(
      * must fail to compile rather than silently degrade the transition to "no authorizations".
      */
     val admissions: MutationPopulationAdmissions,
+    /**
+     * Base-side digest-migration certificates (0.7.1g1P2, M40-M47). OPTIONAL authority, like
+     * [enrollments]: a base that predates the certificate ledger simply has none, which is the most
+     * restrictive state - no certified migration exists, so every raw-v1 admission still fails M34.
+     * A present ledger is validated by its own loader, so a malformed one fails hard rather than
+     * degrading into "no certificates".
+     *
+     * The default is convenient for fixtures and is always the conservative answer; the loader passes
+     * it explicitly, read from the base revision.
+     */
+    val certificates: MutationAuthorityDigestCertificates = MutationAuthorityDigestCertificates.NONE,
 )
 
 /**
@@ -164,6 +175,21 @@ object MutationRatchetAuthorityLoader {
                 admissionsFile.writeText(admissionsAtBase.output, Charsets.UTF_8)
             }
             val admissions = MutationPopulationAdmissionLoader.load(tempDir)
+            // Digest-migration certificates (0.7.1g1P2) are OPTIONAL authority for the same reason: a
+            // base that predates the ledger has none, which is the most restrictive state, since no
+            // certified migration exists and every raw-v1 admission still fails M34. A present ledger
+            // is validated by its own loader, so a malformed one fails hard instead of degrading into
+            // "no certificates".
+            val certificatesFile = File(qualityDir, "mutation-authority-digest-certificates.yml")
+            val certificatesAtBase =
+                runGit(
+                    rootDir,
+                    listOf("show", "$baseSha:${MutationAuthorityDigestCertificateLoader.FILE_NAME}"),
+                )
+            if (certificatesAtBase.exitCode == 0) {
+                certificatesFile.writeText(certificatesAtBase.output, Charsets.UTF_8)
+            }
+            val certificates = MutationAuthorityDigestCertificateLoader.load(tempDir)
             return MutationRatchetAuthority(
                 baseSha = baseSha,
                 population = population,
@@ -171,6 +197,7 @@ object MutationRatchetAuthorityLoader {
                 targetFamilies = configuration.mutation.targetFamilies,
                 enrollments = enrollments,
                 admissions = admissions,
+                certificates = certificates,
             )
         } finally {
             tempDir.deleteRecursively()
