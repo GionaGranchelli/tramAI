@@ -119,6 +119,43 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
         )
     }
 
+    /**
+     * T9: re-homing an AUTHORIZED identity to another family.
+     *
+     * §7 expects `M32 fail`. M32 cannot fire here, and the reason is structural rather than a defect:
+     * a mutant's identity is a hash over the row's coordinates, so moving an authorized row to another
+     * family yields a DIFFERENT identity - never the same-identity/different-persisted-row case that
+     * `admitsRow` is the precondition for. §7's premise (an identity that survives re-homing) is
+     * unachievable, so the row is mapped to the rules the transition actually reaches:
+     *
+     *   migrated row      -> NEW NON_KILLED identity absent from the base authority  -> M06
+     *   old authorization -> disappears without being consumed                       -> M37
+     *
+     * The re-homing is refused, which is what §7's *outcome* requires. Only the named rule differs.
+     * Pinned as the real chain so this row is never counted from a rule-id hit.
+     */
+    @Test
+    fun `T9 re-homing an authorized identity produces the moved identity and orphaned custody`() {
+        val candidate = population(listOf(anchor, row("target", family = retryFamily)))
+        val diagnostics =
+            verifyAdmission(
+                basePopulation = population(listOf(anchor)),
+                baseAdmissions = admissions(admission("target", populationDigest = digestOf(candidate))),
+                candidatePopulation = candidate,
+            )
+
+        assertTrue(
+            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR),
+            "the re-homed row must appear as a new identity: ${failures(diagnostics).map { it.message }}",
+        )
+        assertTrue(
+            hasCode(diagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID) &&
+                failures(diagnostics).any { it.message.contains("M37") },
+            "the authorization orphaned by the re-homing must be reported: " +
+                "${failures(diagnostics).map { it.message }}",
+        )
+    }
+
     @Test
     fun `authorized row measured under different analyzer semantics fails M33`() {
         val candidate = population(listOf(anchor, row("target")))
