@@ -41,6 +41,38 @@ class MutationPopulationEvolutionProofTest : MutationRatchetTestSupport() {
         )
     }
 
+    /**
+     * T7: the authority context M34/M44/M47 are judged on is the one this verifier computed from its
+     * own fresh measurement. A candidate cannot supply it - a proof exists only for a committed
+     * population that the fresh measurement matches exactly, and the authority projection on that
+     * proof is taken from the fresh side. There is deliberately no partial trust: a candidate that
+     * reports a different population, even in a field the authority projection ignores, obtains no
+     * proof at all rather than a proof it helped construct.
+     */
+    @Test
+    fun `T7 the authority context comes from the fresh measurement never from the candidate`() {
+        val fresh = population(listOf(row("v1")))
+
+        val matched = MutationPopulationEvolutionProof.exactComparison(fresh, population(listOf(row("v1"))))
+        assertTrue(matched.diagnostics.isEmpty(), matched.diagnostics.toString())
+        assertTrue(matched.proof != null, "an exactly matching candidate must obtain a proof")
+
+        val candidates =
+            listOf(
+                // A field the authority projection deliberately ignores.
+                population(listOf(row("v1", status = "TIMED_OUT"))),
+                // A different population entirely.
+                population(listOf(row("v1"), row("v2"))),
+            )
+        for (candidate in candidates) {
+            assertEquals(
+                null,
+                MutationPopulationEvolutionProof.exactComparison(fresh, candidate).proof,
+                "a candidate-side difference must yield no authority context",
+            )
+        }
+    }
+
     @Test
     fun `identical populations produce an evolution proof`() {
         val population = population(listOf(row("v1")))
