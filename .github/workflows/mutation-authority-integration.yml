@@ -61,7 +61,10 @@ jobs:
             --tests '*MutationPopulationAdmissionIntegrationTest*' \
             --no-daemon
 
-      # A Gradle test task that selects nothing is green. Assert the proof actually executed both cases.
+      # A Gradle test task that selects nothing is green. Assert the proof actually executed the
+      # authority-transport cases. This is a non-vacuity FLOOR, not a frozen suite cardinality: the
+      # suite may grow as further transport discriminators are added, and what matters is that the
+      # proof ran, not that the class has exactly this many tests.
       - name: Assert the proof was not vacuous
         run: |
           report=$(ls build-logic/build/test-results/canonicalProbeIntegrationTest/TEST-*MutationPopulationAdmissionIntegrationTest.xml)
@@ -69,5 +72,5 @@ jobs:
           failures=$(grep -o 'failures="[0-9]*"' "$report" | head -1 | tr -dc '0-9')
           errors=$(grep -o 'errors="[0-9]*"' "$report" | head -1 | tr -dc '0-9')
           echo "executed=$executed failures=$failures errors=$errors"
-          [ "$executed" = "2" ] || { echo "::error::expected exactly 2 authority-transport tests, got $executed"; exit 1; }
+          [ "$executed" -ge 2 ] || { echo "::error::expected at least 2 authority-transport tests, got $executed"; exit 1; }
           [ "$failures" = "0" ] && [ "$errors" = "0" ] || { echo "::error::authority-transport failures=$failures errors=$errors"; exit 1; }
