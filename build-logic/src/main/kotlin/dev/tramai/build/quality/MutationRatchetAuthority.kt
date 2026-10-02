@@ -79,6 +79,18 @@ data class MutationRatchetCandidate(
      * not compile. Missing it silently turned every candidate proposal into "none".
      */
     val admissions: MutationPopulationAdmissions,
+    /**
+     * Certificates this transition proposes. They are validated here (M45 binds a newly introduced
+     * certificate to the base it is proposed against, M46 rejects a rewritten retained one) but they
+     * can never authorize a consumption in the same transition: only
+     * [MutationRatchetAuthority.certificates] is consulted, so a candidate that both mints and
+     * consumes fails M43.
+     *
+     * Defaults to [MutationAuthorityDigestCertificates.NONE] for fixtures. The loader always passes it
+     * explicitly. A call site that forgot would weaken nothing: every removal then looks
+     * unconsumed and M47 fails loudly, which is the conservative direction.
+     */
+    val certificates: MutationAuthorityDigestCertificates = MutationAuthorityDigestCertificates.NONE,
 )
 
 object MutationRatchetAuthorityLoader {

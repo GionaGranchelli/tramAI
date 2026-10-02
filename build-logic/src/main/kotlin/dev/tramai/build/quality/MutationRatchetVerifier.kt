@@ -108,6 +108,15 @@ class MutationRatchetVerifier {
         diagnostics += classificationRatchet(base, candidate)
         diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
         diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, freshAuthorityProjectionHash)
+        // Certificate custody (M44-M47), decided on the same facts M34 uses: one production site, so the
+        // lifecycle rules cannot disagree with the admission verdicts about what was consumed.
+        diagnostics +=
+            MutationAuthorityDigestCertificateCeremony.checks(
+                base = base.certificates,
+                candidate = candidate.certificates,
+                baseSha = base.baseSha,
+                validConsumptions = base.admissionAuthority(freshAuthorityProjectionHash).certifiedConsumptions,
+            )
         diagnostics +=
             familyAndTargetChecks(
                 base.population,

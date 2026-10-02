@@ -92,6 +92,11 @@ class MutationRatchetAuthorityTest {
                         // population are M39 warnings, not failures. This test failed at the
                         // pristine base ec8b4da5 for exactly that reason.
                         admissions = authority.admissions,
+                        // An identity transition must RETAIN the base's certificate too. Passing NONE
+                        // here would assert a transition that removes the certificate without a proven
+                        // consumption, which M47 correctly refuses - M47's consuming half requires the
+                        // fact that a consumption happened, not the mere absence of the certificate.
+                        certificates = authority.certificates,
                     ),
                     executable = MutationPopulationAggregator.canonicalSemantics(),
                 ).filter { it.severity == DiagnosticSeverity.FAILURE }
