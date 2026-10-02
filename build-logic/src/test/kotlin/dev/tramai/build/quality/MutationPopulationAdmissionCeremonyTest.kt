@@ -173,8 +173,9 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
             "a module move must arrive as a new identity: ${failures(moduleDiagnostics).map { it.message }}",
         )
         assertTrue(
-            hasCode(moduleDiagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID),
-            "the authorization orphaned by the move must be reported: " +
+            hasCode(moduleDiagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID) &&
+                failures(moduleDiagnostics).any { it.message.contains("M37") },
+            "the authorization orphaned by the move must fail M37: " +
                 "${failures(moduleDiagnostics).map { it.message }}",
         )
     }
