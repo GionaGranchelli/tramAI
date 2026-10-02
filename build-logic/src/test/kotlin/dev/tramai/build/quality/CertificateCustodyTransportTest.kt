@@ -127,6 +127,36 @@ class CertificateCustodyTransportTest {
         reason = "foreign certificate",
     )
 
+    @Test
+    fun `the authority facts are produced exactly once and shared with every consumer`() {
+        val verifier = source("MutationRatchetVerifier.kt")
+        val ceremony = source("MutationPopulationAdmissionCeremony.kt")
+
+        // One production event for the whole transition. Value-equal recomputation is not the same
+        // property as shared evidence: only one production site makes it impossible for M34, the
+        // admission lifecycle and M44/M47 to disagree about which consumptions were proven.
+        assertEquals(
+            1,
+            Regex("admissionAuthority\\(").findAll(verifier).count(),
+            "the transition must produce its authority facts exactly once",
+        )
+        // The ceremony receives the authority; it must never rebuild it.
+        assertEquals(
+            0,
+            Regex("admissionAuthority\\(").findAll(ceremony).count(),
+            "the admission ceremony must not re-derive authority facts",
+        )
+        // And the certificate lifecycle consumes that same local rather than its own copy.
+        assertTrue(
+            verifier.contains("validConsumptions = admissionAuthority.certifiedConsumptions"),
+            "M44/M47 must consume the same local authority M34 was judged on",
+        )
+    }
+
+    private val qualitySource = "build-logic/src/main/kotlin/dev/tramai/build/quality"
+
+    private fun source(name: String) = File(repositoryRoot, "$qualitySource/$name").readText()
+
     /**
      * The repository root, found by walking up to the `gradlew` marker (the idiom the other
      * real-task tests use) rather than assuming a fixed depth below it.

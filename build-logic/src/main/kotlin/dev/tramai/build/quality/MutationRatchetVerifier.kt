@@ -90,6 +90,10 @@ class MutationRatchetVerifier {
         diagnostics += validateClassificationList("candidate", candidate.classifications)
         diagnostics += baseClassificationIntegrity(base)
         val freshAuthorityProjectionHash = evolutionEvidence.proof?.authorityProjectionHash
+        // Produced ONCE for the whole transition. M34, the admission lifecycle and the certificate
+        // lifecycle (M44/M47) all receive this exact instance, so they cannot quietly come to
+        // different conclusions about which consumptions were proven.
+        val admissionAuthority = base.admissionAuthority(freshAuthorityProjectionHash)
         diagnostics +=
             outcomeRatchet(
                 base.population,
@@ -102,12 +106,12 @@ class MutationRatchetVerifier {
                     base.admissions,
                     candidate.admissions,
                     freshAuthorityProjectionHash,
-                    base.admissionAuthority(freshAuthorityProjectionHash),
+                    admissionAuthority,
                 ),
             )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
-        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, freshAuthorityProjectionHash)
+        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, admissionAuthority)
         // Certificate custody (M44-M47), decided on the same facts M34 uses: one production site, so the
         // lifecycle rules cannot disagree with the admission verdicts about what was consumed.
         diagnostics +=
@@ -115,7 +119,7 @@ class MutationRatchetVerifier {
                 base = base.certificates,
                 candidate = candidate.certificates,
                 baseSha = base.baseSha,
-                validConsumptions = base.admissionAuthority(freshAuthorityProjectionHash).certifiedConsumptions,
+                validConsumptions = admissionAuthority.certifiedConsumptions,
             )
         diagnostics +=
             familyAndTargetChecks(

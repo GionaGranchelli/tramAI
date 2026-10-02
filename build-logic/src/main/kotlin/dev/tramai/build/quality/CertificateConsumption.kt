@@ -107,6 +107,12 @@ sealed interface CertificateConsumption {
  * scan and the appearing-identity path) are handed the same object and cannot disagree about
  * consumption. Bundling them also keeps [MutationPopulationAdmissionCeremony.appearanceVerdict]
  * inside the repository's parameter budget without suppressing anything.
+ *
+ * Produced exactly once per transition and passed unchanged to every consumer - M34, the admission
+ * lifecycle and the certificate lifecycle (M44/M47). Consumers must never re-derive it: a
+ * value-equal recomputation is not the same property as shared evidence, and only one production
+ * site makes it structurally impossible for the rules to disagree about which consumptions were
+ * proven. `CertificateCustodyTransportTest` pins that with a source-level assertion.
  */
 data class AdmissionAuthority(
     val freshAuthorityProjectionHash: String?,

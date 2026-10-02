@@ -73,8 +73,8 @@ object MutationPopulationAdmissionCeremony {
     fun checks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
-    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, freshAuthorityProjectionHash)
+        authority: AdmissionAuthority,
+    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, authority)
 
     /**
      * The verdict for one identity that is present in the candidate population and absent from the
@@ -200,10 +200,10 @@ object MutationPopulationAdmissionCeremony {
     private fun lifecycleChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): List<VerificationDiagnostic> {
         val diagnostics = mintChecks(base, candidate)
-        return diagnostics + consumptionChecks(base, candidate, freshAuthorityProjectionHash)
+        return diagnostics + consumptionChecks(base, candidate, authority)
     }
 
     /**
@@ -242,7 +242,7 @@ object MutationPopulationAdmissionCeremony {
     private fun consumptionChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseAdmissions = base.admissions.byIdentity()
@@ -263,7 +263,7 @@ object MutationPopulationAdmissionCeremony {
                         candidateAdmission = candidateAdmission,
                         mutant = mutant,
                         candidateAnalyzer = candidate.population.analyzer,
-                        authority = base.admissionAuthority(freshAuthorityProjectionHash),
+                        authority = authority,
                     ) is AdmissionVerdict.Authorized
             if (candidateAdmission == null) {
                 // M37: a retained authorization may only disappear by being consumed. Otherwise a
