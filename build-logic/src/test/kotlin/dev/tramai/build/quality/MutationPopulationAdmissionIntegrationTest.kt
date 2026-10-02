@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import java.io.File
 import java.nio.file.Files
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -232,6 +233,99 @@ class MutationPopulationAdmissionIntegrationTest {
             output.contains(appearingIdentities.first().take(8)),
             "M38 must name the retained authorization's identity:\n$output",
         )
+    }
+
+    /**
+     * T7 at TASK level — the half a verifier-level test cannot reach, because it never runs the
+     * production transport (`verifyMutationRatchet` -> RECORDED_EVOLUTION -> nested
+     * `canonicalMutationProbe` -> fresh PIT population -> `exactComparison` -> proof -> verifier).
+     *
+     * The perturbation is deliberately AUTHORITY-EQUIVALENT: it moves one raw PIT status, and
+     * authority-v2 excludes raw status, so the candidate's own authority projection is untouched.
+     * A task that accepted a candidate-supplied authority digest would still pass, and the first
+     * assertion proves this perturbation really is authority-equivalent.
+     *
+     * It must fail instead: the fresh exact measurement has to establish the proof before any
+     * authority is recognised, which is what stops a candidate from putting its own authority
+     * context in front of M34/M44/M47.
+     */
+    @Test
+    fun `T7 a candidate baseline that only moves raw PIT status cannot supply the authority context`() {
+        // The same transition that passes unperturbed (the first test in this class).
+        checkout(consumedCandidateSha)
+        val baseline = File(fixture, "config/quality/mutation-baseline.json")
+        val committed = readPopulation(baseline)
+        val target =
+            committed.mutants.first { row ->
+                // Deliberately NOT an identity this transition authorises: moving an authorised row's
+                // raw status is M32/M37 business (T3), and would make this test prove the wrong rule.
+                row.identity !in appearingIdentities &&
+                    row.status == "SURVIVED" &&
+                    row.family in committed.byFamily
+            }
+        val displaced =
+            committed.copy(
+                mutants =
+                    committed.mutants.map { row ->
+                        if (row.identity == target.identity) {
+                            row.copy(status = "TIMED_OUT")
+                        } else {
+                            row
+                        }
+                    },
+                // `byFamily` is derived truth. Moving raw status without moving the counters leaves a
+                // hand-edited ledger, and the task fails closed on THAT instead of on authority -
+                // which would make this test evidence for the wrong property.
+                byFamily =
+                    committed.byFamily.mapValues { (family, entry) ->
+                        if (family != target.family) {
+                            entry
+                        } else {
+                            entry.copy(
+                                survivedMutants = entry.survivedMutants - 1,
+                                timedOutMutants = entry.timedOutMutants + 1,
+                            )
+                        }
+                    },
+            )
+
+        assertTrue(committed != displaced, "the perturbation must actually change the population")
+        assertEquals(
+            authorityProjectionDigest(committed),
+            authorityProjectionDigest(displaced),
+            "the perturbation must leave the authority projection untouched, or this proves less",
+        )
+
+        ReportNormalizer.writeJson(displaced, baseline)
+        // The candidate state must be COMMITTED. The measurement's provenance gate requires a clean
+        // fixture worktree, so a dirty edit would fail the task for that reason - proving nothing
+        // about authority - and would also poison the sibling tests that checkout their own SHAs.
+        commit("T7: displace one raw PIT status in the committed candidate baseline")
+
+        val (ok, output) = verifyRatchet()
+        println("[admission-integration] T7 raw-status-displaced candidate:" + NL + decisiveLines(output))
+
+        assertTrue(!ok, "an authority-equivalent but non-identical baseline must fail the task:\n$output")
+        assertTrue(
+            output.contains("no proof of the canonical fresh measurement"),
+            "the FRESH measurement must be what refuses the admission, not a candidate-side claim:\n" +
+                decisiveLines(output),
+        )
+        // It must fail on the authority decision and not on a fixture artifact. `byFamily` would mean
+        // a hand-edited counter; `M32` would mean the perturbation touched an authorised row and this
+        // test is proving the status-inclusive row binding (T3) instead of T7.
+        //
+        // M37 is deliberately NOT in this list: it is the designed cascade of the same missing proof
+        // (no authority context -> the retained admissions cannot be recognised as consumed), not an
+        // artifact of how the perturbation was built. Forbidding it would demand a discriminator that
+        // isolates the fresh path from its own fail-closed consequences, which does not exist.
+        listOf("byFamily", "M32").forEach { artifact ->
+            assertTrue(
+                !output.contains(artifact),
+                "this discriminator must isolate T7, but the task reported the fixture artifact $artifact:\n" +
+                    decisiveLines(output),
+            )
+        }
     }
 
     // ── fixture construction ──
