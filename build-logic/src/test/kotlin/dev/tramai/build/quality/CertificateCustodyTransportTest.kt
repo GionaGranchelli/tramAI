@@ -18,6 +18,7 @@ class CertificateCustodyTransportTest {
     private val repositoryRoot = repositoryRoot()
     private val base = MutationAuthorityDigestCertificateLoader.load(repositoryRoot)
     private val admissions = MutationPopulationAdmissionLoader.load(repositoryRoot)
+    private val real = base.certificates.single()
 
     private fun checks(
         candidate: MutationAuthorityDigestCertificates,
@@ -57,6 +58,74 @@ class CertificateCustodyTransportTest {
     fun `the committed ledger really does prove a consumption for its own target digest`() {
         assertEquals(1, facts().size)
     }
+
+    // ── The remaining lifecycle discriminators, over the real committed ledger ──
+
+    @Test
+    fun `T18 a retained certificate whose enforced payload was rewritten fails M46`() {
+        val rewritten =
+            MutationAuthorityDigestCertificate(
+                fromAlgorithm = real.fromAlgorithm,
+                fromDigest = real.fromDigest,
+                toAlgorithm = real.toAlgorithm,
+                toDigest = real.toDigest,
+                admissionSetDigest = real.admissionSetDigest,
+                fromBaseSha = real.fromBaseSha,
+                reason = "rewritten after it was minted",
+            )
+
+        val diagnostics = checks(MutationAuthorityDigestCertificates("1", listOf(rewritten)))
+
+        assertTrue(diagnostics.single().message.contains("M46"), diagnostics.single().message)
+    }
+
+    @Test
+    fun `T17 a certificate introduced against another base fails M45`() {
+        val foreign = foreignCertificate(fromDigest = "2".repeat(64), fromBaseSha = "b".repeat(40))
+
+        val diagnostics =
+            MutationAuthorityDigestCertificateCeremony.checks(
+                base = base,
+                candidate = MutationAuthorityDigestCertificates("1", listOf(real, foreign)),
+                baseSha = real.fromBaseSha,
+            )
+
+        assertTrue(diagnostics.single().message.contains("M45"), diagnostics.single().message)
+    }
+
+    @Test
+    fun `T14 a certificate absent from the base cannot be consumed, however it is cited`() {
+        val foreign = foreignCertificate(fromDigest = "3".repeat(64), fromBaseSha = real.fromBaseSha)
+
+        val verdict =
+            verifyCertificateConsumption(
+                certificate = foreign,
+                baseCertificates = base,
+                citedAdmissionPopulationDigest = foreign.fromDigest,
+                baseAdmissionIdentities = admissions.admissions.map { it.identity },
+                freshAuthorityProjectionHash = foreign.toDigest,
+            )
+
+        assertTrue(verdict is CertificateConsumption.Invalid, "expected a refusal, got $verdict")
+        assertTrue(
+            (verdict as CertificateConsumption.Invalid).diagnostic.message.contains("M43"),
+            verdict.diagnostic.message,
+        )
+    }
+
+    /** A certificate with the real one's shape but a different provenance or source digest. */
+    private fun foreignCertificate(
+        fromDigest: String,
+        fromBaseSha: String,
+    ) = MutationAuthorityDigestCertificate(
+        fromAlgorithm = real.fromAlgorithm,
+        fromDigest = fromDigest,
+        toAlgorithm = real.toAlgorithm,
+        toDigest = real.toDigest,
+        admissionSetDigest = real.admissionSetDigest,
+        fromBaseSha = fromBaseSha,
+        reason = "foreign certificate",
+    )
 
     /**
      * The repository root, found by walking up to the `gradlew` marker (the idiom the other
