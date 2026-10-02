@@ -119,6 +119,67 @@ class MutationPopulationAdmissionCeremonyTest : MutationRatchetTestSupport() {
         )
     }
 
+    /**
+     * T9: re-homing an AUTHORIZED identity, with the two dimensions §7 fuses deliberately separated,
+     * because they are not the same attack.
+     *
+     * **family is NOT identity-bearing.** `MutationIdentity.stableKey()` hashes module, className,
+     * method, descriptor, mutator, description, block and index. So the re-homing must be applied to an
+     * existing row - `target.copy(family = ...)` - and never through `row(marker, family = ...)`, which
+     * also rewrites `className` and would silently mint a new identity, testing a different transition
+     * entirely (a className change) and reaching M06/M37 instead of M32. With the identity genuinely
+     * preserved and the candidate topology kept coherent, the only thing that can refuse the row is the
+     * persisted-row binding, and that is what §7 expects: M32.
+     *
+     * **module IS identity-bearing.** A module move therefore cannot reach M32 at all: the mutant that
+     * arrives is a new identity, refused as a new survivor (M06) while the authorization for the old
+     * identity is orphaned (M37). Pinned separately so neither case can be read as evidence for the other.
+     */
+    @Test
+    fun `T9 a family-only re-homing keeps identity and fails M32, while a module move changes identity`() {
+        // --- family: not identity-bearing, so the identity survives -> M32 ---
+        val target = row("target")
+        val rehomedByFamily = target.copy(family = retryFamily)
+        assertEquals(
+            target.identity,
+            rehomedByFamily.identity,
+            "fixture precondition: a family-only move must preserve identity, so it cannot mint a new mutant",
+        )
+        val familyCandidate =
+            population(
+                listOf(anchor, rehomedByFamily),
+                families = baseFamilies + (retryFamily to retryTarget),
+            )
+        assertFailsWith(
+            verifyAdmission(
+                basePopulation = population(listOf(anchor)),
+                baseAdmissions = admissions(admission("target", populationDigest = digestOf(familyCandidate))),
+                candidatePopulation = familyCandidate,
+            ),
+            DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
+            "does not match the row authorized in the base",
+        )
+
+        // --- module: identity-bearing, so the mutant arrives as a new identity -> M06 + M37 ---
+        val moduleCandidate = population(listOf(anchor, row("target", module = ":other")))
+        val moduleDiagnostics =
+            verifyAdmission(
+                basePopulation = population(listOf(anchor)),
+                baseAdmissions = admissions(admission("target", populationDigest = digestOf(moduleCandidate))),
+                candidatePopulation = moduleCandidate,
+            )
+        assertTrue(
+            hasCode(moduleDiagnostics, DiagnosticCode.MUTATION_RATCHET_NEW_SURVIVOR),
+            "a module move must arrive as a new identity: ${failures(moduleDiagnostics).map { it.message }}",
+        )
+        assertTrue(
+            hasCode(moduleDiagnostics, DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID) &&
+                failures(moduleDiagnostics).any { it.message.contains("M37") },
+            "the authorization orphaned by the move must fail M37: " +
+                "${failures(moduleDiagnostics).map { it.message }}",
+        )
+    }
+
     @Test
     fun `authorized row measured under different analyzer semantics fails M33`() {
         val candidate = population(listOf(anchor, row("target")))
