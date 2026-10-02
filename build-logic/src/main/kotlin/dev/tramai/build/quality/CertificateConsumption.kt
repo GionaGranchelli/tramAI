@@ -36,12 +36,60 @@ package dev.tramai.build.quality
  * certificate satisfying all of them yields `Valid`.
  */
 sealed interface CertificateConsumption {
-    /** The proven fact: this certificate validly authorises this migration in this transition. */
-    data class Valid internal constructor(
+    /**
+     * The proven fact: this certificate validly authorises this migration in this transition.
+     *
+     * The constructor is **private**, so no code outside this class - including other files in the
+     * same module, which is where the Gradle call sites live - can construct one. The only production
+     * path is [Valid.verify], which is the verification itself: it derives M43 provenance from the
+     * base ledger and runs M40-M42 before the fact exists. `@ConsistentCopyVisibility` keeps the
+     * generated `copy()` private too, so it is not an escape hatch either.
+     */
+    @ConsistentCopyVisibility
+    data class Valid private constructor(
         val fromDigest: String,
         val toDigest: String,
         val admissionSetDigest: String,
-    ) : CertificateConsumption
+    ) : CertificateConsumption {
+        companion object {
+            /**
+             * M43 + M40 + M41 + M42, derived from base authority. The only way a [Valid] comes into
+             * existence.
+             *
+             * @param certificate the certificate being cited
+             * @param baseCertificates the certificate ledger as it exists in the authority base. M43
+             *   is derived from it, not asserted: a certificate that is absent, or whose enforced
+             *   payload differs from the base copy, cannot be consumed.
+             * @param citedAdmissionPopulationDigest the `populationDigest` of the admission being
+             *   consumed (M41).
+             * @param baseAdmissionIdentities the exact identities authorised in the base (M42).
+             * @param freshAuthorityProjectionHash the authority-v2 projection the verifier computed
+             *   from its own fresh measurement (M40). Callers must pass measured data, never
+             *   candidate data.
+             */
+            internal fun verify(
+                certificate: MutationAuthorityDigestCertificate,
+                baseCertificates: MutationAuthorityDigestCertificates,
+                citedAdmissionPopulationDigest: String,
+                baseAdmissionIdentities: List<String>,
+                freshAuthorityProjectionHash: String,
+            ): CertificateConsumption {
+                val inBase = baseCertificates.byFromDigest()[certificate.fromDigest]
+                val refusal =
+                    provenance(certificate, inBase)
+                        ?: targetDigest(certificate, freshAuthorityProjectionHash)
+                        ?: algorithmPair(certificate)
+                        ?: sourceDigest(certificate, citedAdmissionPopulationDigest)
+                        ?: admissionSet(certificate, baseAdmissionIdentities)
+                return refusal?.let { CertificateConsumption.Invalid(it) }
+                    ?: Valid(
+                        fromDigest = certificate.fromDigest,
+                        toDigest = certificate.toDigest,
+                        admissionSetDigest = certificate.admissionSetDigest,
+                    )
+            }
+        }
+    }
 
     /** The refusal, carrying the named rule that rejected it. */
     data class Invalid(
@@ -50,16 +98,8 @@ sealed interface CertificateConsumption {
 }
 
 /**
- * M43 + M40 + M41 + M42 for one candidate consumption, derived from base authority.
- *
- * @param certificate the certificate being cited
- * @param baseCertificates the certificate ledger as it exists in the authority base. M43 is derived
- *   from it, not asserted: a certificate that is absent, or whose enforced payload differs from the
- *   base copy, cannot be consumed.
- * @param citedAdmissionPopulationDigest the `populationDigest` of the admission being consumed (M41).
- * @param baseAdmissionIdentities the exact identities authorised in the base (M42).
- * @param freshAuthorityProjectionHash the authority-v2 projection the verifier computed from its own
- *   fresh measurement (M40). Callers must pass measured data, never candidate data.
+ * The consumption entry point for call sites: delegates to [CertificateConsumption.Valid.verify], so
+ * there is exactly one implementation of the proof and no second route to a fact.
  */
 fun verifyCertificateConsumption(
     certificate: MutationAuthorityDigestCertificate,
@@ -67,21 +107,14 @@ fun verifyCertificateConsumption(
     citedAdmissionPopulationDigest: String,
     baseAdmissionIdentities: List<String>,
     freshAuthorityProjectionHash: String,
-): CertificateConsumption {
-    val inBase = baseCertificates.byFromDigest()[certificate.fromDigest]
-    val refusal =
-        provenance(certificate, inBase)
-            ?: targetDigest(certificate, freshAuthorityProjectionHash)
-            ?: algorithmPair(certificate)
-            ?: sourceDigest(certificate, citedAdmissionPopulationDigest)
-            ?: admissionSet(certificate, baseAdmissionIdentities)
-    return refusal?.let { CertificateConsumption.Invalid(it) }
-        ?: CertificateConsumption.Valid(
-            fromDigest = certificate.fromDigest,
-            toDigest = certificate.toDigest,
-            admissionSetDigest = certificate.admissionSetDigest,
-        )
-}
+): CertificateConsumption =
+    CertificateConsumption.Valid.verify(
+        certificate = certificate,
+        baseCertificates = baseCertificates,
+        citedAdmissionPopulationDigest = citedAdmissionPopulationDigest,
+        baseAdmissionIdentities = baseAdmissionIdentities,
+        freshAuthorityProjectionHash = freshAuthorityProjectionHash,
+    )
 
 /**
  * M43, derived from the base ledger rather than asserted by the caller. Two distinct failures: the
