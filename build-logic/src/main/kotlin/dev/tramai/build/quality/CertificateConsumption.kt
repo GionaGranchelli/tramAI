@@ -100,6 +100,72 @@ sealed interface CertificateConsumption {
 }
 
 /**
+ * The transition's population-authority context for one admission verdict (M34).
+ *
+ * Carries the two things a verdict needs about authority - the canonical fresh projection and the
+ * consumptions that projection certifies - as one value, so the two judgment paths (the lifecycle
+ * scan and the appearing-identity path) are handed the same object and cannot disagree about
+ * consumption. Bundling them also keeps [MutationPopulationAdmissionCeremony.appearanceVerdict]
+ * inside the repository's parameter budget without suppressing anything.
+ *
+ * Produced exactly once per transition and passed unchanged to every consumer - M34, the admission
+ * lifecycle and the certificate lifecycle (M44/M47). Consumers must never re-derive it: a
+ * value-equal recomputation is not the same property as shared evidence, and only one production
+ * site makes it structurally impossible for the rules to disagree about which consumptions were
+ * proven. `CertificateCustodyTransportTest` pins that with a source-level assertion.
+ */
+data class AdmissionAuthority(
+    val freshAuthorityProjectionHash: String?,
+    val certifiedConsumptions: Set<CertificateConsumption.Valid> = emptySet(),
+)
+
+/**
+ * The certified consumptions a base can prove for this fresh projection (Step 3b).
+ *
+ * The single production site for the facts M34, M44 and M47 act on: they all consume the same
+ * `Set<Valid>`, so no consumer re-derives its own and the call sites cannot drift apart. Both inputs
+ * come from the coherent transition context - the base snapshot supplies the certificate ledger, the
+ * historical admission digests and the exact authorized identity set, while the authority-v2
+ * projection comes only from the fresh measurement.
+ *
+ * One fact is produced per distinct historical digest the base's admissions were minted under, and
+ * each citation is verified against that admission's own digest (M41) and the exact base
+ * authorization set (M42). A null projection yields no facts: without a fresh measurement there is
+ * nothing to certify, which is the fail-closed state.
+ */
+fun certifiedConsumptions(
+    certificates: MutationAuthorityDigestCertificates,
+    baseAdmissions: MutationPopulationAdmissions,
+    freshAuthorityProjectionHash: String?,
+): Set<CertificateConsumption.Valid> {
+    val projection = freshAuthorityProjectionHash ?: return emptySet()
+    val identities = baseAdmissions.admissions.map { it.identity }
+    val historicalDigests = baseAdmissions.admissions.map { it.populationDigest }.distinct()
+    return certificates.certificates
+        .flatMap { certificate ->
+            historicalDigests.mapNotNull { digest ->
+                verifyCertificateConsumption(
+                    certificate = certificate,
+                    baseCertificates = certificates,
+                    citedAdmissionPopulationDigest = digest,
+                    baseAdmissionIdentities = identities,
+                    freshAuthorityProjectionHash = projection,
+                ) as? CertificateConsumption.Valid
+            }
+        }.toSet()
+}
+
+/**
+ * The authority context for a verdict over one base snapshot and this transition's fresh projection.
+ */
+fun MutationRatchetAuthority.admissionAuthority(freshAuthorityProjectionHash: String?): AdmissionAuthority =
+    AdmissionAuthority(
+        freshAuthorityProjectionHash = freshAuthorityProjectionHash,
+        certifiedConsumptions =
+            certifiedConsumptions(certificates, admissions, freshAuthorityProjectionHash),
+    )
+
+/**
  * The consumption entry point for call sites: delegates to [CertificateConsumption.Valid.verify], so
  * there is exactly one implementation of the proof and no second route to a fact.
  */

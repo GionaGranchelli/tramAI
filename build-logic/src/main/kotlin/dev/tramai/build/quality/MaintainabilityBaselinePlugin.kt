@@ -864,6 +864,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         // defaulted away: without it M35 cannot bind a minted authorization to its
                         // base, and M36-M38 cannot see retention or rewriting of a pending row.
                         admissions = MutationPopulationAdmissionLoader.load(project.rootDir),
+                        // The transition's own certificate ledger, loaded the same way: M45 binds a
+                        // newly minted certificate to this base, M46 rejects a rewritten retained one,
+                        // and M47 must be able to see a base certificate disappear.
+                        certificates = MutationAuthorityDigestCertificateLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(

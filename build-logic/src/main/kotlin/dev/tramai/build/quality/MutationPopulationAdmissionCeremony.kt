@@ -73,8 +73,8 @@ object MutationPopulationAdmissionCeremony {
     fun checks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
-    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, freshAuthorityProjectionHash)
+        authority: AdmissionAuthority,
+    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, authority)
 
     /**
      * The verdict for one identity that is present in the candidate population and absent from the
@@ -89,8 +89,10 @@ object MutationPopulationAdmissionCeremony {
         candidateAdmission: MutationPopulationAdmission?,
         mutant: MutationOutcome,
         candidateAnalyzer: MutationAnalyzerSemantics,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): AdmissionVerdict {
+        val freshAuthorityProjectionHash = authority.freshAuthorityProjectionHash
+        val certifiedConsumptions = authority.certifiedConsumptions
         val short = short(mutant.identity)
         return when {
             baseAdmission == null -> {
@@ -132,7 +134,14 @@ object MutationPopulationAdmissionCeremony {
                 )
             }
 
-            baseAdmission.populationDigest != freshAuthorityProjectionHash -> {
+            // M34 with certified migration (Step 3b): a raw-v1 authorization remains consumable when a
+            // base certificate translates exactly its historical digest into this transition's fresh
+            // authority projection, bounded to the exact base authorization set. The facts come from
+            // one production site ([certifiedConsumptions]) and a Valid exists only if M43-M42 passed
+            // against the base ledger, so this branch cannot be reached by asserting anything. Without
+            // a certificate the condition is unchanged and M34 fails exactly as it did before.
+            baseAdmission.populationDigest != freshAuthorityProjectionHash &&
+                certifiedConsumptions.none { it.fromDigest == baseAdmission.populationDigest } -> {
                 reject(
                     DiagnosticCode.MUTATION_RATCHET_ADMISSION_MISMATCH,
                     "M34: $short was authorized against population digest " +
@@ -191,10 +200,10 @@ object MutationPopulationAdmissionCeremony {
     private fun lifecycleChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): List<VerificationDiagnostic> {
         val diagnostics = mintChecks(base, candidate)
-        return diagnostics + consumptionChecks(base, candidate, freshAuthorityProjectionHash)
+        return diagnostics + consumptionChecks(base, candidate, authority)
     }
 
     /**
@@ -233,7 +242,7 @@ object MutationPopulationAdmissionCeremony {
     private fun consumptionChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
-        freshAuthorityProjectionHash: String?,
+        authority: AdmissionAuthority,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseAdmissions = base.admissions.byIdentity()
@@ -254,7 +263,7 @@ object MutationPopulationAdmissionCeremony {
                         candidateAdmission = candidateAdmission,
                         mutant = mutant,
                         candidateAnalyzer = candidate.population.analyzer,
-                        freshAuthorityProjectionHash = freshAuthorityProjectionHash,
+                        authority = authority,
                     ) is AdmissionVerdict.Authorized
             if (candidateAdmission == null) {
                 // M37: a retained authorization may only disappear by being consumed. Otherwise a
