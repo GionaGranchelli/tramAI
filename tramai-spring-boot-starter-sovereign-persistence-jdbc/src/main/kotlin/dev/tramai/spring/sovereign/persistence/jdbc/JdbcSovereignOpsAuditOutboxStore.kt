@@ -1,11 +1,11 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.persistence.jdbc
 
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
-import com.fasterxml.jackson.module.kotlin.readValue
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxGovernance
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -58,18 +58,10 @@ class JdbcSovereignOpsAuditOutboxStore(
     private val claimLeaseDuration: Duration = SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY,
     private val maxClaimLimit: Int = 500,
 ) : SovereignOpsAuditOutboxStore {
-
     init {
         require(!claimLeaseDuration.isNegative) { "claimLeaseDuration must not be negative" }
         require(maxClaimLimit > 0) { "maxClaimLimit must be positive" }
     }
-
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-        .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
 
     private companion object {
         /**
@@ -89,8 +81,44 @@ class JdbcSovereignOpsAuditOutboxStore(
 
     override fun isDurable(): Boolean = true
 
-    override suspend fun append(
+    override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord =
+        appendRecord(record, runIdentity = null)
+
+    /**
+     * 0.7.1d: appends a governed record — the ordinary outbox fields and the complete canonical
+     * identity in one encrypted row of one transaction. No side table, no identity columns.
+     */
+    internal suspend fun appendGoverned(entry: GovernedSovereignOpsAuditOutboxRecord) {
+        appendRecord(entry.record, entry.runIdentity)
+    }
+
+    /**
+     * 0.7.1d: resolves durable provenance from record existence first, so an absent record is never
+     * mistaken for a legacy one and a governed row is never reported without its identity.
+     */
+    internal suspend fun governanceById(outboxId: String): SovereignOpsAuditOutboxGovernance =
+        dataSource.connection.use { conn ->
+            val row =
+                selectById(conn, outboxId)
+                    ?: return@use SovereignOpsAuditOutboxGovernance.NoRecord
+            val decoded = row.toDecoded()
+            validateQueryableColumns(decoded.record, row)
+            when (val identity = decoded.runIdentity) {
+                null -> {
+                    SovereignOpsAuditOutboxGovernance.Legacy(decoded.record)
+                }
+
+                else -> {
+                    SovereignOpsAuditOutboxGovernance.Governed(
+                        GovernedSovereignOpsAuditOutboxRecord(decoded.record, identity),
+                    )
+                }
+            }
+        }
+
+    private suspend fun appendRecord(
         record: SovereignOpsAuditOutboxRecord,
+        runIdentity: GovernedRunIdentity?,
     ): SovereignOpsAuditOutboxRecord {
         require(record.outboxId.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-id" }
         require(record.eventKey.isNotBlank()) { "tramai-sovereign-ops-outbox-invalid-event-key" }
@@ -101,8 +129,7 @@ class JdbcSovereignOpsAuditOutboxStore(
         return dataSource.connection.use { conn ->
             try {
                 inOutboxTransaction(conn) { c ->
-                    val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
-                    val encrypted = payloadCodec.encode(payloadJson)
+                    val encrypted = payloadCodec.encode(encodeOutboxRecord(record, runIdentity))
 
                     insertAppend(c, record, encrypted)
                     record
@@ -116,29 +143,31 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun markReadyForDispatch(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { c ->
-            val row = selectForUpdate(c, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { c ->
+                val row =
+                    selectForUpdate(c, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
+                require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                require(domain.status == expectedStatus) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+
+                val updated = domain.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                updateStatusAndPayload(c, outboxId, row.version, updated.status.name, encrypted)
+                updated
             }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-
-            val updated = domain.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            updateStatusAndPayload(c, outboxId, row.version, updated.status.name, encrypted)
-            updated
         }
-    }
 
     override suspend fun claimPending(
         claimedBy: String,
@@ -164,26 +193,28 @@ class JdbcSovereignOpsAuditOutboxStore(
                     selected = selectClaimableSerialized(c, actualLimit, now)
                 }
 
-                val claimed = selected.map { row ->
-                    val record = row.toDomain()
-                    validateQueryableColumns(record, row)
-                    require(record.isDispatchable(now)) {
-                        "tramai-sovereign-ops-outbox-not-dispatchable"
-                    }
-                    val updated = record.copy(
-                        status = SovereignOpsAuditOutboxStatus.EMITTING,
-                        attemptCount = record.attemptCount + 1,
-                        claimedBy = claimedBy,
-                        claimedAt = now,
-                        claimExpiresAt = claimExpiresAt,
-                        lastErrorCode = null,
-                    )
-                    val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-                    val encrypted = payloadCodec.encode(payloadJson)
+                val claimed =
+                    selected.map { row ->
+                        val decoded = row.toDecoded()
+                        val record = decoded.record
+                        validateQueryableColumns(record, row)
+                        require(record.isDispatchable(now)) {
+                            "tramai-sovereign-ops-outbox-not-dispatchable"
+                        }
+                        val updated =
+                            record.copy(
+                                status = SovereignOpsAuditOutboxStatus.EMITTING,
+                                attemptCount = record.attemptCount + 1,
+                                claimedBy = claimedBy,
+                                claimedAt = now,
+                                claimExpiresAt = claimExpiresAt,
+                                lastErrorCode = null,
+                            )
+                        val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
 
-                    updateClaimed(c, updated.outboxId, encrypted, now, claimExpiresAt)
-                    updated
-                }
+                        updateClaimed(c, updated.outboxId, encrypted, now, claimExpiresAt)
+                        updated
+                    }
                 claimed
             }
         }
@@ -194,59 +225,63 @@ class JdbcSovereignOpsAuditOutboxStore(
         expectedStatus: SovereignOpsAuditOutboxStatus,
         expectedAttemptCount: Int,
         emittedAt: Instant,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { conn ->
-            val row = selectForUpdate(conn, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { conn ->
+                val row =
+                    selectForUpdate(conn, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
+                require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                require(domain.status == expectedStatus) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+                check(domain.attemptCount == expectedAttemptCount) {
+                    "tramai-sovereign-ops-outbox-concurrent-update"
+                }
+
+                val updated =
+                    domain.copy(
+                        status = SovereignOpsAuditOutboxStatus.EMITTED,
+                        emittedAt = emittedAt,
+                    )
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                val sql =
+                    """
+                    UPDATE audit_outbox
+                    SET status = 'EMITTED',
+                        dispatched_at = ?,
+                        encrypted_payload = ?,
+                        encryption_key_id = ?,
+                        encryption_algorithm = ?,
+                        encryption_nonce = ?,
+                        payload_digest = ?,
+                        version = version + 1
+                    WHERE outbox_id = ? AND version = ?
+                    """.trimIndent()
+
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setTimestamp(1, Timestamp.from(emittedAt))
+                    stmt.setBytes(2, encrypted.ciphertext)
+                    stmt.setString(3, encrypted.keyId)
+                    stmt.setString(4, encrypted.algorithm)
+                    stmt.setBytes(5, encrypted.nonce)
+                    stmt.setString(6, encrypted.payloadDigest)
+                    stmt.setString(7, outboxId)
+                    stmt.setLong(8, row.version)
+                    val updatedCount = stmt.executeUpdate()
+                    require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
+                }
+                updated
             }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-            check(domain.attemptCount == expectedAttemptCount) {
-                "tramai-sovereign-ops-outbox-concurrent-update"
-            }
-
-            val updated = domain.copy(
-                status = SovereignOpsAuditOutboxStatus.EMITTED,
-                emittedAt = emittedAt,
-            )
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            val sql = """
-                UPDATE audit_outbox
-                SET status = 'EMITTED',
-                    dispatched_at = ?,
-                    encrypted_payload = ?,
-                    encryption_key_id = ?,
-                    encryption_algorithm = ?,
-                    encryption_nonce = ?,
-                    payload_digest = ?,
-                    version = version + 1
-                WHERE outbox_id = ? AND version = ?
-            """.trimIndent()
-
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setTimestamp(1, Timestamp.from(emittedAt))
-                stmt.setBytes(2, encrypted.ciphertext)
-                stmt.setString(3, encrypted.keyId)
-                stmt.setString(4, encrypted.algorithm)
-                stmt.setBytes(5, encrypted.nonce)
-                stmt.setString(6, encrypted.payloadDigest)
-                stmt.setString(7, outboxId)
-                stmt.setLong(8, row.version)
-                val updatedCount = stmt.executeUpdate()
-                require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
-            }
-            updated
         }
-    }
 
     override suspend fun markFailed(
         outboxId: String,
@@ -254,75 +289,80 @@ class JdbcSovereignOpsAuditOutboxStore(
         expectedAttemptCount: Int,
         errorCode: String,
         retryable: Boolean,
-    ): SovereignOpsAuditOutboxRecord = dataSource.connection.use { conn ->
-        inOutboxTransaction(conn) { conn ->
-            val row = selectForUpdate(conn, outboxId)
-                ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+    ): SovereignOpsAuditOutboxRecord =
+        dataSource.connection.use { conn ->
+            inOutboxTransaction(conn) { conn ->
+                val row =
+                    selectForUpdate(conn, outboxId)
+                        ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
 
-            val domain = row.toDomain()
-            validateQueryableColumns(domain, row)
+                val decoded = row.toDecoded()
+                val domain = decoded.record
+                validateQueryableColumns(domain, row)
 
-            if (retryable) {
-                require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                if (retryable) {
+                    require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                        "tramai-sovereign-ops-outbox-status-mismatch"
+                    }
+                } else {
+                    require(
+                        expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
+                            expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED,
+                    ) {
+                        "tramai-sovereign-ops-outbox-status-mismatch"
+                    }
+                }
+                require(domain.status == expectedStatus) {
                     "tramai-sovereign-ops-outbox-status-mismatch"
                 }
-            } else {
-                require(
-                    expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
-                        expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
-                ) {
-                    "tramai-sovereign-ops-outbox-status-mismatch"
+                check(domain.attemptCount == expectedAttemptCount) {
+                    "tramai-sovereign-ops-outbox-concurrent-update"
                 }
-            }
-            require(domain.status == expectedStatus) {
-                "tramai-sovereign-ops-outbox-status-mismatch"
-            }
-            check(domain.attemptCount == expectedAttemptCount) {
-                "tramai-sovereign-ops-outbox-concurrent-update"
-            }
 
-            val targetStatus = if (retryable) {
-                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
-            } else {
-                SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+                val targetStatus =
+                    if (retryable) {
+                        SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+                    } else {
+                        SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
+                    }
+
+                val updated =
+                    domain.copy(
+                        status = targetStatus,
+                        lastErrorCode = errorCode,
+                    )
+                val encrypted = payloadCodec.encode(encodeOutboxRecord(updated, decoded.runIdentity))
+
+                val sql =
+                    """
+                    UPDATE audit_outbox
+                    SET status = ?,
+                        last_failure_type = ?,
+                        encrypted_payload = ?,
+                        encryption_key_id = ?,
+                        encryption_algorithm = ?,
+                        encryption_nonce = ?,
+                        payload_digest = ?,
+                        version = version + 1
+                    WHERE outbox_id = ? AND version = ?
+                    """.trimIndent()
+
+                conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, targetStatus.name)
+                    stmt.setString(2, errorCode)
+                    stmt.setBytes(3, encrypted.ciphertext)
+                    stmt.setString(4, encrypted.keyId)
+                    stmt.setString(5, encrypted.algorithm)
+                    stmt.setBytes(6, encrypted.nonce)
+                    stmt.setString(7, encrypted.payloadDigest)
+                    stmt.setString(8, outboxId)
+                    stmt.setLong(9, row.version)
+                    val updatedCount = stmt.executeUpdate()
+                    require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
+                }
+                updated
             }
-
-            val updated = domain.copy(
-                status = targetStatus,
-                lastErrorCode = errorCode,
-            )
-            val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
-            val encrypted = payloadCodec.encode(payloadJson)
-
-            val sql = """
-                UPDATE audit_outbox
-                SET status = ?,
-                    last_failure_type = ?,
-                    encrypted_payload = ?,
-                    encryption_key_id = ?,
-                    encryption_algorithm = ?,
-                    encryption_nonce = ?,
-                    payload_digest = ?,
-                    version = version + 1
-                WHERE outbox_id = ? AND version = ?
-            """.trimIndent()
-
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, targetStatus.name)
-                stmt.setString(2, errorCode)
-                stmt.setBytes(3, encrypted.ciphertext)
-                stmt.setString(4, encrypted.keyId)
-                stmt.setString(5, encrypted.algorithm)
-                stmt.setBytes(6, encrypted.nonce)
-                stmt.setString(7, encrypted.payloadDigest)
-                stmt.setString(8, outboxId)
-                stmt.setLong(9, row.version)
-                val updatedCount = stmt.executeUpdate()
-                require(updatedCount == 1) { "tramai-sovereign-ops-outbox-concurrent-update" }
-            }
-            updated
         }
-    }
 
     override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? =
         dataSource.connection.use { conn ->
@@ -348,8 +388,7 @@ class JdbcSovereignOpsAuditOutboxStore(
     override suspend fun listByStatus(
         status: SovereignOpsAuditOutboxStatus,
         limit: Int,
-    ): List<SovereignOpsAuditOutboxRecord> =
-        if (limit <= 0) emptyList() else listByExactStatus(status, limit)
+    ): List<SovereignOpsAuditOutboxRecord> = if (limit <= 0) emptyList() else listByExactStatus(status, limit)
 
     override suspend fun listExpiredEmitting(
         now: Instant,
@@ -381,25 +420,32 @@ class JdbcSovereignOpsAuditOutboxStore(
             }
         }
 
-    private fun OutboxRow.toDomain(): SovereignOpsAuditOutboxRecord {
-        val encrypted = JdbcEncryptedAuditOutboxPayload(
-            ciphertext = encryptedPayload,
-            keyId = encryptionKeyId,
-            algorithm = encryptionAlgorithm,
-            nonce = encryptionNonce,
-            payloadDigest = payloadDigest,
-        )
-        val plaintext = try {
-            payloadCodec.decode(encrypted)
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-outbox-payload-decryption-failed", e)
-        }
-        return try {
-            mapper.readValue<PersistedSovereignOpsAuditOutboxRecordV1>(plaintext).toDomain()
-        } catch (e: Exception) {
-            throw IllegalStateException("audit-outbox-payload-deserialisation-failed", e)
-        }
+    /**
+     * 0.7.1d: decrypts and decodes one row's payload, keeping the canonical identity alongside the
+     * ordinary record so a transition re-encodes exactly the shape it read.
+     *
+     * Only the envelope step is wrapped here, so the codec's own failure contract (corruption vs
+     * unsupported schema version) reaches callers unchanged instead of being flattened.
+     */
+    private fun OutboxRow.toDecoded(): DecodedOutboxRecord {
+        val encrypted =
+            JdbcEncryptedAuditOutboxPayload(
+                ciphertext = encryptedPayload,
+                keyId = encryptionKeyId,
+                algorithm = encryptionAlgorithm,
+                nonce = encryptionNonce,
+                payloadDigest = payloadDigest,
+            )
+        val plaintext =
+            try {
+                payloadCodec.decode(encrypted)
+            } catch (e: Exception) {
+                throw IllegalStateException("audit-outbox-payload-decryption-failed", e)
+            }
+        return decodeOutboxRecord(plaintext)
     }
+
+    private fun OutboxRow.toDomain(): SovereignOpsAuditOutboxRecord = toDecoded().record
 
     private fun validateQueryableColumns(
         domain: SovereignOpsAuditOutboxRecord,
@@ -472,15 +518,21 @@ class JdbcSovereignOpsAuditOutboxStore(
         when (status) {
             SovereignOpsAuditOutboxStatus.PENDING,
             SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
-            -> true
+            -> {
+                true
+            }
+
             SovereignOpsAuditOutboxStatus.EMITTING -> {
                 val expiresAt = claimExpiresAt
                 expiresAt != null && expiresAt.isBefore(now)
             }
+
             SovereignOpsAuditOutboxStatus.PREPARED,
             SovereignOpsAuditOutboxStatus.EMITTED,
             SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
-            -> false
+            -> {
+                false
+            }
         }
 
     // ══════════════════════════════════════════════════════════════════
@@ -492,14 +544,15 @@ class JdbcSovereignOpsAuditOutboxStore(
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO audit_outbox (
                 outbox_id, event_key, status, correlation_key_hash,
                 created_at, attempt_count,
                 encrypted_payload, encryption_key_id, encryption_algorithm,
                 encryption_nonce, payload_digest, version
             ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1)
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, record.outboxId)
@@ -520,16 +573,20 @@ class JdbcSovereignOpsAuditOutboxStore(
     // SQL — SELECT helpers
     // ══════════════════════════════════════════════════════════════════
 
-    private val SELECT_COLUMNS = """
+    private val selectColumns =
+        """
         SELECT outbox_id, event_key, status, correlation_key_hash,
                created_at, claimed_at, dispatched_at,
                attempt_count, last_failure_type, next_attempt_at,
                encrypted_payload, encryption_key_id, encryption_algorithm,
                encryption_nonce, payload_digest, version
-    """.trimIndent()
+        """.trimIndent()
 
-    private fun selectForUpdate(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+    private fun selectForUpdate(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -538,8 +595,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectById(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ?"
+    private fun selectById(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -548,8 +608,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByEventKey(conn: Connection, eventKey: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE event_key = ?"
+    private fun selectByEventKey(
+        conn: Connection,
+        eventKey: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE event_key = ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, eventKey)
             stmt.executeQuery().let { rs ->
@@ -558,8 +621,12 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByStatus(conn: Connection, status: String, limit: Int): List<OutboxRow> {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE status = ? ORDER BY created_at ASC LIMIT ?"
+    private fun selectByStatus(
+        conn: Connection,
+        status: String,
+        limit: Int,
+    ): List<OutboxRow> {
+        val sql = "$selectColumns FROM audit_outbox WHERE status = ? ORDER BY created_at ASC LIMIT ?"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, status)
             stmt.setInt(2, limit)
@@ -576,8 +643,9 @@ class JdbcSovereignOpsAuditOutboxStore(
         limit: Int,
         now: Instant,
     ): List<OutboxRow> {
-        val sql = """
-            $SELECT_COLUMNS FROM audit_outbox
+        val sql =
+            """
+            $selectColumns FROM audit_outbox
             WHERE
                 status IN ('PENDING', 'FAILED_RETRYABLE')
                 OR (
@@ -588,7 +656,7 @@ class JdbcSovereignOpsAuditOutboxStore(
             ORDER BY created_at ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -652,7 +720,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         now: Instant,
         limit: Int,
     ): List<String> {
-        val sql = """
+        val sql =
+            """
             SELECT outbox_id FROM audit_outbox
             WHERE
                 status IN ('PENDING', 'FAILED_RETRYABLE')
@@ -663,7 +732,7 @@ class JdbcSovereignOpsAuditOutboxStore(
             )
             ORDER BY created_at ASC
             LIMIT ?
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -676,8 +745,11 @@ class JdbcSovereignOpsAuditOutboxStore(
         }
     }
 
-    private fun selectByIdForUpdate(conn: Connection, outboxId: String): OutboxRow? {
-        val sql = "$SELECT_COLUMNS FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
+    private fun selectByIdForUpdate(
+        conn: Connection,
+        outboxId: String,
+    ): OutboxRow? {
+        val sql = "$selectColumns FROM audit_outbox WHERE outbox_id = ? FOR UPDATE"
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, outboxId)
             stmt.executeQuery().let { rs ->
@@ -691,14 +763,15 @@ class JdbcSovereignOpsAuditOutboxStore(
         now: Instant,
         limit: Int,
     ): List<OutboxRow> {
-        val sql = """
-            $SELECT_COLUMNS FROM audit_outbox
+        val sql =
+            """
+            $selectColumns FROM audit_outbox
             WHERE status = 'EMITTING'
               AND next_attempt_at IS NOT NULL
               AND next_attempt_at < ?
             ORDER BY created_at ASC
             LIMIT ?
-        """.trimIndent()
+            """.trimIndent()
 
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(now))
@@ -722,7 +795,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         newStatus: String,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = ?,
                 encrypted_payload = ?,
@@ -732,7 +806,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ? AND version = ?
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, newStatus)
@@ -755,7 +829,8 @@ class JdbcSovereignOpsAuditOutboxStore(
         claimedAt: Instant,
         claimExpiresAt: Instant,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = 'EMITTING',
                 claimed_at = ?,
@@ -769,7 +844,7 @@ class JdbcSovereignOpsAuditOutboxStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ?
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, Timestamp.from(claimedAt))
@@ -809,35 +884,53 @@ class JdbcSovereignOpsAuditOutboxStore(
     )
 
     private fun mapRow(rs: ResultSet): OutboxRow {
-        val createdAt = rs.getTimestamp("created_at")?.toInstant()
-            ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) }
-            ?: throw IllegalStateException("audit-outbox-missing-created-at")
+        val createdAt =
+            rs
+                .getTimestamp("created_at")
+                ?.toInstant()
+                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) }
+                ?: throw IllegalStateException("audit-outbox-missing-created-at")
 
         return OutboxRow(
-            outboxId = rs.getString("outbox_id")
-                ?: throw IllegalStateException("audit-outbox-missing-outbox-id"),
-            eventKey = rs.getString("event_key")
-                ?: throw IllegalStateException("audit-outbox-missing-event-key"),
-            status = rs.getString("status")
-                ?: throw IllegalStateException("audit-outbox-missing-status"),
+            outboxId =
+                rs.getString("outbox_id")
+                    ?: throw IllegalStateException("audit-outbox-missing-outbox-id"),
+            eventKey =
+                rs.getString("event_key")
+                    ?: throw IllegalStateException("audit-outbox-missing-event-key"),
+            status =
+                rs.getString("status")
+                    ?: throw IllegalStateException("audit-outbox-missing-status"),
             correlationKeyHash = rs.getString("correlation_key_hash"),
             createdAt = createdAt,
-            claimedAt = rs.getTimestamp("claimed_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
-            dispatchedAt = rs.getTimestamp("dispatched_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            claimedAt =
+                rs
+                    .getTimestamp("claimed_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            dispatchedAt =
+                rs
+                    .getTimestamp("dispatched_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
             attemptCount = rs.getInt("attempt_count"),
             lastFailureType = rs.getString("last_failure_type"),
-            nextAttemptAt = rs.getTimestamp("next_attempt_at")?.toInstant()
-                ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
+            nextAttemptAt =
+                rs
+                    .getTimestamp("next_attempt_at")
+                    ?.toInstant()
+                    ?.let { OffsetDateTime.ofInstant(it, ZoneOffset.UTC) },
             encryptedPayload = rs.getBytes("encrypted_payload") ?: ByteArray(0),
-            encryptionKeyId = rs.getString("encryption_key_id")
-                ?: throw IllegalStateException("audit-outbox-missing-key-id"),
-            encryptionAlgorithm = rs.getString("encryption_algorithm")
-                ?: throw IllegalStateException("audit-outbox-missing-algorithm"),
+            encryptionKeyId =
+                rs.getString("encryption_key_id")
+                    ?: throw IllegalStateException("audit-outbox-missing-key-id"),
+            encryptionAlgorithm =
+                rs.getString("encryption_algorithm")
+                    ?: throw IllegalStateException("audit-outbox-missing-algorithm"),
             encryptionNonce = rs.getBytes("encryption_nonce") ?: ByteArray(0),
-            payloadDigest = rs.getString("payload_digest")
-                ?: throw IllegalStateException("audit-outbox-missing-payload-digest"),
+            payloadDigest =
+                rs.getString("payload_digest")
+                    ?: throw IllegalStateException("audit-outbox-missing-payload-digest"),
             version = rs.getLong("version"),
         )
     }
@@ -846,16 +939,20 @@ class JdbcSovereignOpsAuditOutboxStore(
     // Exception mapping
     // ══════════════════════════════════════════════════════════════════
 
-    private fun mapAppendException(
-        e: SQLException,
-    ): RuntimeException {
+    private fun mapAppendException(e: SQLException): RuntimeException {
         val message = e.message ?: ""
         return when {
-            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") ->
+            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") -> {
                 IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key")
-            message.contains("audit_outbox_pkey") ->
+            }
+
+            message.contains("audit_outbox_pkey") -> {
                 IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id")
-            else -> IllegalStateException("tramai-sovereign-ops-outbox-database-failure", e)
+            }
+
+            else -> {
+                IllegalStateException("tramai-sovereign-ops-outbox-database-failure", e)
+            }
         }
     }
 
@@ -866,7 +963,10 @@ class JdbcSovereignOpsAuditOutboxStore(
      * autoCommit-restore failure — later cleanup failures are attached as
      * suppressed to the primary, never replacing it.
      */
-    private fun <T> inOutboxTransaction(conn: Connection, block: (Connection) -> T): T {
+    private fun <T> inOutboxTransaction(
+        conn: Connection,
+        block: (Connection) -> T,
+    ): T {
         val previousAutoCommit = conn.autoCommit
         conn.autoCommit = false
         var primaryFailure: Exception? = null
@@ -968,17 +1068,39 @@ internal fun PersistedSovereignOpsAuditOutboxRecordV1.toDomain(): SovereignOpsAu
         approvalVersion = approvalVersion,
         reasonDigest = reasonDigest,
         reasonLength = reasonLength,
-        createdAt = try {
-            Instant.parse(createdAt)
-        } catch (_: Exception) {
-            OffsetDateTime.parse(createdAt).toInstant()
-        },
+        createdAt =
+            try {
+                Instant.parse(createdAt)
+            } catch (_: Exception) {
+                OffsetDateTime.parse(createdAt).toInstant()
+            },
         status = SovereignOpsAuditOutboxStatus.valueOf(status),
         attemptCount = attemptCount,
         lastErrorCode = lastErrorCode,
         claimedBy = claimedBy,
-        claimedAt = claimedAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
-        claimExpiresAt = claimExpiresAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
-        emittedAt = emittedAt?.let { try { Instant.parse(it) } catch (_: Exception) { null } },
+        claimedAt =
+            claimedAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
+        claimExpiresAt =
+            claimExpiresAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
+        emittedAt =
+            emittedAt?.let {
+                try {
+                    Instant.parse(it)
+                } catch (_: Exception) {
+                    null
+                }
+            },
     )
 }

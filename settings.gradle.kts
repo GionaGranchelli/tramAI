@@ -7,6 +7,7 @@ include(
     "tramai-azure-openai",
     "tramai-bedrock",
     "tramai-bom",
+    "tramai-control-plane",
     "tramai-core",
     "tramai-deepseek",
     "tramai-embedding",

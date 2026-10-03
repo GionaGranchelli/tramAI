@@ -1,5 +1,8 @@
 package dev.tramai.persistence.file
 
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.engine.GovernedSuspendedInvocation
+import dev.tramai.engine.GovernedSuspendedInvocationStore
 import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
@@ -18,10 +21,10 @@ class FileSuspendedInvocationStore internal constructor(
     configuration: FileBackedStoreConfiguration,
     private val lease: FileStoreLease,
 ) : SuspendedInvocationStore {
-
     internal data class ValidatedSuspendedInvocationRecord(
         val metadata: SuspendedInvocationMetadata,
         val envelope: SensitiveReplayEnvelope,
+        val runIdentity: GovernedRunIdentity? = null,
     )
 
     companion object {
@@ -42,78 +45,106 @@ class FileSuspendedInvocationStore internal constructor(
         return suspendedDir.resolve("$digest$FILE_EXTENSION")
     }
 
-    private fun recordKeyDigest(approvalId: String): String =
-        FileStoreSha256.digest(RECORD_TYPE, approvalId)
+    private fun recordKeyDigest(approvalId: String): String = FileStoreSha256.digest(RECORD_TYPE, approvalId)
 
-    private fun getLock(approvalId: String): ReentrantLock =
-        locks.computeIfAbsent(approvalId) { ReentrantLock() }
+    private fun getLock(approvalId: String): ReentrantLock = locks.computeIfAbsent(approvalId) { ReentrantLock() }
 
-    private fun readCurrent(approvalId: String): PersistedSuspendedInvocationRecordV1? {
+    /** Corruption has one classification and one outer message, whatever wrapped it. */
+    private fun failCorrupted(cause: Throwable): Nothing {
+        val failure = FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, cause)
+        throw failure
+    }
+
+    private fun failCorrupted(
+        message: String,
+        cause: Throwable,
+    ): Nothing = throw FileStoreCorruptionException(message, cause)
+
+    private fun failCorrupted(message: String): Nothing = throw FileStoreCorruptionException(message)
+
+    /** An already-classified failure is preserved; anything else becomes corruption. */
+    private fun failPreservingClassification(cause: Throwable): Nothing =
+        throw if (cause is FileStoreUnsupportedFormatException || cause is FileStoreCorruptionException) {
+            cause
+        } else {
+            FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, cause)
+        }
+
+    private fun readCurrent(approvalId: String): DecodedSuspendedInvocationRecord? {
         val path = storePath(approvalId)
         if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
         FileStoreUtil.validateRegularFile(path, STORAGE_NAME)
         val rkd = recordKeyDigest(approvalId)
-        val plaintext = try {
-            FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
-        } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
-        }
-        val record = try {
-            PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
-        }
+        val plaintext =
+            try {
+                FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
+            } catch (e: FileStoreCorruptionException) {
+                failCorrupted(e)
+            } catch (e: Exception) {
+                failCorrupted(e)
+            }
+        val record =
+            try {
+                decodeSuspendedInvocationRecord(String(plaintext, Charsets.UTF_8))
+            } catch (e: FileStoreUnsupportedFormatException) {
+                failPreservingClassification(e)
+            } catch (e: FileStoreCorruptionException) {
+                failPreservingClassification(e)
+            } catch (e: Exception) {
+                failCorrupted(e)
+            }
         validateRecordSchemas(record)
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
         if (expectedDigest != rkd) {
-            throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
+            failCorrupted("suspended-invocation-id-filename-digest-mismatch")
         }
         return record
     }
 
-    internal fun decodeAndValidateRecord(
-        record: PersistedSuspendedInvocationRecordV1,
-    ): ValidatedSuspendedInvocationRecord {
+    internal fun decodeAndValidateRecord(record: DecodedSuspendedInvocationRecord): ValidatedSuspendedInvocationRecord {
         try {
             validateRecordSchemas(record)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+            failCorrupted(e)
         }
 
-        val metadata = try {
-            record.metadata.toDomain()
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
-        }
+        val metadata =
+            try {
+                record.metadata.toDomain()
+            } catch (e: Exception) {
+                failCorrupted("suspended-invocation-domain-conversion-failed", e)
+            }
 
-        val messages = try {
-            record.replayEnvelope.messages.map { it.toDomain() }
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
-        }
+        val messages =
+            try {
+                record.replayEnvelope.messages.map { it.toDomain() }
+            } catch (e: Exception) {
+                failCorrupted("suspended-invocation-domain-conversion-failed", e)
+            }
 
-        val envelope = try {
-            ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
-        }
+        val envelope =
+            try {
+                ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
+            } catch (e: Exception) {
+                failCorrupted("suspended-invocation-replay-envelope-invalid", e)
+            }
 
-        return ValidatedSuspendedInvocationRecord(metadata, envelope)
+        return ValidatedSuspendedInvocationRecord(metadata, envelope, record.governedRunIdentity)
     }
 
-    fun verifyAll() = lease.withOpenOperation {
-        if (!suspendedDir.exists()) return@withOpenOperation
-        FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
-        FileStoreUtil.strictCommittedEntries(
-            suspendedDir,
-            COMMITTED_FILENAME,
-            STORAGE_NAME,
-        ).forEach { entry ->
-            verifyCommittedEntry(entry)
+    fun verifyAll() =
+        lease.withOpenOperation {
+            if (!suspendedDir.exists()) return@withOpenOperation
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            FileStoreUtil
+                .strictCommittedEntries(
+                    suspendedDir,
+                    COMMITTED_FILENAME,
+                    STORAGE_NAME,
+                ).forEach { entry ->
+                    verifyCommittedEntry(entry)
+                }
         }
-    }
 
     private fun verifyCommittedEntry(entry: Path) {
         val digestHex = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
@@ -128,7 +159,7 @@ class FileSuspendedInvocationStore internal constructor(
         try {
             ReplayEnvelopePersistenceCodec.snapshotForPersistence(validated.metadata, validated.envelope)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
+            failCorrupted("suspended-invocation-replay-envelope-invalid", e)
         }
     }
 
@@ -141,34 +172,68 @@ class FileSuspendedInvocationStore internal constructor(
     private fun readRecordFromEntry(
         entry: Path,
         digestHex: String,
-    ): PersistedSuspendedInvocationRecordV1 {
-        val plaintext = try {
-            FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
-        } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
-        } catch (e: Exception) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
-        }
+    ): DecodedSuspendedInvocationRecord {
+        val plaintext =
+            try {
+                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
+            } catch (e: FileStoreCorruptionException) {
+                failCorrupted(e)
+            } catch (e: Exception) {
+                failCorrupted(e)
+            }
         return try {
-            PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
+            decodeSuspendedInvocationRecord(String(plaintext, Charsets.UTF_8))
+        } catch (e: FileStoreUnsupportedFormatException) {
+            failPreservingClassification(e)
+        } catch (e: FileStoreCorruptionException) {
+            failPreservingClassification(e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+            failCorrupted(e)
         }
     }
 
     private fun validateRecordFilenameBinding(
-        record: PersistedSuspendedInvocationRecordV1,
+        record: DecodedSuspendedInvocationRecord,
         digestHex: String,
     ) {
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
         if (expectedDigest != digestHex) {
-            throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
+            failCorrupted("suspended-invocation-id-filename-digest-mismatch")
         }
     }
 
     override suspend fun create(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
+    ) = writeRecord(metadata, replayEnvelope, runIdentity = null)
+
+    internal suspend fun createGoverned(
+        suspended: GovernedSuspendedInvocation,
+        replayEnvelope: SensitiveReplayEnvelope,
+    ) = writeRecord(suspended.metadata, replayEnvelope, suspended.runIdentity)
+
+    internal suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? =
+        lease.withOpenOperation {
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
+            val lock = getLock(approvalId)
+            lock.lock()
+            try {
+                val record = readCurrent(approvalId) ?: return null
+                return decodeAndValidateRecord(record).runIdentity
+            } finally {
+                lock.unlock()
+            }
+        }
+
+    /**
+     * ONE durable record either way — V1 when ungoverned, V2 when governed — through a single
+     * atomic encrypted create, so a crash can never leave a half-governed suspension behind.
+     */
+    private suspend fun writeRecord(
+        metadata: SuspendedInvocationMetadata,
+        replayEnvelope: SensitiveReplayEnvelope,
+        runIdentity: GovernedRunIdentity?,
     ) = lease.withOpenOperation {
         FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
         validateIdField(metadata.approvalId, "approvalId", MAX_ID_LENGTH)
@@ -181,17 +246,29 @@ class FileSuspendedInvocationStore internal constructor(
         lock.lock()
         try {
             val messages = ReplayEnvelopePersistenceCodec.snapshotForPersistence(metadata, replayEnvelope)
-            val record = PersistedSuspendedInvocationRecordV1(
-                schemaVersion = 1,
-                metadata = metadata.toPersistedV1(),
-                replayEnvelope = PersistedReplayEnvelopeV1(
+            val persistedEnvelope =
+                PersistedReplayEnvelopeV1(
                     schemaVersion = 1,
                     messages = messages.map { it.toPersistedV1() },
-                ),
-            )
+                )
+            val json =
+                if (runIdentity == null) {
+                    PersistedSuspendedInvocationRecordV1(
+                        schemaVersion = 1,
+                        metadata = metadata.toPersistedV1(),
+                        replayEnvelope = persistedEnvelope,
+                    ).toJson()
+                } else {
+                    PersistedSuspendedInvocationRecordV2(
+                        schemaVersion = 2,
+                        metadata = metadata.toPersistedV1(),
+                        replayEnvelope = persistedEnvelope,
+                        governedRunIdentity = runIdentity.toPersistedV1(),
+                    ).toJson()
+                }
             val path = storePath(metadata.approvalId)
             val rkd = recordKeyDigest(metadata.approvalId)
-            val jsonBytes = record.toJson().toByteArray(Charsets.UTF_8)
+            val jsonBytes = json.toByteArray(Charsets.UTF_8)
             try {
                 FileStoreUtil.atomicEncryptCreate(
                     path,
@@ -209,50 +286,55 @@ class FileSuspendedInvocationStore internal constructor(
         }
     }
 
-    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? = lease.withOpenOperation {
-        FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
-        validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
-        val lock = getLock(approvalId)
-        lock.lock()
-        try {
-            val record = readCurrent(approvalId) ?: return null
-            return decodeAndValidateRecord(record).metadata
-        } finally {
-            lock.unlock()
+    override suspend fun get(approvalId: String): SuspendedInvocationMetadata? =
+        lease.withOpenOperation {
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
+            val lock = getLock(approvalId)
+            lock.lock()
+            try {
+                val record = readCurrent(approvalId) ?: return null
+                return decodeAndValidateRecord(record).metadata
+            } finally {
+                lock.unlock()
+            }
         }
-    }
 
-    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? = lease.withOpenOperation {
-        FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
-        validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
-        val lock = getLock(approvalId)
-        lock.lock()
-        try {
-            val record = readCurrent(approvalId) ?: return null
-            return decodeAndValidateRecord(record).envelope
-        } finally {
-            lock.unlock()
+    override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? =
+        lease.withOpenOperation {
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
+            val lock = getLock(approvalId)
+            lock.lock()
+            try {
+                val record = readCurrent(approvalId) ?: return null
+                return decodeAndValidateRecord(record).envelope
+            } finally {
+                lock.unlock()
+            }
         }
-    }
 
-    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? = lease.withOpenOperation {
-        FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
-        validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
-        val lock = getLock(approvalId)
-        lock.lock()
-        try {
-            val record = readCurrent(approvalId) ?: return null
-            val validated = decodeAndValidateRecord(record)
-            Files.delete(storePath(approvalId))
-            FileStoreUtil.forceParentDirectory(suspendedDir)
-            return validated.metadata
-        } finally {
-            lock.unlock()
+    override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? =
+        lease.withOpenOperation {
+            FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
+            validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
+            val lock = getLock(approvalId)
+            lock.lock()
+            try {
+                val record = readCurrent(approvalId) ?: return null
+                val validated = decodeAndValidateRecord(record)
+                Files.delete(storePath(approvalId))
+                FileStoreUtil.forceParentDirectory(suspendedDir)
+                return validated.metadata
+            } finally {
+                lock.unlock()
+            }
         }
-    }
 
-    private fun validateRecordSchemas(record: PersistedSuspendedInvocationRecordV1) {
-        requireSchemaVersion(record.schemaVersion, "unsupported-suspended-invocation-schema-version")
+    private fun validateRecordSchemas(record: DecodedSuspendedInvocationRecord) {
+        if (record.schemaVersion != 1 && record.schemaVersion != 2) {
+            throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-schema-version")
+        }
         requireSchemaVersion(record.metadata.schemaVersion, "unsupported-suspended-invocation-metadata-schema-version")
         requireSchemaVersion(record.metadata.identity.schemaVersion, "unsupported-engine-execution-identity-schema-version")
         requireSchemaVersion(record.metadata.securityContext.schemaVersion, "unsupported-execution-security-context-schema-version")
@@ -278,13 +360,20 @@ class FileSuspendedInvocationStore internal constructor(
         }
     }
 
-    private fun requireSchemaVersion(version: Int, errorCode: String) {
+    private fun requireSchemaVersion(
+        version: Int,
+        errorCode: String,
+    ) {
         if (version != 1) {
             throw FileStoreUnsupportedFormatException(errorCode)
         }
     }
 
-    private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {
+    private fun validateIdField(
+        value: String,
+        fieldName: String,
+        maxLength: Int,
+    ): String {
         val trimmed = value.trim()
         require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
         require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }

@@ -36,10 +36,10 @@ import java.nio.file.Path
  * between `@Test` and the declaration.
  */
 object JUnitTestSignatureVerifier {
-
     // Explicit `<Unit>` type argument on the expression head, e.g. `runBlocking<Unit> {`
     private val EXPLICIT_UNIT_HEAD =
         Regex("""^[\w.`]+\s*<Unit>\s*(?=[({.\s]).*$""")
+
     // `runTest { ... }` returns TestResult, which JUnit Jupiter special-cases as
     // a valid test-method return type (discovered, not skipped) — Unit-safe in
     // the discovery sense, so whitelisted without a type argument.
@@ -47,13 +47,23 @@ object JUnitTestSignatureVerifier {
     private val BARE_UNIT = Regex("""^Unit\s*$""")
     private val NAME = Regex("""\s*(?:public|private|internal)?\s*(?:suspend\s+)?fun\s+(`[^`]+`|[A-Za-z0-9_]+)""")
 
-    data class Violation(val file: Path, val line: Int, val functionName: String, val expressionHead: String)
+    data class Violation(
+        val file: Path,
+        val line: Int,
+        val functionName: String,
+        val expressionHead: String,
+    )
 
     /** Result of evaluating an accumulated `@Test` declaration. */
     private sealed interface Decision {
         data object Continue : Decision
+
         data object Safe : Decision
-        data class Reject(val functionName: String, val expressionHead: String) : Decision
+
+        data class Reject(
+            val functionName: String,
+            val expressionHead: String,
+        ) : Decision
     }
 
     /**
@@ -64,7 +74,8 @@ object JUnitTestSignatureVerifier {
         val violations = mutableListOf<Violation>()
         if (!Files.isDirectory(root)) return violations
         Files.walk(root).use { paths ->
-            paths.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".kt") }
+            paths
+                .filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".kt") }
                 .filter { p ->
                     // Normalize separators so matching works on any platform.
                     val path = p.toString().replace(File.separatorChar, '/')
@@ -73,8 +84,7 @@ object JUnitTestSignatureVerifier {
                     // exclusion is needed — and one would wrongly skip the
                     // `dev/tramai/build/*` source package (the guard's own home).
                     (path.contains("/src/test/") || path.contains("/src/testFixtures/"))
-                }
-                .forEach { file -> violations += scanFile(file) }
+                }.forEach { file -> violations += scanFile(file) }
         }
         return violations
     }
@@ -94,7 +104,10 @@ object JUnitTestSignatureVerifier {
         var i = openParen
         while (i < decl.length) {
             when (decl[i]) {
-                '(' -> depth++
+                '(' -> {
+                    depth++
+                }
+
                 ')' -> {
                     depth--
                     if (depth == 0) {
@@ -103,8 +116,14 @@ object JUnitTestSignatureVerifier {
                         if (j >= decl.length) return Decision.Continue
                         val name = NAME.find(decl, funIdx)?.groupValues?.get(1) ?: decl.substring(funIdx)
                         return when {
-                            decl[j] == '{' -> Decision.Safe
-                            decl[j] == '=' -> headDecision(decl.substring(j + 1), name)
+                            decl[j] == '{' -> {
+                                Decision.Safe
+                            }
+
+                            decl[j] == '=' -> {
+                                bodyDecision(decl.substring(j + 1), name)
+                            }
+
                             decl[j] == ':' -> {
                                 // Explicit return type: `: Unit` is safe, anything
                                 // else with `=` needs the head to be Unit-safe.
@@ -113,10 +132,13 @@ object JUnitTestSignatureVerifier {
                                     eqOrBrace < 0 -> Decision.Continue
                                     decl[eqOrBrace] == '{' -> Decision.Safe
                                     decl.substring(j + 1, eqOrBrace).trim() == "Unit" -> Decision.Safe
-                                    else -> headDecision(decl.substring(eqOrBrace + 1), name)
+                                    else -> bodyDecision(decl.substring(eqOrBrace + 1), name)
                                 }
                             }
-                            else -> Decision.Continue
+
+                            else -> {
+                                Decision.Continue
+                            }
                         }
                     }
                 }
@@ -126,7 +148,28 @@ object JUnitTestSignatureVerifier {
         return Decision.Continue
     }
 
-    private fun headDecision(headRaw: String, name: String): Decision {
+    /**
+     * Decides from the text that follows the body separator (`=`).
+     *
+     * A blank head means the body starts on the next line — `fun x() =` with the expression
+     * on a continuation line, which includes the Unit-safe form the verifier documents
+     * (`= <newline> runBlocking<Unit> { ... }`). Such a declaration is not resolved yet, so
+     * it must stay pending until [scanFile] appends the continuation line. Deciding on a
+     * blank head instead rejects every legal multi-line expression body, whether or not it
+     * is Unit-safe.
+     *
+     * Both `=` paths (plain and explicit-return-type) route through here so the
+     * continuation rule cannot drift apart between them.
+     */
+    private fun bodyDecision(
+        headRaw: String,
+        name: String,
+    ): Decision = if (headRaw.isBlank()) Decision.Continue else headDecision(headRaw, name)
+
+    private fun headDecision(
+        headRaw: String,
+        name: String,
+    ): Decision {
         val head = headRaw.trim()
         return if (EXPLICIT_UNIT_HEAD.matches(head) || KNOWN_UNIT_HEAD.matches(head) || BARE_UNIT.matches(head)) {
             Decision.Safe
@@ -136,11 +179,12 @@ object JUnitTestSignatureVerifier {
     }
 
     private fun scanFile(file: Path): List<Violation> {
-        val lines = try {
-            Files.readAllLines(file)
-        } catch (_: Exception) {
-            return emptyList()
-        }
+        val lines =
+            try {
+                Files.readAllLines(file)
+            } catch (_: Exception) {
+                return emptyList()
+            }
         val violations = mutableListOf<Violation>()
         var pending: StringBuilder? = null
         var inRawString = false
@@ -186,16 +230,27 @@ object JUnitTestSignatureVerifier {
      * Evaluates an accumulated declaration; returns the continuation state
      * (null once the declaration resolved to Safe or Reject).
      */
-    private fun resolve(pending: StringBuilder, file: Path, line: Int, violations: MutableList<Violation>): StringBuilder? {
-        return when (val decision = decide(pending.toString())) {
+    private fun resolve(
+        pending: StringBuilder,
+        file: Path,
+        line: Int,
+        violations: MutableList<Violation>,
+    ): StringBuilder? =
+        when (val decision = decide(pending.toString())) {
             is Decision.Reject -> {
                 violations += Violation(file, line + 1, decision.functionName, decision.expressionHead)
                 null
             }
-            Decision.Safe -> null
-            Decision.Continue -> pending
+
+            Decision.Safe -> {
+                null
+            }
+
+            Decision.Continue -> {
+                pending
+            }
         }
-    }
+
     private fun String.countOccurrencesOf(sub: String): Int {
         var count = 0
         var idx = indexOf(sub)

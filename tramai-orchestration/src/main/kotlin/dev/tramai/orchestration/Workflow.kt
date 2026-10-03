@@ -13,7 +13,9 @@ interface WorkflowScheduleDefinition {
     val kind: String
     val expression: String
     val zoneId: ZoneId
+
     fun validate()
+
     fun canonicalForm(): String = "$kind:${zoneId.id}:$expression"
 }
 
@@ -40,27 +42,29 @@ class Workflow<S, R> internal constructor(
     private val outboundNetworkPolicy: OutboundNetworkPolicy = OutboundNetworkPolicies.defenceInDepth(),
     private val failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver = NoOpWorkflowStepFailureDiagnosticObserver,
 ) {
-    private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
-        workflowName = name,
-        definitionVersion = definitionVersion,
-        schedule = schedule,
-        stopPolicy = stopPolicy,
-        steps = steps,
-    )
+    private val definitionCompatibility: WorkflowDefinitionCompatibility =
+        workflowDefinitionCompatibility(
+            workflowName = name,
+            definitionVersion = definitionVersion,
+            schedule = schedule,
+            stopPolicy = stopPolicy,
+            steps = steps,
+        )
 
-    private val runner = WorkflowRunner(
-        name = name,
-        steps = steps,
-        resultSelector = resultSelector,
-        stopPolicy = stopPolicy,
-        clock = clock,
-        externalStepExecutorResolver = externalStepExecutorResolver,
-        httpClient = httpClient,
-        httpTransport = httpTransport,
-        outboundNetworkPolicy = outboundNetworkPolicy,
-        failureDiagnosticObserver = failureDiagnosticObserver,
-        definitionCompatibility = definitionCompatibility,
-    )
+    private val runner =
+        WorkflowRunner(
+            name = name,
+            steps = steps,
+            resultSelector = resultSelector,
+            stopPolicy = stopPolicy,
+            clock = clock,
+            externalStepExecutorResolver = externalStepExecutorResolver,
+            httpClient = httpClient,
+            httpTransport = httpTransport,
+            outboundNetworkPolicy = outboundNetworkPolicy,
+            failureDiagnosticObserver = failureDiagnosticObserver,
+            definitionCompatibility = definitionCompatibility,
+        )
 
     suspend fun run(
         initialState: S,
@@ -74,6 +78,27 @@ class Workflow<S, R> internal constructor(
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>,
     ): R = runner.resume(context, observer, persistence)
+
+    /**
+     * Governed execution boundary (0.7.1d).
+     *
+     * The canonical [GovernedRunIdentity] travels alongside the unchanged
+     * [WorkflowContext] rather than inside it: an ungoverned run cannot acquire
+     * attribution, and a governed run cannot lose it.
+     */
+    suspend fun run(
+        initialState: S,
+        run: GovernedRun,
+        observer: WorkflowObserver = NoOpWorkflowObserver,
+        persistence: WorkflowPersistence<S>? = null,
+    ): R = runner.run(initialState, run.context, observer, persistence, run.identity)
+
+    /** Governed resume of an existing run: the persisted identity must match exactly. */
+    suspend fun resume(
+        run: GovernedRun,
+        observer: WorkflowObserver = NoOpWorkflowObserver,
+        persistence: WorkflowPersistence<S>,
+    ): R = runner.resume(run.context, observer, persistence, run.identity)
 
     fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
 
@@ -120,20 +145,59 @@ inline fun <reified S> workflow(
 private suspend fun <S> InternalWorkflowStep<S>.replayDescriptor(
     state: S,
     context: WorkflowContext,
-): WorkflowStepReplayDescriptor = when (this) {
-    is LocalWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
-    is AiWorkflowStep<S, *, *> -> replayDescriptor(state, context)
-    is HttpWorkflowStep<S> -> replayDescriptor(state, context)
-    is ShellWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    is HermesWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    is CodexWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    is McpWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    is PluginWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.NON_REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    is GateWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
-    is DelayWorkflowStep -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
-    is BranchWorkflowStep<S> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
-    is ParallelWorkflowStep<S, *, *> -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-}
+): WorkflowStepReplayDescriptor =
+    when (this) {
+        is LocalWorkflowStep -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+        }
+
+        is AiWorkflowStep<S, *, *> -> {
+            replayDescriptor(state, context)
+        }
+
+        is HttpWorkflowStep<S> -> {
+            replayDescriptor(state, context)
+        }
+
+        is ShellWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+        }
+
+        is HermesWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+        }
+
+        is CodexWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+        }
+
+        is McpWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+        }
+
+        is PluginWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.NON_REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
+        }
+
+        is GateWorkflowStep -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+        }
+
+        is DelayWorkflowStep -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+        }
+
+        is BranchWorkflowStep<S> -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.PURE)
+        }
+
+        is ParallelWorkflowStep<S, *, *> -> {
+            WorkflowStepReplayDescriptor(
+                WorkflowStepReplayability.REPLAYABLE,
+                WorkflowStepRepetitionSafety.UNSAFE,
+            )
+        }
+    }
 
 private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
     state: S,
@@ -147,14 +211,18 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
         "OPTIONS",
         "PUT", // idempotent per HTTP; replay safety still assumes no extra side effects on repeat
         "DELETE",
-        -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.IDEMPOTENT)
+        -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.IDEMPOTENT)
+        }
 
         "POST",
         "PATCH",
         -> {
-            val idempotencyKey = request.headers.entries.firstOrNull { (name, _) ->
-                name.equals("Idempotency-Key", ignoreCase = true)
-            }?.value
+            val idempotencyKey =
+                request.headers.entries
+                    .firstOrNull { (name, _) ->
+                        name.equals("Idempotency-Key", ignoreCase = true)
+                    }?.value
             if (idempotencyKey.isNullOrBlank()) {
                 WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
             } else {
@@ -166,21 +234,30 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
             }
         }
 
-        else -> WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
-    }
-}
-
-private fun collectPluginStepTypes(steps: List<InternalWorkflowStep<*>>): Set<String> = buildSet {
-    steps.forEach { step ->
-        when (step) {
-            is PluginWorkflowStep<*> -> add(step.type)
-            is BranchWorkflowStep<*> -> {
-                step.branches.values.forEach { branchSteps ->
-                    addAll(collectPluginStepTypes(branchSteps))
-                }
-                step.defaultSteps?.let { addAll(collectPluginStepTypes(it)) }
-            }
-            else -> Unit
+        else -> {
+            WorkflowStepReplayDescriptor(WorkflowStepReplayability.REPLAYABLE, WorkflowStepRepetitionSafety.UNSAFE)
         }
     }
 }
+
+private fun collectPluginStepTypes(steps: List<InternalWorkflowStep<*>>): Set<String> =
+    buildSet {
+        steps.forEach { step ->
+            when (step) {
+                is PluginWorkflowStep<*> -> {
+                    add(step.type)
+                }
+
+                is BranchWorkflowStep<*> -> {
+                    step.branches.values.forEach { branchSteps ->
+                        addAll(collectPluginStepTypes(branchSteps))
+                    }
+                    step.defaultSteps?.let { addAll(collectPluginStepTypes(it)) }
+                }
+
+                else -> {
+                    Unit
+                }
+            }
+        }
+    }

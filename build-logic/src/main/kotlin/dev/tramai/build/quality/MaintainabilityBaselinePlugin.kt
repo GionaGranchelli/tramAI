@@ -798,14 +798,17 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // (test-quality.yml) vs the PR base / master authority. Deliberately
         // runs NO PITest campaign: it compares exact identities and canonical
         // KILLED|NON_KILLED outcomes in memory, so it joins verifyPr without
-        // adding a measurement run. Accepts -PtramaiMutationBaseSha for PR
-        // base SHA comparison (mirrors cancellation safety and coverage).
+        // adding a measurement run. Recorded evolution performs a fresh exact
+        // measurement before it can authorize any removal. Accepts
+        // -PtramaiMutationBaseSha for PR base SHA comparison (mirrors cancellation safety and coverage).
         project.tasks.register("verifyMutationRatchet") {
             group = "maintainability"
             description =
-                "Base-authoritative mutation ratchet: judges candidate mutation population, classifications, " +
+                "Base-authoritative mutation ratchet: judges candidate population and classifications, " +
                 "and target configuration against the PR base / master authority. Accepts " +
-                "-PtramaiMutationBaseSha for PR base SHA comparison. Runs no PITest campaign."
+                "-PtramaiMutationBaseSha for PR base SHA comparison and -P${MutationPopulationEvolution.PROPERTY} " +
+                "for population evolution authority. Runs no PITest campaign in the default FORBID " +
+                "mode; recorded evolution runs a fresh canonical campaign first."
             doLast {
                 val baseSha =
                     MutationRatchetAuthorityLoader.resolveBaseSha(
@@ -828,19 +831,64 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read candidate mutation population: ${e.message}", e)
                     }
                 val candidateClassifications = MutationClassificationLoader.load(project.rootDir)
+                // The property is invocation authority; YAML records are the per-identity audit trail.
+                val evolution =
+                    MutationPopulationEvolution.fromProperty(
+                        project.findProperty(MutationPopulationEvolution.PROPERTY)?.toString(),
+                    )
+                val evolutionRecords = MutationEvolutionLoader.load(project.rootDir)
+                val exactMeasurement =
+                    if (evolution == MutationPopulationEvolution.RECORDED_EVOLUTION) {
+                        val fresh =
+                            runMutationMeasurement(
+                                MutationMeasurementRequest(
+                                    project,
+                                    generator,
+                                    testQualityConfiguration,
+                                    reportDir,
+                                    measurementName = "mutation-evolution",
+                                    persistCommittedBaseline = false,
+                                ),
+                            )
+                        MutationPopulationEvolutionProof.exactComparison(fresh, candidatePopulation)
+                    } else {
+                        MutationPopulationExactComparison(null, emptyList())
+                    }
                 val candidate =
                     MutationRatchetCandidate(
                         population = candidatePopulation,
                         classifications = candidateClassifications,
                         targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                        enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir),
+                        // The transition's own proposal must be loaded from the repository, not
+                        // defaulted away: without it M35 cannot bind a minted authorization to its
+                        // base, and M36-M38 cannot see retention or rewriting of a pending row.
+                        admissions = MutationPopulationAdmissionLoader.load(project.rootDir),
+                        // The transition's own certificate ledger, loaded the same way: M45 binds a
+                        // newly minted certificate to this base, M46 rejects a rewritten retained one,
+                        // and M47 must be able to see a base certificate disappear.
+                        certificates = MutationAuthorityDigestCertificateLoader.load(project.rootDir),
+                        // The promotion declaration is loaded from the transition's OWN tree by design:
+                        // it is candidate-side, because it must name the base SHA it promotes onto and
+                        // the base branch cannot name the commit that will contain it. Absent means "no
+                        // promotion", which is the fail-closed state - M35/M45 then bind every
+                        // appearing row to the transition base exactly as before.
+                        promotion = MutationPopulationPromotionLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(
                         authority,
                         candidate,
                         executable = MutationPopulationAggregator.canonicalSemantics(),
+                        evolution = evolution,
+                        evolutionEvidence =
+                            MutationEvolutionEvidence(evolutionRecords, exactMeasurement.proof),
                     )
-                verifyTestQualityDiagnostics(project, "Mutation ratchet (base $baseSha)", diagnostics)
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Mutation ratchet (base $baseSha)",
+                    exactMeasurement.diagnostics + diagnostics,
+                )
             }
         }
 
@@ -872,6 +920,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         throw GradleException("Failed to read release mutation authority: ${e.message}", e)
                     }
                 val classifications = MutationClassificationLoader.load(project.rootDir)
+                // The release check compares a fresh measurement against the committed authority in the
+                // same tree, so the enrollment ledger is identical on both sides: an enrollment can never
+                // authorize a classification in the transition that introduces it (M23 still applies).
+                val enrollments = MutationClassificationEnrollmentLoader.load(project.rootDir)
+                // Release verification reasons over the committed authority surface on both sides,
+                // exactly like the enrollment ledger above, so the candidate side supplies the same
+                // loaded ledger instead of a default.
+                val admissions = MutationPopulationAdmissionLoader.load(project.rootDir)
                 verifyTestQualityDiagnostics(
                     project,
                     "Release mutation",
@@ -882,12 +938,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                                 population = committed,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
+                                admissions = admissions,
                             ),
                         candidate =
                             MutationRatchetCandidate(
                                 population = current,
                                 classifications = classifications,
                                 targetFamilies = testQualityConfiguration.mutation.targetFamilies,
+                                enrollments = enrollments,
+                                admissions = admissions,
                             ),
                         executable = MutationPopulationAggregator.canonicalSemantics(),
                     ),

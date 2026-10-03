@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.identity.GovernedRunIdentity
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -17,11 +18,13 @@ import java.util.concurrent.ConcurrentHashMap
  *   toolName mismatch) and a [SuspendedInvocationMetadata.replayEnvelopeDigest]
  *   that does not match the canonical digest of the envelope messages.
  */
-internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
-
+internal class InMemorySuspendedInvocationStore :
+    SuspendedInvocationStore,
+    GovernedSuspendedInvocationStore {
     private data class StoredSuspendedInvocation(
         val metadata: SuspendedInvocationMetadata,
         val replayEnvelope: SensitiveReplayEnvelope,
+        val runIdentity: GovernedRunIdentity? = null,
     )
 
     private val invocations = ConcurrentHashMap<String, StoredSuspendedInvocation>()
@@ -29,12 +32,34 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
     override suspend fun create(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
+    ) = createInternal(metadata, replayEnvelope, runIdentity = null)
+
+    /** One logical mutation: metadata, replay envelope and identity are stored together. */
+    override suspend fun createGoverned(
+        suspended: GovernedSuspendedInvocation,
+        replayEnvelope: SensitiveReplayEnvelope,
+    ) = createInternal(suspended.metadata, replayEnvelope, suspended.runIdentity)
+
+    override suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity? {
+        validateIdField(approvalId, "approvalId")
+        return invocations[approvalId]?.runIdentity
+    }
+
+    private suspend fun createInternal(
+        metadata: SuspendedInvocationMetadata,
+        replayEnvelope: SensitiveReplayEnvelope,
+        runIdentity: GovernedRunIdentity?,
     ) {
         validateCreateInput(metadata, replayEnvelope)
-        val existing = invocations.putIfAbsent(
-            metadata.approvalId,
-            StoredSuspendedInvocation(metadata = metadata, replayEnvelope = replayEnvelope),
-        )
+        val existing =
+            invocations.putIfAbsent(
+                metadata.approvalId,
+                StoredSuspendedInvocation(
+                    metadata = metadata,
+                    replayEnvelope = replayEnvelope,
+                    runIdentity = runIdentity,
+                ),
+            )
         require(existing == null) {
             "Suspended invocation with approvalId '${metadata.approvalId}' already exists"
         }
@@ -73,7 +98,10 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
         }
     }
 
-    private fun validateIdField(value: String, fieldName: String) {
+    private fun validateIdField(
+        value: String,
+        fieldName: String,
+    ) {
         require(value.isNotBlank()) { "$fieldName must not be blank" }
         require(value.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
         require(value.length <= 256) { "$fieldName exceeds maximum length of 256" }
@@ -81,5 +109,4 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
     }
 }
 
-fun inMemorySuspendedInvocationStore(): SuspendedInvocationStore =
-    InMemorySuspendedInvocationStore()
+fun inMemorySuspendedInvocationStore(): SuspendedInvocationStore = InMemorySuspendedInvocationStore()
