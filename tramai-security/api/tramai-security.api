@@ -647,6 +647,13 @@ public final class dev/tramai/security/governance/ProviderDeployment {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/security/governance/ProviderInputRelease {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/TrustZonePolicy;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun releases (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/security/ProviderTrustZone;)Z
+}
+
 public final class dev/tramai/security/governance/TrustZoneCatalogue {
 	public fun <init> (Ljava/util/Collection;)V
 	public final fun categoryOf (Ldev/tramai/security/governance/TrustZoneName;)Ldev/tramai/security/ProviderTrustZone;

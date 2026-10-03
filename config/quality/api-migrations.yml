@@ -128,3 +128,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2c trust-zone compatibility: tramai-security gains TrustZonePolicy, which answers whether a workload in one trust zone may use a provider deployment in another, allow-listing ordered pairs and denying everything else. Additive only."
     migration: "No consumer action required: the compatibility surface is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "7d4218ad3dced5c2e3cbe75e67a5c69f96017b527a3072686f1e80221a8e8a5d"
+    toSha256: "d271ae2c1de783fb4dafac56392ddfb6d9a8ec08d608ae2ec642ef5a0a6aa0da"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2d provider-input release boundary: tramai-security gains ProviderInputRelease, which releases a specific provider-bound input only when the trust-zone decision allows it AND the classification's routing rule permits that zone. Additive only."
+    migration: "No consumer action required: the release boundary is new, and no existing signature changed."
