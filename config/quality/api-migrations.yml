@@ -107,3 +107,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.1d run attribution on the sovereign JDBC starter: the approval mutation store bean method gained a governed-suspension-store parameter, changing the committed dump relative to release/0.7.0."
     migration: "The bean method keeps a default parameter, so Spring wiring is unaffected, but the JVM descriptor changed: Spring/Java consumers must recompile against this version."
+
+  - module: ":tramai-security"
+    fromSha256: "3c8c378d46640e2ee840bb6690d9a2686a0d536ba024c723a72d5b604d479ecc"
+    toSha256: "6fe604576d12b6aec316b1bced8fcf22cc7c772fa6f49dd27706daf6d029865d"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2 classification/trust-zone resolution boundary: tramai-security gains the workload governance resolution surface (WorkloadClassificationSignal, WorkloadGovernanceResolver, WorkloadGovernanceResolution, WorkloadGovernanceFailure), and tramai-core publishes the DataClassification/ClassificationSource ranking that moved out of tramai-engine so both modules agree on one ordering. Both changes are additive."
+    migration: "No consumer action required: the governance resolution surface is new, and no existing signature changed. Recompile only if you place the moved ranking extensions in scope."

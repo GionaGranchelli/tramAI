@@ -2307,6 +2307,11 @@ public final class dev/tramai/core/policy/AuditDetail : java/lang/Enum {
 	public static fun values ()[Ldev/tramai/core/policy/AuditDetail;
 }
 
+public final class dev/tramai/core/policy/ClassificationRankingKt {
+	public static final fun getAuthorityRank (Ldev/tramai/core/policy/ClassificationSource;)I
+	public static final fun getRank (Ldev/tramai/core/policy/DataClassification;)I
+}
+
 public final class dev/tramai/core/policy/ClassificationSource : java/lang/Enum {
 	public static final field DECLARED Ldev/tramai/core/policy/ClassificationSource;
 	public static final field LOCAL_MODEL_ASSISTED Ldev/tramai/core/policy/ClassificationSource;
