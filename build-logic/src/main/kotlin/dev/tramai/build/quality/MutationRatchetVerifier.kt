@@ -111,7 +111,11 @@ class MutationRatchetVerifier {
             )
         diagnostics += classificationRatchet(base, candidate)
         diagnostics += MutationEnrollmentCeremony.checks(base, candidate)
-        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, admissionAuthority)
+        // A promotion declaration carries already-certified evidence across the release promotion
+        // boundary. Computed once from the same ledgers both ceremonies judge, so the admission and
+        // certificate rules cannot disagree about what was carried. Null means "no promotion".
+        val promotion = MutationPopulationPromotion.carried(base, candidate)
+        diagnostics += MutationPopulationAdmissionCeremony.checks(base, candidate, admissionAuthority, promotion)
         // Certificate custody (M44-M47), decided on the same facts M34 uses: one production site, so the
         // lifecycle rules cannot disagree with the admission verdicts about what was consumed.
         diagnostics +=
@@ -120,6 +124,7 @@ class MutationRatchetVerifier {
                 candidate = candidate.certificates,
                 baseSha = base.baseSha,
                 validConsumptions = admissionAuthority.certifiedConsumptions,
+                promotion = promotion,
             )
         diagnostics +=
             familyAndTargetChecks(

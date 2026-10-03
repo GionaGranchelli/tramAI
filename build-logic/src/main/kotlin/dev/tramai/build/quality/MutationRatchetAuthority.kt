@@ -91,6 +91,16 @@ data class MutationRatchetCandidate(
      * unconsumed and M47 fails loudly, which is the conservative direction.
      */
     val certificates: MutationAuthorityDigestCertificates = MutationAuthorityDigestCertificates.NONE,
+    /**
+     * Promotion declaration proposed by this transition (0.7.1i). Not authority: it grants nothing
+     * and authorizes no admission, it states that an already-certified evidence population is
+     * carried across a release promotion boundary and therefore was not minted here, so M35/M45 do
+     * not bind it to the promotion base.
+     *
+     * Defaults to absent, which is the conservative state: with no promotion every appearing
+     * admission and certificate must still bind the transition base, exactly as before.
+     */
+    val promotion: MutationPopulationPromotion? = null,
 )
 
 object MutationRatchetAuthorityLoader {
