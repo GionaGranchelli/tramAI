@@ -121,3 +121,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2b provider deployment / named trust-zone contract: tramai-security gains ProviderDeployment, NamedTrustZone, TrustZoneName and TrustZoneCatalogue, so a concrete provider deployment owns exactly one organization-defined trust zone and a zone name resolves to exactly one portable category. Additive only."
     migration: "No consumer action required: the provider-deployment surface is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "a88a3f2a986208404418594206d014c0c279509d0c19b5c403c8cd17ca83807f"
+    toSha256: "7d4218ad3dced5c2e3cbe75e67a5c69f96017b527a3072686f1e80221a8e8a5d"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2c trust-zone compatibility: tramai-security gains TrustZonePolicy, which answers whether a workload in one trust zone may use a provider deployment in another, allow-listing ordered pairs and denying everything else. Additive only."
+    migration: "No consumer action required: the compatibility surface is new, and no existing signature changed."
