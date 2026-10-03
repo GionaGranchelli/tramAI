@@ -24,6 +24,7 @@ and related GitHub configuration.
 | CI step | Local command |
 |---------|---------------|
 | Run tests | `./gradlew test` |
+| Run tests (guarded, same guards as CI) | `bash .github/scripts/test-watchdog.sh` |
 | Verify maintainability baseline | `./gradlew verifyMaintainabilityBaseline` |
 | Full maintainability verification | `./gradlew verifyFullMaintainabilityBaseline` |
 | Change policy check | `./gradlew verifyChangePolicy` |

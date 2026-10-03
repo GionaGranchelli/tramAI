@@ -23,6 +23,34 @@ data class MutationRatchetAuthority(
     val population: MutationPopulationBaseline,
     val classifications: MutationClassifications,
     val targetFamilies: Map<String, TestQualityConfiguration.MutationTargetFamily>,
+    /**
+     * Base-side preauthorizations for future classification enrollment
+     * (0.7.1g1F). Defaults to [MutationClassificationEnrollments.NONE], which is
+     * the most restrictive state: no authorization exists, so every
+     * candidate-side classification addition still fails M08/M09.
+     */
+    val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
+    /**
+     * Base-side preauthorizations for admitting *appearing* candidate-only NON_KILLED identities
+     * (0.7.1g1G3, M30-M39). A caller that intentionally has no authorizations must pass
+     * [MutationPopulationAdmissions.NONE] explicitly; that is the most restrictive state, in which
+     * every appearing survivor still fails M06.
+     *
+     * Deliberately has NO default: this input is enforcement authority, and a forgotten call site
+     * must fail to compile rather than silently degrade the transition to "no authorizations".
+     */
+    val admissions: MutationPopulationAdmissions,
+    /**
+     * Base-side digest-migration certificates (0.7.1g1P2, M40-M47). OPTIONAL authority, like
+     * [enrollments]: a base that predates the certificate ledger simply has none, which is the most
+     * restrictive state - no certified migration exists, so every raw-v1 admission still fails M34.
+     * A present ledger is validated by its own loader, so a malformed one fails hard rather than
+     * degrading into "no certificates".
+     *
+     * The default is convenient for fixtures and is always the conservative answer; the loader passes
+     * it explicitly, read from the base revision.
+     */
+    val certificates: MutationAuthorityDigestCertificates = MutationAuthorityDigestCertificates.NONE,
 )
 
 /**
@@ -34,6 +62,45 @@ data class MutationRatchetCandidate(
     val population: MutationPopulationBaseline,
     val classifications: MutationClassifications,
     val targetFamilies: Map<String, TestQualityConfiguration.MutationTargetFamily>,
+    /**
+     * Enrollments proposed by this transition. They may be *validated* here but
+     * they can never authorize a classification in the same transition: only
+     * [MutationRatchetAuthority.enrollments] is consulted for authorization.
+     */
+    val enrollments: MutationClassificationEnrollments = MutationClassificationEnrollments.NONE,
+    /**
+     * Population admissions proposed by this transition. They may be *validated* here (M35 binds a
+     * new authorization to the base it is proposed against), but they can never authorize an
+     * admission in the same transition: only [MutationRatchetAuthority.admissions] is consulted,
+     * so a candidate that both authorizes and admits fails M31.
+     *
+     * Deliberately has NO default, for the same reason as [MutationRatchetAuthority.admissions]:
+     * the candidate ledger is the transition's proposal, so a task that forgets to load it must
+     * not compile. Missing it silently turned every candidate proposal into "none".
+     */
+    val admissions: MutationPopulationAdmissions,
+    /**
+     * Certificates this transition proposes. They are validated here (M45 binds a newly introduced
+     * certificate to the base it is proposed against, M46 rejects a rewritten retained one) but they
+     * can never authorize a consumption in the same transition: only
+     * [MutationRatchetAuthority.certificates] is consulted, so a candidate that both mints and
+     * consumes fails M43.
+     *
+     * Defaults to [MutationAuthorityDigestCertificates.NONE] for fixtures. The loader always passes it
+     * explicitly. A call site that forgot would weaken nothing: every removal then looks
+     * unconsumed and M47 fails loudly, which is the conservative direction.
+     */
+    val certificates: MutationAuthorityDigestCertificates = MutationAuthorityDigestCertificates.NONE,
+    /**
+     * Promotion declaration proposed by this transition (0.7.1i). Not authority: it grants nothing
+     * and authorizes no admission, it states that an already-certified evidence population is
+     * carried across a release promotion boundary and therefore was not minted here, so M35/M45 do
+     * not bind it to the promotion base.
+     *
+     * Defaults to absent, which is the conservative state: with no promotion every appearing
+     * admission and certificate must still bind the transition base, exactly as before.
+     */
+    val promotion: MutationPopulationPromotion? = null,
 )
 
 object MutationRatchetAuthorityLoader {
@@ -106,11 +173,53 @@ object MutationRatchetAuthorityLoader {
             val population = readPopulation(baselineFile, baseSha)
             val classifications = MutationClassificationLoader.load(tempDir)
             val configuration = TestQualityConfiguration.load(tempDir)
+            // Enrollment authorizations are OPTIONAL authority: a base that
+            // predates the ledger simply has none, which is the most
+            // restrictive state (no candidate-side classification can be
+            // authorized). A present file is validated by the same loader as
+            // any other authority, so a malformed ledger fails hard.
+            val enrollmentFile = File(qualityDir, "mutation-classification-enrollments.yml")
+            val enrollmentAtBase =
+                runGit(rootDir, listOf("show", "$baseSha:${MutationClassificationEnrollmentLoader.FILE_NAME}"))
+            if (enrollmentAtBase.exitCode == 0) {
+                enrollmentFile.writeText(enrollmentAtBase.output, Charsets.UTF_8)
+            }
+            val enrollments = MutationClassificationEnrollmentLoader.load(tempDir)
+            // Population admissions (M30-M39) are OPTIONAL authority too, loaded the same way: a
+            // base that predates the ledger simply has none, which is the most restrictive state -
+            // no appearing survivor can be admitted, so M06 still rejects every one of them. A
+            // present ledger is validated by its own loader, so a malformed one fails hard instead
+            // of degrading into "no authorizations".
+            val admissionsFile = File(qualityDir, "mutation-population-admissions.yml")
+            val admissionsAtBase =
+                runGit(rootDir, listOf("show", "$baseSha:${MutationPopulationAdmissionLoader.FILE_NAME}"))
+            if (admissionsAtBase.exitCode == 0) {
+                admissionsFile.writeText(admissionsAtBase.output, Charsets.UTF_8)
+            }
+            val admissions = MutationPopulationAdmissionLoader.load(tempDir)
+            // Digest-migration certificates (0.7.1g1P2) are OPTIONAL authority for the same reason: a
+            // base that predates the ledger has none, which is the most restrictive state, since no
+            // certified migration exists and every raw-v1 admission still fails M34. A present ledger
+            // is validated by its own loader, so a malformed one fails hard instead of degrading into
+            // "no certificates".
+            val certificatesFile = File(qualityDir, "mutation-authority-digest-certificates.yml")
+            val certificatesAtBase =
+                runGit(
+                    rootDir,
+                    listOf("show", "$baseSha:${MutationAuthorityDigestCertificateLoader.FILE_NAME}"),
+                )
+            if (certificatesAtBase.exitCode == 0) {
+                certificatesFile.writeText(certificatesAtBase.output, Charsets.UTF_8)
+            }
+            val certificates = MutationAuthorityDigestCertificateLoader.load(tempDir)
             return MutationRatchetAuthority(
                 baseSha = baseSha,
                 population = population,
                 classifications = classifications,
                 targetFamilies = configuration.mutation.targetFamilies,
+                enrollments = enrollments,
+                admissions = admissions,
+                certificates = certificates,
             )
         } finally {
             tempDir.deleteRecursively()

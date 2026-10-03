@@ -41,43 +41,52 @@ class RuntimeEventCatalogueArchitectureTest {
      *  `tramai.` literals in production code. A literal merely *resembling* a
      *  configuration namespace (e.g. `tramai.security.some_new_event`) is
      *  treated as protocol and must reference the catalogue. */
-    private val configPropertyLiterals = setOf(
-        "tramai.dashboard",
-        "tramai.dashboard.auth.required",
-        "tramai.dashboard.auth.provider",
-        "tramai.mcp",
-        "tramai.profile",
-        "tramai.providers.anthropic",
-        "tramai.providers.anthropic.apiKey",
-        "tramai.providers.local-lab-provider",
-        "tramai.providers.ollama",
-        "tramai.providers.openai",
-        "tramai.providers.openai.apiKey",
-        "tramai.providers.openai.bearerToken",
-        "tramai.providers.openai-compatible",
-        "tramai.providers.openai-compatible.apiKey",
-        "tramai.providers.openai-compatible.bearerToken",
-        "tramai.secrets.aws-secrets-manager",
-        "tramai.secrets.aws-secrets-manager.accessKeyId",
-        "tramai.secrets.aws-secrets-manager.secretAccessKey",
-        "tramai.secrets.aws-secrets-manager.sessionToken",
-        "tramai.secrets.file",
-        "tramai.secrets.vault",
-        "tramai.secrets.vault.token",
-        "tramai.security.classification",
-        "tramai.sovereign",
-        "tramai.sovereign.approved_resume_queue",
-        "tramai.sovereign.approved_resume_worker",
-        "tramai.sovereign.ops",
-        "tramai.sovereign.ops.actuator.approved-resume-worker-health",
-        "tramai.sovereign.ops.actuator.approved-resume-worker-metrics",
-        "tramai.sovereign.ops.actuator.worker-health",
-        "tramai.sovereign.ops.actuator.worker-status",
-        "tramai.sovereign.ops.approval-gateway",
-        "tramai.sovereign.ops.approved-resume-worker",
-        "tramai.sovereign.ops.outbox.worker",
-        "tramai.sovereign.persistence",
-    )
+    private val configPropertyLiterals =
+        setOf(
+            // 0.7.1e: the control-plane HTTP adapter is gated off by default; this is the exact
+            // Spring prefix of that gate, declared like every other configuration namespace.
+            "tramai.control-plane.http",
+            "tramai.dashboard",
+            "tramai.dashboard.auth.required",
+            "tramai.dashboard.auth.provider",
+            "tramai.mcp",
+            "tramai.profile",
+            "tramai.providers.anthropic",
+            "tramai.providers.anthropic.apiKey",
+            "tramai.providers.local-lab-provider",
+            "tramai.providers.ollama",
+            "tramai.providers.openai",
+            "tramai.providers.openai.apiKey",
+            "tramai.providers.openai.bearerToken",
+            "tramai.providers.openai-compatible",
+            "tramai.providers.openai-compatible.apiKey",
+            "tramai.providers.openai-compatible.bearerToken",
+            "tramai.secrets.aws-secrets-manager",
+            "tramai.secrets.aws-secrets-manager.accessKeyId",
+            "tramai.secrets.aws-secrets-manager.secretAccessKey",
+            "tramai.secrets.aws-secrets-manager.sessionToken",
+            "tramai.secrets.file",
+            "tramai.secrets.vault",
+            "tramai.secrets.vault.token",
+            "tramai.security.classification",
+            "tramai.server.governed.configuration-id",
+            "tramai.server.governed.configuration-version",
+            "tramai.server.governed.deployment-id",
+            "tramai.server.governed.environment-id",
+            "tramai.server.governed.workload-id",
+            "tramai.sovereign",
+            "tramai.sovereign.approved_resume_queue",
+            "tramai.sovereign.approved_resume_worker",
+            "tramai.sovereign.ops",
+            "tramai.sovereign.ops.actuator.approved-resume-worker-health",
+            "tramai.sovereign.ops.actuator.approved-resume-worker-metrics",
+            "tramai.sovereign.ops.actuator.worker-health",
+            "tramai.sovereign.ops.actuator.worker-status",
+            "tramai.sovereign.ops.approval-gateway",
+            "tramai.sovereign.ops.approved-resume-worker",
+            "tramai.sovereign.ops.outbox.worker",
+            "tramai.sovereign.persistence",
+        )
 
     /**
      * Fail-closed classification of a `tramai.` literal found in production
@@ -89,8 +98,7 @@ class RuntimeEventCatalogueArchitectureTest {
      * `RuntimeAttributes.X`, never repeat the underlying string. Anything that
      * merely starts with a configuration namespace is protocol, not config.
      */
-    internal fun classifySourceLiteral(literal: String): Boolean =
-        literal in configPropertyLiterals
+    internal fun classifySourceLiteral(literal: String): Boolean = literal in configPropertyLiterals
 
     @Test
     fun `no tramai identifier literals outside the runtime event catalogue`() {
@@ -117,25 +125,31 @@ class RuntimeEventCatalogueArchitectureTest {
             .withFailMessage(
                 "Runtime event/metric/attribute identifiers must live in the runtime event catalogue " +
                     "(dev.tramai.core.observation.event). Found literals elsewhere: $offenders",
-            )
-            .isEmpty()
+            ).isEmpty()
     }
 
-    private fun moduleClassesLocations(): List<Pair<String, String>> = listOf(
-        "core" to "dev.tramai.core.observation.event.RuntimeEventCatalogue",
-        "engine" to "dev.tramai.engine.EngineEventObserver",
-        "orchestration" to "dev.tramai.orchestration.TramaiWorker",
-        "observability" to "dev.tramai.observability.OpenTelemetryAttributesKt",
-    ).map { (label, className) ->
-        label to checkNotNull(
-            Class.forName(className).protectionDomain.codeSource.location.toString(),
-        ) { "Unable to locate classes for $className" }
-    }
+    private fun moduleClassesLocations(): List<Pair<String, String>> =
+        listOf(
+            "core" to "dev.tramai.core.observation.event.RuntimeEventCatalogue",
+            "engine" to "dev.tramai.engine.EngineEventObserver",
+            "orchestration" to "dev.tramai.orchestration.TramaiWorker",
+            "observability" to "dev.tramai.observability.OpenTelemetryAttributesKt",
+        ).map { (label, className) ->
+            label to
+                checkNotNull(
+                    Class
+                        .forName(className)
+                        .protectionDomain.codeSource.location
+                        .toString(),
+                ) { "Unable to locate classes for $className" }
+        }
 
     private fun loadClasses(location: String): List<Pair<String, ByteArray>> {
         if (location.endsWith(".jar")) {
             return JarFile(File(URI.create(location))).use { jar ->
-                jar.entries().asSequence()
+                jar
+                    .entries()
+                    .asSequence()
                     .filter { it.name.endsWith(".class") }
                     .map { it.name.removeSuffix(".class") to jar.getInputStream(it).readBytes() }
                     .toList()
@@ -148,27 +162,30 @@ class RuntimeEventCatalogueArchitectureTest {
             .filter { it.isFile && it.name.endsWith(".class") }
             .map { classFile ->
                 classFile.relativeTo(dir).path.removeSuffix(".class") to classFile.readBytes()
-            }
-            .toList()
+            }.toList()
     }
 
     private fun tramaiLiterals(bytes: ByteArray): List<String> {
         val literals = mutableListOf<String>()
-        ClassReader(bytes).accept(object : ClassVisitor(Opcodes.ASM9) {
-            override fun visitMethod(
-                access: Int,
-                name: String,
-                descriptor: String,
-                signature: String?,
-                exceptions: Array<out String>?,
-            ): MethodVisitor = object : MethodVisitor(Opcodes.ASM9) {
-                override fun visitLdcInsn(value: Any?) {
-                    if (value is String && value.startsWith("tramai.")) {
-                        literals.add(value)
+        ClassReader(bytes).accept(
+            object : ClassVisitor(Opcodes.ASM9) {
+                override fun visitMethod(
+                    access: Int,
+                    name: String,
+                    descriptor: String,
+                    signature: String?,
+                    exceptions: Array<out String>?,
+                ): MethodVisitor =
+                    object : MethodVisitor(Opcodes.ASM9) {
+                        override fun visitLdcInsn(value: Any?) {
+                            if (value is String && value.startsWith("tramai.")) {
+                                literals.add(value)
+                            }
+                        }
                     }
-                }
-            }
-        }, 0)
+            },
+            0,
+        )
         return literals
     }
 
@@ -180,16 +197,20 @@ class RuntimeEventCatalogueArchitectureTest {
      * exact declared configuration-property literal.
      */
     private fun sourceLiterals(): List<Triple<String, String, String>> {
-        val repoRoot = generateSequence(File(".").absoluteFile) { it.parentFile }
-            .first { it.resolve("settings.gradle.kts").isFile }
+        val repoRoot =
+            generateSequence(File(".").absoluteFile) { it.parentFile }
+                .first { it.resolve("settings.gradle.kts").isFile }
         val offenders = mutableListOf<Triple<String, String, String>>()
         val literalRegex = Regex("\"tramai\\.[a-zA-Z0-9_.-]*\"")
-        repoRoot.listFiles()?.asSequence()
+        repoRoot
+            .listFiles()
+            ?.asSequence()
             ?.filter { it.isDirectory && it.name.startsWith("tramai-") }
             ?.forEach { module ->
                 val mainDir = File(module, "src/main")
                 if (!mainDir.isDirectory) return@forEach
-                mainDir.walkTopDown()
+                mainDir
+                    .walkTopDown()
                     .filter { it.isFile && it.extension == "kt" }
                     .forEach { file ->
                         val relative = file.relativeTo(repoRoot).path

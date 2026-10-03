@@ -42,7 +42,7 @@ class WorkloadRegistrationAuthorityTest {
             val outcome = authority.register(identity, fingerprint, metadata)
 
             assertThat(outcome).isInstanceOf(RegisterOutcome.Created::class.java)
-            val created = (outcome as RegisterOutcome.Created).registration
+            val created = (outcome as RegisterOutcome.Created).exposure
             assertThat(created.lifecycle).isEqualTo(WorkloadLifecycleState.ACTIVE)
             assertThat(created.stateVersion).isEqualTo(WorkloadStateVersion.INITIAL)
         }
@@ -55,7 +55,7 @@ class WorkloadRegistrationAuthorityTest {
             val again = authority.register(identity, fingerprint, metadata)
 
             assertThat(again).isInstanceOf(RegisterOutcome.AlreadyRegistered::class.java)
-            val existing = (again as RegisterOutcome.AlreadyRegistered).registration
+            val existing = (again as RegisterOutcome.AlreadyRegistered).exposure
             assertThat(existing.stateVersion).isEqualTo(WorkloadStateVersion.INITIAL)
             assertThat(existing.lifecycle).isEqualTo(WorkloadLifecycleState.ACTIVE)
         }
@@ -192,7 +192,7 @@ class WorkloadRegistrationAuthorityTest {
                 )
 
             assertThat(outcome).isInstanceOf(MetadataUpdateOutcome.Applied::class.java)
-            (outcome as MetadataUpdateOutcome.Applied).registration.let { updated ->
+            (outcome as MetadataUpdateOutcome.Applied).exposure.let { updated ->
                 assertThat(updated.metadata).isEqualTo(newMetadata)
                 assertThat(updated.identity).isEqualTo(identity)
                 assertThat(updated.stateVersion).isEqualTo(WorkloadStateVersion(2))
@@ -278,7 +278,7 @@ class WorkloadRegistrationAuthorityTest {
                     WorkloadLifecycleState.SUSPENDED,
                 )
             assertThat(suspendOutcome).isInstanceOf(LifecycleTransitionOutcome.Applied::class.java)
-            assertThat((suspendOutcome as LifecycleTransitionOutcome.Applied).registration.stateVersion)
+            assertThat((suspendOutcome as LifecycleTransitionOutcome.Applied).exposure.stateVersion)
                 .isEqualTo(WorkloadStateVersion(2))
 
             val resumeOutcome =
@@ -290,7 +290,7 @@ class WorkloadRegistrationAuthorityTest {
                     WorkloadLifecycleState.ACTIVE,
                 )
             assertThat(resumeOutcome).isInstanceOf(LifecycleTransitionOutcome.Applied::class.java)
-            assertThat((resumeOutcome as LifecycleTransitionOutcome.Applied).registration.stateVersion)
+            assertThat((resumeOutcome as LifecycleTransitionOutcome.Applied).exposure.stateVersion)
                 .isEqualTo(WorkloadStateVersion(3))
             assertThat(current()?.lifecycle).isEqualTo(WorkloadLifecycleState.ACTIVE)
         }

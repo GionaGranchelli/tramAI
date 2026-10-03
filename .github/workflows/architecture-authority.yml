@@ -1,0 +1,84 @@
+name: Architecture Authority
+
+# The API architecture authority (verify060Architecture) aggregates Contract-1 (committed dump vs
+# source), Contract-2 (base-branch compatibility + stability policy) and the migration-registry
+# hygiene rule. It ran in NO workflow at all, and in no verifyPr lane either, so release-line drift
+# in the API/migration policy stayed invisible until someone ran it by hand — twice (0.7.1c and
+# 0.7.1d), the second time as a permanent red that no PR could clear without deleting release
+# history.
+#
+# It lives in its own workflow rather than in ci.yml because ci.yml is the JDK 25 production matrix
+# (.github/AGENTS.md rule 6), while this gate is a build-logic authority documented against JDK 21.
+# It lives outside maintainability-baseline.yml because that workflow triggers only for PRs against
+# master, which would leave every epic-targeted slice — where this drift actually happens —
+# unguarded.
+#
+# It invokes the single gate and its own base resolution; it does not re-implement the constituent
+# checks.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  api-architecture:
+    name: api-architecture (verify060Architecture)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Contract-2 and the registry chain walk compare against base-branch dumps, so the base
+          # SHA must be resolvable from history.
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # The gate consumes -PchangePolicyBase, which is configuration-time and untracked as a
+          # task input, so a cached result could belong to a different base SHA.
+          cache-read-only: true
+
+      - name: Resolve comparison base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # A new branch push reports an all-zero (or empty) before-SHA; fall back to the pushed
+          # commit's parent so the gate still compares against something real.
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000)
+              BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+              ;;
+          esac
+          echo "sha=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Comparing against base $BASE"
+
+      - name: Verify API architecture authority
+        run: |
+          ./gradlew verify060Architecture --no-daemon \
+            -PchangePolicyBase="${{ steps.base.outputs.sha }}"
+
+      - name: Upload architecture report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-architecture-report
+          path: build/reports/tramai/architecture/
+          retention-days: 30

@@ -107,7 +107,8 @@ Dashboard != policy authority
 4. the reference control-plane scenario, provider-input release/minimization scenario, and persisted-cancellation scenario pass end to end;
 5. no deferred 0.8/0.9/0.10 scope has leaked into the release without an explicit release-cut change;
 6. `release/0.7.0 → master` is a certification/promotion PR, not a first-time integration event;
-7. the [XR1 external-runtime authority proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) proves that one non-TramAI-authored JVM workload can cross an authoritative TramAI governance boundary without a second policy model or an overstated enforcement claim.
+7. the 0.7.1 integration-closure gates are met — API migration hashes bound to the frozen head, the release-sovereign population pin certified from measurement, and analyzer/build-logic changes kept out of the runtime promotion transition — and meeting them did **not** involve weakening `analyzer-runtime-separation` ([TASK-0.7.1i](TASK-0.7.1i-INTEGRATION-CLOSURE.md));
+8. the [XR1 external-runtime authority proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) proves that one non-TramAI-authored JVM workload can cross an authoritative TramAI governance boundary without a second policy model or an overstated enforcement claim.
 
 ## Execution documents
 

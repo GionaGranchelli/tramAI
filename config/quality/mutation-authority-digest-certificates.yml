@@ -1,0 +1,31 @@
+# Digest-migration certificate ledger (0.7.1g1P2, M40-M47).
+#
+# Base-side authority: a certificate here records that one exact raw whole-population authority
+# digest is semantically equal to one exact authority-projections digest, for one exact bounded set
+# of population admissions. It exists so a semantic upgrade of the authority digest never requires
+# rewriting historical authority (M36 stays literally unchanged).
+#
+# Lifecycle: mint against the exact base (M45) -> retain byte-identically (M46) -> consume only from
+# base (M43 + M42 + M41 + M40) -> remove in the valid consuming transition (M44 + M47). Rules live in
+# MutationAuthorityDigestCertificateCeremony; this file carries only the certificate itself.
+#
+# The certificate below is minted by the P1M transition and changes nothing else: the 67 P1
+# population admissions remain byte-identical and keep their historical raw-v1 digest.
+schemaVersion: "1"
+
+certificates:
+  - fromAlgorithm: "raw-v1"
+    fromDigest: "9aebd3202288c82ff006f2db33c95cac0772746fa3c3061569167cd3f45df9b0"
+    toAlgorithm: "authority-v2"
+    toDigest: "e6ad01dc1d2966894a6555304bc8ca9a04c8174e3c83ae88760fcfebf1464dad"
+    admissionSetDigest: "98a9587a1068ec0cd7158a05ba6909c61c522308c272e7fa9cb27d5edd93a79c"
+    fromBaseSha: "64d05450c285ecd9cf3635ca2935da816f649856"
+    reason: >-
+      Bounds the semantic migration of the P1 whole-population authority digest from raw-v1 to
+      authority-v2, per C7: raw PIT status is diagnostic evidence and not authority. The 67 P1
+      population admissions are unchanged and remain bound to their historical raw-v1 digest
+      (fromDigest); this certificate states that the same frozen unrestricted measurement, whose
+      canonical authority-v2 projection was byte-identical across all four preserved campaigns,
+      projects to toDigest. It authorizes a later transition to consume that pre-existing
+      population-context authority; it does not upgrade, rewrite, re-mint or re-adjudicate any
+      admission, and it changes no mutation outcome.

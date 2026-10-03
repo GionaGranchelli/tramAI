@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.spring.sovereign.persistence.jdbc
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
@@ -14,10 +16,15 @@ import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.spring.sovereign.ops.outbox.ApprovalRunAttribution
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.resolveApprovalRunAttribution
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Connection
@@ -36,12 +43,13 @@ class JdbcSovereignOpsApprovalMutationStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
+    private val suspendedInvocations: SuspendedInvocationStore? = null,
 ) : SovereignOpsApprovalMutationStore {
-
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    private val mapper: ObjectMapper =
+        ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     override suspend fun denyApprovalWithAuditIntent(
         approvalId: String,
@@ -49,8 +57,8 @@ class JdbcSovereignOpsApprovalMutationStore(
         actor: String,
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsApprovalMutationResult {
-        return mutateApprovalWithAuditIntent(
+    ): SovereignOpsApprovalMutationResult =
+        mutateApprovalWithAuditIntent(
             approvalId = approvalId,
             expectedVersion = expectedVersion,
             actor = actor,
@@ -58,7 +66,6 @@ class JdbcSovereignOpsApprovalMutationStore(
             auditIntent = auditIntent,
             transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
         )
-    }
 
     override suspend fun approveApprovalWithAuditIntent(
         approvalId: String,
@@ -66,8 +73,8 @@ class JdbcSovereignOpsApprovalMutationStore(
         actor: String,
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsApprovalMutationResult {
-        return mutateApprovalWithAuditIntent(
+    ): SovereignOpsApprovalMutationResult =
+        mutateApprovalWithAuditIntent(
             approvalId = approvalId,
             expectedVersion = expectedVersion,
             actor = actor,
@@ -75,7 +82,6 @@ class JdbcSovereignOpsApprovalMutationStore(
             auditIntent = auditIntent,
             transition = ApprovalTransition.Approve(decidedBy = actor, comment = reason),
         )
-    }
 
     private suspend fun mutateApprovalWithAuditIntent(
         approvalId: String,
@@ -105,12 +111,17 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
 
         // ── Transactional mutation ────────────────────────────────────
+        // 0.7.1d: resolved from the approval's durable suspension BEFORE the transaction opens, so a
+        // resolution failure fails closed with the approval untouched and the outbox transaction keeps
+        // its shape. A governed decision must never be recorded as an unattributed V1 intent.
+        val governedIntent = resolveGovernedIntent(approvalId, auditIntent)
         return dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
             try {
-                val current = selectApprovalForUpdate(conn, approvalId)
-                    ?: throw ApprovalStoreNotFoundException(approvalId)
+                val current =
+                    selectApprovalForUpdate(conn, approvalId)
+                        ?: throw ApprovalStoreNotFoundException(approvalId)
 
                 // Guard: status
                 if (current.status != ApprovalStatus.PENDING.name) {
@@ -143,17 +154,19 @@ class JdbcSovereignOpsApprovalMutationStore(
                 }
 
                 // Insert outbox as PREPARED
-                val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
-                val preparedEncrypted = payloadCodec.encode(preparedPayload)
-                insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
+                val preparedIntent = governedIntent?.record ?: auditIntent
+                val preparedEncrypted =
+                    payloadCodec.encode(encodeOutboxRecord(preparedIntent, governedIntent?.runIdentity))
+                insertPreparedOutbox(conn, preparedIntent, preparedEncrypted)
 
                 // Update approval
                 val decidedAt = Timestamp.from(now)
                 val nextVersion = incrementVersion(approvalId, expectedVersion)
-                val updatedMetadata = metadata.copy(
-                    decidedBy = actor,
-                    decisionComment = reason,
-                )
+                val updatedMetadata =
+                    metadata.copy(
+                        decidedBy = actor,
+                        decisionComment = reason,
+                    )
                 val metadataJson = mapper.writeValueAsString(updatedMetadata)
                 val targetStatus = transition.targetStatus()
 
@@ -168,19 +181,21 @@ class JdbcSovereignOpsApprovalMutationStore(
                 )
 
                 // Mark outbox PENDING
-                val pendingAuditIntent = auditIntent.copy(
-                    approvalStatus = targetStatus.name,
-                    approvalVersion = nextVersion,
-                    status = SovereignOpsAuditOutboxStatus.PENDING,
-                )
-                val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
-                val pendingEncrypted = payloadCodec.encode(pendingPayload)
+                val pendingAuditIntent =
+                    preparedIntent.copy(
+                        approvalStatus = targetStatus.name,
+                        approvalVersion = nextVersion,
+                        status = SovereignOpsAuditOutboxStatus.PENDING,
+                    )
+                val pendingEncrypted =
+                    payloadCodec.encode(encodeOutboxRecord(pendingAuditIntent, governedIntent?.runIdentity))
 
                 markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
 
                 // Re-read for return value
-                val updated = selectApproval(conn, approvalId)
-                    ?: throw ApprovalStoreNotFoundException(approvalId)
+                val updated =
+                    selectApproval(conn, approvalId)
+                        ?: throw ApprovalStoreNotFoundException(approvalId)
                 val approval = mapToApprovalRequest(updated)
 
                 conn.commit()
@@ -200,16 +215,45 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
+    /**
+     * 0.7.1d: the durable intent this mutation records — governed when the approval's suspension
+     * carries the canonical identity, released V1 otherwise.
+     *
+     * The identity is read from the suspension record, the durable authority this slice established,
+     * never reconstructed from `ApprovalRequest.binding.workflowRunId`, which is a run identifier and
+     * not an authority. A governed intent whose identity disagrees with the audit intent's run id
+     * throws from [GovernedSovereignOpsAuditOutboxRecord] before any state changes.
+     */
+    private suspend fun resolveGovernedIntent(
+        approvalId: String,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+    ): GovernedSovereignOpsAuditOutboxRecord? {
+        val attribution = suspendedInvocations?.let { resolveApprovalRunAttribution(it, approvalId) }
+        return when (attribution) {
+            is ApprovalRunAttribution.Governed -> {
+                GovernedSovereignOpsAuditOutboxRecord(auditIntent, attribution.identity)
+            }
+
+            ApprovalRunAttribution.LegacySuspension, ApprovalRunAttribution.NoSuspension, null -> {
+                null
+            }
+        }
+    }
+
     // ── SQL helpers ──────────────────────────────────────────────────
 
-    private fun selectApprovalForUpdate(conn: Connection, approvalId: String): ApprovalRow? {
-        val sql = """
+    private fun selectApprovalForUpdate(
+        conn: Connection,
+        approvalId: String,
+    ): ApprovalRow? {
+        val sql =
+            """
             SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
                    sanitized_metadata, version
             FROM approvals
             WHERE approval_id = ?
             FOR UPDATE
-        """.trimIndent()
+            """.trimIndent()
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
@@ -218,13 +262,17 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
-    private fun selectApproval(conn: Connection, approvalId: String): ApprovalRow? {
-        val sql = """
+    private fun selectApproval(
+        conn: Connection,
+        approvalId: String,
+    ): ApprovalRow? {
+        val sql =
+            """
             SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
                    sanitized_metadata, version
             FROM approvals
             WHERE approval_id = ?
-        """.trimIndent()
+            """.trimIndent()
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
@@ -233,30 +281,32 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
-    private fun mapApprovalRow(rs: ResultSet): ApprovalRow = ApprovalRow(
-        approvalId = rs.getString("approval_id"),
-        status = rs.getString("status"),
-        createdAt = rs.getObject("created_at", OffsetDateTime::class.java),
-        decidedAt = rs.getObject("decided_at", OffsetDateTime::class.java),
-        decisionActorHash = rs.getString("decision_actor_hash"),
-        decisionType = rs.getString("decision_type"),
-        sanitizedMetadataJson = rs.getString("sanitized_metadata"),
-        version = rs.getLong("version"),
-    )
+    private fun mapApprovalRow(rs: ResultSet): ApprovalRow =
+        ApprovalRow(
+            approvalId = rs.getString("approval_id"),
+            status = rs.getString("status"),
+            createdAt = rs.getObject("created_at", OffsetDateTime::class.java),
+            decidedAt = rs.getObject("decided_at", OffsetDateTime::class.java),
+            decisionActorHash = rs.getString("decision_actor_hash"),
+            decisionType = rs.getString("decision_type"),
+            sanitizedMetadataJson = rs.getString("sanitized_metadata"),
+            version = rs.getLong("version"),
+        )
 
     private fun insertPreparedOutbox(
         conn: Connection,
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO audit_outbox (
                 outbox_id, event_key, status, correlation_key_hash,
                 created_at, attempt_count,
                 encrypted_payload, encryption_key_id, encryption_algorithm,
                 encryption_nonce, payload_digest, version
             ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1)
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, record.outboxId)
@@ -282,7 +332,8 @@ class JdbcSovereignOpsApprovalMutationStore(
         metadataJson: String,
         targetStatus: ApprovalStatus,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE approvals
             SET status = ?,
                 decided_at = ?,
@@ -291,7 +342,7 @@ class JdbcSovereignOpsApprovalMutationStore(
                 sanitized_metadata = ?::jsonb,
                 version = version + 1
             WHERE approval_id = ? AND version = ? AND status = 'PENDING'
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, targetStatus.name)
@@ -313,7 +364,8 @@ class JdbcSovereignOpsApprovalMutationStore(
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = 'PENDING',
                 encrypted_payload = ?,
@@ -323,7 +375,7 @@ class JdbcSovereignOpsApprovalMutationStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ? AND status = 'PREPARED'
-        """.trimIndent()
+            """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
             stmt.setBytes(1, encrypted.ciphertext)
@@ -344,14 +396,15 @@ class JdbcSovereignOpsApprovalMutationStore(
 
         return ApprovalRequest(
             approvalId = row.approvalId,
-            binding = ApprovalBinding(
-                workflowRunId = metadata.binding.workflowRunId,
-                toolName = metadata.binding.toolName,
-                argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
-                policyVersion = metadata.binding.policyVersion,
-                workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
-                approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
-            ),
+            binding =
+                ApprovalBinding(
+                    workflowRunId = metadata.binding.workflowRunId,
+                    toolName = metadata.binding.toolName,
+                    argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
+                    policyVersion = metadata.binding.policyVersion,
+                    workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
+                    approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
+                ),
             status = ApprovalStatus.valueOf(row.status),
             requestedBy = metadata.requestedBy,
             requestedAt = Instant.parse(metadata.requestedAt),
@@ -374,7 +427,10 @@ class JdbcSovereignOpsApprovalMutationStore(
 
     // ── Validation ───────────────────────────────────────────────────
 
-    private fun validateIdField(value: String, fieldName: String) {
+    private fun validateIdField(
+        value: String,
+        fieldName: String,
+    ) {
         val trimmed = value.trim()
         require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
         require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
@@ -382,7 +438,10 @@ class JdbcSovereignOpsApprovalMutationStore(
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
     }
 
-    private fun incrementVersion(approvalId: String, version: Long): Long =
+    private fun incrementVersion(
+        approvalId: String,
+        version: Long,
+    ): Long =
         try {
             Math.addExact(version, 1L)
         } catch (_: ArithmeticException) {
@@ -395,11 +454,17 @@ class JdbcSovereignOpsApprovalMutationStore(
     ): RuntimeException {
         val message = e.message ?: ""
         return when {
-            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") ->
+            message.contains("uq_audit_outbox_event_key") || message.contains("audit_outbox_event_key_key") -> {
                 IllegalStateException("tramai-sovereign-ops-outbox-duplicate-event-key: ${record.eventKey}")
-            message.contains("audit_outbox_pkey") ->
+            }
+
+            message.contains("audit_outbox_pkey") -> {
                 IllegalStateException("tramai-sovereign-ops-outbox-duplicate-id: ${record.outboxId}")
-            else -> IllegalStateException("tramai-sovereign-ops-approval-mutation-database-failure", e)
+            }
+
+            else -> {
+                IllegalStateException("tramai-sovereign-ops-approval-mutation-database-failure", e)
+            }
         }
     }
 
