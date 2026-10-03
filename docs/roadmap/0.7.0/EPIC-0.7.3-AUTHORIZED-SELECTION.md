@@ -32,6 +32,7 @@ optimization signals can rank but cannot authorize
 - selection/non-selection reason paths;
 - constrained fallback/retry;
 - decision/configuration identity/digest where required for evidence;
+- reusable governance-decision identity/envelope semantics that bind workload/run/policy/authority/reasons without becoming provider-selection-specific;
 - safe historical decision evidence.
 
 ## Non-goals
@@ -39,7 +40,8 @@ optimization signals can rank but cannot authorize
 - rich adaptive routing;
 - machine-learned routing;
 - FinOps optimization;
-- broad cost/quality strategy productization.
+- broad cost/quality strategy productization;
+- productionized external-runtime adapter SDKs or a broad framework-integration matrix.
 
 ## Tasks
 
@@ -50,7 +52,7 @@ optimization signals can rank but cannot authorize
 | 0.7.3c | Authorized-set derivation | Compute governance-authorized candidates from 0.7.2 contracts |
 | 0.7.3d | Viability stage | Apply runtime constraints only after authorization |
 | 0.7.3e | Selection/fallback fencing | Ensure selection/retry/fallback cannot escape viable authorized set |
-| 0.7.3f | Decision identity/evidence | Persist enough context to explain historical selection safely |
+| 0.7.3f | Decision identity/evidence | Persist enough workload/run/policy/decision/authority context to explain historical selection safely and to support the XR1 external-runtime authority proof without inventing a second decision model |
 | 0.7.3g | Adversarial/mutation/provider proof | Prove ineligible routes never become selected via fallback/preference |
 | 0.7.3h | Integration/docs | Final API/architecture docs and Epic acceptance |
 
@@ -60,6 +62,13 @@ optimization signals can rank but cannot authorize
 - Policy-ineligible candidates cannot become selected through retry/fallback/preference.
 - Rejected/non-selected candidates expose structured safe reasons.
 - Historical evidence identifies the relevant workload/config/policy/routing context.
+- Decision identity and structured reasons are not coupled to TramAI owning the workflow runtime or to provider selection as the only future decision family.
+
+## Post-Epic release checkpoint
+
+After 0.7.3 decision semantics are available, run [XR1 — External Runtime Authority Proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) using Spring AI as the reference non-TramAI runtime. XR1 must complete before 0.7.4 evidence/projection contracts are considered frozen.
+
+XR1 is a release architecture proof, not an expansion of this Epic into framework-adapter productization.
 
 ## Adversarial proof
 
