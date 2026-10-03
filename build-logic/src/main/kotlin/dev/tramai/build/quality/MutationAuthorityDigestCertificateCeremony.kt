@@ -37,8 +37,9 @@ object MutationAuthorityDigestCertificateCeremony {
         candidate: MutationAuthorityDigestCertificates,
         baseSha: String,
         validConsumptions: Set<CertificateConsumption.Valid> = emptySet(),
+        promotion: MutationPopulationPromotion? = null,
     ): List<VerificationDiagnostic> =
-        mintChecks(base, candidate, baseSha) +
+        mintChecks(base, candidate, baseSha, promotion) +
             retentionChecks(base, candidate) +
             singleUseChecks(base, candidate, validConsumptions) +
             removalChecks(base, candidate, validConsumptions)
@@ -48,17 +49,23 @@ object MutationAuthorityDigestCertificateCeremony {
      * Anti-replay at mint time: a certificate payload cannot be replayed onto a different authority
      * base. Deliberately not re-checked later - a certificate legitimately survives intermediate
      * merges, so requiring it to track the immediate base would make delayed consumption impossible.
+     *
+     * One narrow exception (0.7.1i): a certificate carried across a release promotion boundary by an
+     * exact [MutationPopulationPromotion] was not minted here, so it is not bound to this base. The
+     * exception applies only to the source digest the declaration carries.
      */
     private fun mintChecks(
         base: MutationAuthorityDigestCertificates,
         candidate: MutationAuthorityDigestCertificates,
         baseSha: String,
+        promotion: MutationPopulationPromotion?,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseByFromDigest = base.byFromDigest()
         for ((fromDigest, certificate) in candidate.byFromDigest()) {
             if (fromDigest in baseByFromDigest) continue
-            if (certificate.fromBaseSha != baseSha) {
+            val carriedForward = promotion != null && certificate.fromDigest == promotion.populationDigest
+            if (certificate.fromBaseSha != baseSha && !carriedForward) {
                 diagnostics +=
                     certificateFailure(
                         fromDigest,

@@ -74,7 +74,8 @@ object MutationPopulationAdmissionCeremony {
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
         authority: AdmissionAuthority,
-    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, authority)
+        promotion: MutationPopulationPromotion? = null,
+    ): List<VerificationDiagnostic> = lifecycleChecks(base, candidate, authority, promotion)
 
     /**
      * The verdict for one identity that is present in the candidate population and absent from the
@@ -201,8 +202,9 @@ object MutationPopulationAdmissionCeremony {
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
         authority: AdmissionAuthority,
+        promotion: MutationPopulationPromotion?,
     ): List<VerificationDiagnostic> {
-        val diagnostics = mintChecks(base, candidate)
+        val diagnostics = mintChecks(base, candidate, promotion)
         return diagnostics + consumptionChecks(base, candidate, authority)
     }
 
@@ -212,15 +214,22 @@ object MutationPopulationAdmissionCeremony {
      * onto a different authority base. It is deliberately NOT re-checked at consumption: a pending
      * authorization legitimately survives intermediate merges, and requiring it to track the
      * immediate base would make delayed consumption impossible.
+     *
+     * One narrow exception (0.7.1i): a row carried across a release promotion boundary by an exact
+     * [MutationPopulationPromotion] was not minted here, so it is not bound to this base. The
+     * exception applies only to the digest the declaration carries - a newly minted row has a
+     * different digest and is rejected exactly as before.
      */
     private fun mintChecks(
         base: MutationRatchetAuthority,
         candidate: MutationRatchetCandidate,
+        promotion: MutationPopulationPromotion?,
     ): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         val baseAdmissions = base.admissions.byIdentity()
         for ((id, admission) in candidate.admissions.byIdentity().filterKeys { it !in baseAdmissions }) {
-            if (admission.fromBaseSha != base.baseSha) {
+            val carriedForward = promotion != null && admission.populationDigest == promotion.populationDigest
+            if (admission.fromBaseSha != base.baseSha && !carriedForward) {
                 diagnostics +=
                     VerificationDiagnostic.failure(
                         DiagnosticCode.MUTATION_RATCHET_ADMISSION_INVALID,

@@ -868,6 +868,12 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         // newly minted certificate to this base, M46 rejects a rewritten retained one,
                         // and M47 must be able to see a base certificate disappear.
                         certificates = MutationAuthorityDigestCertificateLoader.load(project.rootDir),
+                        // The promotion declaration is loaded from the transition's OWN tree by design:
+                        // it is candidate-side, because it must name the base SHA it promotes onto and
+                        // the base branch cannot name the commit that will contain it. Absent means "no
+                        // promotion", which is the fail-closed state - M35/M45 then bind every
+                        // appearing row to the transition base exactly as before.
+                        promotion = MutationPopulationPromotionLoader.load(project.rootDir),
                     )
                 val diagnostics =
                     MutationRatchetVerifier().verify(
