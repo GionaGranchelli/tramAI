@@ -663,6 +663,13 @@ public final class dev/tramai/security/governance/TrustZoneName {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/security/governance/TrustZonePolicy {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun allows (Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/security/ProviderTrustZone;)Z
+}
+
 public final class dev/tramai/security/governance/WorkloadClassificationSignal {
 	public fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
 	public final fun component1 ()Ldev/tramai/core/policy/DataClassification;
