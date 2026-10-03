@@ -619,6 +619,14 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 	public final fun export (Ljava/util/List;)Ljava/util/List;
 }
 
+public final class dev/tramai/security/governance/CandidateAuthorization {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun authorizedSet (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ljava/util/Set;
+	public final fun authorizes (Ldev/tramai/security/governance/ProviderCandidate;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Z
+}
+
 public final class dev/tramai/security/governance/EffectiveRoutingPolicyKt {
 	public static final fun effectiveRoutingRules (Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)Ljava/util/Map;
 	public static synthetic fun effectiveRoutingRules$default (Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Ljava/util/Map;
@@ -633,6 +641,21 @@ public final class dev/tramai/security/governance/NamedTrustZone {
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getCategory ()Ldev/tramai/security/ProviderTrustZone;
 	public final fun getName ()Ldev/tramai/security/governance/TrustZoneName;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderCandidate {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/ProviderDeployment;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/security/governance/ProviderDeployment;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/ProviderDeployment;)Ldev/tramai/security/governance/ProviderCandidate;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderCandidate;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/ProviderDeployment;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderCandidate;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeployment ()Ldev/tramai/security/governance/ProviderDeployment;
+	public final fun getModelId ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
