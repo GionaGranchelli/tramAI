@@ -114,3 +114,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2 classification/trust-zone resolution boundary: tramai-security gains the workload governance resolution surface (WorkloadClassificationSignal, WorkloadGovernanceResolver, WorkloadGovernanceResolution, WorkloadGovernanceFailure), and tramai-core publishes the DataClassification/ClassificationSource ranking that moved out of tramai-engine so both modules agree on one ordering. Both changes are additive."
     migration: "No consumer action required: the governance resolution surface is new, and no existing signature changed. Recompile only if you place the moved ranking extensions in scope."
+
+  - module: ":tramai-security"
+    fromSha256: "6fe604576d12b6aec316b1bced8fcf22cc7c772fa6f49dd27706daf6d029865d"
+    toSha256: "a88a3f2a986208404418594206d014c0c279509d0c19b5c403c8cd17ca83807f"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2b provider deployment / named trust-zone contract: tramai-security gains ProviderDeployment, NamedTrustZone, TrustZoneName and TrustZoneCatalogue, so a concrete provider deployment owns exactly one organization-defined trust zone and a zone name resolves to exactly one portable category. Additive only."
+    migration: "No consumer action required: the provider-deployment surface is new, and no existing signature changed."

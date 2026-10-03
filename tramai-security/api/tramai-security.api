@@ -619,6 +619,50 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 	public final fun export (Ljava/util/List;)Ljava/util/List;
 }
 
+public final class dev/tramai/security/governance/NamedTrustZone {
+	public fun <init> (Ldev/tramai/security/governance/TrustZoneName;Ldev/tramai/security/ProviderTrustZone;)V
+	public final fun component1 ()Ldev/tramai/security/governance/TrustZoneName;
+	public final fun component2 ()Ldev/tramai/security/ProviderTrustZone;
+	public final fun copy (Ldev/tramai/security/governance/TrustZoneName;Ldev/tramai/security/ProviderTrustZone;)Ldev/tramai/security/governance/NamedTrustZone;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/NamedTrustZone;Ldev/tramai/security/governance/TrustZoneName;Ldev/tramai/security/ProviderTrustZone;ILjava/lang/Object;)Ldev/tramai/security/governance/NamedTrustZone;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCategory ()Ldev/tramai/security/ProviderTrustZone;
+	public final fun getName ()Ldev/tramai/security/governance/TrustZoneName;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/ProviderDeployment {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/NamedTrustZone;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/security/governance/NamedTrustZone;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/NamedTrustZone;)Ldev/tramai/security/governance/ProviderDeployment;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/ProviderDeployment;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/security/governance/NamedTrustZone;ILjava/lang/Object;)Ldev/tramai/security/governance/ProviderDeployment;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentId ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getTrustZone ()Ldev/tramai/security/governance/NamedTrustZone;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/TrustZoneCatalogue {
+	public fun <init> (Ljava/util/Collection;)V
+	public final fun categoryOf (Ldev/tramai/security/governance/TrustZoneName;)Ldev/tramai/security/ProviderTrustZone;
+}
+
+public final class dev/tramai/security/governance/TrustZoneName {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/security/governance/TrustZoneName;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/TrustZoneName;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/security/governance/TrustZoneName;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class dev/tramai/security/governance/WorkloadClassificationSignal {
 	public fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
 	public final fun component1 ()Ldev/tramai/core/policy/DataClassification;
