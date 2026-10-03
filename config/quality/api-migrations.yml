@@ -135,3 +135,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2d provider-input release boundary: tramai-security gains ProviderInputRelease, which releases a specific provider-bound input only when the trust-zone decision allows it AND the classification's routing rule permits that zone. Additive only."
     migration: "No consumer action required: the release boundary is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "d271ae2c1de783fb4dafac56392ddfb6d9a8ec08d608ae2ec642ef5a0a6aa0da"
+    toSha256: "9d64fe4b905350b96eadbf505b63810fd8939e8115fbb9f11fa62c565dc990f9"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.2e restrictive effective-policy composition: tramai-security gains effectiveRoutingRules, which composes organization, environment and workload routing policy by intersection, so a narrower scope may restrict authority but never widen it. Additive only."
+    migration: "No consumer action required: the composition function is new, and no existing signature changed."

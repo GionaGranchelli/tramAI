@@ -619,6 +619,11 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 	public final fun export (Ljava/util/List;)Ljava/util/List;
 }
 
+public final class dev/tramai/security/governance/EffectiveRoutingPolicyKt {
+	public static final fun effectiveRoutingRules (Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)Ljava/util/Map;
+	public static synthetic fun effectiveRoutingRules$default (Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Ljava/util/Map;
+}
+
 public final class dev/tramai/security/governance/NamedTrustZone {
 	public fun <init> (Ldev/tramai/security/governance/TrustZoneName;Ldev/tramai/security/ProviderTrustZone;)V
 	public final fun component1 ()Ldev/tramai/security/governance/TrustZoneName;
