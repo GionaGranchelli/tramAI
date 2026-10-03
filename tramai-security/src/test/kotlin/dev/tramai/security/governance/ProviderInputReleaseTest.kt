@@ -3,6 +3,7 @@ package dev.tramai.security.governance
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -122,9 +123,10 @@ class ProviderInputReleaseTest {
                     val expected =
                         (workloadZone to providerZone) in pairs &&
                             rules[classification]?.allowedZones?.contains(providerZone) == true
-                    assertTrue(
-                        release.releases(workloadZone, classification, providerZone) == expected,
-                        "expected releases($workloadZone, $classification, $providerZone) == $expected",
+                    assertEquals(
+                        expected,
+                        release.releases(workloadZone, classification, providerZone),
+                        "releases($workloadZone, $classification, $providerZone)",
                     )
                 }
             }

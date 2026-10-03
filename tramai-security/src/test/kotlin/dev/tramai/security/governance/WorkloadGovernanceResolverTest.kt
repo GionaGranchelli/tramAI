@@ -13,7 +13,6 @@ import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderRoutingConfiguration
 import dev.tramai.security.ProviderTrustZone
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -202,7 +201,7 @@ class WorkloadGovernanceResolverTest {
         val result = resolved(resolve(listOf(signal(DataClassification.PUBLIC)), ProviderTrustZone.GLOBAL_CLOUD))
 
         assertEquals(ProviderTrustZone.GLOBAL_CLOUD, result.trustZone)
-        assertTrue(result.classification == DataClassification.PUBLIC)
+        assertEquals(DataClassification.PUBLIC, result.classification)
     }
 
     @Test

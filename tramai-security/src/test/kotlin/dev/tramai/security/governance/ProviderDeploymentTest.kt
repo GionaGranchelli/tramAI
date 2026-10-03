@@ -106,8 +106,11 @@ class ProviderDeploymentTest {
     }
 
     @Test
-    fun `a blank or untrimmed zone name is rejected`() {
+    fun `a blank, untrimmed or control-character zone name is rejected`() {
         assertThrows(IllegalArgumentException::class.java) { TrustZoneName(" ") }
         assertThrows(IllegalArgumentException::class.java) { TrustZoneName("eu-west-sovereign ") }
+        // BEL is not whitespace, so trim() does not catch it: this case isolates the
+        // control-character rule from the blank and untrimmed rules.
+        assertThrows(IllegalArgumentException::class.java) { TrustZoneName("eu-west\u0007sovereign") }
     }
 }
