@@ -1,7 +1,7 @@
 # Epic 0.7.2 — Classification, Trust Zones & Restrictive Policy
 
 **Branch:** `epic/0.7.2-policy-trust-zones`  
-**Status:** ⚪ Planned  
+**Status:** ✅ Complete — restrictive-decision core (see "Delivered" below)  
 **Dependencies:** 0.7.1 SOFT
 
 ## Executive decision
@@ -97,3 +97,88 @@ Reject implementations that classify after exposure, downgrade an explicit stron
 ## Mutation expectations
 
 High-value mutations: intersection→union, deny→allow default, comparison weakening, classification ordering bypass, explicit-class precedence removal, provider-release checkpoint bypass, release outcome `DENY`→`ALLOW_RAW`, minimization failure→pass-through, selected-deployment identity ignored during projection derivation, and canonical-input aliasing that allows in-place mutation.
+
+## Delivered — 0.7.2 complete (restrictive-decision core)
+
+**Epic head at completion:** `655e607a14118634d5f302aa9ad8024540153128`
+
+The candidate table above was re-scoped during implementation, so its letters do
+not all line up with the slices that were actually built. The mapping below is
+authoritative for what shipped.
+
+| merged as | slice | what it established | evidence |
+|---|---|---|---|
+| #485 | 0.7.2a | workload → classification → trust zone, deterministic and fail-closed; an explicit stronger classification is never downgraded | `WorkloadGovernanceResolverTest` (15) |
+| #487 | 0.7.2b | a provider *deployment* carries exactly one named trust zone; deployment identity is distinct from provider brand | `ProviderDeploymentTest` (11) |
+| #488 | 0.7.2c | restrictive zone compatibility — an explicitly listed ordered pair allows, everything else denies, including the same zone | `TrustZonePolicyTest` (8) |
+| #489 | 0.7.2d | the provider-input release decision — released only when the zone policy allows **and** the classification's allow-list contains the provider zone | `ProviderInputReleaseTest` (7) |
+| #490 | 0.7.2e | restrictive composition — organization ∩ environment ∩ workload, per classification; a narrower scope cannot widen authority | `EffectiveRoutingPolicyTest` (10) |
+| #491 | review findings | the Copilot findings raised against the slices above | `TASK-0.7.2-REVIEW-FINDINGS.md` |
+
+Verification at the epic head, measured rather than assumed:
+
+| gate | result |
+|---|---|
+| `spotlessCheck` | rc=0 |
+| `verifyStaticAnalysis` | rc=0 — Detekt baseline 4792 → 4792, no growth |
+| `verify060Architecture` | PASS 10/10 (delta measured against the pre-merge epic tip) |
+| `verifyChangePolicy` | PASSED — 11 changed files, class `runtime-behaviour`, no violations |
+| the 0.7.2 suites | 56 tests, 0 failing (incl. `ExecutionSecurityContextTest` 5/5) |
+
+The chain, end to end: classify → resolve trust → describe deployment trust →
+restrict compatibility → compose restrictions → authorize data release.
+
+## Acceptance-criteria audit
+
+**Met.** Concrete provider deployments rather than brands carry trust-zone
+assignment. Lower scope cannot authorize something denied above it. Missing
+required classification or topology cannot silently become permissive within the
+new boundary: an unresolvable classification refuses, an unknown zone name
+resolves to nothing, an unlisted pair denies, an unclassified release withholds.
+Equivalent authoritative facts produce the same deterministic decision.
+Evaluation is side-effect-free — none of the five types performs I/O.
+
+**Vacuously true — true only because nothing invokes a provider yet.**
+
+- "No provider invocation occurs before the selected deployment has an explicit
+  provider-input data-release outcome." Nothing invokes a provider, and the
+  release boundary is not wired into any invocation path.
+- "No policy-required request reaches an ineligible provider before classification
+  resolves." The resolver exists; the orchestration ordering guard does not.
+- "Decision evaluation can be exercised with provider/tool/network traps." The
+  evaluation is pure, but no trap test exists.
+
+**Not met — features this epic deliberately did not build, or criterion text that
+presumes them.** Provider-input minimization/redaction and the provider-bound
+projection (canonical vs derived, recomputation when fallback changes the
+deployment); safe typed evidence and stable reason metadata for decisions
+(decisions are `Boolean` by explicit scope instruction); "decisions expose safe
+stable reasons usable by 0.7.3/0.7.4".
+
+One pre-existing seam is recorded rather than fixed here:
+`DefaultPolicyEngine.evaluateProviderRouting` returns `null` to mean
+*inconclusive*, which falls back to legacy checks. That is permissive-by-fallback
+in existing code. The 0.7.2 boundary does not route through it.
+
+## Deliberately deferred — 0.7.2f/g/h
+
+Not started, and not required by the delivered contract. Each carries the
+condition under which it should be revived:
+
+- **f — missing/unknown/failure semantics.** Largely satisfied already (see the
+  audit above). The residual is the `evaluateProviderRouting` fallback seam.
+  *Revive when* a slice routes a decision through that engine check.
+- **g — reason/evidence model.** *Revive when* a caller must distinguish denial
+  causes. Boolean decisions were an explicit scope instruction, not an oversight.
+- **h — adversarial/TCK/mutation proof.** Each invariant already has focused
+  adversarial tests (no downgrade, no brand trust, no widening, no pre-release
+  invocation, no fail-open path). *Revive when* selection and invocation land,
+  because then "no pre-release invocation" stops being vacuous and becomes
+  testable against a real caller.
+
+**Why not now.** Every unmet criterion above becomes *enforceable* only once
+something selects a deployment and invokes a provider — which is 0.7.3's subject,
+and 0.7.3 depends on this epic HARD. A guard against invoking a provider that
+nothing invokes cannot be tested against reality. Building it here would ship
+unverifiable code and would let planned subtasks justify themselves after the
+epic's own objective was met.
