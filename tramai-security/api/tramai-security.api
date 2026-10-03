@@ -619,6 +619,66 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 	public final fun export (Ljava/util/List;)Ljava/util/List;
 }
 
+public final class dev/tramai/security/governance/WorkloadClassificationSignal {
+	public fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
+	public final fun component1 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component2 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun copy (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)Ldev/tramai/security/governance/WorkloadClassificationSignal;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/WorkloadClassificationSignal;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILjava/lang/Object;)Ldev/tramai/security/governance/WorkloadClassificationSignal;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/WorkloadGovernanceFailure : java/lang/Enum {
+	public static final field DEPLOYMENT_ZONE_NOT_PERMITTED Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public static final field NOT_CLASSIFIED Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public static final field NO_RESOLVABLE_TRUST_ZONE Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public static fun values ()[Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+}
+
+public abstract interface class dev/tramai/security/governance/WorkloadGovernanceResolution {
+}
+
+public final class dev/tramai/security/governance/WorkloadGovernanceResolution$Refused : dev/tramai/security/governance/WorkloadGovernanceResolution {
+	public fun <init> (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/security/governance/WorkloadGovernanceFailure;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun component2 ()Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/security/governance/WorkloadGovernanceFailure;)Ldev/tramai/security/governance/WorkloadGovernanceResolution$Refused;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/WorkloadGovernanceResolution$Refused;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/security/governance/WorkloadGovernanceFailure;ILjava/lang/Object;)Ldev/tramai/security/governance/WorkloadGovernanceResolution$Refused;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFailure ()Ldev/tramai/security/governance/WorkloadGovernanceFailure;
+	public final fun getIdentity ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/WorkloadGovernanceResolution$Resolved : dev/tramai/security/governance/WorkloadGovernanceResolution {
+	public fun <init> (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ldev/tramai/security/ProviderTrustZone;)V
+	public final fun component1 ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun component2 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component3 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun component4 ()Ldev/tramai/security/ProviderTrustZone;
+	public final fun copy (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ldev/tramai/security/ProviderTrustZone;)Ldev/tramai/security/governance/WorkloadGovernanceResolution$Resolved;
+	public static synthetic fun copy$default (Ldev/tramai/security/governance/WorkloadGovernanceResolution$Resolved;Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ldev/tramai/security/ProviderTrustZone;ILjava/lang/Object;)Ldev/tramai/security/governance/WorkloadGovernanceResolution$Resolved;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getIdentity ()Ldev/tramai/core/identity/WorkloadDeploymentIdentity;
+	public final fun getSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getTrustZone ()Ldev/tramai/security/ProviderTrustZone;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/WorkloadGovernanceResolver {
+	public static final field INSTANCE Ldev/tramai/security/governance/WorkloadGovernanceResolver;
+	public final fun resolve (Ldev/tramai/core/identity/WorkloadDeploymentIdentity;Ljava/util/List;Ldev/tramai/security/ProviderTrustZone;Ljava/util/Map;)Ldev/tramai/security/governance/WorkloadGovernanceResolution;
+}
+
 public final class dev/tramai/security/model/InMemoryModelRegistry : dev/tramai/core/model/ModelRegistry {
 	public static final field Companion Ldev/tramai/security/model/InMemoryModelRegistry$Companion;
 	public synthetic fun <init> (Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
