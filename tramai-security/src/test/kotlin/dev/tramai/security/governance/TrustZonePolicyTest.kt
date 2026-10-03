@@ -1,6 +1,7 @@
 package dev.tramai.security.governance
 
 import dev.tramai.security.ProviderTrustZone
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -73,9 +74,10 @@ class TrustZonePolicyTest {
         ProviderTrustZone.entries.forEach { workload ->
             ProviderTrustZone.entries.forEach { provider ->
                 val expected = (workload to provider) in listed
-                assertTrue(
-                    policy.allows(workload, provider) == expected,
-                    "expected allows($workload, $provider) == $expected",
+                assertEquals(
+                    expected,
+                    policy.allows(workload, provider),
+                    "allows($workload, $provider)",
                 )
             }
         }

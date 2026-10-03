@@ -12,11 +12,6 @@ package dev.tramai.core.policy
  * one module has to agree on the ordering; a second copy would be a second
  * meaning.
  */
-private const val RANK_PUBLIC = 0
-private const val RANK_INTERNAL = 1
-private const val RANK_CONFIDENTIAL = 2
-private const val RANK_RESTRICTED = 3
-
 val DataClassification.rank: Int
     get() =
         when (this) {
@@ -25,6 +20,14 @@ val DataClassification.rank: Int
             DataClassification.CONFIDENTIAL -> RANK_CONFIDENTIAL
             DataClassification.RESTRICTED -> RANK_RESTRICTED
         }
+
+// Declared below the property they rank, so the KDoc above stays attached to
+// `rank` rather than to the first constant. Naming these values keeps the
+// detector's magic-number rule happy; it must not cost `rank` its documentation.
+private const val RANK_PUBLIC = 0
+private const val RANK_INTERNAL = 1
+private const val RANK_CONFIDENTIAL = 2
+private const val RANK_RESTRICTED = 3
 
 /**
  * Authority of the source that produced a classification.
