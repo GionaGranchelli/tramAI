@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -14,29 +15,36 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
+import dev.tramai.core.exception.GovernedRunContinuityException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
-import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetSnapshot
-import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
+import dev.tramai.engine.approval.ApprovalRunAttribution
+import dev.tramai.engine.approval.decodeApprovalAttribution
+import dev.tramai.engine.approval.encodeApprovalAttribution
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
 import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataPolicy
+import dev.tramai.spring.sovereign.ops.outbox.GovernedSovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import kotlinx.coroutines.CancellationException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Connection
@@ -50,6 +58,17 @@ import java.time.ZoneOffset
 import javax.crypto.SecretKey
 import javax.sql.DataSource
 
+/**
+ * The optional artifacts a creation may attach: the audit intent, the inbox metadata, and the resume
+ * credential. They travel together from the gateway boundary into the single transaction, and grouping
+ * them keeps the transaction body below the parameter ceiling.
+ */
+private data class CreationSideArtifacts(
+    val auditIntent: SovereignOpsAuditOutboxRecord?,
+    val inboxMetadata: ApprovalInboxMetadata?,
+    val resumeCredential: ApprovalResumeCredentialRecord?,
+)
+
 class JdbcSovereignOpsApprovalRequestMutationStore(
     private val dataSource: DataSource,
     private val replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
@@ -59,84 +78,237 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     private val encryptionKeyId: String,
     private val clock: Clock = Clock.systemUTC(),
 ) : SovereignOpsApprovalRequestMutationStore {
-
-    private val mapper: ObjectMapper = ObjectMapper()
-        .registerKotlinModule()
-        .registerModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    private val mapper: ObjectMapper =
+        ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     override suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
         inboxMetadata: ApprovalInboxMetadata?,
         resumeCredential: ApprovalResumeCredentialRecord?,
+    ): SovereignOpsApprovalRequestMutationResult =
+        createApprovalRequestInternal(
+            request = request,
+            attribution = ApprovalRunAttribution.Ungoverned,
+            auditIntent = auditIntent,
+            inboxMetadata = inboxMetadata,
+            resumeCredential = resumeCredential,
+        )
+
+    /**
+     * Governed creation (0.7.1d1): the approval-row attribution and the suspension payload both come
+     * from ONE canonical [GovernedRunIdentity], written inside the SAME transaction as the approval,
+     * continuation, resume credential and inbox/audit artifacts.
+     *
+     * Takes the identity itself rather than a nullable value or a five-component snapshot, so the two
+     * identity-bearing records cannot be built from independently interpreted input.
+     *
+     * This is a privileged persistence boundary: it re-checks that the request's binding names the
+     * same run rather than trusting that the caller validated factory output.
+     */
+    internal suspend fun createGovernedApprovalRequest(
+        request: ApprovalGatewayPersistenceRequest,
+        identity: GovernedRunIdentity,
+        auditIntent: SovereignOpsAuditOutboxRecord? = null,
+        inboxMetadata: ApprovalInboxMetadata? = null,
+        resumeCredential: ApprovalResumeCredentialRecord? = null,
     ): SovereignOpsApprovalRequestMutationResult {
+        requireEveryCarrierNamesCanonicalRun(identity, request)
+        return createApprovalRequestInternal(
+            request = request,
+            attribution = ApprovalRunAttribution.Governed(identity),
+            auditIntent = auditIntent,
+            inboxMetadata = inboxMetadata,
+            resumeCredential = resumeCredential,
+        )
+    }
+
+    /**
+     * Every run-id carrier in the request must name the canonical run before this boundary writes
+     * anything. The suspension record already carried `SuspendedInvocationMetadata.identity.workflowRunId`
+     * before 0.7.1d; the governed payload adds `GovernedRunIdentity.runId`. Those two must never
+     * disagree, or this path would persist a V2 suspension that the canonical JDBC reader rejects as
+     * corruption. The factory is identity-untrusted input translation, so all carriers are checked
+     * together rather than trusting that one correct binding implies the others.
+     */
+    private fun requireEveryCarrierNamesCanonicalRun(
+        identity: GovernedRunIdentity,
+        request: ApprovalGatewayPersistenceRequest,
+    ) {
+        val canonicalRunId = identity.runId.value
+        val carriers =
+            listOf(
+                "approval binding" to request.approvalRequest.binding.workflowRunId,
+                "continuation" to request.continuation.workflowRunId,
+                "suspended invocation metadata" to
+                    request.suspendedInvocationMetadata.identity.workflowRunId,
+            )
+        val mismatched = carriers.filter { (_, runId) -> runId != canonicalRunId }
+        if (mismatched.isNotEmpty()) {
+            throw GovernedRunContinuityException(
+                "Governed approval creation for run '$canonicalRunId' was given " +
+                    mismatched.joinToString { (carrier, runId) -> "$carrier naming run '$runId'" } +
+                    ": every governed run-id carrier must name the same run",
+            )
+        }
+    }
+
+    /**
+     * The ONE transaction body behind both entry points: one rollback path, one primary-key-conflict
+     * path, one insert ordering. The entry points only distinguish attribution.
+     *
+     * [attribution] is resolved before the trust boundary by the gateway, so it is a value this layer
+     * may interpret directly. [ApprovalRunAttribution.Ungoverned] keeps the released behaviour
+     * byte-for-byte: no reserved keys are written and no attribution is decoded on the existing-row
+     * paths.
+     */
+    private suspend fun createApprovalRequestInternal(
+        request: ApprovalGatewayPersistenceRequest,
+        attribution: ApprovalRunAttribution,
+        auditIntent: SovereignOpsAuditOutboxRecord?,
+        inboxMetadata: ApprovalInboxMetadata?,
+        resumeCredential: ApprovalResumeCredentialRecord?,
+    ): SovereignOpsApprovalRequestMutationResult {
+        // The canonical identity, when governed: this SAME value feeds the approval-row attribution
+        // and the suspended-invocation payload.
+        val governedIdentity = (attribution as? ApprovalRunAttribution.Governed)?.identity
         validateRequest(request, auditIntent)
         inboxMetadata?.let(ApprovalInboxMetadataPolicy::validate)
 
         return dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
+            // The failure the caller will observe. Cleanup runs in `finally`, and this is what tells it
+            // whether a cleanup failure is a secondary detail or the operation's only real outcome.
+            var primaryFailure: Exception? = null
+            val sideArtifacts = CreationSideArtifacts(auditIntent, inboxMetadata, resumeCredential)
             try {
-                val existing = selectApproval(conn, request.approvalRequest.approvalId)
-                if (existing != null) {
-                    conn.commit()
-                    return@use SovereignOpsApprovalRequestMutationResult.Existing(existing)
-                }
-
-                insertApproval(conn, request.approvalRequest, inboxMetadata)
-                insertSuspendedInvocation(
+                return@use runTransaction(
                     conn = conn,
-                    metadata = request.suspendedInvocationMetadata,
-                    replayEnvelope = request.replayEnvelope,
+                    request = request,
+                    attribution = attribution,
+                    sideArtifacts = sideArtifacts,
                 )
-                insertContinuation(
-                    conn = conn,
-                    continuation = request.continuation,
-                    sensitiveArguments = request.sensitiveArguments,
-                )
-
-                if (resumeCredential != null) {
-                    insertResumeCredential(conn, resumeCredential)
-                }
-
-                if (auditIntent != null) {
-                    val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
-                    val preparedEncrypted = outboxPayloadCodec.encode(preparedPayload)
-                    insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
-
-                    val pendingAuditIntent = auditIntent.copy(
-                        status = SovereignOpsAuditOutboxStatus.PENDING,
-                    )
-                    val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
-                    val pendingEncrypted = outboxPayloadCodec.encode(pendingPayload)
-                    markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
-                }
-
-                conn.commit()
-                SovereignOpsApprovalRequestMutationResult.Created(
-                    approvalId = request.approvalRequest.approvalId,
-                    correlationId = request.suspendedInvocationMetadata.correlationId,
-                    resumeToken = request.resumeToken,
-                )
+            } catch (e: CancellationException) {
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
+                throw e
             } catch (e: SQLException) {
-                conn.rollback()
-                if (isApprovalPrimaryKeyViolation(e)) {
-                    val existing = selectApprovalAfterRollback(request.approvalRequest.approvalId)
-                    if (existing != null) {
-                        return@use SovereignOpsApprovalRequestMutationResult.Existing(existing)
-                    }
-                }
-                throw IllegalStateException(
-                    "tramai-sovereign-ops-approval-request-mutation-database-failure",
-                    e,
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
+                return@use recoverOrThrowDatabaseFailure(
+                    error = e,
+                    recover = {
+                        recoverExistingAfterPrimaryKeyRace(e, request.approvalRequest.approvalId, governedIdentity)
+                    },
+                    onPrimaryResolved = { primaryFailure = it },
                 )
             } catch (e: Exception) {
-                conn.rollback()
+                primaryFailure = e
+                rollbackSuppressing(conn, e)
                 throw e
             } finally {
-                conn.autoCommit = previousAutoCommit
+                restoreAutoCommitSuppressing(
+                    conn = conn,
+                    previousAutoCommit = previousAutoCommit,
+                    primary = primaryFailure,
+                )
             }
+        }
+    }
+
+    /**
+     * The transaction body: existing-row reconciliation first, then the four inserts and the audit
+     * artifacts under one commit. Failures propagate untouched to the caller's cleanup handling.
+     */
+    private fun runTransaction(
+        conn: Connection,
+        request: ApprovalGatewayPersistenceRequest,
+        attribution: ApprovalRunAttribution,
+        sideArtifacts: CreationSideArtifacts,
+    ): SovereignOpsApprovalRequestMutationResult {
+        // Derived here rather than passed: the same canonical identity rule that governs the outer
+        // boundary applies to both the existing-row check and the suspended-invocation payload.
+        val governedIdentity = (attribution as? ApprovalRunAttribution.Governed)?.identity
+        val existing = selectApproval(conn, request.approvalRequest.approvalId)
+        if (existing != null) {
+            conn.commit()
+            return SovereignOpsApprovalRequestMutationResult.Existing(
+                requireExistingIdentityMatches(existing, governedIdentity),
+            )
+        }
+
+        insertApproval(conn, request.approvalRequest, sideArtifacts.inboxMetadata, attribution)
+        insertSuspendedInvocation(
+            conn = conn,
+            metadata = request.suspendedInvocationMetadata,
+            replayEnvelope = request.replayEnvelope,
+            governedIdentity = governedIdentity,
+        )
+        insertContinuation(
+            conn = conn,
+            continuation = request.continuation,
+            sensitiveArguments = request.sensitiveArguments,
+        )
+
+        sideArtifacts.resumeCredential?.let { insertResumeCredential(conn, it) }
+
+        writeAuditOutboxArtifacts(conn, sideArtifacts.auditIntent)
+
+        conn.commit()
+        return SovereignOpsApprovalRequestMutationResult.Created(
+            approvalId = request.approvalRequest.approvalId,
+            correlationId = request.suspendedInvocationMetadata.correlationId,
+            resumeToken = request.resumeToken,
+        )
+    }
+
+    /**
+     * Writes the prepared outbox row and then its pending transition inside the caller's
+     * transaction: like every other artifact of a creation, the two rows land together or not at
+     * all.
+     */
+    private fun writeAuditOutboxArtifacts(
+        conn: Connection,
+        auditIntent: SovereignOpsAuditOutboxRecord?,
+    ) {
+        if (auditIntent == null) return
+        val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
+        val preparedEncrypted = outboxPayloadCodec.encode(preparedPayload)
+        insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
+
+        val pendingAuditIntent =
+            auditIntent.copy(
+                status = SovereignOpsAuditOutboxStatus.PENDING,
+            )
+        val pendingPayload = mapper.writeValueAsBytes(pendingAuditIntent.toPersistedOutbox())
+        val pendingEncrypted = outboxPayloadCodec.encode(pendingPayload)
+        markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
+    }
+
+    /**
+     * Recovery for the loser of a creation race: a primary-key violation means a concurrent writer
+     * committed the row first, so the loser re-reads it on its own connection and applies the SAME
+     * reconciliation as the initial SELECT — a concurrent run must never adopt the winner's identity.
+     *
+     * Returns null for anything else, so the caller keeps its database-failure wrapping, and lets
+     * continuity/corruption exceptions from [requireExistingIdentityMatches] propagate unchanged.
+     */
+    private fun recoverExistingAfterPrimaryKeyRace(
+        error: SQLException,
+        approvalId: String,
+        governedIdentity: GovernedRunIdentity?,
+    ): SovereignOpsApprovalRequestMutationResult.Existing? {
+        if (!isApprovalPrimaryKeyViolation(error)) return null
+
+        val raced = selectApprovalAfterRollback(approvalId)
+        return raced?.let {
+            SovereignOpsApprovalRequestMutationResult.Existing(
+                requireExistingIdentityMatches(it, governedIdentity),
+            )
         }
     }
 
@@ -188,10 +360,11 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         // replay-envelope messages and verify it matches the metadata digest.
         // This mirrors JdbcSuspendedInvocationStore.validateReplayEnvelopeDigest.
         val replayMessages = request.replayEnvelope.revealForResume().messages
-        val canonicalDigest = ReplayEnvelopeDigestHelper.compute(
-            request.suspendedInvocationMetadata.operationReference,
-            replayMessages,
-        )
+        val canonicalDigest =
+            ReplayEnvelopeDigestHelper.compute(
+                request.suspendedInvocationMetadata.operationReference,
+                replayMessages,
+            )
         require(canonicalDigest == request.suspendedInvocationMetadata.replayEnvelopeDigest) {
             "tramai-sovereign-ops-replay-envelope-digest-mismatch: " +
                 "canonical=$canonicalDigest, provided=${request.suspendedInvocationMetadata.replayEnvelopeDigest}"
@@ -239,40 +412,52 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         }
     }
 
-    private fun insertApproval(conn: Connection, request: ApprovalRequest, inboxMetadata: ApprovalInboxMetadata?) {
+    private fun insertApproval(
+        conn: Connection,
+        request: ApprovalRequest,
+        inboxMetadata: ApprovalInboxMetadata?,
+        attribution: ApprovalRunAttribution,
+    ) {
         val now = clock.instant()
         val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
-        val inbox = inboxMetadata?.let { meta ->
-            InboxMetadata(
-                requiredRole = meta.requiredRole?.value,
-                riskLevel = meta.riskLevel,
-                subjectType = meta.subjectType,
-                subjectId = meta.subjectId,
-                recommendationType = meta.recommendationType,
+        val inbox =
+            inboxMetadata?.let { meta ->
+                InboxMetadata(
+                    requiredRole = meta.requiredRole?.value,
+                    riskLevel = meta.riskLevel,
+                    subjectType = meta.subjectType,
+                    subjectId = meta.subjectId,
+                    recommendationType = meta.recommendationType,
+                )
+            }
+        val reservedAttribution =
+            (attribution as? ApprovalRunAttribution.Governed)?.let { encodeApprovalAttribution(it.identity) }
+        val metadata =
+            ApprovalMetadata(
+                binding =
+                    BindingMetadata(
+                        workflowRunId = request.binding.workflowRunId,
+                        toolName = request.binding.toolName,
+                        argumentsDigest = request.binding.argumentsDigest.value,
+                        policyVersion = request.binding.policyVersion,
+                        workflowDigest = request.binding.workflowDigest.value,
+                        approvalTokenDigest = request.binding.approvalTokenDigest.value,
+                    ),
+                requestedBy = request.requestedBy,
+                expiresAt = request.expiresAt.toString(),
+                requestedAt = request.requestedAt.toString(),
+                decidedBy = null,
+                decisionComment = null,
+                consumedBy = null,
+                consumedAt = null,
+                inbox = inbox,
+                attribution = reservedAttribution,
             )
-        }
-        val metadata = ApprovalMetadata(
-            binding = BindingMetadata(
-                workflowRunId = request.binding.workflowRunId,
-                toolName = request.binding.toolName,
-                argumentsDigest = request.binding.argumentsDigest.value,
-                policyVersion = request.binding.policyVersion,
-                workflowDigest = request.binding.workflowDigest.value,
-                approvalTokenDigest = request.binding.approvalTokenDigest.value,
-            ),
-            requestedBy = request.requestedBy,
-            expiresAt = request.expiresAt.toString(),
-            requestedAt = request.requestedAt.toString(),
-            decidedBy = null,
-            decisionComment = null,
-            consumedBy = null,
-            consumedAt = null,
-            inbox = inbox,
-        )
-        val sql = """
+        val sql =
+            """
             INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
             VALUES (?, 'PENDING', ?, ?::jsonb, 0)
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, request.approvalId)
             stmt.setObject(2, nowOdt)
@@ -285,13 +470,18 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         conn: Connection,
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
+        governedIdentity: GovernedRunIdentity?,
     ) {
-        val payload = SuspendedPayload(
-            metadata = SuspendedPayloadMetadata.fromDomain(metadata, mapper),
-            persistedMessages = replayEnvelope.revealForResume().messages.map { it.toPersisted() },
-        )
+        val payload =
+            SuspendedPayload(
+                metadata = SuspendedPayloadMetadata.fromDomain(metadata, mapper),
+                payloadVersion = if (governedIdentity == null) null else GOVERNED_PAYLOAD_VERSION,
+                governedRunIdentity = governedIdentity?.let { PayloadGovernedRunIdentity.fromDomain(it) },
+                persistedMessages = replayEnvelope.revealForResume().messages.map { it.toPersisted() },
+            )
         val encrypted = replayEnvelopeCodec.encode(mapper.writeValueAsBytes(payload))
-        val sql = """
+        val sql =
+            """
             INSERT INTO suspended_invocations (
                 invocation_id, status, service_key, operation_key, descriptor_hash,
                 replay_envelope_digest, encrypted_replay_envelope,
@@ -303,7 +493,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                 ?, ?, ?, ?,
                 1, ?
             )
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, metadata.approvalId)
             stmt.setString(2, metadata.operationReference.serviceInterface)
@@ -325,10 +515,12 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         continuation: ApprovalContinuation,
         sensitiveArguments: SensitiveToolArguments,
     ) {
-        val encrypted = continuationArgumentsCodec.encode(
-            sensitiveArguments.reveal().toByteArray(Charsets.UTF_8),
-        )
-        val sql = """
+        val encrypted =
+            continuationArgumentsCodec.encode(
+                sensitiveArguments.reveal().toByteArray(Charsets.UTF_8),
+            )
+        val sql =
+            """
             INSERT INTO approval_continuations (
                 approval_id, status, version, created_at, approval_expires_at,
                 workflow_run_id, correlation_id, tool_call_id, tool_name,
@@ -342,7 +534,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                 ?, ?, ?,
                 ?, ?
             )
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, continuation.approvalId)
             stmt.setObject(2, OffsetDateTime.ofInstant(continuation.createdAt, ZoneOffset.UTC))
@@ -370,36 +562,89 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         stmt.setString(15, encrypted.payloadDigest)
     }
 
-    private fun selectApproval(conn: Connection, approvalId: String): ApprovalRequest? {
-        val sql = """
+    /**
+     * Reconciles an existing approval row with the creating request's canonical identity.
+     *
+     * The legacy path returns the row exactly as before: no attribution is decoded, so an ungoverned
+     * caller keeps the released idempotency semantics even if a metadata block were malformed.
+     *
+     * The governed path treats durable attribution as authoritative: only the canonical identity may
+     * be adopted, an un-attributed or foreign row aborts [GovernedRunContinuityException], and
+     * partial/malformed attribution propagates as corruption instead of being reclassified.
+     */
+    private fun requireExistingIdentityMatches(
+        selected: SelectedApproval,
+        governedIdentity: GovernedRunIdentity?,
+    ): ApprovalRequest {
+        if (governedIdentity == null) return selected.approval
+        val persisted =
+            decodeApprovalAttribution(
+                workflowRunId = selected.approval.binding.workflowRunId,
+                metadata = selected.rawAttribution ?: emptyMap(),
+            )
+        if (persisted == ApprovalRunAttribution.Governed(governedIdentity)) return selected.approval
+        val attributed = persisted as? ApprovalRunAttribution.Governed
+        val reason =
+            if (attributed != null) {
+                "is attributed to run '${attributed.identity.runId.value}'"
+            } else {
+                "carries no governed attribution"
+            }
+        throw GovernedRunContinuityException(
+            "Existing approval '${selected.approval.approvalId}' $reason, so run " +
+                "'${governedIdentity.runId.value}' cannot adopt it",
+        )
+    }
+
+    private fun selectApproval(
+        conn: Connection,
+        approvalId: String,
+    ): SelectedApproval? {
+        val sql =
+            """
             SELECT approval_id, status, created_at, decided_at, decision_actor_hash, decision_type,
                    sanitized_metadata, version
             FROM approvals
             WHERE approval_id = ?
-        """.trimIndent()
+            """.trimIndent()
         return conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, approvalId)
             stmt.executeQuery().use { rs ->
-                if (rs.next()) mapToApprovalRequest(rs) else null
+                if (rs.next()) mapSelectedApproval(rs) else null
             }
         }
     }
 
-    private fun selectApprovalAfterRollback(approvalId: String): ApprovalRequest? =
+    private fun selectApprovalAfterRollback(approvalId: String): SelectedApproval? =
         dataSource.connection.use { conn -> selectApproval(conn, approvalId) }
 
-    private fun mapToApprovalRequest(rs: ResultSet): ApprovalRequest {
+    private fun mapSelectedApproval(rs: ResultSet): SelectedApproval {
         val metadata = mapper.readValue<ApprovalMetadata>(rs.getString("sanitized_metadata"))
-        return ApprovalRequest(
+        return SelectedApproval(
+            approval = mapApprovalRequest(rs, metadata),
+            rawAttribution = metadata.attribution,
+        )
+    }
+
+    /**
+     * Maps the row's columns to [ApprovalRequest]. [metadata] is the already-parsed
+     * `sanitized_metadata` column, so a row is decoded exactly once.
+     */
+    private fun mapApprovalRequest(
+        rs: ResultSet,
+        metadata: ApprovalMetadata,
+    ): ApprovalRequest =
+        ApprovalRequest(
             approvalId = rs.getString("approval_id"),
-            binding = ApprovalBinding(
-                workflowRunId = metadata.binding.workflowRunId,
-                toolName = metadata.binding.toolName,
-                argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
-                policyVersion = metadata.binding.policyVersion,
-                workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
-                approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
-            ),
+            binding =
+                ApprovalBinding(
+                    workflowRunId = metadata.binding.workflowRunId,
+                    toolName = metadata.binding.toolName,
+                    argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
+                    policyVersion = metadata.binding.policyVersion,
+                    workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
+                    approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
+                ),
             status = ApprovalStatus.valueOf(rs.getString("status")),
             requestedBy = metadata.requestedBy,
             requestedAt = Instant.parse(metadata.requestedAt),
@@ -411,21 +656,21 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             consumedAt = metadata.consumedAt?.let(Instant::parse),
             version = rs.getLong("version"),
         )
-    }
 
     private fun insertPreparedOutbox(
         conn: Connection,
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             INSERT INTO audit_outbox (
                 outbox_id, event_key, status, correlation_key_hash,
                 created_at, attempt_count,
                 encrypted_payload, encryption_key_id, encryption_algorithm,
                 encryption_nonce, payload_digest, version
             ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1)
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, record.outboxId)
             stmt.setString(2, record.eventKey)
@@ -446,7 +691,8 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
     ) {
-        val sql = """
+        val sql =
+            """
             UPDATE audit_outbox
             SET status = 'PENDING',
                 encrypted_payload = ?,
@@ -456,7 +702,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                 payload_digest = ?,
                 version = version + 1
             WHERE outbox_id = ? AND status = 'PREPARED'
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setBytes(1, encrypted.ciphertext)
             stmt.setString(2, encrypted.keyId)
@@ -474,15 +720,20 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         conn: Connection,
         credential: ApprovalResumeCredentialRecord,
     ) {
-        val plaintext = credential.resumeToken.revealForInternalResume().value.encodeToByteArray()
+        val plaintext =
+            credential.resumeToken
+                .revealForInternalResume()
+                .value
+                .encodeToByteArray()
         val encrypted = DefaultJdbcPayloadCrypto.encrypt(plaintext, encryptionKey, encryptionKeyId)
-        val sql = """
+        val sql =
+            """
             INSERT INTO tramai_approval_resume_credentials
                 (approval_id, workflow_run_id, encrypted_resume_token,
                  encryption_key_id, encryption_algorithm, encryption_nonce,
                  payload_digest, created_at, expires_at, version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """.trimIndent()
+            """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, credential.approvalId.value)
             stmt.setString(2, credential.workflowRunId.value)
@@ -496,19 +747,6 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             stmt.setLong(10, credential.version)
             stmt.executeUpdate()
         }
-    }
-
-    private fun isApprovalPrimaryKeyViolation(error: SQLException): Boolean =
-        error.sqlState == "23505" &&
-            (error.message?.contains("approvals_pkey", ignoreCase = true) == true ||
-                error.message?.contains("approval_id", ignoreCase = true) == true)
-
-    private fun validateIdField(value: String, fieldName: String) {
-        val trimmed = value.trim()
-        require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
-        require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
-        require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
-        require(trimmed.length <= 256) { "$fieldName exceeds maximum length of 256" }
     }
 
     private fun validateDigestField(value: String) {
@@ -548,6 +786,8 @@ private data class ApprovalMetadata(
     val consumedBy: String?,
     val consumedAt: String?,
     val inbox: InboxMetadata? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val attribution: Map<String, String>? = null,
 )
 
 private data class PersistedMessage(
@@ -562,22 +802,77 @@ private data class PersistedToolCall(
     val argumentsJson: String,
 )
 
-private fun Message.toPersisted(): PersistedMessage = PersistedMessage(
-    role = role.name,
-    content = content,
-    toolCalls = toolCalls?.map {
-        PersistedToolCall(
-            id = it.id,
-            name = it.name,
-            argumentsJson = it.argumentsJson,
-        )
-    },
-)
+private fun Message.toPersisted(): PersistedMessage =
+    PersistedMessage(
+        role = role.name,
+        content = content,
+        toolCalls =
+            toolCalls?.map {
+                PersistedToolCall(
+                    id = it.id,
+                    name = it.name,
+                    argumentsJson = it.argumentsJson,
+                )
+            },
+    )
 
+/**
+ * Combined payload that is serialised as JSON, then encrypted.
+ *
+ * The governed members sit at the ROOT, mirroring the canonical suspension store's `Payload`: its
+ * reader expects `payloadVersion` and `governedRunIdentity` as siblings of `metadata`, not inside it,
+ * and reflects the two types strictly enough that a nested shape fails to deserialize.
+ *
+ * Both are omitted when null, so an ungoverned payload keeps the released V1 byte shape (the canonical
+ * store's own `payloadVersion` is a non-null defaulting Int, which is why it always emits one and this
+ * payload deliberately does not).
+ */
 private data class SuspendedPayload(
     val metadata: SuspendedPayloadMetadata,
     val persistedMessages: List<PersistedMessage>,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val payloadVersion: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val governedRunIdentity: PayloadGovernedRunIdentity? = null,
 )
+
+/** Carries the raw attribution read from a row alongside the mapped request. */
+private data class SelectedApproval(
+    val approval: ApprovalRequest,
+    val rawAttribution: Map<String, String>?,
+)
+
+/** Semantic payload version marking a suspension that MUST carry a governed identity. */
+private const val GOVERNED_PAYLOAD_VERSION: Int = 2
+
+/**
+ * Persisted canonical run identity (0.7.1d1), carried INSIDE the encrypted suspension payload so
+ * workload/configuration/environment/deployment attribution is never promoted into a plaintext query
+ * column — the same confidentiality decision the standalone JDBC suspension store makes.
+ *
+ * Deliberately replicated rather than widening that store's private API: the payload shape is proven
+ * equivalent by test instead of being shared through a new public surface.
+ */
+private data class PayloadGovernedRunIdentity(
+    val workloadId: String,
+    val configurationId: String,
+    val configurationVersion: String,
+    val environmentId: String,
+    val deploymentId: String,
+    val runId: String,
+) {
+    companion object {
+        fun fromDomain(identity: GovernedRunIdentity): PayloadGovernedRunIdentity =
+            PayloadGovernedRunIdentity(
+                workloadId = identity.deployment.workloadId.value,
+                configurationId = identity.deployment.configuration.id.value,
+                configurationVersion = identity.deployment.configuration.version.value,
+                environmentId = identity.deployment.environmentId.value,
+                deploymentId = identity.deployment.deploymentId.value,
+                runId = identity.runId.value,
+            )
+    }
+}
 
 private data class SuspendedPayloadMetadata(
     val approvalId: String,
@@ -612,34 +907,119 @@ private data class SuspendedPayloadMetadata(
         fun fromDomain(
             metadata: SuspendedInvocationMetadata,
             mapper: ObjectMapper,
-        ): SuspendedPayloadMetadata = SuspendedPayloadMetadata(
-            approvalId = metadata.approvalId,
-            toolCallId = metadata.toolCallId,
-            toolName = metadata.toolName,
-            toolCallIndex = metadata.toolCallIndex,
-            correlationId = metadata.correlationId,
-            identityWorkflowRunId = metadata.identity.workflowRunId,
-            identityCorrelationId = metadata.identity.correlationId,
-            identityWorkflowDigest = metadata.identity.workflowDigest.value,
-            identityPolicyVersion = metadata.identity.policyVersion,
-            identityActorId = metadata.identity.actorId,
-            securityDataClassification = metadata.securityContext.dataClassification?.name,
-            securityClassificationSource = metadata.securityContext.classificationSource?.name,
-            operationServiceInterface = metadata.operationReference.serviceInterface,
-            operationMethodName = metadata.operationReference.methodName,
-            operationJvmMethodDescriptor = metadata.operationReference.jvmMethodDescriptor,
-            operationResumeDefinitionDigest = metadata.operationReference.resumeDefinitionDigest.value,
-            replayEnvelopeDigest = metadata.replayEnvelopeDigest.value,
-            conversationId = metadata.conversationId,
-            historySize = metadata.historySize,
-            tokenBudgetTotalInputTokens = metadata.tokenBudgetSnapshot?.totalInputTokens,
-            tokenBudgetTotalOutputTokens = metadata.tokenBudgetSnapshot?.totalOutputTokens,
-            tokenBudgetTotalInputCost = metadata.tokenBudgetSnapshot?.totalInputCost,
-            tokenBudgetTotalOutputCost = metadata.tokenBudgetSnapshot?.totalOutputCost,
-            tokenBudgetWarnIfExceeded = metadata.tokenBudgetSnapshot?.warnIfExceeded,
-            toolReferenceName = metadata.toolReference.toolName,
-            toolReferenceDeclarationDigest = metadata.toolReference.declarationDigest.value,
-            toolSecurity = metadata.toolSecurity?.let { mapper.writeValueAsString(it) },
-        )
+        ): SuspendedPayloadMetadata =
+            SuspendedPayloadMetadata(
+                approvalId = metadata.approvalId,
+                toolCallId = metadata.toolCallId,
+                toolName = metadata.toolName,
+                toolCallIndex = metadata.toolCallIndex,
+                correlationId = metadata.correlationId,
+                identityWorkflowRunId = metadata.identity.workflowRunId,
+                identityCorrelationId = metadata.identity.correlationId,
+                identityWorkflowDigest = metadata.identity.workflowDigest.value,
+                identityPolicyVersion = metadata.identity.policyVersion,
+                identityActorId = metadata.identity.actorId,
+                securityDataClassification = metadata.securityContext.dataClassification?.name,
+                securityClassificationSource = metadata.securityContext.classificationSource?.name,
+                operationServiceInterface = metadata.operationReference.serviceInterface,
+                operationMethodName = metadata.operationReference.methodName,
+                operationJvmMethodDescriptor = metadata.operationReference.jvmMethodDescriptor,
+                operationResumeDefinitionDigest = metadata.operationReference.resumeDefinitionDigest.value,
+                replayEnvelopeDigest = metadata.replayEnvelopeDigest.value,
+                conversationId = metadata.conversationId,
+                historySize = metadata.historySize,
+                tokenBudgetTotalInputTokens = metadata.tokenBudgetSnapshot?.totalInputTokens,
+                tokenBudgetTotalOutputTokens = metadata.tokenBudgetSnapshot?.totalOutputTokens,
+                tokenBudgetTotalInputCost = metadata.tokenBudgetSnapshot?.totalInputCost,
+                tokenBudgetTotalOutputCost = metadata.tokenBudgetSnapshot?.totalOutputCost,
+                tokenBudgetWarnIfExceeded = metadata.tokenBudgetSnapshot?.warnIfExceeded,
+                toolReferenceName = metadata.toolReference.toolName,
+                toolReferenceDeclarationDigest = metadata.toolReference.declarationDigest.value,
+                toolSecurity = metadata.toolSecurity?.let { mapper.writeValueAsString(it) },
+            )
     }
+}
+
+/**
+ * Rolls back without ever replacing [primary]: a rollback failure is attached rather than thrown,
+ * so the reason the transaction failed stays the reason the caller sees.
+ */
+private fun rollbackSuppressing(
+    conn: Connection,
+    primary: Exception,
+) {
+    try {
+        conn.rollback()
+    } catch (e: SQLException) {
+        primary.addSuppressed(e)
+    }
+}
+
+/**
+ * Restores the connection's original autoCommit. A failure here is only the operation's real
+ * outcome when nothing else has failed: with a primary in flight it is attached to that primary,
+ * otherwise it propagates instead of being swallowed.
+ */
+private fun restoreAutoCommitSuppressing(
+    conn: Connection,
+    previousAutoCommit: Boolean,
+    primary: Exception?,
+) {
+    try {
+        conn.autoCommit = previousAutoCommit
+    } catch (e: SQLException) {
+        if (primary != null) {
+            primary.addSuppressed(e)
+        } else {
+            throw e
+        }
+    }
+}
+
+/**
+ * Reconciles a primary-key race, or throws the caller-visible database failure.
+ * [onPrimaryResolved] receives the wrapper — or null once recovery succeeded — so the caller's
+ * cleanup attaches its own failures to the exception the caller will actually observe.
+ */
+private fun recoverOrThrowDatabaseFailure(
+    error: SQLException,
+    recover: () -> SovereignOpsApprovalRequestMutationResult.Existing?,
+    onPrimaryResolved: (Exception?) -> Unit,
+): SovereignOpsApprovalRequestMutationResult.Existing {
+    val recovered = recover()
+    if (recovered != null) {
+        onPrimaryResolved(null)
+        return recovered
+    }
+
+    val wrapped =
+        IllegalStateException(
+            "tramai-sovereign-ops-approval-request-mutation-database-failure",
+            error,
+        )
+    onPrimaryResolved(wrapped)
+    throw wrapped
+}
+
+private const val DUPLICATE_KEY_SQL_STATE = "23505"
+
+/** Maximum accepted length of a persisted attribution field value. */
+private const val MAX_ATTRIBUTION_FIELD_LENGTH = 256
+
+private fun isApprovalPrimaryKeyViolation(error: SQLException): Boolean =
+    error.sqlState == DUPLICATE_KEY_SQL_STATE &&
+        (
+            error.message?.contains("approvals_pkey", ignoreCase = true) == true ||
+                error.message?.contains("approval_id", ignoreCase = true) == true
+        )
+
+private fun validateIdField(
+    value: String,
+    fieldName: String,
+) {
+    val trimmed = value.trim()
+    require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
+    require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
+    require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
+    require(trimmed.length <= MAX_ATTRIBUTION_FIELD_LENGTH) { "$fieldName exceeds maximum length of 256" }
 }

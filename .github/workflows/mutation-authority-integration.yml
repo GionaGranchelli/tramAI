@@ -1,0 +1,76 @@
+name: Mutation Authority Integration
+
+# The population-admission authority transport proof: the real `verifyMutationRatchet` task, under
+# RECORDED_EVOLUTION, measuring the candidate population through a nested Gradle + PIT run, consuming
+# a minted authorization and rejecting its retention (M38).
+#
+# `:build-logic:test` excludes `@Tag("integration")`, and `canonicalProbeIntegrationTest` only runs in
+# the scheduled `maintainability-full` workflow when `generate-baseline=true`. Without this lane the
+# proof is never executed by CI, so a transport regression could ship while every other check is green.
+# It is deliberately narrow: the whole canonical-probe suite belongs in the scheduled workflow, not on
+# every PR.
+on:
+  pull_request:
+    paths:
+      - 'build-logic/src/main/kotlin/dev/tramai/build/quality/**'
+      - 'build-logic/src/test/kotlin/dev/tramai/build/quality/Mutation*.kt'
+      - 'build-logic/build.gradle.kts'
+      - 'config/quality/**'
+      - '.github/workflows/mutation-authority-integration.yml'
+  push:
+    branches:
+      - master
+    paths:
+      - 'build-logic/src/main/kotlin/dev/tramai/build/quality/**'
+      - 'build-logic/src/test/kotlin/dev/tramai/build/quality/Mutation*.kt'
+      - 'build-logic/build.gradle.kts'
+      - 'config/quality/**'
+      - '.github/workflows/mutation-authority-integration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-authority-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  authority-transport:
+    name: Mutation authority transport
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the population-admission authority transport proof
+        run: |
+          ./gradlew :build-logic:canonicalProbeIntegrationTest \
+            --tests '*MutationPopulationAdmissionIntegrationTest*' \
+            --no-daemon
+
+      # A Gradle test task that selects nothing is green. Assert the proof actually executed the
+      # authority-transport cases. This is a non-vacuity FLOOR, not a frozen suite cardinality: the
+      # suite may grow as further transport discriminators are added, and what matters is that the
+      # proof ran, not that the class has exactly this many tests.
+      - name: Assert the proof was not vacuous
+        run: |
+          report=$(ls build-logic/build/test-results/canonicalProbeIntegrationTest/TEST-*MutationPopulationAdmissionIntegrationTest.xml)
+          executed=$(grep -o 'tests="[0-9]*"' "$report" | head -1 | tr -dc '0-9')
+          failures=$(grep -o 'failures="[0-9]*"' "$report" | head -1 | tr -dc '0-9')
+          errors=$(grep -o 'errors="[0-9]*"' "$report" | head -1 | tr -dc '0-9')
+          echo "executed=$executed failures=$failures errors=$errors"
+          [ "$executed" -ge 2 ] || { echo "::error::expected at least 2 authority-transport tests, got $executed"; exit 1; }
+          [ "$failures" = "0" ] && [ "$errors" = "0" ] || { echo "::error::authority-transport failures=$failures errors=$errors"; exit 1; }

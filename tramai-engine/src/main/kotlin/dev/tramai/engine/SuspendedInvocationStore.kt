@@ -1,10 +1,64 @@
 package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
-import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.policy.ToolSecurityMetadata
+
+/**
+ * One durable GOVERNED suspension (0.7.1d): the existing suspension record plus the
+ * canonical run identity of the execution that created it.
+ *
+ * The engine identity and the canonical run identity must agree — a suspension whose
+ * engine identity says R1 while its canonical run identity says R2 is corruption, not a
+ * binding mismatch, so the invariant is checked here (and again when the record is
+ * decoded from durable storage).
+ *
+ * The persisted identity is the AUTHORITY for a standalone continuation. A caller-supplied
+ * identity is only a consistency precondition: requiring the caller to re-supply identity
+ * would create a second source that must then be reconciled against this one.
+ */
+data class GovernedSuspendedInvocation(
+    val metadata: SuspendedInvocationMetadata,
+    val runIdentity: GovernedRunIdentity,
+) {
+    init {
+        require(runIdentity.runId.value == metadata.identity.workflowRunId) {
+            "Governed suspension identity is inconsistent: engine workflowRunId " +
+                "'${metadata.identity.workflowRunId}' != canonical runId '${runIdentity.runId.value}'"
+        }
+    }
+}
+
+/**
+ * Additive durable capability: governed approval suspensions (0.7.1d).
+ *
+ * Deliberately a separate interface rather than new methods on [SuspendedInvocationStore]:
+ * third parties implement that SPI, and adding a required method would break them. A
+ * governed suspension therefore REQUIRES this capability and fails closed when the
+ * configured store does not provide it — before any approval or continuation state is
+ * durably created. The degradation this prevents is "looks governed until the first
+ * approval boundary, then silently continues with run-id-only semantics".
+ *
+ * Implementations must persist [GovernedSuspendedInvocation] and its replay envelope as
+ * ONE durable record (one encrypted file write, one JDBC row/transaction, one logical
+ * in-memory mutation): two independently written records could leave a governed
+ * suspension carrying only partial attribution after a crash.
+ */
+interface GovernedSuspendedInvocationStore : SuspendedInvocationStore {
+    suspend fun createGoverned(
+        suspended: GovernedSuspendedInvocation,
+        replayEnvelope: SensitiveReplayEnvelope,
+    )
+
+    /**
+     * Canonical run identity of an existing governed suspension, or null when the record
+     * is a legacy (ungoverned) suspension.
+     */
+    suspend fun governedRunIdentity(approvalId: String): GovernedRunIdentity?
+}
 
 /**
  * Snapshot of token budget tracker state at the point of suspension.

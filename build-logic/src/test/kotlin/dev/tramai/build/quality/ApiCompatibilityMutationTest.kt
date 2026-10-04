@@ -119,10 +119,10 @@ class ApiCompatibilityMutationTest {
         )
     }
 
-    // ── B1: Contract 2 — stable base→current change fails, additive too ──
+    // ── B1: Contract 2 — stable is a compatibility promise, not byte-identity ──
 
     @Test
-    fun `B1 stable additive API change fails without migration rescue`() {
+    fun `B1 stable additive API change is allowed and needs no migration rescue`() {
         val base = mapOf(":tramai-core" to dump(":tramai-core", "\tpublic fun a ()V"))
         val current = mapOf(":tramai-core" to dump(":tramai-core", "\tpublic fun a ()V", "\tpublic fun b ()V"))
         val migration =
@@ -136,11 +136,33 @@ class ApiCompatibilityMutationTest {
             )
         val diagnostics = verifier().verify(evidence(committed = current, base = base), migrations = listOf(migration))
         assertTrue(
+            diagnostics.none { it.code == DiagnosticCode.API_COMPATIBILITY_FAILED },
+            "an additive stable change keeps every existing consumer working, so it must pass " +
+                "(a migration entry neither helps nor is required), got: $diagnostics",
+        )
+    }
+
+    @Test
+    fun `B1b stable removal fails and no migration entry can authorize it`() {
+        val base = mapOf(":tramai-core" to dump(":tramai-core", "\tpublic fun a ()V", "\tpublic fun b ()V"))
+        val current = mapOf(":tramai-core" to dump(":tramai-core", "\tpublic fun a ()V"))
+        val migration =
+            ApiMigrationEntry(
+                module = ":tramai-core",
+                fromSha256 = sha256(base.getValue(":tramai-core")),
+                toSha256 = sha256(current.getValue(":tramai-core")),
+                targetVersion = "0.6.0",
+                rationale = "Removed b",
+                migration = "Consumers drop b.",
+            )
+        val diagnostics = verifier().verify(evidence(committed = current, base = base), migrations = listOf(migration))
+        assertTrue(
             diagnostics.any {
                 it.code == DiagnosticCode.API_COMPATIBILITY_FAILED &&
-                    it.message.contains("stable") && it.message.contains(":tramai-core")
+                    it.modulePath == ":tramai-core" &&
+                    it.message.contains("stable")
             },
-            "stable additive change must fail even with a migration entry, got: $diagnostics",
+            "stable breakage must fail even when an exact migration entry exists, got: $diagnostics",
         )
     }
 
