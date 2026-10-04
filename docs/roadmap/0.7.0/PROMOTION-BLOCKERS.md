@@ -97,3 +97,35 @@ verdict to separate "environment-only" from a real red at promotion.
 - Lanes measured at this head that **match** their pins: `quality-formatting`
   8/8, `quality-compiler-deps` 75/75, `quality-static-analysis` 25/25,
   `policy-maintainability` 448/448, `scanners-coverage` 297/297.
+
+## 0.7.2 delivered — adds no promotion blocker
+
+**Epic head:** `655e607a14118634d5f302aa9ad8024540153128`
+(`epic/0.7.2-policy-trust-zones`, 0.7.2a–e plus the review-findings follow-up)
+
+Measured at that head, not assumed:
+
+| gate | result |
+|---|---|
+| `spotlessCheck` | rc=0 |
+| `verifyStaticAnalysis` | rc=0 — Detekt baseline 4792 → 4792, no growth |
+| `verify060Architecture` | PASS 10/10 |
+| `verifyChangePolicy` | PASSED — 11 changed files, class `runtime-behaviour` |
+| the 0.7.2 suites | 56 tests, 0 failing |
+
+**Effect on promotion: none.** 0.7.2 is additive in `tramai-security` plus one
+KDoc relocation in `tramai-core`; it changes no gate, no baseline, no deviation
+and no workflow, and its API transitions are registered in
+`config/quality/api-migrations.yml`. **B1, B2 and B3 above are unchanged by it**
+and remain the promotion-time blockers.
+
+The epic's acceptance-criteria audit — including the criteria that are only
+*vacuously* true today because nothing invokes a provider yet, and the 0.7.2f/g/h
+candidates deferred with explicit revival conditions — is recorded in
+`EPIC-0.7.2-POLICY-TRUST-ZONES.md`.
+
+The deferred half of the epic's criteria (provider-input minimization and the
+provider-bound projection, typed evidence/reasons, and enforcement of "release
+before invocation") belongs with 0.7.3 authorized selection, which depends on
+0.7.2 HARD. Those criteria cannot be enforced or tested until something actually
+selects a deployment and invokes a provider.
