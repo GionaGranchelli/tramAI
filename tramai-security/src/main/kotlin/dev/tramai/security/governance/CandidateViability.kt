@@ -6,18 +6,27 @@ package dev.tramai.security.governance
  *
  * Viability is only meaningful for candidates that are already authorized, and
  * this type is how that is enforced structurally rather than by convention: the
- * constructor is module-internal, so [CandidateAuthorization] is the only thing
- * that can produce one. A viability boundary that accepts [AuthorizedCandidates]
- * therefore *cannot* be asked to evaluate a candidate that was refused
- * authorization, and `viable ⊆ authorized` cannot be broken by a caller — only by
- * editing the authorization boundary.
+ * constructor is module-internal, so only code inside `tramai-security` can
+ * produce one — in practice [CandidateAuthorization], which is its only caller. A
+ * viability boundary that accepts [AuthorizedCandidates] therefore cannot be asked
+ * to evaluate a candidate that was refused authorization.
  *
- * The value carries a set that [CandidateAuthorization] has already materialized,
- * so a caller cannot widen authorization by mutating a set it owns.
+ * What the module boundary guarantees, stated precisely:
+ *
+ * - no consumer outside this module can construct an [AuthorizedCandidates], so a
+ *   refused candidate cannot be smuggled in as an authorized one;
+ * - [candidates] is `internal`, so it is not part of the published API and cannot
+ *   be reached, cast, or mutated from outside the module.
+ *
+ * Inside the module this is a plain wrapper over a `Set`, which Kotlin models as
+ * read-only rather than immutable. Module-internal code could in principle cast a
+ * returned set and mutate it; there is no token framework here to prevent that,
+ * and admitting one would cost far more than the risk it removes. The claim is
+ * scoped to the module boundary, which is where the obligation actually lives.
  */
 @JvmInline
 value class AuthorizedCandidates internal constructor(
-    val candidates: Set<ProviderCandidate>,
+    internal val candidates: Set<ProviderCandidate>,
 )
 
 /**
@@ -31,30 +40,40 @@ value class AuthorizedCandidates internal constructor(
  * viability:      can TramAI use it right now?        operational
  * ```
  *
- * The order is structural. [viableCandidates] and [decisions] accept
- * [AuthorizedCandidates], which only [CandidateAuthorization] can produce, so
+ * The epic fixes which stage owns what:
+ *
+ * ```text
+ * authorized = policy ∩ classification ∩ trust ∩ capability ∩ registration
+ * viable     = authorized ∩ required runtime constraints
+ * ```
+ *
+ * Capability therefore belongs to [CandidateAuthorization], not here — a model that
+ * cannot perform the required capability is not temporarily unusable, it is not an
+ * eligible authorized candidate for that request. Wiring capability facts into
+ * authorization is a separate, smaller correction.
+ *
+ * The ordering is structural. [viableCandidates] and [decisions] accept
+ * [AuthorizedCandidates], which no consumer outside this module can produce, so
  * there is no way to evaluate viability for a candidate that was not authorized,
  * and no way to express a viable candidate outside the authorized set.
  *
- * Runtime constraints are supplied as a function rather than modelled here,
- * because the repository already owns the facts and this boundary must not become
- * a second source of them:
+ * **The evaluator is required.** There is deliberately no default: a permissive
+ * default would let `CandidateViability()` mark every authorized candidate viable
+ * without consulting a single runtime fact, which is fail-open on a governance
+ * boundary. Callers must pass their runtime facts explicitly. The function returns
+ * `null` when the candidate satisfies every constraint it checks; whatever it
+ * cannot establish it must report as a refusal, because an unestablished
+ * constraint is not evidence of availability.
  *
- * - **capability** — the provider contract's `supportsCapability(ProviderCapability)`,
- *   with `VISION` / `STREAMING`, and `StreamCapable`;
- * - **availability** — `ProviderCircuitBreaker`'s `CircuitBreakerAdmission.Rejected`,
- *   meaning the deployment is blocked from being called right now.
- *
- * The function returns `null` when the candidate satisfies every runtime
- * constraint it checks. Whatever it cannot establish it must report as a refusal
- * rather than as satisfaction: viability has no authority to widen anything, and
- * an unestablished constraint is not evidence of availability either.
+ * Availability facts are supplied rather than modelled here, so this boundary
+ * cannot become a second source of them: `ProviderCircuitBreaker`'s
+ * `CircuitBreakerAdmission.Rejected` means the deployment is blocked right now.
  *
  * This is operational only. It does not rank, score, prefer, select, fall back,
  * retry, invoke, or perform I/O, and it attaches no precedence to its results.
  */
 class CandidateViability(
-    private val runtimeConstraintRefusal: (ProviderCandidate) -> ViabilityRefusal? = { null },
+    private val runtimeConstraintRefusal: (ProviderCandidate) -> ViabilityRefusal?,
 ) {
     /**
      * The viability outcome for every authorized candidate.

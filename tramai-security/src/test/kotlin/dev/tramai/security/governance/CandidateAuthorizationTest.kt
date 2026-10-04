@@ -209,12 +209,13 @@ class CandidateAuthorizationTest {
 
     @Test
     fun `the viability vocabulary names the families this repository can report`() {
-        // Updated by 0.7.3d: HEALTH was declared in 0.7.3b and removed when the first
-        // producer landed, because nothing in the repository reports provider health.
-        // The authorization boundary still cannot express viability at all: it returns
+        // Updated by 0.7.3d on two counts: HEALTH was removed when the first producer
+        // landed (nothing reports provider health), and CAPABILITY was removed because
+        // the epic puts capability in authorization, not viability. The authorization
+        // boundary still cannot express viability at all: it returns
         // CandidateAuthorizationDecision, which has no viability member.
         assertEquals(
-            listOf(ViabilityRefusal.AVAILABILITY, ViabilityRefusal.CAPABILITY),
+            listOf(ViabilityRefusal.AVAILABILITY),
             ViabilityRefusal.entries.sortedBy { it.name },
         )
     }

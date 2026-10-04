@@ -109,23 +109,28 @@ sealed interface CandidateViabilityDecision {
 /**
  * Constraint families that can make an authorized candidate non-viable.
  *
- * Every member has a producer the repository already owns, which is the condition
- * this vocabulary was staged under (ADR-020): capability comes from the provider
- * contract's `supportsCapability` and `StreamCapable`, availability from
- * `ProviderCircuitBreaker` refusing admission.
+ * The epic fixes the boundary these stages sit on:
  *
- * `HEALTH` was declared here in 0.7.3b and **removed in 0.7.3d**, when the first
- * producer landed and could not produce it: nothing in the repository reports
- * provider health, so it was a hypothetical state rather than an unexpressed one.
+ * ```text
+ * authorized = policy ∩ classification ∩ trust ∩ capability ∩ registration
+ * viable     = authorized ∩ required runtime constraints
+ * ```
  *
- * Cost and latency are absent for a different reason: they are selection signals,
- * not runtime constraints, and admitting them would let an optimization signal
- * remove governance authority.
+ * Capability is therefore **not** here. A candidate that cannot perform a required
+ * capability is not temporarily unusable — it is not an eligible authorized
+ * candidate for that request. `CAPABILITY` was declared here in 0.7.3b and removed
+ * in 0.7.3d for that reason; wiring capability facts into the authorization
+ * boundary is a separate, smaller correction.
+ *
+ * `HEALTH` was removed in the same slice: the first producer landed and could not
+ * produce it, because nothing in the repository reports provider health. It was a
+ * hypothetical state rather than an unexpressed one (ADR-020).
+ *
+ * Cost and latency are absent for a third reason: they are selection signals, not
+ * runtime constraints, and admitting them would let an optimization signal remove
+ * governance authority.
  */
 enum class ViabilityRefusal {
-    /** The deployment cannot serve what this candidate requires of it. */
-    CAPABILITY,
-
     /** The deployment is not reachable right now. */
     AVAILABILITY,
 }

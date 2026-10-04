@@ -131,17 +131,6 @@ class CandidateViabilityTest {
     }
 
     @Test
-    fun `a capability constraint makes an authorized candidate non-viable for that reason`() {
-        val viability = CandidateViability { ViabilityRefusal.CAPABILITY }
-
-        assertEquals(
-            CandidateViabilityDecision.NotViable(ViabilityRefusal.CAPABILITY),
-            viability.decisions(authorized(authorizedCandidate))[authorizedCandidate],
-        )
-        assertTrue(viability.viableCandidates(authorized(authorizedCandidate)).isEmpty())
-    }
-
-    @Test
     fun `an availability constraint makes an authorized candidate non-viable for that reason`() {
         val viability = CandidateViability { ViabilityRefusal.AVAILABILITY }
 
@@ -181,7 +170,7 @@ class CandidateViabilityTest {
         val second = candidate("openai", "gpt-4o-mini", euDeployment)
         val viability =
             CandidateViability { candidate ->
-                if (candidate.modelId == "gpt-4o-mini") ViabilityRefusal.CAPABILITY else null
+                if (candidate.modelId == "gpt-4o-mini") ViabilityRefusal.AVAILABILITY else null
             }
 
         val forward = viability.decisions(authorized(first, second))
@@ -205,10 +194,11 @@ class CandidateViabilityTest {
 
     @Test
     fun `the refusal family has exactly the constraints this repository can report`() {
-        // HEALTH was declared in 0.7.3b and removed here, when the first producer
-        // landed: nothing in the repository reports provider health.
+        // Shrunk twice against the same rule: the vocabulary may not keep states no
+        // producer can report (HEALTH), and the epic puts capability in authorization
+        // rather than viability. One member remains, and it has a real producer.
         assertEquals(
-            listOf(ViabilityRefusal.AVAILABILITY, ViabilityRefusal.CAPABILITY),
+            listOf(ViabilityRefusal.AVAILABILITY),
             ViabilityRefusal.entries.sortedBy { it.name },
         )
     }
