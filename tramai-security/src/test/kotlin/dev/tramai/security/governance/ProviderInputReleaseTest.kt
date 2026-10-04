@@ -132,4 +132,57 @@ class ProviderInputReleaseTest {
             }
         }
     }
+
+    /** Independent expectation of the refusal, walking the same contract the implementation must. */
+    private fun expectedRefusal(
+        workloadZone: ProviderTrustZone,
+        classification: DataClassification,
+        providerZone: ProviderTrustZone,
+    ): ReleaseRefusal? {
+        val pairs = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.EU_CLOUD)
+        val pairAllowed = (workloadZone to providerZone) in pairs
+        val classificationAllows = rules[classification]?.allowedZones?.contains(providerZone) == true
+        return when {
+            !pairAllowed -> ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED
+            !classificationAllows -> ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED
+            else -> null
+        }
+    }
+
+    @Test
+    fun `refusalFor and releases are two views of the same predicate`() {
+        // releases() is defined as "no refusal", so these can only disagree if that
+        // definition is broken. Every combination is walked, and the refusal must also
+        // name the authority that refused first.
+        val combinations =
+            ProviderTrustZone.entries.flatMap { workloadZone ->
+                ProviderTrustZone.entries.flatMap { providerZone ->
+                    DataClassification.entries.map { classification ->
+                        Triple(workloadZone, providerZone, classification)
+                    }
+                }
+            }
+
+        combinations.forEach { (workloadZone, providerZone, classification) ->
+            val refusal = release.refusalFor(workloadZone, classification, providerZone)
+            assertEquals(
+                refusal == null,
+                release.releases(workloadZone, classification, providerZone),
+                "releases and refusalFor disagree for ($workloadZone, $classification, $providerZone)",
+            )
+            assertEquals(
+                expectedRefusal(workloadZone, classification, providerZone),
+                refusal,
+                "refusal for ($workloadZone, $classification, $providerZone)",
+            )
+        }
+    }
+
+    @Test
+    fun `the release refusal family has exactly the two authorities`() {
+        assertEquals(
+            listOf(ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED, ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED),
+            ReleaseRefusal.entries.toList(),
+        )
+    }
 }
