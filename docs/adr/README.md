@@ -22,6 +22,8 @@ This directory records the key architectural decisions currently implied by the 
 - [ADR-016: Keep Runtime Proxies and Ship Explicit Native-Image Proxy Metadata Support](./adr-016.md)
 - [ADR-017: Keep Orchestration Typed, Workflow-Owned, and Optional Above `tramai-engine`](./adr-017.md)
 - [ADR-018: Separate Security Enforcement from SaaS Platform Concerns](./adr-018.md)
+- [ADR-019: Reason Over the Authoritative Governance Decision Type](./adr-019.md)
+- [ADR-020: Stage Governance Vocabulary Before Its Producer](./adr-020.md)
 
 ## ADR Conventions
 
