@@ -628,10 +628,23 @@ public final class dev/tramai/security/governance/AuthorizationRefusal : java/la
 	public static fun values ()[Ldev/tramai/security/governance/AuthorizationRefusal;
 }
 
+public final class dev/tramai/security/governance/AuthorizedCandidates {
+	public static final synthetic fun box-impl (Ljava/util/Set;)Ldev/tramai/security/governance/AuthorizedCandidates;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/util/Set;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/util/Set;Ljava/util/Set;)Z
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/util/Set;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/util/Set;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/util/Set;
+}
+
 public final class dev/tramai/security/governance/CandidateAuthorization {
 	public fun <init> ()V
 	public fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;)V
 	public synthetic fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun authorizedCandidates-igy5H4g (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ljava/util/Set;
 	public final fun authorizedSet (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ljava/util/Set;
 	public final fun decisionFor (Ldev/tramai/security/governance/ProviderCandidate;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ldev/tramai/security/governance/CandidateAuthorizationDecision;
 }
@@ -655,6 +668,12 @@ public final class dev/tramai/security/governance/CandidateAuthorizationDecision
 	public final fun getReason ()Ldev/tramai/security/governance/AuthorizationRefusal;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/security/governance/CandidateViability {
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public final fun decisions-BZx11FM (Ljava/util/Set;)Ljava/util/Map;
+	public final fun viableCandidates-BZx11FM (Ljava/util/Set;)Ljava/util/Set;
 }
 
 public abstract interface class dev/tramai/security/governance/CandidateViabilityDecision {
@@ -767,8 +786,6 @@ public final class dev/tramai/security/governance/TrustZonePolicy {
 
 public final class dev/tramai/security/governance/ViabilityRefusal : java/lang/Enum {
 	public static final field AVAILABILITY Ldev/tramai/security/governance/ViabilityRefusal;
-	public static final field CAPABILITY Ldev/tramai/security/governance/ViabilityRefusal;
-	public static final field HEALTH Ldev/tramai/security/governance/ViabilityRefusal;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/ViabilityRefusal;
 	public static fun values ()[Ldev/tramai/security/governance/ViabilityRefusal;

@@ -86,14 +86,15 @@ enum class AuthorizationRefusal {
  * Vocabulary for the viability stage, which applies runtime constraints *after*
  * authorization.
  *
- * Declared here so the two stages cannot be merged into one enum later, and so a
- * refusal can say which stage refused it. **Nothing produces these values yet:**
- * [CandidateAuthorization] returns [CandidateAuthorizationDecision] and cannot
- * express viability, so no viability decision is performed by this slice.
+ * Declared in 0.7.3b and produced by [CandidateViability] since 0.7.3d. The
+ * authorization boundary still cannot express these values — it returns
+ * [CandidateAuthorizationDecision] — so a refusal always says which stage refused
+ * it and the two stages stay separable.
  *
- * [ViabilityRefusal] names the constraint families the epic records as runtime
- * constraints. Optimization signals — cost, latency, preference — are deliberately
- * absent: they may rank candidates but may never remove one from the viable set.
+ * [ViabilityRefusal] names the constraint families a producer in this repository
+ * can actually report. Optimization signals — cost, latency, preference — are
+ * deliberately absent: they may rank candidates but may never remove one from the
+ * viable set.
  */
 sealed interface CandidateViabilityDecision {
     /** The candidate satisfies every required runtime constraint. */
@@ -108,19 +109,30 @@ sealed interface CandidateViabilityDecision {
 /**
  * Constraint families that can make an authorized candidate non-viable.
  *
- * No producer exists yet. Cost and latency are not members: they are selection
- * signals, not runtime constraints, and admitting them here would let an
- * optimization signal remove governance authority.
+ * The epic fixes the boundary these stages sit on:
+ *
+ * ```text
+ * authorized = policy ∩ classification ∩ trust ∩ capability ∩ registration
+ * viable     = authorized ∩ required runtime constraints
+ * ```
+ *
+ * Capability is therefore **not** here. A candidate that cannot perform a required
+ * capability is not temporarily unusable — it is not an eligible authorized
+ * candidate for that request. `CAPABILITY` was declared here in 0.7.3b and removed
+ * in 0.7.3d for that reason; wiring capability facts into the authorization
+ * boundary is a separate, smaller correction.
+ *
+ * `HEALTH` was removed in the same slice: the first producer landed and could not
+ * produce it, because nothing in the repository reports provider health. It was a
+ * hypothetical state rather than an unexpressed one (ADR-020).
+ *
+ * Cost and latency are absent for a third reason: they are selection signals, not
+ * runtime constraints, and admitting them would let an optimization signal remove
+ * governance authority.
  */
 enum class ViabilityRefusal {
-    /** The deployment cannot serve what this candidate requires of it. */
-    CAPABILITY,
-
     /** The deployment is not reachable right now. */
     AVAILABILITY,
-
-    /** The deployment reports itself unhealthy. */
-    HEALTH,
 }
 
 /**
@@ -215,4 +227,16 @@ class CandidateAuthorization(
         candidates
             .filter { decisionFor(it, workloadZone, classification) is CandidateAuthorizationDecision.Authorized }
             .toSet()
+
+    /**
+     * The same decision as [authorizedSet], as the value the viability stage
+     * requires. One implementation, two views: the set and the
+     * [AuthorizedCandidates] value cannot disagree, and viability can only ever be
+     * asked about candidates this boundary authorized.
+     */
+    fun authorizedCandidates(
+        candidates: Collection<ProviderCandidate>,
+        workloadZone: ProviderTrustZone,
+        classification: DataClassification,
+    ): AuthorizedCandidates = AuthorizedCandidates(authorizedSet(candidates, workloadZone, classification))
 }

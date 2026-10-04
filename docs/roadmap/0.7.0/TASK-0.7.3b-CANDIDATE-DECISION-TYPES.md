@@ -34,6 +34,13 @@ sealed interface CandidateViabilityDecision { Viable; NotViable(reason: Viabilit
 enum class ViabilityRefusal { CAPABILITY, AVAILABILITY, HEALTH }
 ```
 
+> **Superseded in part by 0.7.3d:** two of the three families declared here were
+> removed. `HEALTH` had no producer — nothing in the repository reports provider
+> health. `CAPABILITY` was in the wrong stage: the epic places capability in
+> authorization (`authorized = … ∩ capability ∩ registration`), not in runtime
+> viability. This slice's record stands as what 0.7.3b declared; the
+> authoritative vocabulary is in the source.
+
 `CandidateAuthorization` now exposes:
 
 ```kotlin
