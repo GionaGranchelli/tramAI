@@ -149,3 +149,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.3c authorized-set derivation: tramai-security gains ProviderCandidate and CandidateAuthorization, which decide whether a provider/model candidate belongs to the authorized set by requiring every required restriction to permit it - the candidate's identity agrees with its deployment, the trust-zone policy allows the workload-to-deployment zone pair, and the classification's routing rule permits that zone. Additive only: no existing signature was removed or changed."
     migration: "No consumer action required: the candidate type and the authorized-set boundary are new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "61aba8fd0d35bcf250157565a6c960205af865fa2ca64d1b35794b3e4b97fe28"
+    toSha256: "e3cefefc1d8389dbdff1914eb40c3d7cd417d2ab68b7c256bc7070948f879fda"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3b candidate decision types: tramai-security replaces the Boolean authorization answer with a typed one. CandidateAuthorizationDecision is Authorized or NotAuthorized(reason), AuthorizationRefusal is the closed refusal family, and CandidateViabilityDecision plus ViabilityRefusal declare the later viability stage's vocabulary with no producer yet. ProviderInputRelease gains refusalFor, and releases() is redefined as 'no refusal' so the two views cannot disagree. CandidateAuthorization.authorizes(Boolean) is REMOVED: a Boolean answer alongside a typed one is the ambiguity this change exists to remove."
+    migration: "Consumer action required only for the 0.7.3c preview API: CandidateAuthorization.authorizes() is removed in favour of decisionFor(), which returns CandidateAuthorizationDecision. Nothing in this repository consumed it. All other changes are additive."

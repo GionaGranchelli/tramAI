@@ -14,7 +14,7 @@ import dev.tramai.security.ProviderTrustZone
  *
  * The pair may be *inconsistent*: [providerId] and [deployment] can name
  * different providers. That is representable on purpose. An inconsistent
- * candidate is a fact to be denied, not a construction error to be thrown, so no
+ * candidate is a fact to be refused, not a construction error to be thrown, so no
  * caller can turn a malformed candidate into an authorization by catching an
  * exception.
  *
@@ -23,8 +23,8 @@ import dev.tramai.security.ProviderTrustZone
  * Nothing else about a candidate throws.
  *
  * This type states candidacy and nothing else. Whether the candidate is
- * authorized is decided by [CandidateAuthorization]; whether it is selected,
- * ranked, viable, or invoked is not modelled here or there.
+ * authorized is decided by [CandidateAuthorization]; whether it is viable is a
+ * later stage; whether it is selected, ranked, or invoked is not modelled here.
  */
 data class ProviderCandidate(
     val providerId: String,
@@ -44,6 +44,86 @@ data class ProviderCandidate(
 }
 
 /**
+ * The outcome of the authorization stage: exactly [Authorized] or
+ * [NotAuthorized].
+ *
+ * There is no third outcome and no Boolean form. A refusal always carries an
+ * [AuthorizationRefusal], so "denied" never has to be re-derived from a false
+ * value, and an authorization never has to be re-derived from a reason being
+ * absent. Viability is a separate stage with its own vocabulary
+ * ([CandidateViabilityDecision]) and is deliberately not expressible here.
+ */
+sealed interface CandidateAuthorizationDecision {
+    /** Every required restriction permitted this candidate. */
+    data object Authorized : CandidateAuthorizationDecision
+
+    /** At least one required restriction refused this candidate, for [reason]. */
+    data class NotAuthorized(
+        val reason: AuthorizationRefusal,
+    ) : CandidateAuthorizationDecision
+}
+
+/**
+ * Stable, closed reason family for [CandidateAuthorizationDecision.NotAuthorized].
+ *
+ * Each member names one restriction this boundary consults, and nothing else can
+ * produce a refusal. The family is exhaustive: a caller can branch on it without
+ * a fallback, and adding a member is a compile error everywhere it must be
+ * handled.
+ */
+enum class AuthorizationRefusal {
+    /** The candidate's identity names a different provider than its deployment. */
+    IDENTITY_DEPLOYMENT_MISMATCH,
+
+    /** The workload-to-deployment zone pair is not an explicitly listed pair. */
+    ZONE_PAIR_NOT_ALLOWED,
+
+    /** The classification's routing rule does not permit the deployment's zone. */
+    CLASSIFICATION_ZONE_NOT_PERMITTED,
+}
+
+/**
+ * Vocabulary for the viability stage, which applies runtime constraints *after*
+ * authorization.
+ *
+ * Declared here so the two stages cannot be merged into one enum later, and so a
+ * refusal can say which stage refused it. **Nothing produces these values yet:**
+ * [CandidateAuthorization] returns [CandidateAuthorizationDecision] and cannot
+ * express viability, so no viability decision is performed by this slice.
+ *
+ * [ViabilityRefusal] names the constraint families the epic records as runtime
+ * constraints. Optimization signals — cost, latency, preference — are deliberately
+ * absent: they may rank candidates but may never remove one from the viable set.
+ */
+sealed interface CandidateViabilityDecision {
+    /** The candidate satisfies every required runtime constraint. */
+    data object Viable : CandidateViabilityDecision
+
+    /** The candidate failed the runtime constraint named by [reason]. */
+    data class NotViable(
+        val reason: ViabilityRefusal,
+    ) : CandidateViabilityDecision
+}
+
+/**
+ * Constraint families that can make an authorized candidate non-viable.
+ *
+ * No producer exists yet. Cost and latency are not members: they are selection
+ * signals, not runtime constraints, and admitting them here would let an
+ * optimization signal remove governance authority.
+ */
+enum class ViabilityRefusal {
+    /** The deployment cannot serve what this candidate requires of it. */
+    CAPABILITY,
+
+    /** The deployment is not reachable right now. */
+    AVAILABILITY,
+
+    /** The deployment reports itself unhealthy. */
+    HEALTH,
+}
+
+/**
  * Which candidates belong to the authorized set for one workload and
  * classification.
  *
@@ -60,18 +140,25 @@ data class ProviderCandidate(
  *
  * The two governance authorities are consumed through [ProviderInputRelease],
  * which is already their conjunction, rather than restated here: a second copy of
- * the same predicate is a second thing to keep in agreement.
+ * the same predicate is a second thing to keep in agreement. Its refusal is
+ * mapped member-for-member onto [AuthorizationRefusal], so the two families cannot
+ * drift apart without a compile error.
  *
- * Denial is the default and has no exceptions. An unknown or unlisted zone pair
- * denies. A classification with no rule denies. A candidate whose identity
- * disagrees with its deployment denies. An authorization holding no policy and no
- * rules denies everything, so permission has to be stated to exist — nothing
+ * Refusal is the default and has no exceptions. An unknown or unlisted zone pair
+ * refuses. A classification with no rule refuses. A candidate whose identity
+ * disagrees with its deployment refuses. An authorization holding no policy and no
+ * rules refuses everything, so permission has to be stated to exist — nothing
  * becomes authorized through absence of policy, and no candidate can be widened
  * by another candidate's authorization.
  *
- * The result is a [Set], so candidate ordering cannot influence it and a
- * candidate evaluated twice cannot add authority. This is a decision only: it
- * does not rank, score, prefer, select, fall back, retry, invoke, or perform I/O.
+ * The refusal reported for a candidate failing more than one restriction is
+ * deterministic and ordered: identity first, then the zone-pair authority, then
+ * the classification rule. The order is part of the contract and is asserted.
+ *
+ * The authorized set is a [Set], so candidate ordering cannot influence it and a
+ * candidate evaluated twice cannot add authority. This is a decision only: it does
+ * not evaluate viability, rank, score, prefer, select, fall back, retry, invoke,
+ * or perform I/O.
  *
  * Authorization currently coincides with the release predicate, because
  * provider-input minimization does not exist yet. When it does, release becomes
@@ -82,27 +169,50 @@ class CandidateAuthorization(
     private val release: ProviderInputRelease = ProviderInputRelease(),
 ) {
     /**
-     * True only when the candidate's identity agrees with its deployment AND both
-     * governance authorities permit this deployment's zone for this workload and
-     * classification.
+     * The decision for one candidate. Refusal order is identity, then zone pair,
+     * then classification rule.
      */
-    fun authorizes(
+    fun decisionFor(
         candidate: ProviderCandidate,
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
-    ): Boolean =
-        candidate.deployment.providerId == candidate.providerId &&
-            release.releases(workloadZone, classification, candidate.deployment.trustZone.category)
+    ): CandidateAuthorizationDecision {
+        if (candidate.deployment.providerId != candidate.providerId) {
+            return CandidateAuthorizationDecision.NotAuthorized(
+                AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH,
+            )
+        }
+        val refusal =
+            release.refusalFor(workloadZone, classification, candidate.deployment.trustZone.category)
+        return when (refusal) {
+            null -> {
+                CandidateAuthorizationDecision.Authorized
+            }
+
+            ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED -> {
+                CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED)
+            }
+
+            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED -> {
+                CandidateAuthorizationDecision.NotAuthorized(
+                    AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+                )
+            }
+        }
+    }
 
     /**
      * The authorized subset of [candidates] for this workload and
      * classification. Order-independent, duplicate-insensitive, and possibly
      * empty — an empty result means no candidate may be used, not that the
-     * caller should look elsewhere.
+     * caller should look elsewhere or fall back to something outside the set.
      */
     fun authorizedSet(
         candidates: Collection<ProviderCandidate>,
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
-    ): Set<ProviderCandidate> = candidates.filter { authorizes(it, workloadZone, classification) }.toSet()
+    ): Set<ProviderCandidate> =
+        candidates
+            .filter { decisionFor(it, workloadZone, classification) is CandidateAuthorizationDecision.Authorized }
+            .toSet()
 }

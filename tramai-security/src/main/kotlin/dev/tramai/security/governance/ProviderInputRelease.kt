@@ -38,12 +38,53 @@ class ProviderInputRelease(
     /**
      * True only when the zones are compatible AND the classification's rule
      * permits that zone. A classification with no rule releases nothing.
+     *
+     * Defined as "no refusal", so this view and [refusalFor] cannot disagree.
      */
     fun releases(
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
         providerZone: ProviderTrustZone,
-    ): Boolean =
-        trustZonePolicy.allows(workloadZone, providerZone) &&
-            rules[classification]?.allowedZones?.contains(providerZone) == true
+    ): Boolean = refusalFor(workloadZone, classification, providerZone) == null
+
+    /**
+     * Why this input is withheld, or `null` when it is released.
+     *
+     * A classification with no rule and a rule that omits the zone are
+     * deliberately the same refusal. The configured rule matrix does not record
+     * which of the two an operator intended, so reporting a distinction here
+     * would be a claim the facts do not support.
+     */
+    fun refusalFor(
+        workloadZone: ProviderTrustZone,
+        classification: DataClassification,
+        providerZone: ProviderTrustZone,
+    ): ReleaseRefusal? =
+        when {
+            !trustZonePolicy.allows(workloadZone, providerZone) -> {
+                ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED
+            }
+
+            rules[classification]?.allowedZones?.contains(providerZone) != true -> {
+                ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED
+            }
+
+            else -> {
+                null
+            }
+        }
+}
+
+/**
+ * Stable reason why a provider-bound input was withheld from a deployment.
+ *
+ * Two members only: the two authorities this boundary consults can each refuse,
+ * and nothing else in the configured facts can.
+ */
+enum class ReleaseRefusal {
+    /** The workload-to-deployment zone pair is not an explicitly listed pair. */
+    ZONE_PAIR_NOT_ALLOWED,
+
+    /** The classification's routing rule does not permit the deployment's zone. */
+    CLASSIFICATION_ZONE_NOT_PERMITTED,
 }

@@ -4,19 +4,19 @@ import dev.tramai.core.policy.DataClassification
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Contract tests for the 0.7.3c authorized-set boundary.
+ * Contract tests for the 0.7.3 candidate decision model.
  *
- * One question: does a provider/model candidate belong to the authorized set?
- * The tests audit the invariant directly — a candidate is authorized only when
- * every required restriction permits it — and the ways authority could be widened
- * by accident: ordering, duplication, a malformed pair, the absence of policy, or
- * another candidate's authorization.
+ * The fixtures and the expected verdicts are the ones the Boolean boundary was
+ * audited against, so these tests prove the migration changed the *shape* of the
+ * answer and not the answer: every previously authorized candidate is AUTHORIZED,
+ * every previously denied candidate is NOT_AUTHORIZED. The added tests audit what
+ * was previously unexpressible — the refusal reason — plus the fact that no
+ * viability decision can be produced by this boundary.
  */
 class CandidateAuthorizationTest {
     /** The only permitted zone pair throughout: LOCAL -> EU_CLOUD. */
@@ -71,26 +71,34 @@ class CandidateAuthorizationTest {
         deployment: ProviderDeployment,
     ) = ProviderCandidate(providerId, modelId, deployment)
 
-    // --- 1. explicitly authorized candidates enter the set --------------------
+    private fun decisionOf(
+        candidate: ProviderCandidate,
+        classification: DataClassification = DataClassification.INTERNAL,
+    ) = authorization.decisionFor(candidate, ProviderTrustZone.LOCAL, classification)
+
+    // --- 1. every previously authorized candidate is AUTHORIZED ---------------
 
     @Test
-    fun `an explicitly authorized candidate enters the authorized set`() {
+    fun `an explicitly authorized candidate is AUTHORIZED`() {
         val authorized = candidate("openai", "gpt-4o", euDeployment)
 
-        assertTrue(authorization.authorizes(authorized, ProviderTrustZone.LOCAL, DataClassification.INTERNAL))
+        assertEquals(CandidateAuthorizationDecision.Authorized, decisionOf(authorized))
         assertEquals(
             setOf(authorized),
             authorization.authorizedSet(listOf(authorized), ProviderTrustZone.LOCAL, DataClassification.INTERNAL),
         )
     }
 
-    // --- 2. denied and incomplete candidates do not ---------------------------
+    // --- 2. every previously denied candidate is NOT_AUTHORIZED ---------------
 
     @Test
-    fun `a candidate whose zone no policy pair allows is denied`() {
+    fun `a candidate whose zone no policy pair allows is NOT_AUTHORIZED for that reason`() {
         val denied = candidate("openai", "gpt-4o", globalDeployment)
 
-        assertFalse(authorization.authorizes(denied, ProviderTrustZone.LOCAL, DataClassification.INTERNAL))
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED),
+            decisionOf(denied),
+        )
         assertTrue(
             authorization
                 .authorizedSet(listOf(denied), ProviderTrustZone.LOCAL, DataClassification.INTERNAL)
@@ -99,25 +107,38 @@ class CandidateAuthorizationTest {
     }
 
     @Test
-    fun `a candidate the classification rule forbids is denied even on an allowed zone pair`() {
+    fun `a candidate the classification rule forbids is NOT_AUTHORIZED for that reason`() {
         val denied = candidate("openai", "gpt-4o", euDeployment)
 
         // LOCAL -> EU_CLOUD is an allowed pair; RESTRICTED permits only LOCAL.
-        assertFalse(authorization.authorizes(denied, ProviderTrustZone.LOCAL, DataClassification.RESTRICTED))
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(
+                AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+            ),
+            decisionOf(denied, DataClassification.RESTRICTED),
+        )
     }
 
     @Test
-    fun `a candidate for a classification with no rule is denied on an allowed zone pair`() {
+    fun `a candidate for a classification with no rule is NOT_AUTHORIZED`() {
         val denied = candidate("openai", "gpt-4o", euDeployment)
 
-        assertFalse(authorization.authorizes(denied, ProviderTrustZone.LOCAL, DataClassification.PUBLIC))
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(
+                AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+            ),
+            decisionOf(denied, DataClassification.PUBLIC),
+        )
     }
 
     @Test
-    fun `a candidate whose identity disagrees with its deployment is denied`() {
+    fun `a candidate whose identity disagrees with its deployment is NOT_AUTHORIZED`() {
         val inconsistent = candidate("anthropic", "claude", euDeployment)
 
-        assertFalse(authorization.authorizes(inconsistent, ProviderTrustZone.LOCAL, DataClassification.INTERNAL))
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH),
+            decisionOf(inconsistent),
+        )
     }
 
     @Test
@@ -125,10 +146,80 @@ class CandidateAuthorizationTest {
         val sameZone = candidate("vllm", "llama3", localDeployment)
 
         // RESTRICTED permits LOCAL, but LOCAL -> LOCAL is not a listed pair.
-        assertFalse(authorization.authorizes(sameZone, ProviderTrustZone.LOCAL, DataClassification.RESTRICTED))
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED),
+            decisionOf(sameZone, DataClassification.RESTRICTED),
+        )
     }
 
-    // --- 3. ordering does not change the authorized set ------------------------
+    // --- 3. a refusal always names a reason from the stable family -------------
+
+    @Test
+    fun `every refusal carries a member of the stable reason family`() {
+        val refusals =
+            listOf(
+                decisionOf(candidate("openai", "gpt-4o", globalDeployment)),
+                decisionOf(candidate("openai", "gpt-4o", euDeployment), DataClassification.RESTRICTED),
+                decisionOf(candidate("openai", "gpt-4o", euDeployment), DataClassification.PUBLIC),
+                decisionOf(candidate("anthropic", "claude", euDeployment)),
+                decisionOf(candidate("vllm", "llama3", localDeployment), DataClassification.RESTRICTED),
+            )
+
+        assertEquals(refusals.size, refusals.count { it is CandidateAuthorizationDecision.NotAuthorized })
+        refusals.forEach { decision ->
+            val notAuthorized = decision as CandidateAuthorizationDecision.NotAuthorized
+            assertTrue(notAuthorized.reason in AuthorizationRefusal.entries)
+        }
+    }
+
+    @Test
+    fun `the reason family has exactly the three restrictions this boundary consults`() {
+        assertEquals(
+            listOf(
+                AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH,
+                AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED,
+                AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+            ),
+            AuthorizationRefusal.entries.toList(),
+        )
+    }
+
+    @Test
+    fun `identity refusal takes precedence over the other restrictions`() {
+        val inconsistentAndZoneDenied = candidate("anthropic", "claude", globalDeployment)
+
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH),
+            decisionOf(inconsistentAndZoneDenied, DataClassification.RESTRICTED),
+        )
+    }
+
+    @Test
+    fun `the zone-pair refusal takes precedence over the classification refusal`() {
+        // LOCAL -> LOCAL is unlisted AND RESTRICTED omits LOCAL: the zone authority refuses first.
+        val sameZoneRestricted = candidate("vllm", "llama3", localDeployment)
+
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED),
+            decisionOf(sameZoneRestricted, DataClassification.RESTRICTED),
+        )
+    }
+
+    // --- 5. no viability decision is performed by this boundary ----------------
+
+    @Test
+    fun `the viability vocabulary exists for the later stage and names three constraint families`() {
+        // The absence of a producer is a structural fact, not a runtime one: the
+        // boundary returns CandidateAuthorizationDecision, which cannot express
+        // viability, and no code constructs these values. Verified by inspecting
+        // call sites rather than asserted here, because a test cannot prove absence.
+        assertEquals(
+            listOf(ViabilityRefusal.AVAILABILITY, ViabilityRefusal.CAPABILITY, ViabilityRefusal.HEALTH),
+            ViabilityRefusal.entries.sortedBy { it.name },
+        )
+    }
+
+    // --- ordering, duplication and denial-by-default (unchanged semantics) -----
 
     @Test
     fun `candidate ordering does not change the authorized set`() {
@@ -145,8 +236,6 @@ class CandidateAuthorizationTest {
         assertEquals(setOf(authorized), forward)
         assertEquals(forward, reversed)
     }
-
-    // --- 4. duplicate evaluation cannot widen authority ------------------------
 
     @Test
     fun `duplicate candidates do not widen the authorized set`() {
@@ -169,11 +258,9 @@ class CandidateAuthorizationTest {
         val authorized = candidate("openai", "gpt-4o", euDeployment)
 
         repeat(5) {
-            assertTrue(authorization.authorizes(authorized, ProviderTrustZone.LOCAL, DataClassification.INTERNAL))
+            assertEquals(CandidateAuthorizationDecision.Authorized, decisionOf(authorized))
         }
     }
-
-    // --- 5. nothing is selected, and nothing defaults ---------------------------
 
     @Test
     fun `an empty candidate list yields an empty set rather than a default`() {
@@ -204,10 +291,8 @@ class CandidateAuthorizationTest {
         assertEquals(setOf(authorized), result)
     }
 
-    // --- the invariant: absent policy denies, and nothing widens ---------------
-
     @Test
-    fun `absent policy and rules deny every candidate`() {
+    fun `absent policy and rules refuse every candidate`() {
         val closed = CandidateAuthorization()
         val candidates =
             listOf(
@@ -215,6 +300,12 @@ class CandidateAuthorizationTest {
                 candidate("vllm", "llama3", localDeployment),
             )
 
+        candidates.forEach { candidate ->
+            assertEquals(
+                CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED),
+                closed.decisionFor(candidate, ProviderTrustZone.LOCAL, DataClassification.INTERNAL),
+            )
+        }
         assertTrue(
             closed.authorizedSet(candidates, ProviderTrustZone.LOCAL, DataClassification.INTERNAL).isEmpty(),
         )
@@ -230,7 +321,6 @@ class CandidateAuthorizationTest {
             setOf(authorized),
             authorization.authorizedSet(both, ProviderTrustZone.LOCAL, DataClassification.INTERNAL),
         )
-        // Remove the authorized candidate: the denied one must not inherit anything.
         assertTrue(
             authorization
                 .authorizedSet(listOf(denied), ProviderTrustZone.LOCAL, DataClassification.INTERNAL)
@@ -254,7 +344,7 @@ class CandidateAuthorizationTest {
     }
 
     @Test
-    fun `a blank or untrimmed identity is rejected at construction, not denied`() {
+    fun `a blank or untrimmed identity is rejected at construction, not refused`() {
         assertThrows(IllegalArgumentException::class.java) {
             ProviderCandidate(" ", "gpt-4o", euDeployment)
         }
