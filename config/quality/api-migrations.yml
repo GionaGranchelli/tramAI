@@ -142,3 +142,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.2e restrictive effective-policy composition: tramai-security gains effectiveRoutingRules, which composes organization, environment and workload routing policy by intersection, so a narrower scope may restrict authority but never widen it. Additive only."
     migration: "No consumer action required: the composition function is new, and no existing signature changed."
+
+  - module: ":tramai-security"
+    fromSha256: "9d64fe4b905350b96eadbf505b63810fd8939e8115fbb9f11fa62c565dc990f9"
+    toSha256: "61aba8fd0d35bcf250157565a6c960205af865fa2ca64d1b35794b3e4b97fe28"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3c authorized-set derivation: tramai-security gains ProviderCandidate and CandidateAuthorization, which decide whether a provider/model candidate belongs to the authorized set by requiring every required restriction to permit it - the candidate's identity agrees with its deployment, the trust-zone policy allows the workload-to-deployment zone pair, and the classification's routing rule permits that zone. Additive only: no existing signature was removed or changed."
+    migration: "No consumer action required: the candidate type and the authorized-set boundary are new, and no existing signature changed."
