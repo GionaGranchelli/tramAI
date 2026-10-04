@@ -208,13 +208,13 @@ class CandidateAuthorizationTest {
     // --- 5. no viability decision is performed by this boundary ----------------
 
     @Test
-    fun `the viability vocabulary exists for the later stage and names three constraint families`() {
-        // The absence of a producer is a structural fact, not a runtime one: the
-        // boundary returns CandidateAuthorizationDecision, which cannot express
-        // viability, and no code constructs these values. Verified by inspecting
-        // call sites rather than asserted here, because a test cannot prove absence.
+    fun `the viability vocabulary names the families this repository can report`() {
+        // Updated by 0.7.3d: HEALTH was declared in 0.7.3b and removed when the first
+        // producer landed, because nothing in the repository reports provider health.
+        // The authorization boundary still cannot express viability at all: it returns
+        // CandidateAuthorizationDecision, which has no viability member.
         assertEquals(
-            listOf(ViabilityRefusal.AVAILABILITY, ViabilityRefusal.CAPABILITY, ViabilityRefusal.HEALTH),
+            listOf(ViabilityRefusal.AVAILABILITY, ViabilityRefusal.CAPABILITY),
             ViabilityRefusal.entries.sortedBy { it.name },
         )
     }

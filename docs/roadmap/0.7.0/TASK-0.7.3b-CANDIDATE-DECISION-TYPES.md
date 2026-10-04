@@ -34,6 +34,11 @@ sealed interface CandidateViabilityDecision { Viable; NotViable(reason: Viabilit
 enum class ViabilityRefusal { CAPABILITY, AVAILABILITY, HEALTH }
 ```
 
+> **Superseded in part by 0.7.3d:** `HEALTH` was removed from `ViabilityRefusal`
+> when the first producer landed — nothing in the repository reports provider
+> health, so it was a hypothetical state. This slice's record stands as what
+> 0.7.3b declared; the authoritative vocabulary is in the source.
+
 `CandidateAuthorization` now exposes:
 
 ```kotlin

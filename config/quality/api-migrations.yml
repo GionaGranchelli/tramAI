@@ -156,3 +156,10 @@ migrations:
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.3b candidate decision types: tramai-security replaces the Boolean authorization answer with a typed one. CandidateAuthorizationDecision is Authorized or NotAuthorized(reason), AuthorizationRefusal is the closed refusal family, and CandidateViabilityDecision plus ViabilityRefusal declare the later viability stage's vocabulary with no producer yet. ProviderInputRelease gains refusalFor, and releases() is redefined as 'no refusal' so the two views cannot disagree. CandidateAuthorization.authorizes(Boolean) is REMOVED: a Boolean answer alongside a typed one is the ambiguity this change exists to remove."
     migration: "Consumer action required only for the 0.7.3c preview API: CandidateAuthorization.authorizes() is removed in favour of decisionFor(), which returns CandidateAuthorizationDecision. Nothing in this repository consumed it. All other changes are additive."
+
+  - module: ":tramai-security"
+    fromSha256: "e3cefefc1d8389dbdff1914eb40c3d7cd417d2ab68b7c256bc7070948f879fda"
+    toSha256: "779528d3b4664df26dca931b0aac2d6cd289366cb7ca50b3a152fbd34b3e9c05"
+    targetVersion: "0.7.0"
+    rationale: "Epic 0.7.3d viability after authorization: tramai-security gains CandidateViability, which evaluates runtime constraints only for candidates the authorization boundary has already authorized, and AuthorizedCandidates, a value whose constructor is module-internal so only CandidateAuthorization can produce it. ViabilityRefusal LOSES its HEALTH member: 0.7.3b declared CAPABILITY/AVAILABILITY/HEALTH before any producer existed, and the first producer can report only the first two - nothing in the repository reports provider health - so HEALTH was a hypothetical state and is removed rather than kept."
+    migration: "Consumer action required only for the 0.7.3 preview API: ViabilityRefusal.HEALTH is removed. Nothing in this repository consumed it; the value had no producer and was referenced only by its own declaration and tests. All other changes are additive."
