@@ -1271,6 +1271,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 dependsOn(testingProject.tasks.named("testClasses"))
                 testClassesDirs = testSourceSet.output.classesDirs
                 classpath = testSourceSet.runtimeClasspath
+                // The enrollment contracts read provider sources off disk, and the classpath
+                // does NOT model that: without these inputs, editing a scanned source left this
+                // task UP-TO-DATE, and the aggregating gate re-reported its previous verdict
+                // (a stale red after a real fix). Declare exactly what the scan reads, so a
+                // source change invalidates the task normally and --rerun-tasks is unnecessary.
+                inputs
+                    .files(
+                        project.fileTree(project.rootDir).apply {
+                            include("tramai-*/src/main/kotlin/**/*.kt")
+                            include("tramai-*/src/test/kotlin/**/*.kt")
+                            include("settings.gradle.kts")
+                        },
+                    ).withPropertyName("scannedEnrollmentSources")
                 useJUnitPlatform()
                 filter.includeTestsMatching("dev.tramai.testing.*EnrollmentArchitectureTest")
                 ignoreFailures = true
