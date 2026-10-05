@@ -1,6 +1,7 @@
 package dev.tramai.security.governance
 
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -37,7 +38,14 @@ class CandidateViabilityTest {
                 ),
         )
 
-    private val authorization = CandidateAuthorization(ProviderInputRelease(zonesAllowLocalToEu, rules))
+    /**
+     * The viability fixtures are authorized candidates, so their providers must be registered:
+     * authorization refuses an unregistered provider before viability is ever asked (0.7.3d1).
+     */
+    private val registration = registrationPlan("openai" to ProviderCapability.entries.toSet())
+
+    private val authorization =
+        CandidateAuthorization(ProviderInputRelease(zonesAllowLocalToEu, rules), registration)
 
     private fun deployment(
         deploymentId: String,

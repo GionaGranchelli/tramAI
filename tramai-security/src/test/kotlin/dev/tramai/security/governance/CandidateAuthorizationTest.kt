@@ -1,6 +1,7 @@
 package dev.tramai.security.governance
 
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -48,7 +49,19 @@ class CandidateAuthorizationTest {
                 ),
         )
 
-    private val authorization = CandidateAuthorization(ProviderInputRelease(zonesAllowLocalToEu, rules))
+    /**
+     * The registration snapshot the fixture candidates are authorized against. Both providers are
+     * registered and support every capability, so the pre-0.7.3d1 fixtures keep their verdicts and
+     * the new tests vary one fact at a time.
+     */
+    private val registration =
+        registrationPlan(
+            "openai" to ProviderCapability.entries.toSet(),
+            "vllm" to ProviderCapability.entries.toSet(),
+        )
+
+    private val authorization =
+        CandidateAuthorization(ProviderInputRelease(zonesAllowLocalToEu, rules), registration)
 
     private fun deployment(
         deploymentId: String,
@@ -74,7 +87,8 @@ class CandidateAuthorizationTest {
     private fun decisionOf(
         candidate: ProviderCandidate,
         classification: DataClassification = DataClassification.INTERNAL,
-    ) = authorization.decisionFor(candidate, ProviderTrustZone.LOCAL, classification)
+        requiredCapabilities: Set<ProviderCapability> = emptySet(),
+    ) = authorization.decisionFor(candidate, ProviderTrustZone.LOCAL, classification, requiredCapabilities)
 
     // --- 1. every previously authorized candidate is AUTHORIZED ---------------
 
@@ -173,12 +187,14 @@ class CandidateAuthorizationTest {
     }
 
     @Test
-    fun `the reason family has exactly the three restrictions this boundary consults`() {
+    fun `the reason family has exactly the five restrictions this boundary consults`() {
         assertEquals(
             listOf(
                 AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH,
                 AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED,
                 AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
+                AuthorizationRefusal.PROVIDER_NOT_REGISTERED,
+                AuthorizationRefusal.REQUIRED_CAPABILITY_NOT_SUPPORTED,
             ),
             AuthorizationRefusal.entries.toList(),
         )
@@ -358,5 +374,149 @@ class CandidateAuthorizationTest {
         assertThrows(IllegalArgumentException::class.java) {
             ProviderCandidate("openai", " gpt-4o", euDeployment)
         }
+    }
+
+    // --- 6. registration and capability complete the conjunction (0.7.3d1) -------------------
+
+    /**
+     * Identity agrees with the deployment and LOCAL -> EU_CLOUD is permitted for INTERNAL, so this
+     * candidate passes every pre-0.7.3d1 restriction and is refused by registration alone.
+     */
+    private fun unregisteredCandidate() =
+        candidate(
+            "anthropic",
+            "claude",
+            deployment("dep-eu-anthropic", "anthropic", ProviderTrustZone.EU_CLOUD),
+        )
+
+    @Test
+    fun `an unregistered candidate is NOT_AUTHORIZED`() {
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.PROVIDER_NOT_REGISTERED),
+            decisionOf(unregisteredCandidate()),
+        )
+    }
+
+    @Test
+    fun `a registered candidate with no required capabilities proceeds to the existing restrictions`() {
+        // Registered, but LOCAL -> GLOBAL_CLOUD is not a listed pair: registration grants nothing.
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED),
+            decisionOf(candidate("openai", "gpt-4o", globalDeployment)),
+        )
+    }
+
+    @Test
+    fun `a registered provider supporting every required capability is AUTHORIZED`() {
+        assertEquals(
+            CandidateAuthorizationDecision.Authorized,
+            decisionOf(
+                candidate("openai", "gpt-4o", euDeployment),
+                requiredCapabilities = setOf(ProviderCapability.VISION, ProviderCapability.TOOL_CALLING),
+            ),
+        )
+    }
+
+    @Test
+    fun `one unsupported required capability refuses authorization`() {
+        val visionOnly =
+            CandidateAuthorization(
+                ProviderInputRelease(zonesAllowLocalToEu, rules),
+                registrationPlan("openai" to setOf(ProviderCapability.VISION)),
+            )
+
+        // The refusal is an AuthorizationRefusal. It has no viability form: ViabilityRefusal cannot
+        // express capability at all (its exact vocabulary is asserted above), because a provider
+        // that cannot do the work is ineligible, not temporarily unusable.
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(
+                AuthorizationRefusal.REQUIRED_CAPABILITY_NOT_SUPPORTED,
+            ),
+            visionOnly.decisionFor(
+                candidate("openai", "gpt-4o", euDeployment),
+                ProviderTrustZone.LOCAL,
+                DataClassification.INTERNAL,
+                setOf(ProviderCapability.VISION, ProviderCapability.STRUCTURED_OUTPUT),
+            ),
+        )
+    }
+
+    @Test
+    fun `an empty requirement does not bypass registration`() {
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.PROVIDER_NOT_REGISTERED),
+            decisionOf(unregisteredCandidate(), requiredCapabilities = emptySet()),
+        )
+    }
+
+    @Test
+    fun `an absent registration refuses everything`() {
+        val closed = CandidateAuthorization(ProviderInputRelease(zonesAllowLocalToEu, rules))
+        val wellFormed = candidate("openai", "gpt-4o", euDeployment)
+
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.PROVIDER_NOT_REGISTERED),
+            closed.decisionFor(wellFormed, ProviderTrustZone.LOCAL, DataClassification.INTERNAL),
+        )
+        assertTrue(
+            closed
+                .authorizedSet(listOf(wellFormed), ProviderTrustZone.LOCAL, DataClassification.INTERNAL)
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun `registration is refused before capability`() {
+        // The provider is unregistered, so the required capability could not even be asked: the
+        // reported reason is registration, deterministically, whatever capabilities are required.
+        assertEquals(
+            CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.PROVIDER_NOT_REGISTERED),
+            decisionOf(
+                unregisteredCandidate(),
+                requiredCapabilities = setOf(ProviderCapability.VISION),
+            ),
+        )
+    }
+
+    @Test
+    fun `candidate ordering does not change the authorized set when capabilities are required`() {
+        val authorized = candidate("openai", "gpt-4o", euDeployment)
+        val unregistered = unregisteredCandidate()
+        val zoneDenied = candidate("openai", "gpt-4o", globalDeployment)
+        val required = setOf(ProviderCapability.VISION, ProviderCapability.STRUCTURED_OUTPUT)
+        val candidates = listOf(authorized, unregistered, zoneDenied)
+
+        val forward =
+            authorization.authorizedSet(
+                candidates,
+                ProviderTrustZone.LOCAL,
+                DataClassification.INTERNAL,
+                required,
+            )
+        val reversed =
+            authorization.authorizedSet(
+                candidates.reversed(),
+                ProviderTrustZone.LOCAL,
+                DataClassification.INTERNAL,
+                required,
+            )
+
+        assertEquals(setOf(authorized), forward)
+        assertEquals(forward, reversed)
+    }
+
+    @Test
+    fun `a repeated unregistered candidate adds no authority`() {
+        val authorized = candidate("openai", "gpt-4o", euDeployment)
+        val unregistered = unregisteredCandidate()
+
+        assertEquals(
+            setOf(authorized),
+            authorization.authorizedSet(
+                listOf(unregistered, unregistered, authorized),
+                ProviderTrustZone.LOCAL,
+                DataClassification.INTERNAL,
+            ),
+        )
     }
 }

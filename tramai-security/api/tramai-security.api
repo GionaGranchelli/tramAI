@@ -622,6 +622,8 @@ public final class dev/tramai/security/evidence/ToolPermissionRuntimeEvidenceExp
 public final class dev/tramai/security/governance/AuthorizationRefusal : java/lang/Enum {
 	public static final field CLASSIFICATION_ZONE_NOT_PERMITTED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field IDENTITY_DEPLOYMENT_MISMATCH Ldev/tramai/security/governance/AuthorizationRefusal;
+	public static final field PROVIDER_NOT_REGISTERED Ldev/tramai/security/governance/AuthorizationRefusal;
+	public static final field REQUIRED_CAPABILITY_NOT_SUPPORTED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static final field ZONE_PAIR_NOT_ALLOWED Ldev/tramai/security/governance/AuthorizationRefusal;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/security/governance/AuthorizationRefusal;
@@ -642,11 +644,14 @@ public final class dev/tramai/security/governance/AuthorizedCandidates {
 
 public final class dev/tramai/security/governance/CandidateAuthorization {
 	public fun <init> ()V
-	public fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;)V
-	public synthetic fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun authorizedCandidates-igy5H4g (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ljava/util/Set;
-	public final fun authorizedSet (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ljava/util/Set;
-	public final fun decisionFor (Ldev/tramai/security/governance/ProviderCandidate;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;)Ldev/tramai/security/governance/CandidateAuthorizationDecision;
+	public fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;Ldev/tramai/core/provider/ProviderRoutingPlan;)V
+	public synthetic fun <init> (Ldev/tramai/security/governance/ProviderInputRelease;Ldev/tramai/core/provider/ProviderRoutingPlan;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun authorizedCandidates-ktbYJHY (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;)Ljava/util/Set;
+	public static synthetic fun authorizedCandidates-ktbYJHY$default (Ldev/tramai/security/governance/CandidateAuthorization;Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;ILjava/lang/Object;)Ljava/util/Set;
+	public final fun authorizedSet (Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;)Ljava/util/Set;
+	public static synthetic fun authorizedSet$default (Ldev/tramai/security/governance/CandidateAuthorization;Ljava/util/Collection;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;ILjava/lang/Object;)Ljava/util/Set;
+	public final fun decisionFor (Ldev/tramai/security/governance/ProviderCandidate;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;)Ldev/tramai/security/governance/CandidateAuthorizationDecision;
+	public static synthetic fun decisionFor$default (Ldev/tramai/security/governance/CandidateAuthorization;Ldev/tramai/security/governance/ProviderCandidate;Ldev/tramai/security/ProviderTrustZone;Ldev/tramai/core/policy/DataClassification;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/security/governance/CandidateAuthorizationDecision;
 }
 
 public abstract interface class dev/tramai/security/governance/CandidateAuthorizationDecision {
