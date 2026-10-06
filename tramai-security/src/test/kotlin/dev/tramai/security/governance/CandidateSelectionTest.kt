@@ -211,6 +211,33 @@ class CandidateSelectionTest {
     }
 
     @Test
+    fun `a strategy cannot widen the envelope by mutating the set it is given`() {
+        // Stronger than the injection test: this strategy does not merely *return* an outside
+        // candidate, it mutates the object the fence consults. Kotlin's read-only Set is not
+        // immutable, so the authority envelope must not be the instance the strategy receives.
+        val viable = viableSet(a, b)
+        val outside = unregistered
+
+        val decision =
+            selection.select(
+                viable,
+                CandidateSelectionStrategy { supplied ->
+                    @Suppress("UNCHECKED_CAST")
+                    val mutable = supplied as MutableSet<ProviderCandidate>
+                    mutable += outside
+                    outside
+                },
+            )
+
+        assertEquals(
+            CandidateSelectionDecision.NoSelection(SelectionRefusal.STRATEGY_OUTSIDE_VIABLE_SET),
+            decision,
+        )
+        assertFalse(viable.contains(outside), "the authority envelope must be untouched by the strategy")
+        assertEquals(setOf(a, b), viable.candidates)
+    }
+
+    @Test
     fun `a strategy that declines is a non-selection, not a failure`() {
         assertEquals(
             CandidateSelectionDecision.NoSelection(SelectionRefusal.STRATEGY_DECLINED),
@@ -255,13 +282,10 @@ class CandidateSelectionTest {
             )
 
         assertEquals(setOf(a), viable.candidates)
-        val decision = selection.select(viable, CandidateSelectionStrategy { b })
         assertEquals(
             CandidateSelectionDecision.NoSelection(SelectionRefusal.STRATEGY_OUTSIDE_VIABLE_SET),
-            decision,
+            selection.select(viable, CandidateSelectionStrategy { b }),
         )
-        assertTrue(decision is CandidateSelectionDecision.NoSelection)
-        assertTrue((decision as CandidateSelectionDecision.NoSelection).reason in SelectionRefusal.entries)
     }
 
     @Test

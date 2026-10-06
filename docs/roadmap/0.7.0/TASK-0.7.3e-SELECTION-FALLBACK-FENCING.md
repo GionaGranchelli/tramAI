@@ -82,6 +82,12 @@ the execution path is a separate integration, and this slice deliberately stops 
 boundary. Until that lands, the fence is proven on the decision boundary, not on the invocation
 path.
 
+**This is a hard obligation on the integration task, not a note.** Epic 0.7.3 must not be declared
+complete while `ProviderExecutionCoordinator` can still resolve and execute routing or fallback
+independently of this viable-selection boundary. Whoever lands that integration must show the
+execution path selecting only from `ViableCandidates` — the decision fence being proven here does
+not by itself constrain execution. (Epic task 0.7.3h, Integration/docs.)
+
 Not here either: provider invocation, circuit-breaker behaviour beyond consuming produced
 viability facts, adaptive/ML routing, cost or latency productization, weighted-ranking frameworks,
 decision evidence/persistence, digests, audit projections, retry scheduling, provider health

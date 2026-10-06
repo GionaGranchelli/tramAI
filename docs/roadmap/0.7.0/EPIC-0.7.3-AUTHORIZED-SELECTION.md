@@ -54,7 +54,7 @@ optimization signals can rank but cannot authorize
 | 0.7.3e | Selection/fallback fencing | Ensure selection/retry/fallback cannot escape viable authorized set |
 | 0.7.3f | Decision identity/evidence | Persist enough workload/run/policy/decision/authority context to explain historical selection safely and to support the XR1 external-runtime authority proof without inventing a second decision model |
 | 0.7.3g | Adversarial/mutation/provider proof | Prove ineligible routes never become selected via fallback/preference |
-| 0.7.3h | Integration/docs | Final API/architecture docs and Epic acceptance |
+| 0.7.3h | Integration/docs | Final API/architecture docs and Epic acceptance. **Hard obligation:** the execution path must select only from the viable set — `ProviderExecutionCoordinator` currently resolves and executes routing/fallback independently of the 0.7.3e selection boundary, and this Epic cannot be declared complete while that remains true. |
 
 ## Acceptance criteria
 

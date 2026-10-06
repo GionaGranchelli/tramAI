@@ -93,7 +93,10 @@ class CandidateSelection {
         strategy: CandidateSelectionStrategy,
     ): CandidateSelectionDecision {
         val empty = viable.isEmpty()
-        val chosen = if (empty) null else strategy.select(viable.candidates)
+        // The strategy receives a defensive copy, never the envelope's own backing set: a strategy
+        // is caller-supplied code and Kotlin's read-only Set is not immutable, so a set it can cast
+        // to MutableSet would let it add a candidate to the very set the check below consults.
+        val chosen = if (empty) null else strategy.select(viable.candidates.toSet())
         return when {
             empty -> {
                 CandidateSelectionDecision.NoSelection(SelectionRefusal.NO_VIABLE_CANDIDATES)
