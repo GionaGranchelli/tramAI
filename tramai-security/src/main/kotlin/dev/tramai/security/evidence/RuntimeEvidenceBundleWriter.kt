@@ -64,7 +64,6 @@ import java.util.EnumSet
  * evidence should simply not invoke the writer.
  */
 class RuntimeEvidenceBundleWriter {
-
     /**
      * Writes the given records into the bundle's `runtime-evidence/`
      * directory, replacing any existing section transactionally.
@@ -86,35 +85,39 @@ class RuntimeEvidenceBundleWriter {
 
         // Normalize bundle directory to handle relative single-segment paths
         val normalizedBundleDir = bundleDirectory.toAbsolutePath().normalize()
-        val tempParent = requireNotNull(normalizedBundleDir.parent) {
-            "bundleDirectory must have a parent directory for temp file placement: $bundleDirectory"
-        }
+        val tempParent =
+            requireNotNull(normalizedBundleDir.parent) {
+                "bundleDirectory must have a parent directory for temp file placement: $bundleDirectory"
+            }
 
         // Fail closed: require a valid evidence bundle root.
         requireBundleRoot(normalizedBundleDir)
 
         RuntimeEvidenceContractValidator.validate(records)
 
-        val grouped = records
-            .sortedWith(compareBy(RuntimeEvidenceRecord::createdAt, RuntimeEvidenceRecord::eventId))
-            .groupBy { it.eventType }
+        val grouped =
+            records
+                .sortedWith(compareBy(RuntimeEvidenceRecord::createdAt, RuntimeEvidenceRecord::eventId))
+                .groupBy { it.eventType }
 
         // Use a unique temporary sibling directory OUTSIDE the bundle root
         // so a crashed temp dir can never be mistaken for legitimate evidence.
         val runtimeEvidenceDir = normalizedBundleDir.resolve(RUNTIME_EVIDENCE_DIR)
-        val tempDir = Files.createTempDirectory(
-            tempParent,
-            ".${RUNTIME_EVIDENCE_DIR}-",
-        )
+        val tempDir =
+            Files.createTempDirectory(
+                tempParent,
+                ".${RUNTIME_EVIDENCE_DIR}-",
+            )
 
         try {
             val writtenFiles = mutableListOf<Path>()
             val countsByEventType = mutableMapOf<String, Int>()
 
             for ((eventType, typedRecords) in grouped) {
-                val filename = requireNotNull(EVENT_FILES[eventType]) {
-                    "Unknown event type: $eventType"
-                }
+                val filename =
+                    requireNotNull(EVENT_FILES[eventType]) {
+                        "Unknown event type: $eventType"
+                    }
                 val jsonlContent = RuntimeEvidenceJsonlWriter.write(typedRecords)
                 val filePath = tempDir.resolve(filename)
                 Files.writeString(filePath, jsonlContent, StandardCharsets.UTF_8)
@@ -178,41 +181,13 @@ class RuntimeEvidenceBundleWriter {
      * | Exists | Exists | Both preserved: fail closed for manual recovery |
      * | Absent | Absent | No previous section: just replace |
      */
-    private fun replaceDirectoryTransactionally(source: Path, target: Path) {
+    private fun replaceDirectoryTransactionally(
+        source: Path,
+        target: Path,
+    ) {
         val backup = target.resolveSibling("$RUNTIME_EVIDENCE_DIR.bak")
 
-        val targetExists = Files.exists(target)
-        val backupExists = Files.exists(backup)
-
-        when {
-            // Recovery: a previous replacement was interrupted after
-            // moving target to backup but before completing the move.
-            !targetExists && backupExists -> {
-                atomicMoveOrFallback(backup, target)
-            }
-
-            // Ambiguous: both exist — fail closed. No heuristic can
-            // distinguish a valid target from a superficially plausible
-            // one, so preserving both is the only safe action.
-            targetExists && backupExists -> {
-                error(
-                    "Ambiguous runtime-evidence recovery state: " +
-                        "both runtime-evidence/ and runtime-evidence.bak/ exist. " +
-                        "Both directories are preserved for manual recovery. " +
-                        "Backup: $backup"
-                )
-            }
-
-            // Normal: clean stale backup, proceed
-            targetExists && !backupExists -> {
-                // No stale backup to clean — normal case
-            }
-
-            // No previous section
-            !targetExists && !backupExists -> {
-                // Nothing to do
-            }
-        }
+        resolveInterruptedReplacement(target, backup)
 
         // Phase 1: move existing target to backup
         if (Files.exists(target)) {
@@ -220,24 +195,8 @@ class RuntimeEvidenceBundleWriter {
             atomicMoveOrFallback(target, backup)
         }
 
-        // Phase 2: move new source to target
-        try {
-            atomicMoveOrFallback(source, target)
-        } catch (e: Exception) {
-            // Phase 3: restore backup on failure
-            try {
-                if (Files.exists(backup)) {
-                    if (Files.exists(target)) {
-                        deleteSafely(target)
-                    }
-                    atomicMoveOrFallback(backup, target)
-                }
-            } catch (_: Exception) {
-                // Best-effort restore — original content is in backup/
-                // Target may be empty or partially written
-            }
-            throw e
-        }
+        // Phase 2 and 3: move new source to target, restoring the previous section on failure
+        moveSourceOrRestore(source, target, backup)
 
         // Phase 4: delete backup on success
         if (Files.exists(backup)) {
@@ -246,10 +205,86 @@ class RuntimeEvidenceBundleWriter {
     }
 
     /**
+     * Resolves the state left behind by a possible interrupted replacement.
+     *
+     * - target absent, backup present: a previous replacement moved target to backup but did not
+     *   complete, so the backup is moved back into place.
+     * - target present, backup present: ambiguous — fail closed. No heuristic can distinguish a
+     *   valid target from a superficially plausible one, so preserving both is the only safe action.
+     * - target present without a backup, and target absent without a backup: nothing to resolve.
+     */
+    private fun resolveInterruptedReplacement(
+        target: Path,
+        backup: Path,
+    ) {
+        val targetExists = Files.exists(target)
+        val backupExists = Files.exists(backup)
+
+        when {
+            !targetExists && backupExists -> {
+                atomicMoveOrFallback(backup, target)
+            }
+
+            targetExists && backupExists -> {
+                error(
+                    "Ambiguous runtime-evidence recovery state: " +
+                        "both runtime-evidence/ and runtime-evidence.bak/ exist. " +
+                        "Both directories are preserved for manual recovery. " +
+                        "Backup: $backup",
+                )
+            }
+
+            else -> {
+                Unit
+            }
+        }
+    }
+
+    /**
+     * Moves the new section into place, restoring the previous one if that move fails, and
+     * rethrows the original failure so the caller sees the move's own exception.
+     */
+    private fun moveSourceOrRestore(
+        source: Path,
+        target: Path,
+        backup: Path,
+    ) {
+        try {
+            atomicMoveOrFallback(source, target)
+        } catch (e: Exception) {
+            restoreBackupBestEffort(target, backup)
+            throw e
+        }
+    }
+
+    /**
+     * Best-effort restoration of the previous section. If this itself fails, the original content is
+     * still in backup/ and the target may be empty or partially written, so the failure is swallowed
+     * to let the original move failure propagate instead of being masked.
+     */
+    private fun restoreBackupBestEffort(
+        target: Path,
+        backup: Path,
+    ) {
+        try {
+            if (!Files.exists(backup)) return
+            if (Files.exists(target)) {
+                deleteSafely(target)
+            }
+            atomicMoveOrFallback(backup, target)
+        } catch (_: Exception) {
+            // Best-effort restore — original content is in backup/
+        }
+    }
+
+    /**
      * Moves [source] to [target] with `ATOMIC_MOVE` if supported,
      * falling back to a regular move.
      */
-    private fun atomicMoveOrFallback(source: Path, target: Path) {
+    private fun atomicMoveOrFallback(
+        source: Path,
+        target: Path,
+    ) {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
         } catch (_: AtomicMoveNotSupportedException) {
@@ -267,17 +302,23 @@ class RuntimeEvidenceBundleWriter {
             EnumSet.noneOf(FileVisitOption::class.java),
             Int.MAX_VALUE,
             object : SimpleFileVisitor<Path>() {
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                override fun visitFile(
+                    file: Path,
+                    attrs: BasicFileAttributes,
+                ): FileVisitResult {
                     if (attrs.isSymbolicLink || Files.isSymbolicLink(file)) {
                         throw IOException(
-                            "Symlink detected in evidence directory, rejecting: $file"
+                            "Symlink detected in evidence directory, rejecting: $file",
                         )
                     }
                     Files.delete(file)
                     return FileVisitResult.CONTINUE
                 }
 
-                override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
+                override fun postVisitDirectory(
+                    dir: Path,
+                    exc: IOException?,
+                ): FileVisitResult {
                     Files.delete(dir)
                     return FileVisitResult.CONTINUE
                 }
@@ -289,53 +330,78 @@ class RuntimeEvidenceBundleWriter {
         internal const val RUNTIME_EVIDENCE_DIR = "runtime-evidence"
         internal const val SCHEMA_VERSION = "runtime-evidence.v1"
 
-        internal val EVENT_FILES = mapOf(
-            "policy.decision" to "policy-decisions.jsonl",
-            "approval.decision" to "approval-decisions.jsonl",
-            "provider.route" to "provider-routing.jsonl",
-            "tool.permission" to "tool-permissions.jsonl",
-        )
+        internal val EVENT_FILES =
+            mapOf(
+                "policy.decision" to "policy-decisions.jsonl",
+                "approval.decision" to "approval-decisions.jsonl",
+                "provider.route" to "provider-routing.jsonl",
+                "tool.permission" to "tool-permissions.jsonl",
+            )
 
-        internal val ALLOWED_DECISION_KINDS = mapOf(
-            "policy.decision" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
-            "approval.decision" to setOf("APPROVED", "DENIED"),
-            "provider.route" to setOf("SELECTED", "FALLBACK", "BLOCKED"),
-            "tool.permission" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
-        )
+        internal val ALLOWED_DECISION_KINDS =
+            mapOf(
+                "policy.decision" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
+                "approval.decision" to setOf("APPROVED", "DENIED"),
+                "provider.route" to setOf("SELECTED", "FALLBACK", "BLOCKED"),
+                "tool.permission" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
+            )
 
         /**
          * Expected source.component values per event type.
          */
-        internal val EXPECTED_SOURCE_COMPONENTS = mapOf(
-            "policy.decision" to "policy-engine",
-            "approval.decision" to "approval-control-plane",
-            "provider.route" to "provider-router",
-            "tool.permission" to "policy-engine",
-        )
+        internal val EXPECTED_SOURCE_COMPONENTS =
+            mapOf(
+                "policy.decision" to "policy-engine",
+                "approval.decision" to "approval-control-plane",
+                "provider.route" to "provider-router",
+                "tool.permission" to "policy-engine",
+            )
 
         /**
          * Allowlisted metadata keys per event family.
          */
-        internal val ALLOWED_METADATA_KEYS = mapOf(
-            "policy.decision" to setOf(
-                "providerName", "modelName", "toolName", "classification",
-                "classificationSource", "riskLevel", "fallbackProviderName",
-                "attr_cacheReuse", "attr_fallbackReason",
-            ),
-            "approval.decision" to setOf(
-                "approvalVersion", "reasonDigest", "reasonLength",
-                "outboxStatus", "eventKeyDigest",
-            ),
-            "provider.route" to setOf(
-                "requestedModelDigest", "selectedProviderDigest", "selectedModelDigest",
-                "previousProviderDigest", "previousModelDigest", "routeIndex",
-                "attempt", "fallbackReason",
-            ),
-            "tool.permission" to setOf(
-                "toolName", "enforcementPoint", "riskLevel",
-                "classification", "classificationSource",
-            ),
-        )
+        internal val ALLOWED_METADATA_KEYS =
+            mapOf(
+                "policy.decision" to
+                    setOf(
+                        "providerName",
+                        "modelName",
+                        "toolName",
+                        "classification",
+                        "classificationSource",
+                        "riskLevel",
+                        "fallbackProviderName",
+                        "attr_cacheReuse",
+                        "attr_fallbackReason",
+                    ),
+                "approval.decision" to
+                    setOf(
+                        "approvalVersion",
+                        "reasonDigest",
+                        "reasonLength",
+                        "outboxStatus",
+                        "eventKeyDigest",
+                    ),
+                "provider.route" to
+                    setOf(
+                        "requestedModelDigest",
+                        "selectedProviderDigest",
+                        "selectedModelDigest",
+                        "previousProviderDigest",
+                        "previousModelDigest",
+                        "routeIndex",
+                        "attempt",
+                        "fallbackReason",
+                    ),
+                "tool.permission" to
+                    setOf(
+                        "toolName",
+                        "enforcementPoint",
+                        "riskLevel",
+                        "classification",
+                        "classificationSource",
+                    ),
+            )
 
         internal val DIGEST_REGEX = Regex("^sha256:[0-9a-f]{64}$")
 
