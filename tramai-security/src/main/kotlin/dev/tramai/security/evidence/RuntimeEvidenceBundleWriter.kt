@@ -336,6 +336,7 @@ class RuntimeEvidenceBundleWriter {
                 "approval.decision" to "approval-decisions.jsonl",
                 "provider.route" to "provider-routing.jsonl",
                 "tool.permission" to "tool-permissions.jsonl",
+                "governance.decision" to "governance-decisions.jsonl",
             )
 
         internal val ALLOWED_DECISION_KINDS =
@@ -344,6 +345,7 @@ class RuntimeEvidenceBundleWriter {
                 "approval.decision" to setOf("APPROVED", "DENIED"),
                 "provider.route" to setOf("SELECTED", "FALLBACK", "BLOCKED"),
                 "tool.permission" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
+                "governance.decision" to GOVERNANCE_DECISION_KINDS,
             )
 
         /**
@@ -355,6 +357,7 @@ class RuntimeEvidenceBundleWriter {
                 "approval.decision" to "approval-control-plane",
                 "provider.route" to "provider-router",
                 "tool.permission" to "policy-engine",
+                "governance.decision" to GOVERNANCE_DECISION_COMPONENT,
             )
 
         /**
@@ -401,6 +404,10 @@ class RuntimeEvidenceBundleWriter {
                         "classification",
                         "classificationSource",
                     ),
+                // governance.decision carries no family metadata of its own: the governed identity
+                // attribution is added centrally by the validator, so a governance record exposes
+                // the canonical run identity and nothing else.
+                "governance.decision" to emptySet(),
             )
 
         internal val DIGEST_REGEX = Regex("^sha256:[0-9a-f]{64}$")

@@ -1,10 +1,13 @@
 package dev.tramai.security.evidence
 
 import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.security.governance.AuthorizationRefusal
 import dev.tramai.security.governance.CandidateAuthorizationDecision
 import dev.tramai.security.governance.CandidateSelectionDecision
 import dev.tramai.security.governance.CandidateViabilityDecision
 import dev.tramai.security.governance.ProviderCandidate
+import dev.tramai.security.governance.SelectionRefusal
+import dev.tramai.security.governance.ViabilityRefusal
 import java.time.Instant
 
 /**
@@ -21,6 +24,14 @@ import java.time.Instant
  * [eventId] is the caller-owned decision identity: the caller already creates it, so no identity
  * is minted here and no timestamp is consulted.
  *
+ * [subjectDigest] is the explicitly bound, caller-supplied subject of the decision. Authorization
+ * and viability decisions do not carry a candidate, so without an explicit subject two distinct
+ * candidates refused for the same reason would collapse into one historical subject; the subject is
+ * therefore required rather than derived from the decision. Callers produce it with
+ * [CandidateSubjectDigest.of]. For a [CandidateSelectionDecision.Selected] decision the bound
+ * subject must agree with the candidate the decision carries: disagreement is refused rather than
+ * silently preferred, so the record cannot describe a selection of a candidate it does not name.
+ *
  * This type depends on no workflow, orchestration, scheduling or engine type, so an external
  * runtime holding governance inputs can bind a decision through the same boundary.
  */
@@ -29,6 +40,7 @@ data class GovernanceDecisionEnvelope<T : Any>(
     val correlationId: String,
     val policyVersion: String,
     val eventId: String,
+    val subjectDigest: String,
     val decision: T,
     val workflowDigest: String? = null,
 ) {
@@ -36,6 +48,16 @@ data class GovernanceDecisionEnvelope<T : Any>(
         require(correlationId.isNotBlank()) { "correlationId must not be blank" }
         require(policyVersion.isNotBlank()) { "policyVersion must not be blank" }
         require(eventId.isNotBlank()) { "eventId must not be blank" }
+        require(RuntimeEvidenceBundleWriter.DIGEST_REGEX.matches(subjectDigest)) {
+            "subjectDigest must match ${RuntimeEvidenceBundleWriter.DIGEST_REGEX}: $subjectDigest"
+        }
+        val selected = decision as? CandidateSelectionDecision.Selected
+        if (selected != null) {
+            require(subjectDigest == CandidateSubjectDigest.of(selected.candidate)) {
+                "bound subjectDigest does not match the candidate this selection decision carries; " +
+                    "refusing to bind a selection to a subject it does not name"
+            }
+        }
     }
 
     /**
@@ -63,7 +85,7 @@ data class GovernanceDecisionEnvelope<T : Any>(
             decision = RuntimeEvidenceDecision(kind = outcome.kind, reasonCode = outcome.reasonCode),
             digests =
                 RuntimeEvidenceDigests(
-                    subjectDigest = GovernanceDecisionSubjectDigest.of(decision),
+                    subjectDigest = subjectDigest,
                     payloadDigest = payloadDigest(outcome, attribution),
                 ),
             metadata = RuntimeEvidenceAttribution.merge(emptyMap(), attribution),
@@ -169,28 +191,21 @@ object CandidateSubjectDigest {
 }
 
 /**
- * The subject of a decision: the candidate for a candidate-scoped decision, otherwise the decision
- * outcome itself, so every governance record has a stable subject.
+ * The governance decision kinds this seam produces, registered as one canonical evidence family.
  */
-internal object GovernanceDecisionSubjectDigest {
-    fun of(decision: Any): String =
-        when (decision) {
-            is CandidateSelectionDecision.Selected -> {
-                CandidateSubjectDigest.of(decision.candidate)
-            }
+internal val GOVERNANCE_DECISION_KINDS: Set<String> =
+    setOf(AUTHORIZATION_DECISION_KIND, VIABILITY_DECISION_KIND, SELECTION_DECISION_KIND)
 
-            else -> {
-                val outcome = GovernanceDecisionOutcome.of(decision)
-                EvidenceDigest.sha256(
-                    CanonicalDigestBuilder()
-                        .apply {
-                            appendField("decisionKind", outcome.kind)
-                            appendNullableField("reasonCode", outcome.reasonCode)
-                        }.build(),
-                )
-            }
-        }
-}
+/**
+ * The closed reason family for each governance decision kind, derived mechanically from the existing
+ * refusal vocabularies so the evidence validator cannot drift from the decision model.
+ */
+internal val GOVERNANCE_REASON_CODES: Map<String, Set<String>> =
+    mapOf(
+        AUTHORIZATION_DECISION_KIND to AuthorizationRefusal.entries.map { it.name }.toSet(),
+        VIABILITY_DECISION_KIND to ViabilityRefusal.entries.map { it.name }.toSet(),
+        SELECTION_DECISION_KIND to SelectionRefusal.entries.map { it.name }.toSet(),
+    )
 
 /**
  * The governed identity as the evidence attribution map, using the key set

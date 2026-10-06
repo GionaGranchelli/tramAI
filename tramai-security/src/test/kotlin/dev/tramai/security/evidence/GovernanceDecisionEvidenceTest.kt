@@ -84,15 +84,20 @@ class GovernanceDecisionEvidenceTest {
         identity: GovernedRunIdentity = identity(),
         correlationId: String = "correlation-1",
         eventId: String = "event-1",
+        candidate: ProviderCandidate = candidate(),
     ) = GovernanceDecisionEnvelope(
         identity = identity,
         correlationId = correlationId,
         policyVersion = "policy-7",
         eventId = eventId,
+        subjectDigest = CandidateSubjectDigest.of(candidate),
         decision = decision,
     )
 
-    private fun record(decision: Any) = envelope(decision).toRuntimeEvidenceRecord(at, "actor-1")
+    private fun record(
+        decision: Any,
+        candidate: ProviderCandidate = candidate(),
+    ) = envelope(decision, candidate = candidate).toRuntimeEvidenceRecord(at, "actor-1")
 
     private fun attribution(record: RuntimeEvidenceRecord) = record.metadata.filterKeys { it.startsWith("identity.") }
 
@@ -194,7 +199,7 @@ class GovernanceDecisionEvidenceTest {
     @Test
     fun `9 selected preserves the exact selected candidate digest`() {
         val chosen = candidate(provider = "provider-b", model = "model-b")
-        val record = record(CandidateSelectionDecision.Selected(chosen))
+        val record = record(CandidateSelectionDecision.Selected(chosen), chosen)
         assertEquals(CandidateSubjectDigest.of(chosen), record.digests.subjectDigest)
         assertNotEquals(CandidateSubjectDigest.of(candidate()), record.digests.subjectDigest)
     }
@@ -251,7 +256,8 @@ class GovernanceDecisionEvidenceTest {
         val chosen = candidate()
         val historical = record(CandidateSelectionDecision.Selected(chosen))
         // A different preference would select a different candidate; the recorded fact is unaffected.
-        val other = record(CandidateSelectionDecision.Selected(candidate(provider = "provider-b")))
+        val preferB = candidate(provider = "provider-b")
+        val other = record(CandidateSelectionDecision.Selected(preferB), preferB)
         assertEquals(CandidateSubjectDigest.of(chosen), historical.digests.subjectDigest)
         assertNotEquals(other.digests.subjectDigest, historical.digests.subjectDigest)
         assertEquals(SELECTION_DECISION_KIND, historical.decision.kind)
@@ -266,6 +272,7 @@ class GovernanceDecisionEvidenceTest {
                 correlationId = "correlation-1",
                 policyVersion = "policy-8",
                 eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
                 decision = CandidateSelectionDecision.Selected(candidate()),
             ).toRuntimeEvidenceRecord(at)
         val digestChanged =
@@ -274,6 +281,7 @@ class GovernanceDecisionEvidenceTest {
                 correlationId = "correlation-1",
                 policyVersion = "policy-7",
                 eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
                 decision = CandidateSelectionDecision.Selected(candidate()),
                 workflowDigest = "other",
             ).toRuntimeEvidenceRecord(at)
@@ -309,7 +317,7 @@ class GovernanceDecisionEvidenceTest {
     @Test
     fun `18 raw provider and model values do not leak into exported evidence`() {
         val secretish = candidate(provider = "provider-secret-xyz", model = "model-secret-abc")
-        val record = record(CandidateSelectionDecision.Selected(secretish))
+        val record = record(CandidateSelectionDecision.Selected(secretish), secretish)
         val serialized = RuntimeEvidenceJsonlWriter.write(listOf(record))
         assertFalse(serialized.contains("provider-secret-xyz"), "raw providerId leaked: $serialized")
         assertFalse(serialized.contains("model-secret-abc"), "raw modelId leaked: $serialized")
@@ -355,6 +363,7 @@ class GovernanceDecisionEvidenceTest {
                 correlationId = "correlation-1",
                 policyVersion = "policy-7",
                 eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
                 decision = CandidateSelectionDecision.Selected(candidate()),
             )
         assertEquals("correlation-1", bound.toRuntimeEvidenceRecord(at).correlationId)
@@ -378,6 +387,7 @@ class GovernanceDecisionEvidenceTest {
                 correlationId = "correlation-1",
                 policyVersion = "policy-7",
                 eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
                 decision = CandidateViabilityDecision.Viable,
             )
         assertEquals(VIABILITY_DECISION_KIND, bound.toRuntimeEvidenceRecord(at).decision.kind)
@@ -405,13 +415,34 @@ class GovernanceDecisionEvidenceTest {
     @Test
     fun `blank identity or policy context is refused`() {
         assertFailsWith<IllegalArgumentException> {
-            GovernanceDecisionEnvelope(identity(), " ", "policy-7", "event-1", CandidateViabilityDecision.Viable)
+            GovernanceDecisionEnvelope(
+                identity = identity(),
+                correlationId = " ",
+                policyVersion = "policy-7",
+                eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
+                decision = CandidateViabilityDecision.Viable,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            GovernanceDecisionEnvelope(identity(), "correlation-1", " ", "event-1", CandidateViabilityDecision.Viable)
+            GovernanceDecisionEnvelope(
+                identity = identity(),
+                correlationId = "correlation-1",
+                policyVersion = " ",
+                eventId = "event-1",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
+                decision = CandidateViabilityDecision.Viable,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            GovernanceDecisionEnvelope(identity(), "correlation-1", "policy-7", " ", CandidateViabilityDecision.Viable)
+            GovernanceDecisionEnvelope(
+                identity = identity(),
+                correlationId = "correlation-1",
+                policyVersion = "policy-7",
+                eventId = " ",
+                subjectDigest = CandidateSubjectDigest.of(candidate()),
+                decision = CandidateViabilityDecision.Viable,
+            )
         }
     }
 
