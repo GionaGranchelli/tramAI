@@ -93,13 +93,19 @@ class CandidateViability(
         }
 
     /**
-     * The authorized candidates that are viable right now — possibly empty, which
-     * means nothing may be used at this moment, not that the caller should reach
-     * outside the authorized set.
+     * The authorized candidates that are viable right now, as the value the selection stage
+     * requires. Possibly empty, which means nothing may be used at this moment, not that the caller
+     * should reach outside the authorized set.
+     *
+     * This is the only producer of [ViableCandidates]. A selectable candidate is therefore always one
+     * that authorization permitted and this stage found usable, and selection has no way to reach a
+     * candidate that is not.
      */
-    fun viableCandidates(authorized: AuthorizedCandidates): Set<ProviderCandidate> =
-        decisions(authorized)
-            .filterValues { it is CandidateViabilityDecision.Viable }
-            .keys
-            .toSet()
+    fun viableCandidates(authorized: AuthorizedCandidates): ViableCandidates =
+        ViableCandidates(
+            decisions(authorized)
+                .filterValues { it is CandidateViabilityDecision.Viable }
+                .keys
+                .toSet(),
+        )
 }

@@ -119,7 +119,10 @@ class CandidateViabilityTest {
             mapOf(authorizedCandidate to CandidateViabilityDecision.Viable),
             viability.decisions(authorized(authorizedCandidate)),
         )
-        assertEquals(setOf(authorizedCandidate), viability.viableCandidates(authorized(authorizedCandidate)))
+        assertEquals(
+            setOf(authorizedCandidate),
+            viability.viableCandidates(authorized(authorizedCandidate)).candidates,
+        )
     }
 
     @Test
@@ -134,6 +137,7 @@ class CandidateViabilityTest {
         assertTrue(
             viability
                 .viableCandidates(authorized(authorizedCandidate, refusedCandidate))
+                .candidates
                 .none { it == refusedCandidate },
         )
     }
@@ -158,7 +162,8 @@ class CandidateViabilityTest {
             }
         val authorizedValue = authorized(authorizedCandidate)
 
-        assertTrue(authorizedValue.candidates.containsAll(viability.viableCandidates(authorizedValue)))
+        val viable = viability.viableCandidates(authorizedValue).candidates
+        assertTrue(authorizedValue.candidates.containsAll(viable))
         assertTrue(authorizedValue.candidates.containsAll(viability.decisions(authorizedValue).keys))
     }
 
@@ -185,7 +190,10 @@ class CandidateViabilityTest {
         val reversed = viability.decisions(authorized(second, first))
 
         assertEquals(forward, reversed)
-        assertEquals(setOf(first), viability.viableCandidates(authorized(second, first)))
+        assertEquals(
+            setOf(first),
+            viability.viableCandidates(authorized(second, first)).candidates,
+        )
     }
 
     @Test

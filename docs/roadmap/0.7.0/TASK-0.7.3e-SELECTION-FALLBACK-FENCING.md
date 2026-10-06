@@ -1,98 +1,88 @@
 # Task 0.7.3e — Selection/Fallback Fencing
 
 **Epic:** 0.7.3 — Explainable Authorized Provider/Model Selection
-**Requires:** 0.7.3c (authorized set), 0.7.3d (viability stage) — both merged
+**Requires:** 0.7.3c (authorized set), 0.7.3d (viability), 0.7.3d1 (authorization completeness)
 **Change class:** `runtime-behaviour`
 
 ## Required result
 
-Selection, retry and fallback cannot escape the viable authorized set. The
-invocation path chooses only from candidates that are both authorized and
-viable, and a failed attempt's fallback to the next route cannot introduce a
-candidate that governance never authorized.
-
-Epic invariant this slice makes true:
+Selection, retry, fallback, preference and ranking may choose among viable candidates, but may
+never introduce one. The epic's final stage is enforced and adversarially proven:
 
 ```text
 selected ∈ viable
 viable     ⊆ authorized
 fallback/retry remains inside current governance authority
+optimization signals can rank but cannot authorize
 ```
 
-## What is already true (verified, not assumed)
+## What exists now
 
-- `CandidateAuthorization.authorizedSet(...)` returns `AuthorizedCandidates`,
-  a value class with an `internal constructor`; it is the only type
-  `CandidateViability` accepts (`CandidateViability.viableCandidates(authorized)`
-  returns the `Viable` subset).
-- No consumer outside `tramai-security` can construct `AuthorizedCandidates`,
-  so authority cannot be minted downstream — it can only be received.
-- `tramai-engine` already declares `implementation(project(":tramai-security"))`,
-  so the engine can consume the boundary without a new dependency direction.
+- `CandidateAuthorization` → `AuthorizedCandidates` (module-internal constructor).
+- `CandidateViability` → **`ViableCandidates`** (module-internal constructor, new here). It is the
+  only producer, so a selectable candidate is always one authorization permitted and viability
+  found usable.
+- `CandidateSelection` → `CandidateSelectionDecision`, choosing zero or one candidate from a
+  `ViableCandidates` and checking the strategy's answer against it.
 
-## The gap this slice closes
+`ViableCandidates` narrows only: `without(candidate)` removes an attempted candidate for retry and
+can never add one, so a retry derives its candidates from the original envelope instead of asking
+routing again. A configured fallback route is not authority.
 
-`ProviderExecutionCoordinator.execute` iterates a candidate list from the
-routing plan:
+## Selection decision vocabulary
 
-```kotlin
-val candidates = routingPlan.resolveCandidates(request.operation.operation)
-for ((index, route) in candidates.withIndex()) { ... transition(..., next, ...) }
+```text
+CandidateSelectionDecision.Selected(candidate)
+CandidateSelectionDecision.NoSelection(reason)   reason ∈ SelectionRefusal
+
+SelectionRefusal.NO_VIABLE_CANDIDATES          the envelope is empty
+SelectionRefusal.STRATEGY_DECLINED             the strategy answered with none
+SelectionRefusal.STRATEGY_OUTSIDE_VIABLE_SET   the strategy answered from outside the envelope
 ```
 
-Grep across the repository shows every reference to `CandidateViability`,
-`AuthorizedCandidates`, `CandidateViabilityDecision` and `CandidateAuthorization`
-lives inside `tramai-security` and its tests. **No engine code consumes the
-boundary.** 0.7.3c states the same thing from its own side: *"Nothing consumes
-this boundary yet. Wiring it into an invocation path belongs with 0.7.3e, where
-selection and fallback are fenced."*
+Exactly three reasons, each with a producer in this slice. A nullable return is deliberately not
+used: it cannot distinguish "nothing was viable" from "the strategy declined" from "the strategy
+tried to escape". A strategy's answer is caller-supplied input, so the membership check lives in
+the boundary rather than being documented as a strategy's obligation.
 
-The existing `ProviderFallbackGate` fences a *transition* at policy level (it
-raises `PolicyViolationException`), but neither it nor `resolveCandidates`
-consults the authorized/viable set. A candidate that governance never
-authorized is reachable by falling through the loop.
+Ordering is separated from membership: `orderedBy(preference)` orders and can never add;
+`CandidateSelectionStrategy` receives the viable set and decides, so cost/latency/preference are
+expressible as ordering without becoming authority.
 
-## Design decision
+## Existing routing compatibility
 
-The fence is a **consumption point**, not a new decision model. Because
-`AuthorizedCandidates` cannot be constructed outside `tramai-security`, the
-authority that the engine routes over must be handed to it:
+`ProviderRoutingPlan` was **not changed**. Its classification, unchanged by this slice:
 
-- the viable set enters the invocation path as a supplied input;
-- the coordinator resolves candidates through that set, and the raw registered
-  candidate list is never iterated for execution;
-- an empty viable set means no provider may be used, not that the caller should
-  look elsewhere (the same rule 0.7.3c already applies to an empty authorized set).
+| fact | where it lives |
+|---|---|
+| configuration | `ProviderRoutingPlan.Builder.model/fallbackModel/fallbackProvider/defaultProvider` |
+| registration snapshot | `ProviderRoutingPlan.providers` (consumed by authorization, 0.7.3d1) |
+| discovery | `resolveCandidates(operation)` / `resolve(operation)` |
+| ordering | `routes[modelId] = [primary] + fallbacks` |
+| execution | `ProviderExecutionCoordinator` iterating those routes |
 
-No ranking, no scoring, no preference logic, and no second decision model: this
-slice moves authority across the boundary, it does not add selection policy.
+The preferred chain is `routing → candidate facts → authorization → viability → selection`, rather
+than making the routing plan itself a governance authority.
+
+## Invariants proven
+
+Each with a test that fails when the code is neutralised: selected ∈ viable; an empty envelope
+selects nothing and never consults a strategy; a single viable candidate is the only selectable
+one; a strategy cannot inject an outside candidate; a configured fallback that is unauthorized,
+or authorized but non-viable, cannot be selected, while one inside the envelope may be; retry stays
+inside the original envelope; a preference may reorder but not add; ordering does not change
+membership; duplicates do not widen the universe; a non-viable candidate is never reclassified as
+governance-denied; selection performs no invocation; selection does not recompute authorization or
+viability.
 
 ## Boundary of this slice
 
-Not here, and not implied: ranking/scoring/cost/latency strategy, health
-scoring, adaptive routing, decision identity/evidence persistence (0.7.3f),
-the XR1 external-runtime proof, or any I/O.
+`ProviderExecutionCoordinator` does **not** yet consume `ViableCandidates`: wiring the envelope into
+the execution path is a separate integration, and this slice deliberately stops at the decision
+boundary. Until that lands, the fence is proven on the decision boundary, not on the invocation
+path.
 
-## Invariants to prove, each with a test that fails if violated
-
-| condition | shape of the test |
-|---|---|
-| a selected candidate is always viable | the executed route is a member of the viable set |
-| a non-authorized candidate is unreachable by fallback | first candidate fails, the non-authorized second is never attempted |
-| a non-viable authorized candidate is unreachable by fallback | same shape, refusal `AVAILABILITY` |
-| ordering does not widen authority | reversing viable order cannot add a candidate |
-| an empty viable set selects nothing | the call fails with no provider attempted |
-| retry does not escape authority | every retried route is a member of the viable set |
-
-## Mutation expectations
-
-Kill set-membership and boundary mutations on the viable set, removal of the
-viability filter on the fallback path, and any permissive default that lets an
-absent viable set fall back to the registered candidate list.
-
-## Verification (to be recorded on completion)
-
-`:tramai-engine:test`, `:tramai-security:test`, `spotlessCheck`,
-`verifyStaticAnalysis` (Detekt baseline must not grow), `verify060Architecture`,
-`verifyChangePolicy -PchangeClass=runtime-behaviour` against the epic base, plus
-a red/green proof that each new fence test fails when the fence is removed.
+Not here either: provider invocation, circuit-breaker behaviour beyond consuming produced
+viability facts, adaptive/ML routing, cost or latency productization, weighted-ranking frameworks,
+decision evidence/persistence, digests, audit projections, retry scheduling, provider health
+models, new registry abstractions, a generic policy engine, or a second routing graph.
