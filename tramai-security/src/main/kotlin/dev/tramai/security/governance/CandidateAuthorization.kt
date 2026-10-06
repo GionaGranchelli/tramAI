@@ -1,6 +1,9 @@
 package dev.tramai.security.governance
 
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.core.provider.ProviderId
+import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.security.ProviderTrustZone
 
 /**
@@ -80,6 +83,25 @@ enum class AuthorizationRefusal {
 
     /** The classification's routing rule does not permit the deployment's zone. */
     CLASSIFICATION_ZONE_NOT_PERMITTED,
+
+    /**
+     * The candidate's provider is not present in the authoritative registration snapshot.
+     *
+     * Registration is a governance restriction, not a routing preference: a provider that is not
+     * configured cannot serve the request at all. It is deliberately separate from
+     * [IDENTITY_DEPLOYMENT_MISMATCH] — identity agreement says the candidate is *consistent*, and
+     * says nothing about whether that provider exists.
+     */
+    PROVIDER_NOT_REGISTERED,
+
+    /**
+     * The registered provider does not support a capability the request requires.
+     *
+     * Reported as one refusal for the required set, not one per missing capability: the reason is
+     * the same fact, and a per-capability reason would make the reported refusal depend on set
+     * iteration order.
+     */
+    REQUIRED_CAPABILITY_NOT_SUPPORTED,
 }
 
 /**
@@ -145,6 +167,8 @@ enum class ViabilityRefusal {
  * candidate identity agrees with its deployment      consistency
  * workload zone -> deployment zone                   TrustZonePolicy
  * classification -> deployment zone                  ClassificationRoutingRule
+ * provider is registered                            ProviderRoutingPlan.providers
+ * provider supports every required capability       ModelProvider.supportsCapability
  *                          |
  *                          v
  *                  authorized only if all agree
@@ -165,7 +189,18 @@ enum class ViabilityRefusal {
  *
  * The refusal reported for a candidate failing more than one restriction is
  * deterministic and ordered: identity first, then the zone-pair authority, then
- * the classification rule. The order is part of the contract and is asserted.
+ * the classification rule, then registration, then required capability. The order
+ * is part of the contract and is asserted. Registration precedes capability
+ * because a provider that is not registered cannot be asked what it supports.
+ *
+ * Registration and capability are restrictions, not preferences: a candidate
+ * whose provider is absent from [ProviderRoutingPlan.providers] is refused, and
+ * so is a registered provider that cannot perform a required capability. An
+ * absent or empty registration refuses everything, so registration cannot be
+ * satisfied by omission. An empty required-capability set adds no restriction,
+ * and is still subject to registration. A capability refusal is never reported
+ * through [ViabilityRefusal] — a provider that cannot perform the work is not
+ * temporarily unusable, it is not an eligible authorized candidate (0.7.3d).
  *
  * The authorized set is a [Set], so candidate ordering cannot influence it and a
  * candidate evaluated twice cannot add authority. This is a decision only: it does
@@ -179,39 +214,86 @@ enum class ViabilityRefusal {
  */
 class CandidateAuthorization(
     private val release: ProviderInputRelease = ProviderInputRelease(),
+    private val registration: ProviderRoutingPlan = ProviderRoutingPlan.builder().build(),
 ) {
     /**
-     * The decision for one candidate. Refusal order is identity, then zone pair,
-     * then classification rule.
+     * The decision for one candidate. Refusal order is identity, then zone pair, then
+     * classification rule, then registration, then required capability.
+     *
+     * [requiredCapabilities] is what the request requires. An empty set adds no capability
+     * restriction and never bypasses registration.
      */
     fun decisionFor(
         candidate: ProviderCandidate,
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
+        requiredCapabilities: Set<ProviderCapability> = emptySet(),
     ): CandidateAuthorizationDecision {
-        if (candidate.deployment.providerId != candidate.providerId) {
-            return CandidateAuthorizationDecision.NotAuthorized(
-                AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH,
-            )
+        val refusal = refusalFor(candidate, workloadZone, classification, requiredCapabilities)
+        return if (refusal == null) {
+            CandidateAuthorizationDecision.Authorized
+        } else {
+            CandidateAuthorizationDecision.NotAuthorized(refusal)
         }
-        val refusal =
-            release.refusalFor(workloadZone, classification, candidate.deployment.trustZone.category)
-        return when (refusal) {
-            null -> {
-                CandidateAuthorizationDecision.Authorized
+    }
+
+    /**
+     * The first restriction that refuses [candidate], or null when every one of them permits it.
+     *
+     * Evaluated in the documented order so a candidate failing several restrictions reports one
+     * deterministic reason. Registration is read before capability because an unregistered provider
+     * cannot be asked what it supports.
+     */
+    private fun refusalFor(
+        candidate: ProviderCandidate,
+        workloadZone: ProviderTrustZone,
+        classification: DataClassification,
+        requiredCapabilities: Set<ProviderCapability>,
+    ): AuthorizationRefusal? {
+        val releaseRefusal = releaseRefusal(candidate, workloadZone, classification)
+        val provider = registration.providers[ProviderId(candidate.providerId)]
+        return when {
+            candidate.deployment.providerId != candidate.providerId -> {
+                AuthorizationRefusal.IDENTITY_DEPLOYMENT_MISMATCH
             }
 
-            ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED -> {
-                CandidateAuthorizationDecision.NotAuthorized(AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED)
+            releaseRefusal != null -> {
+                releaseRefusal
             }
 
-            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED -> {
-                CandidateAuthorizationDecision.NotAuthorized(
-                    AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED,
-                )
+            provider == null -> {
+                AuthorizationRefusal.PROVIDER_NOT_REGISTERED
+            }
+
+            requiredCapabilities.any { !provider.supportsCapability(it) } -> {
+                AuthorizationRefusal.REQUIRED_CAPABILITY_NOT_SUPPORTED
+            }
+
+            else -> {
+                null
             }
         }
     }
+
+    /** Maps the release authority's refusal onto this boundary's family, member for member. */
+    private fun releaseRefusal(
+        candidate: ProviderCandidate,
+        workloadZone: ProviderTrustZone,
+        classification: DataClassification,
+    ): AuthorizationRefusal? =
+        when (release.refusalFor(workloadZone, classification, candidate.deployment.trustZone.category)) {
+            null -> {
+                null
+            }
+
+            ReleaseRefusal.ZONE_PAIR_NOT_ALLOWED -> {
+                AuthorizationRefusal.ZONE_PAIR_NOT_ALLOWED
+            }
+
+            ReleaseRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED -> {
+                AuthorizationRefusal.CLASSIFICATION_ZONE_NOT_PERMITTED
+            }
+        }
 
     /**
      * The authorized subset of [candidates] for this workload and
@@ -223,10 +305,13 @@ class CandidateAuthorization(
         candidates: Collection<ProviderCandidate>,
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
+        requiredCapabilities: Set<ProviderCapability> = emptySet(),
     ): Set<ProviderCandidate> =
         candidates
-            .filter { decisionFor(it, workloadZone, classification) is CandidateAuthorizationDecision.Authorized }
-            .toSet()
+            .filter {
+                decisionFor(it, workloadZone, classification, requiredCapabilities) is
+                    CandidateAuthorizationDecision.Authorized
+            }.toSet()
 
     /**
      * The same decision as [authorizedSet], as the value the viability stage
@@ -238,5 +323,9 @@ class CandidateAuthorization(
         candidates: Collection<ProviderCandidate>,
         workloadZone: ProviderTrustZone,
         classification: DataClassification,
-    ): AuthorizedCandidates = AuthorizedCandidates(authorizedSet(candidates, workloadZone, classification))
+        requiredCapabilities: Set<ProviderCapability> = emptySet(),
+    ): AuthorizedCandidates =
+        AuthorizedCandidates(
+            authorizedSet(candidates, workloadZone, classification, requiredCapabilities),
+        )
 }
