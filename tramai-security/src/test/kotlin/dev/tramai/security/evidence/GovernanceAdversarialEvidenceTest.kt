@@ -180,7 +180,15 @@ class GovernanceAdversarialEvidenceTest {
     @Test
     fun `a selection escape stays distinguishable from an ordinary strategy decline`() {
         val escape = matrixDecisions()[4].first
-        val declined = CandidateSelectionDecision.NoSelection(SelectionRefusal.STRATEGY_DECLINED)
+        // The ordinary decline comes from the selection stage too: building the decision value here
+        // would be exactly the hand-written fixture this class claims not to use.
+        val declined = selection.select(pipeline.viable, CandidateSelectionStrategy { null })
+
+        assertEquals(
+            CandidateSelectionDecision.NoSelection(SelectionRefusal.STRATEGY_DECLINED),
+            declined,
+            "a decline must be the selection stage's own outcome",
+        )
 
         val escapeRecord = record(escape, world.candidateD, "event-escape")
         val declinedRecord = record(declined, world.candidateA, "event-declined")

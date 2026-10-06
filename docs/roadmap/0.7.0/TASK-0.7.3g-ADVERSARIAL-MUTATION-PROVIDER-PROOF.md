@@ -127,6 +127,13 @@ candidate is never selected and the envelope is unchanged. Both are a refusal to
 authorized and viable membership. A duplicate cannot increase authority and source ordering cannot
 alter membership.
 
+Ordering is asserted at the level of individual refusals as well, not only aggregate membership: two
+**independent** worlds are walked in opposite orders, each verdict is read from the pipeline composed
+over that order, and the two per-candidate verdict maps are compared whole. Reading one world twice
+would prove only that a pure call is pure, so the comparison deliberately crosses worlds to close the
+shared-state loophole. The case also asserts the resulting map is not trivially all-refusals, since two
+maps of identical refusals would be a weak proof.
+
 ### Refusal precedence
 
 | Combination | Reported |
@@ -177,6 +184,12 @@ Decisions taken from the adversarial matrix — not hand-written fixtures — ar
 | `NotViable` | `governance.viability` | `AVAILABILITY` |
 | `Selected(A)` | `governance.selection` | — |
 | `NoSelection` | `governance.selection` | `STRATEGY_OUTSIDE_VIABLE_SET` |
+| `NoSelection` | `governance.selection` | `STRATEGY_DECLINED` |
+
+Every decision above is produced by the real stages. In particular the ordinary decline is the real
+selection stage's own outcome for a strategy that returns nothing — not a decision value constructed
+in the test — so the escape-versus-decline contrast is between two stage outcomes rather than between
+a stage outcome and a hand-written value.
 
 Proven: each record validates and persists to `governance-decisions.jsonl` in the writer's reported
 runtime-evidence directory (one record per decision); the subject digest equals
@@ -210,9 +223,9 @@ Test files, hashed to prove the counts come from one revision (unchanged across 
 | Test file | SHA-256 |
 |---|---|
 | `governance/AdversarialGovernanceFixtures.kt` | `a6db612f8cc71dc52047244d3e7161ad431f64a1d8dce965c83fb9797811ef3f` |
-| `governance/GovernanceAdversarialCompositionTest.kt` | `fce3b9ba561d8caaa07393360a3ed727f11fb30301a4b24e540290d9396c11dd` |
+| `governance/GovernanceAdversarialCompositionTest.kt` | `0e02f3bb89c1887b61ec6ab25224375f12529cee7234286c177a946f2b4c48f1` |
 | `governance/GovernanceSelectionBoundaryAttackTest.kt` | `f05e2985fe4244c1a2aa5a2b5b134ea7987bad975aaef1a6c05ddc6a4d325d51` |
-| `evidence/GovernanceAdversarialEvidenceTest.kt` | `a80a50c67c9303b37a2ab3d3f54fbd7e28312f4dcd76026a55db59e906e281de` |
+| `evidence/GovernanceAdversarialEvidenceTest.kt` | `7dfe17b5a6cfc189158cf7adc8f5e3862c7bed8f60e48c20bae756053069c1ec` |
 
 ## 9. Mutation population and disposition
 
@@ -228,10 +241,10 @@ it reports `NO_TESTS_RAN` rather than a verdict when a mutant fails to compile. 
 | Mutant | Failure count | Killing evidence |
 |---|---|---|
 | `D01` identity/deployment check removed | 6 | `identity refusal takes precedence over the other restrictions`; `a candidate whose identity disagrees with its deployment is NOT_AUTHORIZED`; `C through F are refused authorization and viability never evaluates them`; `refusal precedence is deterministic and ordered` |
-| `D02` zone-pair refusal removed | 18 | `a candidate whose zone no policy pair allows is NOT_AUTHORIZED for that reason`; `two deployments of one brand are not interchangeable`; `the zone-pair refusal takes precedence over the classification refusal`; `every refusal carries a member of the stable reason family` |
+| `D02` zone-pair refusal removed | 19 | `a candidate whose zone no policy pair allows is NOT_AUTHORIZED for that reason`; `two deployments of one brand are not interchangeable`; `the zone-pair refusal takes precedence over the classification refusal`; `every refusal carries a member of the stable reason family` |
 | `D03` classification refusal removed | 5 | `a candidate for a classification with no rule is NOT_AUTHORIZED`; `a candidate the classification rule forbids is NOT_AUTHORIZED for that reason`; `every refusal carries a member of the stable reason family`; `refusal precedence is deterministic and ordered` |
-| `D04` registration refusal removed | 24 | `refused and non viable candidates are distinguishable by reason and by stage`; `no raw provider model or deployment value reaches exported evidence`; `a selection escape stays distinguishable from an ordinary strategy decline`; `the adversarial matrix decisions pass the canonical validator and the canonical writer` |
-| `D05` required-capability refusal removed | 7 | `refused and non viable candidates are distinguishable by reason and by stage`; `one unsupported required capability refuses authorization`; `a capability incompatible candidate is refused authorization and never reported non viable`; `C through F are refused authorization and viability never evaluates them` |
+| `D04` registration refusal removed | 25 | `refused and non viable candidates are distinguishable by reason and by stage`; `no raw provider model or deployment value reaches exported evidence`; `a selection escape stays distinguishable from an ordinary strategy decline`; `the adversarial matrix decisions pass the canonical validator and the canonical writer` |
+| `D05` required-capability refusal removed | 8 | `refused and non viable candidates are distinguishable by reason and by stage`; `one unsupported required capability refuses authorization`; `a capability incompatible candidate is refused authorization and never reported non viable`; `candidate input ordering never changes a refusal or the authorized set` |
 | `D06` conjunction replaced by unconditional authorization | 34 | `refused and non viable candidates are distinguishable by reason and by stage`; `no raw provider model or deployment value reaches exported evidence`; `a selection escape stays distinguishable from an ordinary strategy decline`; `the adversarial matrix decisions pass the canonical validator and the canonical writer` |
 | `D07` refusal precedence reordered | 3 | `identity refusal takes precedence over the other restrictions`; `a candidate whose identity disagrees with its deployment is NOT_AUTHORIZED`; `refusal precedence is deterministic and ordered` |
 | `D08` refused candidate admitted as authorized | 25 | `refused and non viable candidates are distinguishable by reason and by stage`; `no raw provider model or deployment value reaches exported evidence`; `a selection escape stays distinguishable from an ordinary strategy decline`; `the adversarial matrix decisions pass the canonical validator and the canonical writer` |
@@ -296,6 +309,16 @@ void measurement must never be reported as a survivor.
    the rule that a test-only edit invalidates a mutation count, the campaign was re-run on the
    frozen revision, and the test-file hashes in §8 were captured before and after to prove it did not
    change during the run. Every count in §9 is from that re-run.
+5. **Two proof-hygiene defects were found on review of the first pushed head, and both were fixed
+   rather than argued.** The input-ordering case compared `decision(candidate)` with
+   `decision(candidate)` — the same call, same candidate, same authorization instance — so it proved
+   `x == x` while its name and this document claimed that input ordering does not change a refusal.
+   It now compares two independent worlds walked in opposite orders. And the escape-versus-decline
+   case constructed `NoSelection(STRATEGY_DECLINED)` by hand inside a class whose stated claim is
+   that every decision comes from the real stages; the decline is now the selection stage's own
+   outcome. Neither finding involved a production defect. Both are test-revision changes, so the
+   campaign and every count in this document were re-derived once more, and the hashes in §8 are the
+   post-fix revision.
 
 `SURVIVED` entries in the mutation tables: none. No mutant was classified as equivalent, and none was
 classified from inspection alone.
@@ -327,3 +350,10 @@ This slice proves the decision machinery. It does **not** prove the execution pa
 * Epic 0.7.3 must not be marked complete while the real execution path can execute routing or
   fallback independently of the viable-selection boundary. That is the carried 0.7.3h obligation:
   forcing the actual execution path through the viable-selection boundary.
+* **Carried question for 0.7.3h.** This slice proves a caller-supplied strategy cannot widen
+  authority; in the single-element case the malicious strategy's attempt fails by throwing before it
+  can be fenced. A refusal to widen is not the same property as a safe execution runtime: once a real
+  execution coordinator supplies strategies, an exception thrown through `CandidateSelection.select`
+  becomes an availability concern. 0.7.3h should decide explicitly whether strategy exceptions
+  propagate or become a deterministic, auditable execution refusal. 0.7.3g does not widen scope to
+  settle it.

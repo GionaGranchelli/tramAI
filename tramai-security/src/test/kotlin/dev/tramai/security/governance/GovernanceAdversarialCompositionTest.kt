@@ -282,11 +282,33 @@ class GovernanceAdversarialCompositionTest {
         val reversed = world.pipeline(candidates.reversed(), requiredCapabilities = requiresToolCalling)
 
         assertEquals(base.authorizedSet, reversed.authorizedSet)
-        candidates.forEach { candidate ->
-            val forward = decision(candidate)
-            val backward = decision(candidate)
-            assertEquals(forward, backward, "the refusal for $candidate must not depend on evaluation order")
-        }
+
+        // Independent worlds, walked in opposite orders, with each verdict read from the pipeline
+        // that composed that order: verdicts that depended on input order — through shared state in
+        // the composition — would differ here. Comparing one world against itself would prove only
+        // that a pure call is pure.
+        val forwardWorld = GovernanceWorld()
+        val reverseWorld = GovernanceWorld()
+        val forwardVerdicts = verdictsOf(forwardWorld, candidates)
+        val reverseVerdicts = verdictsOf(reverseWorld, candidates.reversed())
+
+        assertEquals(forwardVerdicts, reverseVerdicts, "refusals must not depend on evaluation order")
+        assertEquals(
+            setOf(world.candidateA),
+            forwardVerdicts.filterValues { it is CandidateAuthorizationDecision.Authorized }.keys,
+            "the map must not be trivially all-refusals",
+        )
+    }
+
+    /**
+     * The verdict for every candidate in [order], read from the pipeline that composed [order].
+     */
+    private fun verdictsOf(
+        subject: GovernanceWorld,
+        order: List<ProviderCandidate>,
+    ): Map<ProviderCandidate, CandidateAuthorizationDecision> {
+        val composed = subject.pipeline(order, requiredCapabilities = requiresToolCalling)
+        return order.associateWith { composed.decision(it) }
     }
 
     // ---- 9. authorization to viability separation -----------------------------------------
