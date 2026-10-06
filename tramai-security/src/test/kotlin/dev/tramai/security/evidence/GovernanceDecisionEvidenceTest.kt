@@ -128,7 +128,7 @@ class GovernanceDecisionEvidenceTest {
 
     @Test
     fun `3 two deployments remain distinct`() {
-        val first = attribution(record(CandidateSelectionDecision.Selected(candidate())).let { it })
+        val first = attribution(record(CandidateSelectionDecision.Selected(candidate())))
         val other = identity(deployment = "deployment-b")
         val otherRecord =
             envelope(CandidateSelectionDecision.Selected(candidate()), other).toRuntimeEvidenceRecord(at)
@@ -358,7 +358,7 @@ class GovernanceDecisionEvidenceTest {
                 decision = CandidateSelectionDecision.Selected(candidate()),
             )
         assertEquals("correlation-1", bound.toRuntimeEvidenceRecord(at).correlationId)
-        assertTrue(bound.decision is CandidateSelectionDecision.Selected)
+        assertEquals(SELECTION_DECISION_KIND, bound.toRuntimeEvidenceRecord(at).decision.kind)
     }
 
     @Test
