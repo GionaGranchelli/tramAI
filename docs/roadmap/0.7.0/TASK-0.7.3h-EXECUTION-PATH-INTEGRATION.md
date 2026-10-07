@@ -272,3 +272,73 @@ vs head comparison at the same test identity, plus a root cause for the hang —
 finding, and a blocking path introduced by this change would be a production defect rather than an
 environmental one.
 
+## 12. h2c landed, continuation policy enforced, mutation campaign closed
+
+§10 above ("design pinned, not yet implemented") is superseded: the streaming coordinator now enters
+the same `GovernedProviderEnvelope` boundary as the synchronous one, and both share one
+`deriveRequiredCapabilities`. The tests converted for that change and the new proofs are committed.
+
+**Root cause of the defect this sub-slice removed: viability pre-filter changed branch reachability.**
+Snapshot-open circuit-breaker candidates were excluded from viability *before* `beforeCall`, so the
+`Rejected -> transition(CIRCUIT_BREAKER_OPEN)` branch still existed in the source but became
+unreachable: the fallback/continuation policy was never consulted and the next candidate executed
+anyway. Branch presence is not reachability. Both coordinators were affected; the streaming suite's
+green did not cover the synchronous path and vice versa.
+
+Two further defects were found by state-transition evidence rather than by reading:
+
+- **Resurrection.** Narrowing subtracted from the envelope *snapshot* (`narrowedAfter(chosen)`), so
+  removing one candidate restored an earlier one — attempt traces showed a revisited route. Correct
+  narrowing is `remaining.without(chosen)` against the *current* remainder.
+- **Backwards transition.** Consulting the gate for *any* availability-excluded candidate produced a
+  transition `(1, 0)`: an excluded candidate positioned *after* the one about to run was treated as
+  gating it. Only exclusions execution actually advances past may gate a continuation.
+
+**Continuation semantics, both mechanisms.** An availability exclusion that execution advances past
+consults the existing fallback/continuation policy exactly once: `DENY` is terminal with
+`FallbackDenied(CIRCUIT_OPEN_ONLY)` and the next candidate invocation count is 0; `ALLOW` continues
+strictly inside the already-current viable envelope. The gate permits continuation only — it cannot
+make an excluded candidate viable, authorize another candidate, restore a removed candidate, widen
+the viable envelope, or fall back to raw configured-route iteration. With no continuation candidate
+the existing all-circuit-open terminal semantics are preserved: no transition is manufactured to
+call the gate. An empty authorized set remains an authorization outcome and is never relabelled as
+runtime unavailability.
+
+**Mutation campaign (all eight valid; none invalid or compile-rejected counted as a kill):**
+
+| Mutant | Verdict | Killing test / reason |
+| --- | --- | --- |
+| M1 drop derived VISION | KILLED | `an incapable configured provider is not authorized so the capable candidate executes` |
+| M2 drop derived TOOL_CALLING | KILLED | `tool definitions in the actual request require TOOL_CALLING at authorization` |
+| M3 drop derived STREAMING | KILLED | `non streaming provider is refused at authorization not at invocation` (+2) |
+| M4 sync executes `resolvedRoutes.first()` | KILLED | `fallback route events carry is_fallback true and shared attempt numbering continues` (+11) |
+| M5 streaming executes `configuredOrder.first()` | KILLED | property suite over the deterministic corpus (+15) |
+| M6 rejection re-widens `remaining` | KILLED | non-termination: re-widening makes reselection non-terminating (suite does not finish in 600s) |
+| M7 fallback re-widens `remaining` | KILLED | non-termination, as M6 |
+| M8 strategy ignores the eligible set | KILLED | property suite over the deterministic corpus (+15) |
+
+`M1` and `M2` survived the first pass and both survivors were real evidence gaps, not measurement
+artefacts: the existing image test asserted only "nobody was invoked", which the lower-level
+*defensive* capability check keeps true even when authorization no longer requires the capability —
+so it could not distinguish **where** the refusal happened; and no test drove an operation exposing
+tool definitions through the governed path at all. Both proofs assert **which** provider executed.
+Each was verified green on the pristine head before the mutant was re-run, so the kills are
+attributable to the proof and not to a pre-existing failure.
+
+M6/M7 are killed by non-termination rather than by an assertion. That is a detection, and it is also
+a property worth recording: monotonic narrowing is load-bearing for termination, not only for
+authority.
+
+**Orders of magnitude.** None of the mutants is a statement about counts or thresholds; every mutant
+either removes a derived requirement, substitutes a routing referent, or re-widens a narrowed set.
+
+**Suites at the closure head.** 90 focused tests, 0 failures: `ProviderExecutionCoordinatorTest`
+7, `ProviderGovernedExecutionPathTest` 25, `ProviderRetryFallbackLifecyclePropertyTest` 4,
+`StreamingExecutionCoordinatorTest` 54. Narrowing/reselection mutants were exercised by plans with
+three selection steps; a two-candidate plan cannot expose a revisited route.
+
+**Still required before 0.7.3 can close:** the exact-head repository gates (the focused suites are
+not the closure ladder), and resolution of §11 (the engine-wide hang and the approval/identity
+cluster, which remains unattributed and must be reproduced at the pristine base at the same test
+identity before it is called environmental).
+
