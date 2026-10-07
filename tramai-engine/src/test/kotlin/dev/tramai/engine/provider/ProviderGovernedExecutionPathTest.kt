@@ -7,6 +7,8 @@ import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
 import dev.tramai.core.identity.WorkloadConfigurationIdentity
 import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelArtifactDigest
@@ -429,6 +431,7 @@ class ProviderGovernedExecutionPathTest {
                     ),
             ),
         trustZonePolicy = TrustZonePolicy(pairs),
+        workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
         deploymentOf = { providerId -> deployments[providerId]?.let { deployment(providerId, it) } },
         requiredCapabilities = capabilities,
     )
@@ -443,7 +446,7 @@ class ProviderGovernedExecutionPathTest {
 
     private fun request(
         retries: Int = 0,
-        run: ProviderRunGovernance? = ProviderRunGovernance(workloadIdentity, ProviderTrustZone.LOCAL),
+        run: GovernedRunIdentity? = GovernedRunIdentity(workloadIdentity, RunId("run")),
     ) = ProviderExecutionRequest(
         componentOperation(retries),
         emptyList<Message>(),

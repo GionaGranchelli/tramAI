@@ -4,6 +4,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.provider.ProviderRoutingPlan
@@ -48,7 +49,7 @@ internal fun interface ProviderSelectionPreference {
             ProviderSelectionPreference { viable, configuredOrder -> viable.orderedBy(configuredOrder).firstOrNull() }
     }
 }
-internal data class ProviderExecutionRequest(val operation: OperationDefinition, val messages: List<Message>, val attemptCounter: AttemptCounter, val correlationId: String, val securityContext: ExecutionSecurityContext, val beforeRoute: ProviderRouteGate, val governance: ProviderRunGovernance? = null)
+internal data class ProviderExecutionRequest(val operation: OperationDefinition, val messages: List<Message>, val attemptCounter: AttemptCounter, val correlationId: String, val securityContext: ExecutionSecurityContext, val beforeRoute: ProviderRouteGate, val governedRun: GovernedRunIdentity? = null)
 
 /**
  * Drives provider execution through the 0.7.3 authority chain.
@@ -81,7 +82,15 @@ internal class ProviderExecutionCoordinator(
         // Configuration resolution reports its own errors unchanged and first: a missing or unknown
         // route is a configuration fault, not a governance refusal.
         val configuration = governance ?: throw governanceAbsent()
-        val run = request.governance ?: throw governanceAbsent()
+        val run = request.governedRun ?: throw governanceAbsent()
+        // The workload's zone is looked up by its exact deployment identity: it is never inferred
+        // from an environment convention, and an unconfigured deployment has no zone at all.
+        val workloadZone =
+            configuration.workloadZones[run.deployment]
+                ?: throw ProviderException(
+                    "Workload deployment '${run.deployment.deploymentId}' has no configured trust zone",
+                    retryable = false,
+                )
 
         // The release predicate is built from the governed configuration: a default release instance
         // carries an empty rule map and would release nothing, so authorization would refuse every
@@ -95,9 +104,9 @@ internal class ProviderExecutionCoordinator(
         // Classification and the workload's own trust zone are resolved, not assumed: a missing
         // claim or an unestablished deployment zone refuses rather than defaulting to a wider zone.
         val workload = WorkloadGovernanceResolver.resolve(
-            identity = run.workloadIdentity,
+            identity = run.deployment,
             signals = signalsOf(request.securityContext),
-            deploymentZone = run.workloadZone,
+            deploymentZone = workloadZone,
             rules = configuration.rules,
         )
         if (workload is WorkloadGovernanceResolution.Refused) {
