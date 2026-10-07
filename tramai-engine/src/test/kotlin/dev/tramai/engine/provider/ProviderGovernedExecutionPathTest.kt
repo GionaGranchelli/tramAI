@@ -485,6 +485,27 @@ class ProviderGovernedExecutionPathTest {
     // ---- 17. capability cannot be bypassed ------------------------------------------------------
 
     @Test
+    fun `an incapable configured provider is not authorized so the capable candidate executes`() {
+        runBlocking {
+            // Both providers are configured and both would be selectable on registration alone. The
+            // request carries an image, so VISION is required by the actual request facts: the
+            // incapable provider must be refused at authorization and never selected, leaving the
+            // capable candidate to execute. Asserting only "nobody was invoked" is satisfied by the
+            // lower-level defensive check too, which is why this asserts WHICH provider ran.
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha", vision = false), "beta" to provider("beta", vision = true)),
+                )
+
+            val response = coordinator(plan).execute(request(withImage = true))
+
+            assertThat(response.response.content).isEqualTo("beta")
+            assertThat(invoked).containsExactly("beta")
+        }
+    }
+
+    @Test
     fun `a provider missing a capability the request requires is refused at authorization`() {
         runBlocking {
             // The request carries an image, so VISION is required by the actual request facts. The
