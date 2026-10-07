@@ -26,6 +26,7 @@ import dev.tramai.core.model.MessageRole
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.engine.CircuitBreakerAdmission
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
@@ -88,6 +89,11 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicBoolean
 
 class StreamingExecutionCoordinatorTest {
+
+    private companion object {
+        /** Long enough that a circuit opened by a test stays open for the duration of that test. */
+        const val OPEN_FOR_MILLIS = 60_000L
+    }
 
     @AiService
     private interface StreamingService {
@@ -874,7 +880,10 @@ class StreamingExecutionCoordinatorTest {
             incapable.capabilities = emptySet()
             val c = coordinator(plan("p" to incapable), RecordingOperationObserver(OrderedSink()))
             val chunks = c.execute(request()).toList()
-            assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+            val error = chunks.single() as StreamChunk.Error
+            // Authorization admitted nothing: an empty authorized set is a no-authority outcome and
+            // must never be reported as runtime circuit unavailability.
+            assertThat(error.cause).isNotInstanceOf(CircuitBreakerOpenException::class.java)
             assertThat(incapable.streamRequests).isEmpty()
         }
     }
@@ -898,6 +907,68 @@ class StreamingExecutionCoordinatorTest {
             assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
             assertThat(incapable.streamRequests).isEmpty()
             assertThat(capable.streamRequests).hasSize(1)
+        }
+    }
+
+    /**
+     * A breaker that admits both routes to the viability snapshot and only rejects at admission: the
+     * late-race shape where circuit state changes between selection and the call.
+     */
+    private class LateOpeningCircuitBreaker(
+        private val rejectProviderId: String,
+    ) : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 1000)) {
+        override fun openUntilMillis(providerId: String): Long? = null
+
+        override fun beforeCall(providerId: String): CircuitBreakerAdmission =
+            if (providerId == rejectProviderId) {
+                CircuitBreakerAdmission.Rejected(System.currentTimeMillis() + OPEN_FOR_MILLIS)
+            } else {
+                super.beforeCall(providerId)
+            }
+    }
+
+    private fun openedCircuitFor(providerId: String): ProviderCircuitBreaker {
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = OPEN_FOR_MILLIS))
+        breaker.onFailure((breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        return breaker
+    }
+
+    @Test fun `configured but non viable fallback cannot execute`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val x = RecordingProvider("x") { flow { emit(StreamChunk.Complete("unreachable")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val c = coordinator(plan("a" to a, "x" to x, "b" to b), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = openedCircuitFor("x"))
+            val chunks = c.execute(requestWithRetries()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            assertThat(x.streamRequests).isEmpty()
+            assertThat(b.streamRequests).hasSize(1)
+        }
+    }
+
+    @Test fun `pre-token exhaustion reselects from the narrowed envelope not the configured order`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val x = RecordingProvider("x") { flow { emit(StreamChunk.Complete("unreachable")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val c = coordinator(plan("a" to a, "x" to x, "b" to b), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = openedCircuitFor("x"))
+            val chunks = c.execute(requestWithRetries()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            assertThat(a.streamRequests).hasSize(2)
+            assertThat(x.streamRequests).isEmpty()
+            assertThat(b.streamRequests).hasSize(1)
+        }
+    }
+
+    @Test fun `circuit rejection after selection narrows authority and reselects`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("must not run")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val c = coordinator(plan("a" to a, "b" to b), RecordingOperationObserver(OrderedSink()), circuitEnabled = true, circuitBreaker = LateOpeningCircuitBreaker("a"))
+            val chunks = c.execute(requestWithRetries()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            assertThat(a.streamRequests).isEmpty()
+            assertThat(b.streamRequests).hasSize(1)
         }
     }
 
