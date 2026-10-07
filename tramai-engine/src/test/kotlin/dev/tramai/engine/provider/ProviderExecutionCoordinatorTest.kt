@@ -3,6 +3,23 @@ package dev.tramai.engine.provider
 import dev.tramai.core.exception.ModelRegistryContractViolationException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.security.ClassificationRoutingRule
+import dev.tramai.security.ProviderTrustZone
+import dev.tramai.security.governance.NamedTrustZone
+import dev.tramai.security.governance.ProviderDeployment
+import dev.tramai.security.governance.TrustZoneName
+import dev.tramai.security.governance.TrustZonePolicy
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
@@ -97,11 +114,26 @@ class ProviderExecutionCoordinatorTest {
     }
 
     private fun plan(primary: FakeProvider, secondary: FakeProvider? = null) = ProviderRoutingPlan.builder().provider("primary", primary).apply { if (secondary != null) provider("secondary", secondary) }.model("model", "primary").apply { if (secondary != null) fallbackProvider("model", "secondary") }.build()
-    private fun executionRequest(retries: Int = 0) = ProviderExecutionRequest(componentOperation(retries), emptyList(), AttemptCounter(), "cid", ExecutionSecurityContext(), ProviderRouteGate {})
+
+    // The governed facts the execution path authorizes from. Configured capability alone no longer
+    // grants authority: these tests declare the workload deployment's zone and its provider
+    // deployments explicitly, and the engine is expected to refuse without them.
+    private val workloadIdentity = WorkloadDeploymentIdentity(WorkloadId("workload"), WorkloadConfigurationIdentity(ConfigurationId("config"), ConfigurationVersion("1")), EnvironmentId("env"), DeploymentId("deployment"))
+    private val governedRun = GovernedRunIdentity(workloadIdentity, RunId("run"))
+    private val governedDeployments = listOf("primary", "secondary").associateWith { id -> ProviderDeployment("dep-$id", id, NamedTrustZone(TrustZoneName("zone-$id"), ProviderTrustZone.LOCAL)) }
+    private val governance =
+        ProviderGovernanceConfiguration(
+            workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+            rules = mapOf(DataClassification.INTERNAL to ClassificationRoutingRule(setOf(ProviderTrustZone.LOCAL), emptySet())),
+            trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+            deploymentOf = { governedDeployments[it] },
+        )
+
+    private fun executionRequest(retries: Int = 0) = ProviderExecutionRequest(componentOperation(retries), emptyList(), AttemptCounter(), "cid", ExecutionSecurityContext(dataClassification = DataClassification.INTERNAL, classificationSource = ClassificationSource.DECLARED), ProviderRouteGate {}, governedRun)
     private fun coordinator(plan: ProviderRoutingPlan, observation: RecordingObservation = RecordingObservation(), breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()), observerFactory: (() -> RecordingObservation)? = null, fallback: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> }) : ProviderExecutionCoordinator {
         val observer = dev.tramai.core.observation.OperationObserver { observerFactory?.invoke() ?: observation }
         val attempt = ProviderAttemptExecutor("service", observer, object : dev.tramai.core.observation.OperationInterceptor {}, breaker, ProviderRetryPolicy(dev.tramai.engine.provider.ProviderRetryDelayPolicy(dev.tramai.engine.RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }), permissiveAuthorization(), ProviderInvocationGate { _, _, _, _ -> }, ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response })
-        return ProviderExecutionCoordinator(plan, breaker, attempt, ProviderFallbackPolicy(), ProviderResolutionGate { _, _, _ -> }, fallback)
+        return ProviderExecutionCoordinator(plan, breaker, attempt, ProviderFallbackPolicy(), ProviderResolutionGate { _, _, _ -> }, fallback, governance)
     }
     /** Authorization fake returning a model that always matches the requested provider/model. */
     private fun permissiveAuthorization() = ProviderAuthorizationService(

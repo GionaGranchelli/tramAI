@@ -2,6 +2,7 @@
 package dev.tramai.engine.invocation
 
 
+import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.TokenBudgetExceededException
@@ -22,6 +23,7 @@ import dev.tramai.engine.tool.ToolCallBatchRequest
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import dev.tramai.engine.ToolRegistry
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.CancellationException
 import dev.tramai.core.observation.secondary.SecondaryEffectAuthority
 import dev.tramai.core.observation.secondary.SecondaryFailureDiagnostic
@@ -47,6 +49,9 @@ internal class ToolLoopCoordinator(
         val tokenBudgetTracker = context.tokenBudgetTracker
         val correlationId = context.correlationId
         val securityContext = context.securityContext
+        // The governed run identity is the authoritative transport for the workload deployment; the
+        // execution path authorizes from it, so its absence is not a wider default but a refusal.
+        val governedRun = GovernedRunScope.resolve(currentCoroutineContext())
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
         repeat(maxToolLoops) {
@@ -58,6 +63,7 @@ internal class ToolLoopCoordinator(
                     correlationId = correlationId,
                     securityContext = securityContext,
                     beforeRoute = { toolExposureCoordinator.enforce(operation, correlationId, securityContext) },
+                    governedRun = governedRun,
                 ),
             )
             try {

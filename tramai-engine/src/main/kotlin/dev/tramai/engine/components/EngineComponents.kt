@@ -14,6 +14,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.ToolFailureDiagnosticObserver
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.security.ProviderRoutingConfiguration
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
@@ -61,6 +62,8 @@ internal data class SecurityComponents(
     val dlpInterceptor: DlpInterceptor,
     val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
     val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
+    /** The configured routing topology, or null when no configuration carries one. */
+    val routingConfiguration: ProviderRoutingConfiguration?,
 )
 
 /** Explicit approval capability: partial approval state is unrepresentable. */

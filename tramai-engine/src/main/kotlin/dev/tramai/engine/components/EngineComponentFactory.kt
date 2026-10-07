@@ -17,6 +17,7 @@ import dev.tramai.core.security.*
 import dev.tramai.core.structured.*
 import dev.tramai.engine.*
 import dev.tramai.engine.provider.ProviderRetryDelayPolicy
+import dev.tramai.security.DefaultPolicyEngine
 import java.time.Clock
 
 /** One authoritative composition boundary: validates collaborators and creates the immutable snapshot. */
@@ -41,7 +42,7 @@ internal object EngineComponentFactory {
         val resolvedPolicy = policyEngine ?: LegacyPermissivePolicyEngine
         return EngineComponents(
             ProviderComponents(providerRegistry.routingPlan), ToolComponents(toolRegistry, toolResultFilteringSettings),
-            SecurityComponents(resolvedPolicy, policyEngine == null, promptSanitizer, modelRegistry, modelRegistrySettings, dlpInterceptor, dlpRedactionAuditEmitter, policyDecisionAuditEmitter),
+            SecurityComponents(resolvedPolicy, policyEngine == null, promptSanitizer, modelRegistry, modelRegistrySettings, dlpInterceptor, dlpRedactionAuditEmitter, policyDecisionAuditEmitter, (policyEngine as? DefaultPolicyEngine)?.routingConfiguration),
             ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
             ObservationComponents(

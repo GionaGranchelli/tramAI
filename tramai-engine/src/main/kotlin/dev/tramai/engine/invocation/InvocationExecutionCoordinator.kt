@@ -11,6 +11,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ToolInvalidInputException
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
@@ -101,6 +102,15 @@ internal class InvocationExecutionCoordinator(
     private val resumeOperationRegistry: ResumeOperationRegistry,
 ) : ClaimedResumeExecutor {
     private val routingPlan = components.providers.routingPlan
+
+    /**
+     * The governed routing topology for provider execution. Absent when the configured policy engine
+     * carries no topology, in which case execution fails closed rather than falling back to
+     * configured routing.
+     */
+    private val providerGovernance =
+        components.security.routingConfiguration?.let { ProviderGovernanceConfiguration.from(it) }
+
     private val structuredOutputHandler = components.execution.structuredOutputHandler
     private val toolRegistry = components.tools.toolRegistry
     private val operationObserver = components.observation.operationObserver
@@ -218,7 +228,8 @@ internal class InvocationExecutionCoordinator(
             fallbackPolicy = ProviderFallbackPolicy(),
             beforeResolution = beforeResolutionGate,
             fallbackGate = fallbackGate,
-        )
+            governance = providerGovernance,
+            )
     private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
     private val conversationMemoryCoordinator =
         ConversationMemoryCoordinator(
