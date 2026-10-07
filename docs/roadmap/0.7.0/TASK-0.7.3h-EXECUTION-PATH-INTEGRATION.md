@@ -267,10 +267,38 @@ An engine-wide `:tramai-engine:test` run hung after ~45 minutes having completed
 failure cluster in approval/identity classes (`ApprovalResumeEngineTest` 36, `ApprovalSuspensionEngineTest`
 14, `ApprovalEngineEdgeCaseTest` 11, `GovernedRunScopeIdentityTest` 8, `GovernedApprovalAttributionTest` 7,
 `EngineIdentityDiscriminatorTest` 6, `EngineMemoryIntegrationTest` 6, `EngineCancellationContractTest` 3).
-Not attributed: file ownership and apparent unrelatedness are not evidence. Requires a pristine-base
-vs head comparison at the same test identity, plus a root cause for the hang — a hang is itself a
-finding, and a blocking path introduced by this change would be a production defect rather than an
-environmental one.
+
+**Attributed: this is a regression introduced by the governed boundary, not environmental.**
+
+Signature at the head (`3c2d26ea`): `dev.tramai.core.exception.ProviderException at
+ProviderExecutionCoordinator.kt:263`, which is `governanceAbsent()` —
+`"Provider execution requires governance inputs and none were supplied"`. The affected tests construct
+provider execution without any routing topology (`EngineMemoryIntegrationTest` contains no
+`ProviderRoutingConfiguration` reference at all), so the governed boundary is entered and refuses.
+
+Reproduction, same test identities, both sides:
+
+- head `3c2d26ea`: `./gradlew :tramai-engine:test --tests '*EngineMemoryIntegrationTest*' --tests
+  '*GovernedRunScopeIdentityTest*'` — fails, `ProviderException at ProviderExecutionCoordinator.kt:263`.
+  Full `./gradlew verifyPr -PchangePolicyBase=f8af2510` — 100 FAILED lines, plus
+  `:tramai-observability:test` 5 of 27 failed.
+- base `f8af2510` (detached worktree, identical filters): `BUILD SUCCESSFUL`, rc=0, **0 failed**.
+
+The base passes and the head fails at the same test identity, so the cluster is a consequence of this
+change. File ownership played no part in the classification: the same failure could not be shown at the
+base, which is exactly the test the earlier note said had not been run.
+
+**The unresolved question is a contract question, not a diagnosis.** The 0.7.3h contract says "no
+topology -> no governed provider candidate -> fail closed" and "do not resurrect the raw routing
+bypass". Applied unconditionally that breaks engine behaviour which predates the epic (chat-memory
+persistence, approval resume, governed-run identity, blocking-proxy dispatch, observability). Either
+(a) the boundary must be conditional — a caller that never opted into routing topology keeps the legacy
+path, and fail-closed governs a *governed* decision rather than making the engine unusable without
+topology — in which case this is a production defect in the wiring; or (b) fail-closed is deliberate
+and engine-wide, in which case every existing path and its tests must supply topology, a breaking
+migration whose scope the contract does not authorise. The contract does not decide between them, and
+the 45-minute engine-wide hang is very likely the same cause seen as non-termination rather than as
+failure.
 
 ## 12. h2c landed, continuation policy enforced, mutation campaign closed
 
@@ -338,7 +366,8 @@ either removes a derived requirement, substitutes a routing referent, or re-wide
 three selection steps; a two-candidate plan cannot expose a revisited route.
 
 **Still required before 0.7.3 can close:** the exact-head repository gates (the focused suites are
-not the closure ladder), and resolution of §11 (the engine-wide hang and the approval/identity
-cluster, which remains unattributed and must be reproduced at the pristine base at the same test
-identity before it is called environmental).
+not the closure ladder), and the §11 resolution — now **attributed**: the approval/identity/memory
+cluster and the engine-wide hang are a regression from the governed boundary being entered without
+routing topology, reproduced as base-green/head-red at the same test identity. §11 records the
+evidence and the contract question it raises.
 
