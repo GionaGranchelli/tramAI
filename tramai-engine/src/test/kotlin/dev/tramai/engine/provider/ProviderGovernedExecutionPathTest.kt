@@ -1,5 +1,7 @@
 package dev.tramai.engine.provider
 
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.identity.ConfigurationId
@@ -20,6 +22,10 @@ import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.RegisteredModel
+import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.model.SideEffectLevel
+import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.ToolResult
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.PolicyDecision
@@ -30,8 +36,13 @@ import dev.tramai.engine.CircuitBreakerAdmission
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ModelRegistryEnforcer
+import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
 import dev.tramai.engine.RetryPolicySettings
+import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.planning.OperationDefinitionCompiler
+import dev.tramai.engine.planning.OperationFingerprintFactory
+import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.governance.NamedTrustZone
@@ -506,6 +517,26 @@ class ProviderGovernedExecutionPathTest {
     }
 
     @Test
+    fun `tool definitions in the actual request require TOOL_CALLING at authorization`() {
+        runBlocking {
+            // The operation exposes a tool, so the request facts require TOOL_CALLING. A provider that
+            // cannot call tools must be refused at authorization and never selected, leaving the
+            // capable candidate to execute. As with VISION, asserting only that nobody ran would be
+            // satisfied by the lower-level defensive check, so this asserts WHICH provider ran.
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha", toolCalling = false), "beta" to provider("beta")),
+                )
+
+            val response = coordinator(plan).execute(request(operation = toolOperation()))
+
+            assertThat(response.response.content).isEqualTo("beta")
+            assertThat(invoked).containsExactly("beta")
+        }
+    }
+
+    @Test
     fun `a provider missing a capability the request requires is refused at authorization`() {
         runBlocking {
             // The request carries an image, so VISION is required by the actual request facts. The
@@ -547,7 +578,7 @@ class ProviderGovernedExecutionPathTest {
             deployment = deployment("global", ProviderTrustZone.GLOBAL_CLOUD),
         )
 
-    private fun provider(name: String, vision: Boolean = true, block: suspend () -> ModelResponse = { ModelResponse(name) }) =
+    private fun provider(name: String, vision: Boolean = true, toolCalling: Boolean = true, block: suspend () -> ModelResponse = { ModelResponse(name) }) =
         object : ModelProvider {
             override suspend fun complete(request: ModelRequest): ModelResponse {
                 invoked += name
@@ -556,7 +587,12 @@ class ProviderGovernedExecutionPathTest {
 
             override fun providerId() = name
 
-            override fun supportsCapability(capability: ProviderCapability) = capability != ProviderCapability.VISION || vision
+            override fun supportsCapability(capability: ProviderCapability) =
+                when (capability) {
+                    ProviderCapability.VISION -> vision
+                    ProviderCapability.TOOL_CALLING -> toolCalling
+                    else -> true
+                }
         }
 
     private fun deployment(providerId: String, zone: ProviderTrustZone) =
@@ -595,12 +631,38 @@ class ProviderGovernedExecutionPathTest {
             DeploymentId("deployment"),
         )
 
+    /** The tool the operation exposes: the governed path must refuse before any tool call happens. */
+    private val paymentTool =
+        object : ResolvedTool {
+            override val name = "payment"
+            override val description = "Executes a payment"
+            override val inputSchemaJson = "{}"
+            override val idempotent = false
+            override val sideEffectLevel = SideEffectLevel.WRITE
+
+            override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult = error("a refused capability must not reach a tool call")
+        }
+
+    /** An operation exposing a tool: the actual request fact that makes TOOL_CALLING required. */
+    @AiService
+    internal interface ToolExposingService {
+        @Operation(prompt = "Pay", model = "model", tools = ["payment"])
+        suspend fun pay(amount: Double): String
+    }
+
+    private fun toolOperation(): OperationDefinition {
+        val method = ToolExposingService::class.java.methods.single { it.name == "pay" }
+        val compiler = ServiceDefinitionCompiler(OperationDefinitionCompiler(ToolRegistry(mapOf(paymentTool.name to paymentTool)), null, OperationFingerprintFactory()))
+        return compiler.compile(ToolExposingService::class).operations.getValue(method).definition ?: error("the tool-exposing operation must compile")
+    }
+
     private fun request(
         retries: Int = 0,
         withImage: Boolean = false,
         run: GovernedRunIdentity? = GovernedRunIdentity(workloadIdentity, RunId("run")),
+        operation: OperationDefinition = componentOperation(retries),
     ) = ProviderExecutionRequest(
-        componentOperation(retries),
+        operation,
         if (withImage) listOf(imageMessage) else emptyList(),
         AttemptCounter(),
         "cid",
