@@ -1,5 +1,6 @@
 package dev.tramai.engine.provider
 
+import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
@@ -21,6 +22,7 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.RegisteredModel
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRoutingPlan
@@ -131,6 +133,65 @@ class ProviderGovernedExecutionPathTest {
             assertThat(invoked).isEmpty()
         }
     }
+
+    @Test
+    fun `a pre-open primary circuit whose continuation policy denies is terminal and invokes nobody`() {
+        runBlocking {
+            val plan = planOf(
+                chain = listOf("alpha", "beta"),
+                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+            )
+            val thrown =
+                catchThrowable {
+                    runBlocking {
+                        coordinator(plan, breaker = openCircuitFor("alpha"), fallbackGate = denyingGate()).execute(request())
+                    }
+                }
+            assertThat(thrown).isInstanceOf(PolicyViolationException::class.java)
+            assertThat(invoked).isEmpty()
+        }
+    }
+
+    @Test
+    fun `a late circuit rejection narrows the envelope and reselects only if policy permits`() {
+        runBlocking {
+            val plan = planOf(
+                chain = listOf("alpha", "beta"),
+                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+            )
+            // alpha is viable at the snapshot and rejected at beforeCall: the same continuation
+            // question as a pre-open exclusion, reached by a different mechanism.
+            val allowed = coordinator(plan, breaker = lateRejectingBreaker("alpha")).execute(request())
+            assertThat(allowed.response.content).isEqualTo("beta")
+            assertThat(invoked).containsExactly("beta")
+
+            invoked.clear()
+            val denied =
+                catchThrowable {
+                    runBlocking {
+                        coordinator(plan, breaker = lateRejectingBreaker("alpha"), fallbackGate = denyingGate()).execute(request())
+                    }
+                }
+            assertThat(denied).isInstanceOf(PolicyViolationException::class.java)
+            assertThat(invoked).isEmpty()
+        }
+    }
+
+    /** A gate that refuses continuation, reusing the existing policy refusal shape. */
+    private fun denyingGate() = ProviderFallbackGate { _, _, _, _, _, _ -> throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST")) }
+
+    /**
+     * Viable at the viability snapshot, rejected at admission: the late race. Availability is read
+     * only through [openUntilMillis] for viability, so returning null there while rejecting at
+     * beforeCall models the breaker opening between selection and the call.
+     */
+    private fun lateRejectingBreaker(rejectProviderId: String) =
+        object : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000L)) {
+            override fun openUntilMillis(providerId: String): Long? = null
+
+            override fun beforeCall(providerId: String): CircuitBreakerAdmission =
+                if (providerId == rejectProviderId) CircuitBreakerAdmission.Rejected(System.currentTimeMillis() + 60_000L) else super.beforeCall(providerId)
+        }
 
     @Test
     fun `an unauthorized primary is never invoked and the authorized fallback is selected`() {
@@ -535,6 +596,7 @@ class ProviderGovernedExecutionPathTest {
         breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
         governance: ProviderGovernanceConfiguration = governance(),
         preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
+        fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
     ): ProviderExecutionCoordinator {
         val observer = dev.tramai.core.observation.OperationObserver { RecordingObservation() }
         val attempt =
@@ -554,7 +616,7 @@ class ProviderGovernedExecutionPathTest {
             attempt,
             ProviderFallbackPolicy(),
             ProviderResolutionGate { _, _, _ -> },
-            ProviderFallbackGate { _, _, _, _, _, _ -> },
+            fallbackGate,
             governance,
             preference,
         )
