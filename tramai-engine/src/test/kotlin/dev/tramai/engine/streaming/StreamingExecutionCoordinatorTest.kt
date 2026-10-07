@@ -972,6 +972,63 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `narrowing is monotonic across three selection steps and cannot resurrect a route`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val c = RecordingProvider("c") { flow { emit(StreamChunk.Complete("ok")) } }
+            val c0 = coordinator(plan("a" to a, "b" to b, "c" to c), RecordingOperationObserver(OrderedSink()))
+            val chunks = c0.execute(requestWithZeroRetries()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            // Three selection steps, every candidate counted: subtract-from-the-snapshot narrowing
+            // would restore `a` when `b` is removed, so these counts are the discriminator. A
+            // two-candidate plan cannot expose that, which is why the plan has three.
+            assertThat(a.streamRequests).hasSize(1)
+            assertThat(b.streamRequests).hasSize(1)
+            assertThat(c.streamRequests).hasSize(1)
+        }
+    }
+
+    @Test fun `pre-open circuit exclusion consults the continuation policy and a denial is terminal`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("unreachable")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val sink = OrderedSink()
+            val c = coordinator(plan("a" to a, "b" to b), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = openedCircuitFor("a"), denyFallback = true)
+            assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
+            assertThat(sink.count("policy.fallback")).isEqualTo(1)
+            assertThat(a.streamRequests).isEmpty()
+            assertThat(b.streamRequests).isEmpty()
+        }
+    }
+
+    @Test fun `pre-open circuit exclusion that policy permits continues inside the viable envelope`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("unreachable")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val sink = OrderedSink()
+            val c = coordinator(plan("a" to a, "b" to b), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = openedCircuitFor("a"))
+            val chunks = c.execute(request()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            assertThat(sink.count("policy.fallback")).isEqualTo(1)
+            assertThat(a.streamRequests).isEmpty()
+            assertThat(b.streamRequests).hasSize(1)
+        }
+    }
+
+    @Test fun `late circuit rejection consults the continuation policy and a denial is terminal`() {
+        runBlocking {
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("must not run")) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
+            val sink = OrderedSink()
+            val c = coordinator(plan("a" to a, "b" to b), RecordingOperationObserver(sink), sink, circuitEnabled = true, circuitBreaker = LateOpeningCircuitBreaker("a"), denyFallback = true)
+            assertThatThrownBy { runBlocking { c.execute(requestWithRetries()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
+            assertThat(sink.count("policy.fallback")).isEqualTo(1)
+            assertThat(a.streamRequests).isEmpty()
+            assertThat(b.streamRequests).isEmpty()
+        }
+    }
+
     @Test fun `fallback gate denial prevents second provider invocation`() {
         val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }; val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
         val c = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(OrderedSink()), denyFallback = true)

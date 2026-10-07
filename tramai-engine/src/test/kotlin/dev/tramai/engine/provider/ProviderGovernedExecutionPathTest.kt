@@ -67,6 +67,72 @@ class ProviderGovernedExecutionPathTest {
     // ---- 2. unauthorized primary ----------------------------------------------------------------
 
     @Test
+    fun `a pre-open primary circuit consults the continuation policy and the viable fallback runs`() {
+        runBlocking {
+            val plan = planOf(
+                chain = listOf("alpha", "beta"),
+                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+            )
+            // alpha is authorized but not viable: its circuit is already open at the snapshot, so the
+            // transition past it to the viable fallback is a continuation, not an execution.
+            val breaker = openCircuitFor("alpha")
+            val response = coordinator(plan, breaker = breaker).execute(request())
+            assertThat(response.response.content).isEqualTo("beta")
+            // alpha never runs, and the excluded candidate is not restored by the continuation.
+            assertThat(invoked).containsExactly("beta")
+        }
+    }
+
+    @Test
+    fun `an exclusion positioned after the selected candidate does not gate it`() {
+        runBlocking {
+            val plan = planOf(
+                chain = listOf("alpha", "beta"),
+                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+            )
+            // beta is excluded but nothing reaches it: alpha is selected and runs, so no transition
+            // past beta exists and no continuation is authorized on its behalf.
+            val breaker = openCircuitFor("beta")
+            val response = coordinator(plan, breaker = breaker).execute(request())
+            assertThat(response.response.content).isEqualTo("alpha")
+            assertThat(invoked).containsExactly("alpha")
+        }
+    }
+
+    private fun openCircuitFor(providerId: String): ProviderCircuitBreaker {
+        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000L))
+        breaker.onFailure((breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        return breaker
+    }
+
+    @Test
+    fun `an unclassified synchronous request is refused and no provider is invoked`() {
+        runBlocking {
+            val plan = planOf(
+                chain = listOf("alpha", "beta"),
+                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+            )
+            val unclassified =
+                ProviderExecutionRequest(
+                    componentOperation(0),
+                    emptyList(),
+                    AttemptCounter(),
+                    "cid",
+                    ExecutionSecurityContext(dataClassification = null, classificationSource = null),
+                    ProviderRouteGate {},
+                    GovernedRunIdentity(workloadIdentity, RunId("run")),
+                )
+
+            val thrown = catchThrowable { runBlocking { coordinator(plan).execute(unclassified) } }
+            // A missing classification claim is not permission: it refuses fail-closed rather than
+            // defaulting to PUBLIC, and no candidate reaches a provider.
+            assertThat(thrown).isInstanceOf(ProviderException::class.java)
+            assertThat((thrown as ProviderException).retryable).isFalse()
+            assertThat(invoked).isEmpty()
+        }
+    }
+
+    @Test
     fun `an unauthorized primary is never invoked and the authorized fallback is selected`() {
         runBlocking {
             // "global" sits in a zone no permitted pair allows, so authorization refuses it.
