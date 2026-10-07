@@ -40,6 +40,26 @@ import dev.tramai.engine.planning.OperationFingerprintFactory
 import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
 import dev.tramai.engine.streaming.StreamingExecutionCoordinator
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.model.ClassifiedDocument
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
+import dev.tramai.security.ClassificationRoutingRule
+import dev.tramai.security.ProviderTrustZone
+import dev.tramai.security.governance.NamedTrustZone
+import dev.tramai.security.governance.ProviderDeployment
+import dev.tramai.security.governance.TrustZoneName
+import dev.tramai.security.governance.TrustZonePolicy
 import dev.tramai.engine.streaming.StreamingExecutionRequest
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import kotlinx.coroutines.CancellationException
@@ -168,6 +188,8 @@ class ProviderRetryFallbackLifecyclePropertyTest {
             }
         }
         override fun providerId(): String = name
+
+        override fun supportsCapability(capability: ProviderCapability): Boolean = capability == ProviderCapability.STREAMING
     }
 
     private fun operation(retries: Int) = ServiceDefinitionCompiler(
@@ -184,6 +206,43 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
     ).compile(ExplicitProviderStreamingService::class).operations.entries.single().value.definition
 
+    /**
+     * The governed facts these properties now run under. 0.7.3 admits no provider invocation without a
+     * candidate selected from a viable envelope derived for the same request, so the configured
+     * topology, the admitted run and a classified input are request-side facts. The property
+     * assertions themselves are unchanged: this is the execution contract these properties were
+     * always describing, now enforced.
+     */
+    private val workloadIdentity =
+        WorkloadDeploymentIdentity(
+            WorkloadId("workload"),
+            WorkloadConfigurationIdentity(ConfigurationId("config"), ConfigurationVersion("1")),
+            EnvironmentId("env"),
+            DeploymentId("deployment"),
+        )
+
+    private val governedRun = GovernedRunIdentity(workloadIdentity, RunId("run"))
+
+    private val classifiedInput = ClassifiedDocument("input", DataClassification.INTERNAL, ClassificationSource.DECLARED)
+
+    private fun governanceFor(routingPlan: ProviderRoutingPlan) =
+        ProviderGovernanceConfiguration(
+            workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+            rules =
+                mapOf(
+                    DataClassification.INTERNAL to
+                        ClassificationRoutingRule(allowedZones = setOf(ProviderTrustZone.LOCAL), allowedFallbackZones = emptySet()),
+                ),
+            trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+            deploymentOf = { providerId ->
+                if (routingPlan.providers.keys.none { it.value == providerId }) {
+                    null
+                } else {
+                    ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), ProviderTrustZone.LOCAL))
+                }
+            },
+        )
+
     private fun plan(routeCount: Int, providers: Map<String, ModelProvider>): ProviderRoutingPlan {
         val names = (0 until routeCount).map { "p$it" }
         val builder = ProviderRoutingPlan.builder()
@@ -199,6 +258,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         sink: OrderedSink,
         observer: AttemptRecordingObserver,
         denyFallback: Boolean = false,
+        governance: ProviderGovernanceConfiguration = governanceFor(routingPlan),
     ): StreamingExecutionCoordinator {
         val policy = PolicyEngine { PolicyDecision.Allow }
         return StreamingExecutionCoordinator(
@@ -229,6 +289,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                 if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
             },
             StreamingBeforeResponseReturnGate { _, _, _ -> Unit },
+            governance = governance,
         )
     }
 
@@ -390,9 +451,9 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val observer = AttemptRecordingObserver(sink)
         val c = coordinator(plan(realityRouteCount, providers), breaker, sink, observer, denyFallback = script.fallbackDenied)
         val request = if (script.explicitProvider) {
-            StreamingExecutionRequest(explicitOperation(), listOf("input"), TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)).createTracker(), null)
+            StreamingExecutionRequest(explicitOperation(), listOf(classifiedInput), TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)).createTracker(), null, governedRun)
         } else {
-            StreamingExecutionRequest(operation(script.providerRetries), listOf("input"), TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)).createTracker(), null)
+            StreamingExecutionRequest(operation(script.providerRetries), listOf(classifiedInput), TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)).createTracker(), null, governedRun)
         }
         var terminalComplete = false
         var terminalErrorClass: String? = null
