@@ -78,17 +78,23 @@ public final class dev/tramai/security/PolicyConfiguration$Companion {
 public final class dev/tramai/security/ProviderRoutingConfiguration {
 	public static final field Companion Ldev/tramai/security/ProviderRoutingConfiguration$Companion;
 	public fun <init> ()V
-	public fun <init> (Ljava/util/Map;Ljava/util/Map;Z)V
-	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/util/Map;
 	public final fun component2 ()Ljava/util/Map;
 	public final fun component3 ()Z
-	public final fun copy (Ljava/util/Map;Ljava/util/Map;Z)Ldev/tramai/security/ProviderRoutingConfiguration;
-	public static synthetic fun copy$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ljava/util/Map;Ljava/util/Map;ZILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun copy (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedZonePairs ()Ljava/util/Set;
 	public final fun getEnabled ()Z
+	public final fun getProviderDeployments ()Ljava/util/Map;
 	public final fun getProviderZones ()Ljava/util/Map;
 	public final fun getRules ()Ljava/util/Map;
+	public final fun getWorkloadZones ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
