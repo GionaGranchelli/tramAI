@@ -204,3 +204,71 @@ nothing, so authorization refused every candidate — 13 of 18 cases failed with
 configuration (`ProviderInputRelease(configuration.trustZonePolicy, configuration.rules)`). Observed
 failure count went 13 → 2 → 0.
 
+## 9. h2a/h2b landed (verified)
+
+- `DefaultPolicyEngine` exposes the routing configuration it was built with; `SecurityComponents`
+  carries it; `EngineInvocationCoordinator` projects it with `ProviderGovernanceConfiguration.from`.
+  A policy engine carrying no topology yields none, so execution fails closed.
+- `ToolLoopCoordinator` threads `GovernedRunScope.resolve(currentCoroutineContext())`, the identity the
+  approval path already uses, so the workload deployment's zone is looked up rather than handed in.
+- Required capabilities are derived from the facts `ModelRequest` is built from: `VISION` iff
+  `messages.any { it.hasImage() }`, `TOOL_CALLING` iff `operation.toolDefinitions` is non-empty, both
+  resolved **before** authorization. `requiredCapabilities` is deleted from the engine's governed
+  configuration so no second surface can disagree with the request. `STRUCTURED_OUTPUT` is not inferred.
+- Verified: `ProviderExecutionCoordinatorTest` 7 tests / 0 failures; `ProviderGovernedExecutionPathTest`
+  18 tests / 0 failures (the six former RED cases are green through real authority).
+
+## 10. h2c — streaming entry into the same boundary (design pinned, not yet implemented)
+
+`StreamingExecutionCoordinator` (522 lines) is the last production path that can reach a provider
+without `CandidateSelection`. Confirmed bypass, with exact anchors:
+
+| line | current |
+|---|---|
+| 120 | `for ((routeIndex, route) in candidates.withIndex())` — raw configured order |
+| 123 | `nextRoute = candidates.getOrNull(routeIndex + 1)` — the next *configured* route |
+| 127-130 | circuit `Rejected` ⇒ `lastCircuitOpen` + `continue` to that next configured route |
+| 195 | startup-retry event condition also reads `candidates.getOrNull(routeIndex + 1)` |
+| 210-227 | pre-token `Stop` ⇒ `enforceStreamingFallbackAfterFailure(nextRoute = candidates.getOrNull(routeIndex + 1))`, then `break` — the outer loop advances to the next configured route |
+| 346-358 | `handleCircuitBreakerOpenRoute` performs admission **and** the transition with that `nextRoute` |
+| 249 | loop exhaustion ⇒ `noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen)` |
+
+Target shape, reusing the sync projection and semantics — no second streaming authorization model:
+
+```
+configured routes → exact ProviderCandidate mapping → CandidateAuthorization(derived ∪ {STREAMING})
+  → AuthorizedCandidates → CandidateViability → ViableCandidates → CandidateSelection
+  → Selected(candidate) → beforeCall → stream
+```
+
+- **Derivation is shared, not copied:** `VISION` if the effective streaming messages carry images,
+  `TOOL_CALLING` if the streaming request exposes tools, plus `STREAMING` unconditionally. The same
+  helper the sync path uses must serve here so the two paths cannot drift.
+- **Narrow and reselect:** compute `narrowed = remaining.without(candidate)` and the next
+  governance-selected route from `narrowed` *before* admission, so `handleCircuitBreakerOpenRoute`
+  receives a governance-selected `nextRoute` or `null`. On `Rejected` set `remaining = narrowed` and
+  continue; on pre-token `Stop` set `remaining = narrowed` and continue where it currently `break`s.
+  An empty envelope yields `NoSelection` and the existing `noAvailableStreamingRouteChunk` terminal.
+- **`routeIndex` stays the configured position** of the selected route, so route observation and
+  attempt numbering are unchanged.
+- **Untouched:** same-route retry budget (148-149), the shared-permit boundary (141-144), the
+  `STREAMING_STARTUP_RETRY` emission conditions (194-197), and post-token behavior — the
+  `emittedAnyTokens` gate already removes cross-provider fallback authority once output has started.
+- **Wiring:** the coordinator is constructed in `InvocationExecutionCoordinator`, which already holds
+  `providerGovernance`; the governed run comes from `GovernedRunScope.resolve(currentCoroutineContext())`.
+
+Required proofs before closure: streaming fallback cannot escape viable authority; streaming circuit
+rejection cannot advance to a next configured route; a provider without `STREAMING` is never selected
+or invoked; invocation counts asserted, not inferred.
+
+## 11. Unclassified, carried
+
+An engine-wide `:tramai-engine:test` run hung after ~45 minutes having completed 13 classes, with a
+failure cluster in approval/identity classes (`ApprovalResumeEngineTest` 36, `ApprovalSuspensionEngineTest`
+14, `ApprovalEngineEdgeCaseTest` 11, `GovernedRunScopeIdentityTest` 8, `GovernedApprovalAttributionTest` 7,
+`EngineIdentityDiscriminatorTest` 6, `EngineMemoryIntegrationTest` 6, `EngineCancellationContractTest` 3).
+Not attributed: file ownership and apparent unrelatedness are not evidence. Requires a pristine-base
+vs head comparison at the same test identity, plus a root cause for the hang — a hang is itself a
+finding, and a blocking path introduced by this change would be a production defect rather than an
+environmental one.
+
