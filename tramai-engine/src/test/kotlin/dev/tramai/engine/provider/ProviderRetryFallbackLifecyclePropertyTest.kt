@@ -326,6 +326,18 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val dispositions = mutableListOf<DispositionTrace>()
         val attemptTrace = mutableListOf<AttemptStep>()
         val fallbackEdges = mutableListOf<Pair<Int, Int>>()
+        // A transition onto a route whose circuit is open is not a transition that can happen: the
+        // routed target has to be usable for the edge to exist. Without this the projection encodes
+        // the pre-0.7.3h assumption that fallback lands on the next CONFIGURED route, which is the
+        // behavior the authority boundary deliberately removed (no continuation target, no
+        // transition — the gate is not consulted and no edge is recorded).
+        val unusableRoutes =
+            script.actions.filterIsInstance<RetryFallbackScriptAction.Admit>().filter { it.circuitOpen }.map { it.routeIndex }.toSet()
+        // The routing model decides where fallback would go; the staged contract decides whether the
+        // transition can happen at all. A routed transition onto an unusable route with no other
+        // continuation target is never gate-consulted, so neither an edge nor a gate transition
+        // exists for it — the all-circuit-open terminal stands instead.
+        var unreachableTransitions = 0
         for (action in script.actions) {
             when (action) {
                 is RetryFallbackScriptAction.EmitToken -> model = model.emitToken()
@@ -337,8 +349,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                         val result = model.apply(RouteAdmission.CircuitOpen(action.routeIndex), AttemptOutcome.RetryableFailure)
                         dispositions += DispositionTrace(model.routeIndex, model.retryIndex, model.visibility, result.disposition)
                         when {
-                            result.disposition is RouteDisposition.Fallback -> fallbackEdges += model.routeIndex to result.next.routeIndex
-                            result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> fallbackEdges += model.routeIndex to (model.routeIndex + 1)
+                            result.disposition is RouteDisposition.Fallback ->
+                                if (result.next.routeIndex in unusableRoutes) unreachableTransitions++ else fallbackEdges += model.routeIndex to result.next.routeIndex
+                            result.next.terminalOutcome is TerminalOutcome.FallbackDenied ->
+                                if (model.routeIndex + 1 in unusableRoutes) unreachableTransitions++ else fallbackEdges += model.routeIndex to (model.routeIndex + 1)
                         }
                         model = result.next
                         if (model.isTerminal) break
@@ -352,10 +366,12 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                     val result = model.apply(RouteAdmission.Allowed, action.outcome)
                     dispositions += DispositionTrace(model.routeIndex, model.retryIndex, model.visibility, result.disposition)
                     when {
-                        result.disposition is RouteDisposition.Fallback -> fallbackEdges += model.routeIndex to result.next.routeIndex
+                        result.disposition is RouteDisposition.Fallback ->
+                            if (result.next.routeIndex in unusableRoutes) unreachableTransitions++ else fallbackEdges += model.routeIndex to result.next.routeIndex
                         // A DENIED fallback still invoked the gate with the
                         // (route -> route+1) edge before the denial threw (P0-G).
-                        result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> fallbackEdges += model.routeIndex to (model.routeIndex + 1)
+                        result.next.terminalOutcome is TerminalOutcome.FallbackDenied ->
+                            if (model.routeIndex + 1 in unusableRoutes) unreachableTransitions++ else fallbackEdges += model.routeIndex to (model.routeIndex + 1)
                     }
                     model = result.next
                     if (model.isTerminal) break
@@ -365,7 +381,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         return ModelTrace(
             dispositions = dispositions,
             retryTransitions = model.retryTransitions,
-            fallbackTransitions = model.fallbackTransitions,
+            fallbackTransitions = model.fallbackTransitions - unreachableTransitions,
             totalAttempts = attemptTrace.size,
             terminalOutcome = model.terminalOutcome,
             breakerQualifyingFailures = model.breakerQualifyingFailures,
@@ -560,9 +576,22 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         // vs reality (provider, attempt). A swapped provider distribution can
         // keep the same TOTAL; the ordered trace cannot.
         val modelAttempts = model.attemptTrace.map { "p${it.routeIndex}" to it.globalAttempt }
-        assertThat(reality.observedAttempts).withFailMessage("$label P1 ordered attempt trace").containsExactlyElementsOf(modelAttempts)
+        // Diagnostics only: the failure message carries both traces so the staged contract
+        // (configured -> authorized -> viable -> selected/attempted) can be compared with what the
+        // reference model expects, without re-running under a debugger.
+        assertThat(reality.observedAttempts)
+            .withFailMessage("$label P1 ordered attempt trace | model=$modelAttempts reality=${reality.observedAttempts} script=$script")
+            .containsExactlyElementsOf(modelAttempts)
         // P1: ordered fallback edges (P10: routes strictly advance, never revisited).
-        assertThat(reality.fallbackEdges).withFailMessage("$label P1 fallback edges").containsExactlyElementsOf(model.fallbackEdges)
+        // Diagnostics only: edges and attempts together, because an edge discrepancy can be either
+        // a missing/extra transition between legitimately selected candidates, or secondary to a
+        // different candidate visit.
+        assertThat(reality.fallbackEdges)
+            .withFailMessage(
+                "$label P1 fallback edges | modelEdges=${model.fallbackEdges} realityEdges=${reality.fallbackEdges} " +
+                    "modelAttempts=$modelAttempts realityAttempts=${reality.observedAttempts} script=$script",
+            )
+            .containsExactlyElementsOf(model.fallbackEdges)
         // P1: retry/fallback/breaker totals.
         assertThat(reality.retryEvents).withFailMessage("$label P1 retries").isEqualTo(model.retryTransitions)
         assertThat(reality.fallbackEvents).withFailMessage("$label P1 fallbacks").isEqualTo(model.fallbackTransitions)
@@ -725,7 +754,13 @@ class ProviderRetryFallbackLifecyclePropertyTest {
             .withFailMessage("P14 denied circuit-open owns no permit").isEmpty()
         assertThat(circuitOpenDeniedModel.fallbackEdges).containsExactly(0 to 1)
         val circuitOpenDeniedReality = runReality(circuitOpenDeniedScript)
-        assertThat(circuitOpenDeniedReality.fallbackDenied).withFailMessage("P14 reality deny authoritative").isTrue()
+        assertThat(circuitOpenDeniedReality.fallbackDenied)
+            .withFailMessage(
+                "P14 reality deny authoritative | modelTerminal=${circuitOpenDeniedModel.terminalOutcome} " +
+                    "realityFallbackEvents=${circuitOpenDeniedReality.fallbackEvents} " +
+                    "realityAttempts=${circuitOpenDeniedReality.observedAttempts} " +
+                    "realityDispositions=${circuitOpenDeniedReality.breakerDispositions}",
+            ).isTrue()
         assertThat(circuitOpenDeniedReality.fallbackEvents)
             .withFailMessage("P14 reality gate invoked once on denied circuit-open").isEqualTo(1)
         assertThat(circuitOpenDeniedReality.observedAttempts)

@@ -155,6 +155,25 @@ internal class ProviderExecutionCoordinator(
             }
         var remaining = viability.viableCandidates(authorized)
 
+        // A candidate excluded at the viability snapshot is still one execution advances past:
+        // availability answers "can this execute now?", never "may execution continue?". So every such
+        // transition passes through the existing fallback policy before any other candidate may
+        // execute — the same continuation question asked for a rejection at beforeCall below. A
+        // gate approval permits continuation only: it cannot restore the excluded candidate, widen
+        // the envelope, or reach a route this envelope does not carry.
+        // Only an exclusion execution actually advances PAST gates a continuation: an excluded
+        // candidate positioned after the candidate about to run does not gate it, so no transition
+        // exists and the gate is not consulted on its behalf.
+        val continuationCandidate = remaining.orderedBy(configuredOrder).firstOrNull()
+        if (continuationCandidate != null) {
+            val continuationPosition = configuredOrder.indexOf(continuationCandidate)
+            for (excluded in excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker).filter { configuredOrder.indexOf(it) < continuationPosition }) {
+                val error = CircuitBreakerOpenException(excluded.providerId, circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L)
+                lastCircuitOpen = error
+                transition(error, routeOf.getValue(excluded), routeOf.getValue(continuationCandidate), ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
+            }
+        }
+
         while (true) {
             // Configured order is a preference over the viable envelope — never a source of membership.
             val strategy = CandidateSelectionStrategy { preference.preferred(remaining, configuredOrder) }

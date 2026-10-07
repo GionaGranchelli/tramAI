@@ -9,6 +9,7 @@ import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.ProviderCircuitBreaker
+import dev.tramai.security.governance.AuthorizedCandidates
 import dev.tramai.security.governance.CandidateAuthorization
 import dev.tramai.security.governance.CandidateSelection
 import dev.tramai.security.governance.CandidateSelectionStrategy
@@ -29,6 +30,11 @@ import dev.tramai.security.governance.WorkloadGovernanceResolver
  * the streaming path may reach a provider except through a candidate obtained here.
  */
 internal class GovernedProviderEnvelope(
+    /**
+     * Authorization's admitted set, read-only. Availability is observed separately, so a candidate
+     * here that is absent from [viable] was excluded for a runtime reason rather than a refusal.
+     */
+    val authorized: Set<ProviderCandidate>,
     /** The envelope authority: retry and fallback narrow it with [narrowedAfter] and reselect from it. */
     val viable: ViableCandidates,
     /** True when authorization admitted nothing: a governance refusal, not an exhausted attempt. */
@@ -61,6 +67,28 @@ internal class GovernedProviderEnvelope(
     val preferConfiguredOrder: CandidateSelectionStrategy =
         CandidateSelectionStrategy { eligible -> configuredOrder.firstOrNull { it in eligible } }
 }
+
+/**
+ * Authorized candidates excluded from the viable envelope because their circuit is already open, in
+ * configured order.
+ *
+ * These are candidates execution advances past for an availability reason, so each transition past
+ * one has to pass through the continuation policy before another candidate may execute. A candidate
+ * authorization refused is deliberately not one of these: a refusal is not an availability
+ * condition, and the continuation question is never asked on its behalf.
+ *
+ * Observed read-only: `beforeCall` both grants and consumes a permit, so using it here would change
+ * the state it is reading and could revive an expired circuit.
+ */
+internal fun excludedByAvailability(
+    authorized: Set<ProviderCandidate>,
+    viable: ViableCandidates,
+    configuredOrder: List<ProviderCandidate>,
+    circuitBreaker: ProviderCircuitBreaker,
+): List<ProviderCandidate> =
+    configuredOrder.filter { candidate ->
+        candidate in authorized && !viable.contains(candidate) && circuitBreaker.openUntilMillis(candidate.providerId) != null
+    }
 
 /**
  * Derives the authority envelope for one execution request from the configured topology and observed
@@ -122,7 +150,7 @@ internal fun governProviderExecution(
         if (circuitBreaker.openUntilMillis(candidate.providerId) != null) ViabilityRefusal.AVAILABILITY else null
     }
     val viable = viability.viableCandidates(authorized)
-    return GovernedProviderEnvelope(viable, authorizedSet.isEmpty(), routesByCandidate, indexByRoute, configuredOrder)
+    return GovernedProviderEnvelope(authorizedSet, viable, authorizedSet.isEmpty(), routesByCandidate, indexByRoute, configuredOrder)
 }
 
 /** Maps each resolved route to its exact candidate through the route's authoritative deployment. */

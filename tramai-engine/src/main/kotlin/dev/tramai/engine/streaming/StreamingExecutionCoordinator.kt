@@ -4,6 +4,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.engine.provider.GovernedProviderEnvelope
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.provider.deriveRequiredCapabilities
+import dev.tramai.engine.provider.excludedByAvailability
 import dev.tramai.engine.provider.governProviderExecution
 import dev.tramai.security.governance.CandidateSelectionDecision
 import dev.tramai.core.exception.CircuitBreakerOpenException
@@ -139,6 +140,34 @@ internal class StreamingExecutionCoordinator(
                             )
                     var remaining = envelope.viable
 
+                    // Pre-open exclusions are still transitions execution advances past, so the
+                    // continuation policy is consulted for each one before another candidate may
+                    // execute — the same question the rejection below asks, for the same reason.
+                    // Approval permits continuation only: it cannot restore the excluded candidate,
+                    // widen the envelope, or reach a route the envelope does not carry. With no
+                    // continuation target there is no transition to authorize.
+                    // Only an exclusion execution actually advances PAST gates a continuation: an
+                    // excluded candidate positioned after the candidate about to run does not gate
+                    // it, so no transition exists and the gate is not consulted on its behalf.
+                    val continuationCandidate = remaining.orderedBy(envelope.configuredOrder).firstOrNull()
+                    if (continuationCandidate != null) {
+                        val continuationPosition = envelope.configuredOrder.indexOf(continuationCandidate)
+                        val gates =
+                            excludedByAvailability(envelope.authorized, remaining, envelope.configuredOrder, circuitBreaker)
+                                .filter { envelope.configuredOrder.indexOf(it) < continuationPosition }
+                        for (excluded in gates) {
+                            val excludedRoute = envelope.routeOf(excluded)
+                            val circuitOpen = CircuitBreakerOpenException(excluded.providerId, circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L)
+                            lastCircuitOpen = circuitOpen
+                            try {
+                                fallbackGate.transition(correlationId, excludedRoute.providerName, excludedRoute.effectiveModelName, envelope.routeOf(continuationCandidate).providerName, "circuit-breaker-open", securityContext)
+                            } catch (policyError: PolicyViolationException) {
+                                policyError.addSuppressed(circuitOpen)
+                                throw policyError
+                            }
+                        }
+                    }
+
                     while (true) {
                         val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
                         val chosen =
@@ -151,7 +180,10 @@ internal class StreamingExecutionCoordinator(
                         val routeIndex = envelope.routeIndexOf(route)
                         // Narrow first, then ask governance for the next route: the fallback gate must
                         // never be told about a route governance has not selected.
-                        val narrowed = envelope.narrowedAfter(chosen)
+                        // Narrow the CURRENT remainder, never the original viable set: subtracting
+                        // from the envelope's snapshot would restore a candidate removed by an
+                        // earlier iteration and allow a route to be revisited.
+                        val narrowed = remaining.without(chosen)
                         val nextRoute = envelope.nextSelected(narrowed)
                         val admission = handleCircuitBreakerOpenRoute(
                             route = route,
