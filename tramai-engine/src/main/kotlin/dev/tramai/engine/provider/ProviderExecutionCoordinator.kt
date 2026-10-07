@@ -74,15 +74,19 @@ internal class ProviderExecutionCoordinator(
     private val selection = CandidateSelection()
 
     suspend fun execute(request: ProviderExecutionRequest): ProviderCallResult {
-        var lastFailure: Throwable? = null
-        var lastCircuitOpen: CircuitBreakerOpenException? = null
         beforeResolution.beforeResolution(request.operation, request.correlationId, request.securityContext)
 
         val resolvedRoutes = routingPlan.resolveCandidates(request.operation.operation)
 
-        // Configuration resolution reports its own errors unchanged and first: a missing or unknown
-        // route is a configuration fault, not a governance refusal.
-        val configuration = governance ?: throw governanceAbsent()
+        // Structural branch on authoritative configuration state. `governance` is derived from the
+        // engine's configured routing topology, so its absence means no governed routing topology
+        // exists for this execution — not that a caller omitted a request field. Such an execution
+        // keeps the pre-0.7.3h path. There is deliberately no recovery from a governed refusal into
+        // that path: once a governed topology exists, every missing input fails closed below.
+        val configuration = governance ?: return executeLegacy(request, resolvedRoutes)
+
+        var lastFailure: Throwable? = null
+        var lastCircuitOpen: CircuitBreakerOpenException? = null
         val run = request.governedRun ?: throw governanceAbsent()
         // The workload's zone is looked up by its exact deployment identity: it is never inferred
         // from an environment convention, and an unconfigured deployment has no zone at all.
@@ -257,6 +261,45 @@ internal class ProviderExecutionCoordinator(
         val classification = context.dataClassification ?: return emptyList()
         val source = context.classificationSource ?: return emptyList()
         return listOf(WorkloadClassificationSignal(classification, source))
+    }
+
+    /**
+     * The pre-0.7.3h execution path, preserved unchanged for engines with no governed routing
+     * topology configured. Route walking, retry policy and circuit-breaker accounting behave exactly
+     * as before; this path is unreachable once a governed topology exists, because the branch above
+     * returns here only when no governed configuration is present.
+     */
+    private suspend fun executeLegacy(request: ProviderExecutionRequest, candidates: List<ResolvedProviderRoute>): ProviderCallResult {
+        var lastFailure: Throwable? = null
+        var lastCircuitOpen: CircuitBreakerOpenException? = null
+        for ((index, route) in candidates.withIndex()) {
+            val next = candidates.getOrNull(index + 1)
+            val admission = circuitBreaker.beforeCall(route.providerName)
+            if (admission is CircuitBreakerAdmission.Rejected) {
+                val error = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
+                transition(error, route, next, ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
+                lastCircuitOpen = error
+                continue
+            }
+            val permit = (admission as CircuitBreakerAdmission.Allowed).permit
+            try {
+                request.beforeRoute.beforeRoute()
+                return attemptExecutor.execute(routeRequest(route, index, request, permit))
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                when (val decision = fallbackPolicy.decide(error)) {
+                    ProviderFallbackDecision.Stop -> throw error
+                    is ProviderFallbackDecision.Continue -> {
+                        transition(error, route, next, decision.reason, request)
+                        lastFailure = error
+                    }
+                }
+            } finally {
+                // Structural permit relinquishment: scope exit always discharges the admission.
+                circuitBreaker.onAbandoned(permit)
+            }
+        }
+        throw lastFailure ?: lastCircuitOpen ?: ProviderException("No available provider route for model '${request.operation.operation.model}'", retryable = true)
     }
 
     private fun governanceAbsent() =
