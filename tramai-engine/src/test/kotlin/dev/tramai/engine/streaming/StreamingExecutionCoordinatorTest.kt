@@ -11,8 +11,28 @@ import dev.tramai.core.observation.event.RuntimeAttributes
 import dev.tramai.core.observation.event.RuntimeEvents
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
+import dev.tramai.core.identity.ConfigurationId
+import dev.tramai.core.identity.ConfigurationVersion
+import dev.tramai.core.identity.DeploymentId
+import dev.tramai.core.identity.EnvironmentId
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
+import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
+import dev.tramai.security.ClassificationRoutingRule
+import dev.tramai.security.ProviderTrustZone
+import dev.tramai.security.governance.NamedTrustZone
+import dev.tramai.security.governance.ProviderDeployment
+import dev.tramai.security.governance.TrustZoneName
+import dev.tramai.security.governance.TrustZonePolicy
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.ModelRequest
@@ -72,34 +92,74 @@ class StreamingExecutionCoordinatorTest {
     @AiService
     private interface StreamingService {
         @Operation(prompt = "Answer", model = "logical-model")
-        fun stream(input: String): Flow<StreamChunk>
+        fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
     }
 
     @AiService
     private interface StreamingServiceWithRetries {
         @Operation(prompt = "Answer", model = "logical-model", providerRetries = 1)
-        fun stream(input: String): Flow<StreamChunk>
+        fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
     }
 
     @AiService
     private interface ExplicitProviderStreamingService {
         @Operation(prompt = "Answer", model = "logical-model", provider = "primary", providerRetries = 1)
-        fun stream(input: String): Flow<StreamChunk>
+        fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
     }
 
     @AiService
     private interface StreamingServiceZeroRetries {
         @Operation(prompt = "Answer", model = "logical-model", providerRetries = 0)
-        fun stream(input: String): Flow<StreamChunk>
+        fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
     }
 
     @AiService
     private interface StreamingServiceThreeRetries {
         @Operation(prompt = "Answer", model = "logical-model", providerRetries = 3)
-        fun stream(input: String): Flow<StreamChunk>
+        fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
     }
 
     private val defaultBudget = TokenBudgetSettings(hardMaxTokensPerOperation = 20)
+
+    /**
+     * A classified input: the governed streaming path derives the workload classification from the
+     * request arguments, so a service whose parameters carry no classification cannot reach a
+     * provider. This is the shape the real proxy boundary passes.
+     */
+    private val classifiedInput = ClassifiedDocument("input", DataClassification.INTERNAL, ClassificationSource.DECLARED)
+
+    private val workloadIdentity =
+        WorkloadDeploymentIdentity(
+            WorkloadId("workload"),
+            WorkloadConfigurationIdentity(ConfigurationId("config"), ConfigurationVersion("1")),
+            EnvironmentId("env"),
+            DeploymentId("deployment"),
+        )
+
+    private val governedRun = GovernedRunIdentity(workloadIdentity, RunId("run"))
+
+    /**
+     * The topology these tests declare: a LOCAL workload deployment, and a LOCAL deployment for each
+     * provider the plan registers. A provider the plan does not register has no deployment and
+     * therefore no authority, whatever else the configuration says.
+     */
+    private fun governanceFor(plan: ProviderRoutingPlan) =
+        ProviderGovernanceConfiguration(
+            workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+            rules =
+                mapOf(
+                    DataClassification.INTERNAL to
+                        ClassificationRoutingRule(allowedZones = setOf(ProviderTrustZone.LOCAL), allowedFallbackZones = emptySet()),
+                ),
+            trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
+            deploymentOf = { providerId ->
+                if (plan.providers.keys.none { it.value == providerId }) {
+                    null
+                } else {
+                    ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), ProviderTrustZone.LOCAL))
+                }
+            },
+        )
 
     private fun operation() = ServiceDefinitionCompiler(
         OperationDefinitionCompiler(ToolRegistry(), null, OperationFingerprintFactory()),
@@ -199,6 +259,11 @@ class StreamingExecutionCoordinatorTest {
         private val name: String,
         private val responder: RecordingProvider.(ModelRequest) -> Flow<StreamChunk>,
     ) : ModelProvider, StreamCapable {
+        /**
+         * Declared capabilities. STREAMING by default, because the governed streaming path requires it
+         * of the provider it selects; a test can narrow this to prove an incapable provider is refused.
+         */
+        var capabilities: Set<ProviderCapability> = setOf(ProviderCapability.STREAMING)
         val streamRequests = mutableListOf<ModelRequest>()
         override suspend fun complete(request: ModelRequest): ModelResponse = error("complete is not used")
         override fun stream(request: ModelRequest): Flow<StreamChunk> {
@@ -206,8 +271,12 @@ class StreamingExecutionCoordinatorTest {
             sink?.record("provider.stream:$name")
             return responder(request)
         }
+
         var sink: OrderedSink? = null
+
         override fun providerId(): String = name
+
+        override fun supportsCapability(capability: ProviderCapability): Boolean = capability in capabilities
     }
 
     private class NonStreamingProvider(private val name: String) : ModelProvider {
@@ -227,19 +296,19 @@ class StreamingExecutionCoordinatorTest {
     }
 
     private fun request(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
-        StreamingExecutionRequest(operation(), listOf("input"), budget.createTracker(), conversationId)
+        StreamingExecutionRequest(operation(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
 
     private fun requestWithRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
-        StreamingExecutionRequest(operationWithRetries(), listOf("input"), budget.createTracker(), conversationId)
+        StreamingExecutionRequest(operationWithRetries(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
 
     private fun requestWithExplicitProvider(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
-        StreamingExecutionRequest(operationWithExplicitProvider(), listOf("input"), budget.createTracker(), conversationId)
+        StreamingExecutionRequest(operationWithExplicitProvider(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
 
     private fun requestWithZeroRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
-        StreamingExecutionRequest(operationWithZeroRetries(), listOf("input"), budget.createTracker(), conversationId)
+        StreamingExecutionRequest(operationWithZeroRetries(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
 
     private fun requestWithThreeRetries(conversationId: String? = null, budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget)) =
-        StreamingExecutionRequest(operationWithThreeRetries(), listOf("input"), budget.createTracker(), conversationId)
+        StreamingExecutionRequest(operationWithThreeRetries(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
 
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
@@ -254,6 +323,7 @@ class StreamingExecutionCoordinatorTest {
         closed: AtomicBoolean = AtomicBoolean(false),
         qualifiedServiceName: String? = "test.StreamingService",
         retryPolicy: ProviderRetryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+        governance: ProviderGovernanceConfiguration = governanceFor(routingPlan),
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
@@ -277,6 +347,7 @@ class StreamingExecutionCoordinatorTest {
             beforeInvocation = ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
             fallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> recordingSink.record("policy.fallback"); if (denyFallback) throw denied() },
             beforeResponseReturn = StreamingBeforeResponseReturnGate { _, _, _ -> recordingSink.record("policy.before-response-return"); if (denyBeforeResponseReturn) throw denied() },
+            governance = governance,
         )
     }
 
@@ -797,9 +868,37 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
-    @Test fun `first route that cannot stream fails with capability exception`() {
-        val provider = NonStreamingProvider("p"); val c = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()))
-        assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(ProviderCapabilityException::class.java)
+    @Test fun `provider without declared streaming capability is not authorized and never invoked`() {
+        runBlocking {
+            val incapable = RecordingProvider("p") { flow { emit(StreamChunk.Complete("bad")) } }
+            incapable.capabilities = emptySet()
+            val c = coordinator(plan("p" to incapable), RecordingOperationObserver(OrderedSink()))
+            val chunks = c.execute(request()).toList()
+            assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+            assertThat(incapable.streamRequests).isEmpty()
+        }
+    }
+
+    @Test fun `non streaming provider is refused at authorization not at invocation`() {
+        runBlocking {
+            val provider = NonStreamingProvider("p")
+            val c = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()))
+            val chunks = c.execute(request()).toList()
+            assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+        }
+    }
+
+    @Test fun `incapable first route does not block a capable second route`() {
+        runBlocking {
+            val incapable = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }
+            incapable.capabilities = emptySet()
+            val capable = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+            val c = coordinator(plan("primary" to incapable, "fallback" to capable), RecordingOperationObserver(OrderedSink()))
+            val chunks = c.execute(requestWithRetries()).toList()
+            assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+            assertThat(incapable.streamRequests).isEmpty()
+            assertThat(capable.streamRequests).hasSize(1)
+        }
     }
 
     @Test fun `fallback gate denial prevents second provider invocation`() {

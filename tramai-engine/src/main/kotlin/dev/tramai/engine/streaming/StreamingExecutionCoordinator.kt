@@ -1,12 +1,11 @@
 package dev.tramai.engine.streaming
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
-import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.engine.provider.GovernedProviderEnvelope
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.provider.deriveRequiredCapabilities
 import dev.tramai.engine.provider.governProviderExecution
 import dev.tramai.security.governance.CandidateSelectionDecision
-import kotlinx.coroutines.currentCoroutineContext
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.PolicyViolationException
@@ -129,15 +128,15 @@ internal class StreamingExecutionCoordinator(
                     // provider only through a candidate selected from that envelope, exactly as the
                     // synchronous path does, and a streaming request inherently requires STREAMING.
                     val envelope =
-                        governProviderExecution(
-                            candidates,
-                            routingPlan,
-                            governance,
-                            GovernedRunScope.resolve(currentCoroutineContext()),
-                            securityContext,
-                            circuitBreaker,
-                            deriveRequiredCapabilities(operation, effectiveMessages, streaming = true),
-                        )
+                            governProviderExecution(
+                                candidates,
+                                routingPlan,
+                                governance,
+                                request.governedRun,
+                                securityContext,
+                                circuitBreaker,
+                                deriveRequiredCapabilities(operation, effectiveMessages, streaming = true),
+                            )
                     var remaining = envelope.viable
 
                     while (true) {
@@ -290,7 +289,7 @@ internal class StreamingExecutionCoordinator(
                         }
                     }
 
-                    chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+                    chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen ?: circuitOpenExhaustion(envelope)))
                 } catch (e: CancellationException) {
                     // The engine closed (or the collector stopped): terminate
                     // the collection job normally; the invokeOnCompletion
@@ -405,6 +404,26 @@ internal class StreamingExecutionCoordinator(
             policyError.addSuppressed(error)
             throw policyError
         }
+    }
+
+    /**
+     * Read-only classification of an exhausted universe. Viability removes circuit-open candidates
+     * before selection, so when every candidate is circuit-open nothing is ever rejected inside the
+     * loop and no circuit fact is observed there. This reports what viability already observed,
+     * consuming no permit and admitting nothing.
+     *
+     * A governance refusal is not an exhausted attempt: when authorization admitted nothing, the
+     * terminal stays the refusal it is rather than being relabelled as circuit state.
+     */
+    private fun circuitOpenExhaustion(envelope: GovernedProviderEnvelope): CircuitBreakerOpenException? {
+        if (envelope.authorizedNothing) return null
+        return envelope.configuredOrder
+            .mapNotNull { candidate ->
+                circuitBreaker.openUntilMillis(candidate.providerId)?.let { until ->
+                    CircuitBreakerOpenException(candidate.providerId, until)
+                }
+            }
+            .firstOrNull()
     }
 
     private fun noAvailableStreamingRouteChunk(operation: OperationDefinition, lastFailure: Throwable?, lastCircuitOpen: CircuitBreakerOpenException?): StreamChunk.Error = StreamChunk.Error((lastFailure ?: lastCircuitOpen ?: ProviderException(message = "No available streaming provider route for model '${operation.operation.model}'", retryable = true)) as TramaiException)

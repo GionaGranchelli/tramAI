@@ -3,6 +3,7 @@ package dev.tramai.engine.streaming
 import dev.tramai.core.exception.TramaiException
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.budget.TokenBudgetTracker
 
@@ -11,6 +12,8 @@ internal data class StreamingExecutionRequest(
     val arguments: List<Any?>,
     val tokenBudgetTracker: TokenBudgetTracker,
     val conversationId: String?,
+    /** The governed run this execution belongs to; absent means the path refuses rather than invoking. */
+    val governedRun: GovernedRunIdentity? = null,
 )
 
 internal sealed class StreamingRouteResult {

@@ -22,14 +22,14 @@ import dev.tramai.core.policy.*
  */
 class DefaultPolicyEngine(
     private val config: PolicyConfiguration,
-) : PolicyEngine {
+) : PolicyEngine, ProviderRoutingConfigurationSource {
 
     /**
-     * The configured routing topology, exposed so the execution path can authorize from the
-     * configured facts instead of re-deriving them. Reading it grants no authority: an entry the
-     * configuration does not carry withholds rather than defaults.
+     * The configured routing topology, exposed through [ProviderRoutingConfigurationSource] so the
+     * execution path can authorize from the configured facts instead of re-deriving them. Reading it
+     * grants no authority: an entry the configuration does not carry withholds rather than defaults.
      */
-    val routingConfiguration: ProviderRoutingConfiguration get() = config.providerRouting
+    override val providerRoutingConfiguration: ProviderRoutingConfiguration get() = config.providerRouting
 
     override suspend fun evaluate(context: PolicyContext): PolicyDecision = when (context.enforcementPoint) {
         EnforcementPoint.BEFORE_PROVIDER_RESOLUTION -> evaluateProviderResolution(context)

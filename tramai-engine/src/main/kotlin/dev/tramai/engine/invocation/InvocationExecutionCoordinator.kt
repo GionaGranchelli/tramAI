@@ -493,6 +493,7 @@ internal class InvocationExecutionCoordinator(
                         arguments = arguments,
                         tokenBudgetTracker = tokenBudgetTracker,
                         conversationId = conversationId,
+                        governedRun = GovernedRunScope.resolve(currentCoroutineContext()),
                     ),
                 )
             }
