@@ -10,7 +10,9 @@ import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
 import dev.tramai.core.identity.WorkloadId
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
@@ -356,16 +358,14 @@ class ProviderGovernedExecutionPathTest {
     // ---- 17. capability cannot be bypassed ------------------------------------------------------
 
     @Test
-    fun `a provider missing a required capability never executes`() {
+    fun `a provider missing a capability the request requires is refused at authorization`() {
         runBlocking {
-            val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha")))
-            val coordinator =
-                coordinator(
-                    plan,
-                    governance = governance(capabilities = setOf(ProviderCapability.TOOL_CALLING)),
-                )
+            // The request carries an image, so VISION is required by the actual request facts. The
+            // provider cannot serve it, so it is refused before selection and never invoked.
+            val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha", vision = false)))
+            val coordinator = coordinator(plan)
 
-            catchThrowable { runBlocking { coordinator.execute(request()) } }
+            catchThrowable { runBlocking { coordinator.execute(request(withImage = true)) } }
 
             assertThat(invoked).isEmpty()
         }
@@ -389,6 +389,9 @@ class ProviderGovernedExecutionPathTest {
 
     private val selectedButForbidden = forbiddenCandidate()
 
+    /** A message carrying image content: the actual fact that makes VISION required. */
+    private val imageMessage = Message(MessageRole.USER, "", contentParts = listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))))
+
     private fun forbiddenCandidate() =
         dev.tramai.security.governance.ProviderCandidate(
             providerId = "global",
@@ -396,7 +399,7 @@ class ProviderGovernedExecutionPathTest {
             deployment = deployment("global", ProviderTrustZone.GLOBAL_CLOUD),
         )
 
-    private fun provider(name: String, block: suspend () -> ModelResponse = { ModelResponse(name) }) =
+    private fun provider(name: String, vision: Boolean = true, block: suspend () -> ModelResponse = { ModelResponse(name) }) =
         object : ModelProvider {
             override suspend fun complete(request: ModelRequest): ModelResponse {
                 invoked += name
@@ -404,6 +407,8 @@ class ProviderGovernedExecutionPathTest {
             }
 
             override fun providerId() = name
+
+            override fun supportsCapability(capability: ProviderCapability) = capability != ProviderCapability.VISION || vision
         }
 
     private fun deployment(providerId: String, zone: ProviderTrustZone) =
@@ -420,7 +425,6 @@ class ProviderGovernedExecutionPathTest {
     private fun governance(
         deployments: Map<String, ProviderTrustZone> = mapOf("alpha" to ProviderTrustZone.LOCAL, "beta" to ProviderTrustZone.LOCAL, "brand-local" to ProviderTrustZone.LOCAL, "brand-global" to ProviderTrustZone.GLOBAL_CLOUD),
         pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
-        capabilities: Set<ProviderCapability> = emptySet(),
     ) = ProviderGovernanceConfiguration(
         rules =
             mapOf(
@@ -433,7 +437,6 @@ class ProviderGovernedExecutionPathTest {
         trustZonePolicy = TrustZonePolicy(pairs),
         workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
         deploymentOf = { providerId -> deployments[providerId]?.let { deployment(providerId, it) } },
-        requiredCapabilities = capabilities,
     )
 
     private val workloadIdentity =
@@ -446,10 +449,11 @@ class ProviderGovernedExecutionPathTest {
 
     private fun request(
         retries: Int = 0,
+        withImage: Boolean = false,
         run: GovernedRunIdentity? = GovernedRunIdentity(workloadIdentity, RunId("run")),
     ) = ProviderExecutionRequest(
         componentOperation(retries),
-        emptyList<Message>(),
+        if (withImage) listOf(imageMessage) else emptyList(),
         AttemptCounter(),
         "cid",
         ExecutionSecurityContext(

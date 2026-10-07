@@ -7,6 +7,7 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.resolveCandidates
@@ -119,6 +120,12 @@ internal class ProviderExecutionCoordinator(
         val configuredOrder = mappings.map { it.second }
         val routeOf = mappings.associate { (route, candidate) -> candidate to route }
 
+        // Required capabilities come from the actual request the provider will receive, so capability
+        // refusal happens in authorization rather than after selection. Nothing is inferred from a
+        // return type: a structured service still prompts, parses and repairs without a native
+        // structured-output capability, so STRUCTURED_OUTPUT is not required here.
+        val requiredCapabilities = requestedCapabilities(request)
+
         // The engine reads authorization through the public set view: an authorization envelope
         // cannot be inspected or fabricated from outside the security module, which is the point.
         val authorizedSet =
@@ -126,14 +133,14 @@ internal class ProviderExecutionCoordinator(
                 configuredOrder,
                 governanceFacts.trustZone,
                 governanceFacts.classification,
-                configuration.requiredCapabilities,
+                requiredCapabilities,
             )
         val authorized =
             authorization.authorizedCandidates(
                 configuredOrder,
                 governanceFacts.trustZone,
                 governanceFacts.classification,
-                configuration.requiredCapabilities,
+                requiredCapabilities,
             )
 
         // Availability is observed, never consumed: beforeCall grants a permit and can revive a
@@ -197,11 +204,22 @@ internal class ProviderExecutionCoordinator(
     }
 
     /**
-     * One candidate per resolved route, keyed by the route so the mapping back is exact.
-     *
-     * A route whose provider has no authoritative deployment yields no candidate: it can never be
-     * authorized, viable, selected or invoked. Two routes collapsing onto one candidate is
-     * ambiguous, and ambiguity fails closed rather than being guessed by provider or model name.
+     * The capabilities the actual provider request requires: images need VISION, and exposing tool
+     * definitions needs TOOL_CALLING. These are the same facts [ModelRequest] is built from, so the
+     * authorization stage refuses an incapable provider before anything is selected or invoked.
+     */
+    private fun requestedCapabilities(request: ProviderExecutionRequest): Set<ProviderCapability> {
+        val required = LinkedHashSet<ProviderCapability>(2)
+        if (request.messages.any { it.hasImage() }) required += ProviderCapability.VISION
+        if (request.operation.toolDefinitions.isNotEmpty()) required += ProviderCapability.TOOL_CALLING
+        return required
+    }
+
+    /**
+     * Maps each resolved route to its exact candidate through the route's authoritative deployment.
+     * A route with no configured deployment yields no candidate, so it can never be authorized,
+     * viable, selected or invoked. Two routes collapsing onto one candidate is ambiguous, and
+     * ambiguity fails closed rather than being guessed by provider or model name.
      */
     private fun mapRoutesToCandidates(
         resolvedRoutes: List<ResolvedProviderRoute>,
