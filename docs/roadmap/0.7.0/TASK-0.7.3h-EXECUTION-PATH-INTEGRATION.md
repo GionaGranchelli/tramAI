@@ -181,3 +181,26 @@ removed, because the bypass is at least visible.
 Option 1 is the one that satisfies §22. It requires a decision on where those two configuration facts
 live, because that is a public-surface choice rather than an implementation detail.
 
+## 8. What is proven today (fixtures supply the facts, production wiring pending)
+
+`ProviderGovernedExecutionPathTest` — **18 tests, 0 failures** — drives the real
+`ProviderExecutionCoordinator` end to end and asserts on provider invocation counts:
+
+happy path invoked exactly once · unauthorized primary invoked zero times · authorized-but-unavailable
+primary invoked zero times · nothing authorized fails closed with no invocation · nothing viable fails
+closed with no invocation · fallback narrows and reselects · a configured next route outside the
+envelope is never invoked · a preference for a forbidden candidate injects nothing · an unavailable
+candidate is skipped and the next comes from selection · a selected candidate that loses admission
+narrows and reselects · same-route retry selects nothing else · retry exhaustion narrows then falls
+back · an escape attempt invokes nothing and reports `STRATEGY_OUTSIDE_VIABLE_SET` · a throwing
+preference aborts with no fallback and no invocation · two deployments of one brand do not collapse ·
+a route with no authoritative deployment never executes · a provider missing a required capability
+never executes · execution with no governance inputs invokes nothing.
+
+One production defect was found by this suite and fixed: the coordinator originally built
+`CandidateAuthorization` with the default `ProviderInputRelease()`, whose empty rule map releases
+nothing, so authorization refused every candidate — 13 of 18 cases failed with
+`No provider candidate is authorized`. The release predicate is now built from the governed
+configuration (`ProviderInputRelease(configuration.trustZonePolicy, configuration.rules)`). Observed
+failure count went 13 → 2 → 0.
+

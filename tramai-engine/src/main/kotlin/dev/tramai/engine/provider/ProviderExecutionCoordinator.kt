@@ -20,6 +20,7 @@ import dev.tramai.security.governance.CandidateSelectionDecision
 import dev.tramai.security.governance.CandidateSelectionStrategy
 import dev.tramai.security.governance.CandidateViability
 import dev.tramai.security.governance.ProviderCandidate
+import dev.tramai.security.governance.ProviderInputRelease
 import dev.tramai.security.governance.SelectionRefusal
 import dev.tramai.security.governance.ViabilityRefusal
 import dev.tramai.security.governance.ViableCandidates
@@ -30,6 +31,23 @@ import dev.tramai.security.governance.WorkloadGovernanceResolver
 internal fun interface ProviderRouteGate { suspend fun beforeRoute() }
 internal fun interface ProviderResolutionGate { suspend fun beforeResolution(operation: OperationDefinition, correlationId: String, securityContext: ExecutionSecurityContext) }
 internal fun interface ProviderFallbackGate { suspend fun transition(correlationId: String, previousProviderId: String?, previousModelName: String?, nextProviderId: String, reason: String, securityContext: ExecutionSecurityContext) }
+
+/**
+ * How the viable envelope is turned into one preferred candidate.
+ *
+ * This is a preference, never a source of authority: [dev.tramai.security.governance.CandidateSelection]
+ * refuses any answer outside the viable set, so a preference can only ever choose among candidates
+ * that authorization permitted and viability found usable.
+ */
+internal fun interface ProviderSelectionPreference {
+    fun preferred(viable: ViableCandidates, configuredOrder: List<ProviderCandidate>): ProviderCandidate?
+
+    companion object {
+        /** The configured route order, filtered through the viable envelope. */
+        val CONFIGURED_ORDER: ProviderSelectionPreference =
+            ProviderSelectionPreference { viable, configuredOrder -> viable.orderedBy(configuredOrder).firstOrNull() }
+    }
+}
 internal data class ProviderExecutionRequest(val operation: OperationDefinition, val messages: List<Message>, val attemptCounter: AttemptCounter, val correlationId: String, val securityContext: ExecutionSecurityContext, val beforeRoute: ProviderRouteGate, val governance: ProviderRunGovernance? = null)
 
 /**
@@ -49,8 +67,8 @@ internal class ProviderExecutionCoordinator(
     private val beforeResolution: ProviderResolutionGate,
     private val fallbackGate: ProviderFallbackGate,
     private val governance: ProviderGovernanceConfiguration? = null,
+    private val preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
 ) {
-    private val authorization = CandidateAuthorization(registration = routingPlan)
     private val selection = CandidateSelection()
 
     suspend fun execute(request: ProviderExecutionRequest): ProviderCallResult {
@@ -64,6 +82,15 @@ internal class ProviderExecutionCoordinator(
         // route is a configuration fault, not a governance refusal.
         val configuration = governance ?: throw governanceAbsent()
         val run = request.governance ?: throw governanceAbsent()
+
+        // The release predicate is built from the governed configuration: a default release instance
+        // carries an empty rule map and would release nothing, so authorization would refuse every
+        // candidate for a reason the configuration never expressed.
+        val authorization =
+            CandidateAuthorization(
+                ProviderInputRelease(configuration.trustZonePolicy, configuration.rules),
+                routingPlan,
+            )
 
         // Classification and the workload's own trust zone are resolved, not assumed: a missing
         // claim or an unestablished deployment zone refuses rather than defaulting to a wider zone.
@@ -114,7 +141,7 @@ internal class ProviderExecutionCoordinator(
 
         while (true) {
             // Configured order is a preference over the viable envelope — never a source of membership.
-            val strategy = CandidateSelectionStrategy { remaining.orderedBy(configuredOrder).firstOrNull() }
+            val strategy = CandidateSelectionStrategy { preference.preferred(remaining, configuredOrder) }
             when (val decision = selection.select(remaining, strategy)) {
                 is CandidateSelectionDecision.NoSelection -> throw exhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
                 is CandidateSelectionDecision.Selected -> {
