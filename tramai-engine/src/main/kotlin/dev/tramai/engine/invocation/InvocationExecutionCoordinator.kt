@@ -272,7 +272,8 @@ internal class InvocationExecutionCoordinator(
                 StreamingBeforeResponseReturnGate { route, correlationId, securityContext ->
                     enforceBeforeResponseReturn(route, correlationId, securityContext)
                 },
-        )
+            governance = providerGovernance,
+            )
     private val toolResultSanitizer =
         ToolResultSanitizer(
             toolRegistry = toolRegistry,

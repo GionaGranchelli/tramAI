@@ -1,6 +1,12 @@
 package dev.tramai.engine.streaming
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import dev.tramai.core.identity.GovernedRunScope
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
+import dev.tramai.engine.provider.deriveRequiredCapabilities
+import dev.tramai.engine.provider.governProviderExecution
+import dev.tramai.security.governance.CandidateSelectionDecision
+import kotlinx.coroutines.currentCoroutineContext
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.PolicyViolationException
@@ -81,6 +87,8 @@ internal class StreamingExecutionCoordinator(
     private val beforeInvocation: ProviderInvocationGate,
     private val fallbackGate: ProviderFallbackGate,
     private val beforeResponseReturn: StreamingBeforeResponseReturnGate,
+    /** The governed routing topology; absent means execution refuses rather than using configured routing. */
+    private val governance: ProviderGovernanceConfiguration? = null,
 ) {
     fun execute(request: StreamingExecutionRequest): Flow<StreamChunk> {
         val operation = request.operation
@@ -117,15 +125,44 @@ internal class StreamingExecutionCoordinator(
                     var lastCircuitOpen: CircuitBreakerOpenException? = null
                     val attemptCounter = AttemptCounter()
 
-                    for ((routeIndex, route) in candidates.withIndex()) {
+                    // Configured routes propose; the governed envelope authorizes. This path reaches a
+                    // provider only through a candidate selected from that envelope, exactly as the
+                    // synchronous path does, and a streaming request inherently requires STREAMING.
+                    val envelope =
+                        governProviderExecution(
+                            candidates,
+                            routingPlan,
+                            governance,
+                            GovernedRunScope.resolve(currentCoroutineContext()),
+                            securityContext,
+                            circuitBreaker,
+                            deriveRequiredCapabilities(operation, effectiveMessages, streaming = true),
+                        )
+                    var remaining = envelope.viable
+
+                    while (true) {
+                        val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
+                        val chosen =
+                            when (decision) {
+                                is CandidateSelectionDecision.Selected -> decision.candidate
+                                is CandidateSelectionDecision.NoSelection -> null
+                            }
+                        if (chosen == null) break
+                        val route = envelope.routeOf(chosen)
+                        val routeIndex = envelope.routeIndexOf(route)
+                        // Narrow first, then ask governance for the next route: the fallback gate must
+                        // never be told about a route governance has not selected.
+                        val narrowed = envelope.narrowedAfter(chosen)
+                        val nextRoute = envelope.nextSelected(narrowed)
                         val admission = handleCircuitBreakerOpenRoute(
                             route = route,
-                            nextRoute = candidates.getOrNull(routeIndex + 1),
+                            nextRoute = nextRoute,
                             correlationId = correlationId,
                             securityContext = securityContext,
                         )
                         if (admission is CircuitBreakerAdmission.Rejected) {
                             lastCircuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
+                            remaining = narrowed
                             continue
                         }
                         val permit = (admission as CircuitBreakerAdmission.Allowed).permit
@@ -192,7 +229,7 @@ internal class StreamingExecutionCoordinator(
                                         // decision event for actual same-route
                                         // retries.
                                         val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)
-                                        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || candidates.getOrNull(routeIndex + 1) != null)) {
+                                        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || nextRoute != null)) {
                                             recordStartupRetryEvent(route.providerName, result.error::class.simpleName ?: "unknown", result.observation)
                                         }
                                         when (decision) {
@@ -219,11 +256,14 @@ internal class StreamingExecutionCoordinator(
                                                 enforceStreamingFallbackAfterFailure(
                                                     error = result.error,
                                                     route = route,
-                                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                                                    nextRoute = nextRoute,
                                                     correlationId = correlationId,
                                                     securityContext = securityContext,
                                                 )
                                                 lastFailure = result.error
+                                                // Narrow and reselect rather than advancing to the
+                                                // next configured route.
+                                                remaining = narrowed
                                                 break
                                             }
                                         }

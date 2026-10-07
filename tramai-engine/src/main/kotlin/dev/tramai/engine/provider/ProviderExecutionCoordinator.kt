@@ -124,7 +124,7 @@ internal class ProviderExecutionCoordinator(
         // refusal happens in authorization rather than after selection. Nothing is inferred from a
         // return type: a structured service still prompts, parses and repairs without a native
         // structured-output capability, so STRUCTURED_OUTPUT is not required here.
-        val requiredCapabilities = requestedCapabilities(request)
+        val requiredCapabilities = deriveRequiredCapabilities(request.operation, request.messages, streaming = false)
 
         // The engine reads authorization through the public set view: an authorization envelope
         // cannot be inspected or fabricated from outside the security module, which is the point.
@@ -201,18 +201,6 @@ internal class ProviderExecutionCoordinator(
                 }
             }
         }
-    }
-
-    /**
-     * The capabilities the actual provider request requires: images need VISION, and exposing tool
-     * definitions needs TOOL_CALLING. These are the same facts [ModelRequest] is built from, so the
-     * authorization stage refuses an incapable provider before anything is selected or invoked.
-     */
-    private fun requestedCapabilities(request: ProviderExecutionRequest): Set<ProviderCapability> {
-        val required = LinkedHashSet<ProviderCapability>(2)
-        if (request.messages.any { it.hasImage() }) required += ProviderCapability.VISION
-        if (request.operation.toolDefinitions.isNotEmpty()) required += ProviderCapability.TOOL_CALLING
-        return required
     }
 
     /**
