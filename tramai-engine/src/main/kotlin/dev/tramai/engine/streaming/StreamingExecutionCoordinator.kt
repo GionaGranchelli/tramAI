@@ -96,7 +96,13 @@ internal class StreamingExecutionCoordinator(
         // exists for this execution, not that a caller omitted a request field. A governed execution
         // never enters the legacy path: the branch is taken before governed selection and there is no
         // recovery from a governed refusal into legacy routing.
-        if (governance == null) executeLegacy(request) else executeGoverned(request)
+        //
+        // The topology is keyed by WorkloadDeploymentIdentity, so it is only addressable for an
+        // execution that carries an admitted run identity; without one there is no governed routing
+        // topology *for this execution* and it keeps the pre-0.7.3h path. The identity is resolved
+        // from the authoritative run scope at the construction site above, never taken from a
+        // caller-supplied request field, so a governed execution cannot opt out by omitting one.
+        if (governance == null || request.governedRun == null) executeLegacy(request) else executeGoverned(request)
 
     private fun executeLegacy(request: StreamingExecutionRequest): Flow<StreamChunk> {
         val operation = request.operation

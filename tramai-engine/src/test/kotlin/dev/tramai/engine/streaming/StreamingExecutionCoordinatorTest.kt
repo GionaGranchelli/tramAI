@@ -149,9 +149,13 @@ class StreamingExecutionCoordinatorTest {
      * provider the plan registers. A provider the plan does not register has no deployment and
      * therefore no authority, whatever else the configuration says.
      */
-    private fun governanceFor(plan: ProviderRoutingPlan) =
+    private fun governanceFor(
+        plan: ProviderRoutingPlan,
+        workloadZones: Map<WorkloadDeploymentIdentity, ProviderTrustZone> =
+            mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+    ) =
         ProviderGovernanceConfiguration(
-            workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+            workloadZones = workloadZones,
             rules =
                 mapOf(
                     DataClassification.INTERNAL to
@@ -1050,21 +1054,27 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `a governed streaming execution with a missing required fact fails closed`() {
         runBlocking {
-            // The topology is present, so this execution is governed. The admitted run identity is a
-            // required governance fact: without it execution refuses and no provider is invoked.
-            // Recovering into the legacy streaming path here would be a governance downgrade.
+            // The topology is present and the execution carries an admitted run identity, so this
+            // execution is governed. The workload's zone mapping is a required governance fact: its
+            // absence makes execution refuse and no provider is invoked. Recovering into the legacy
+            // streaming path here would be a governance downgrade.
             val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("a")) } }
-            val c = coordinator(plan("a" to a), RecordingOperationObserver(OrderedSink()))
-            val ungoverned =
+            val c =
+                coordinator(
+                    plan("a" to a),
+                    RecordingOperationObserver(OrderedSink()),
+                    governance = governanceFor(plan("a" to a), workloadZones = emptyMap()),
+                )
+            val governedRequest =
                 StreamingExecutionRequest(
                     operationWithZeroRetries(),
                     listOf(classifiedInput),
                     TokenBudgetCoordinator(defaultBudget).createTracker(),
                     null,
-                    null,
+                    governedRun,
                 )
 
-            assertThatThrownBy { runBlocking { c.execute(ungoverned).toList() } }.isInstanceOf(ProviderException::class.java)
+            assertThatThrownBy { runBlocking { c.execute(governedRequest).toList() } }.isInstanceOf(ProviderException::class.java)
             assertThat(a.streamRequests).isEmpty()
         }
     }

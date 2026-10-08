@@ -523,10 +523,17 @@ class ProviderGovernedExecutionPathTest {
     fun `a governed execution with a missing required fact fails closed rather than falling back to legacy`() {
         runBlocking {
             val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha")))
-            // The topology exists, so this execution is governed. The run identity is a required
-            // governance fact; its absence must fail closed. Recovering into legacy routing would
-            // downgrade a governed execution, which is exactly what is forbidden.
-            val thrown = catchThrowable { runBlocking { coordinator(plan).execute(request(run = null)) } }
+            // The topology exists and the execution carries an admitted run identity, so this
+            // execution is governed. The candidate's deployment mapping is a required governance
+            // fact; its absence must fail closed. Recovering into legacy routing would downgrade a
+            // governed execution, which is exactly what is forbidden.
+            val thrown =
+                catchThrowable {
+                    runBlocking {
+                        coordinator(plan, governance = governance(deployments = emptyMap()))
+                            .execute(request())
+                    }
+                }
 
             assertThat(thrown).isInstanceOf(ProviderException::class.java)
             assertThat(invoked).isEmpty()
@@ -614,11 +621,20 @@ class ProviderGovernedExecutionPathTest {
     // ---- 18. absent governance ------------------------------------------------------------------
 
     @Test
-    fun `execution without governance inputs invokes no provider`() {
+    fun `a governed execution whose required governance mapping is absent invokes no provider`() {
         runBlocking {
             val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha")))
 
-            val thrown = catchThrowable { runBlocking { coordinator(plan).execute(request(run = null)) } }
+            // A governed topology and an admitted run identity are both present, so the governed
+            // branch is taken; the required deployment mapping is absent, so the execution refuses
+            // before any provider is invoked. A legacy fallback would be the downgrade this fails on.
+            val thrown =
+                catchThrowable {
+                    runBlocking {
+                        coordinator(plan, governance = governance(deployments = emptyMap()))
+                            .execute(request())
+                    }
+                }
 
             assertThat(thrown).isInstanceOf(ProviderException::class.java)
             assertThat(invoked).isEmpty()

@@ -83,7 +83,15 @@ internal class ProviderExecutionCoordinator(
         // exists for this execution — not that a caller omitted a request field. Such an execution
         // keeps the pre-0.7.3h path. There is deliberately no recovery from a governed refusal into
         // that path: once a governed topology exists, every missing input fails closed below.
+        //
+        // The topology is keyed by WorkloadDeploymentIdentity, so it is only addressable for an
+        // execution that carries an admitted run identity; without one there is no governed routing
+        // topology *for this execution* and it keeps the pre-0.7.3h path. That identity is resolved
+        // from the authoritative run scope by the construction sites above, never taken from a
+        // caller-supplied request field, so a governed execution cannot opt out of governance by
+        // omitting one. Inside the governed branch every missing fact still fails closed.
         val configuration = governance ?: return executeLegacy(request, resolvedRoutes)
+        if (request.governedRun == null) return executeLegacy(request, resolvedRoutes)
 
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
