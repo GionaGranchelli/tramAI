@@ -300,7 +300,62 @@ migration whose scope the contract does not authorise. The contract does not dec
 the 45-minute engine-wide hang is very likely the same cause seen as non-termination rather than as
 failure.
 
-## 12. h2c landed, continuation policy enforced, mutation campaign closed
+## 12. Option (a): governance is mandatory when governed topology exists
+
+**Ruling.** 0.7.3 governance is mandatory when a governed routing topology/configuration exists for
+the execution. It does not retroactively make governance topology mandatory for every legacy engine
+execution path.
+
+**Shape, and what is forbidden.** Not exception recovery:
+
+```
+no governed topology  ->  the pre-0.7.3h execution path (unchanged)
+governed topology     ->  authorization -> viability -> selection -> governed retry/fallback
+                          missing/incomplete inputs: FAIL CLOSED
+                          never fall back to legacy routing from this branch
+```
+
+Entering the governed path and then recovering from `governanceAbsent()` into legacy routing would be
+a governance downgrade and is explicitly not the implementation.
+
+**Discriminator.** Authoritative configuration state, not the omission of a nullable request field.
+`governance` is derived at the single construction site
+(`InvocationExecutionCoordinator`: `components.security.routingConfiguration?.let {
+ProviderGovernanceConfiguration.from(it) }`), so `governance == null` means no governed routing
+topology is configured for this engine. The branch is taken **before** governed selection.
+
+**Sync — landed and verified** (`ccf5771a`). `ProviderExecutionCoordinator.execute` returns
+`executeLegacy(request, resolvedRoutes)` when `governance` is null; the legacy body is restored
+verbatim from the pre-0.7.3h implementation (`git show f8af2510:...ProviderExecutionCoordinator.kt`),
+not approximated. The previously regressed identities now pass at the head:
+
+- `:tramai-engine:test --tests '*EngineMemoryIntegrationTest*' --tests '*GovernedRunScopeIdentityTest*'`
+  — rc=0, 0 failed (these were green at `f8af2510` and red at `3c2d26ea` at the same identities).
+
+**Sync focused suites after the branch**: 90 tests, 0 failures
+(`ProviderExecutionCoordinatorTest` 7, `ProviderGovernedExecutionPathTest` 25,
+`ProviderRetryFallbackLifecyclePropertyTest` 4, `StreamingExecutionCoordinatorTest` 54) — the branch
+did not regress the proven governed semantics.
+
+**Streaming — not yet branched.** `StreamingExecutionCoordinator` still enters the governed envelope
+unconditionally (`governance` is already a `ProviderGovernanceConfiguration? = null` constructor
+parameter, so the discriminator is available). Its legacy helpers are still present in the file (13
+references to `executeStreamingRoute`, `collectStreamingRoute`, `handleCircuitBreakerOpenRoute`,
+`enforceStreamingFallbackAfterFailure`, `noAvailableStreamingRouteChunk`), so the legacy body is
+spliced inline from `git show f8af2510:...StreamingExecutionCoordinator.kt` into the existing
+`lifecycleScope.launch { try { ... } }` scope, alongside the governed block rather than extracted
+into a function: sharing that scope keeps `chunks`, the emission state, the breaker permit, retry and
+cancellation semantics in scope instead of threading them through new parameters.
+
+**Also outstanding**: the boundary discriminator proofs (legacy succeeds / governed+complete /
+governed+missing input fails closed with invocation 0 / governed+ineligible cannot escape), and the
+exact-final-head mutation campaign M1–M9 including the new downgrade mutant M9 (governed topology
+present but execution routed through the legacy branch — killed by proving a governed execution
+cannot opt out of authority). The earlier 8/8 result was obtained against the pre-branch production
+shape and is historical evidence only.
+
+
+## 13. h2c landed, continuation policy enforced, mutation campaign closed
 
 §10 above ("design pinned, not yet implemented") is superseded: the streaming coordinator now enters
 the same `GovernedProviderEnvelope` boundary as the synchronous one, and both share one
