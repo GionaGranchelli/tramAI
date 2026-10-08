@@ -87,7 +87,9 @@ internal fun excludedByAvailability(
     circuitBreaker: ProviderCircuitBreaker,
 ): List<ProviderCandidate> =
     configuredOrder.filter { candidate ->
-        candidate in authorized && !viable.contains(candidate) && circuitBreaker.openUntilMillis(candidate.providerId) != null
+        candidate in authorized &&
+            !viable.contains(candidate) &&
+            circuitBreaker.openUntilMillis(candidate.providerId) != null
     }
 
 /**
@@ -108,14 +110,12 @@ internal fun governProviderExecution(
     circuitBreaker: ProviderCircuitBreaker,
     requiredCapabilities: Set<ProviderCapability>,
 ): GovernedProviderEnvelope {
-    val governed = configuration ?: throw governanceAbsent()
-    val run = governedRun ?: throw governanceAbsent()
-    val workloadZone =
-        governed.workloadZones[run.deployment]
-            ?: throw ProviderException(
-                "Workload deployment '${run.deployment.deploymentId}' has no configured trust zone",
-                retryable = false,
-            )
+    val governed = configuration
+    val run = governedRun
+    if (governed == null || run == null) {
+        throw governanceAbsent()
+    }
+    val workloadZone = workloadZoneOf(governed, run)
 
     val mappings = routeCandidates(routes, governed)
     val configuredOrder = mappings.map { it.second }
@@ -142,7 +142,12 @@ internal fun governProviderExecution(
     val authorizedSet =
         authorization.authorizedSet(configuredOrder, resolved.trustZone, resolved.classification, requiredCapabilities)
     val authorized =
-        authorization.authorizedCandidates(configuredOrder, resolved.trustZone, resolved.classification, requiredCapabilities)
+        authorization.authorizedCandidates(
+            configuredOrder,
+            resolved.trustZone,
+            resolved.classification,
+            requiredCapabilities,
+        )
 
     // Availability is observed, never consumed: beforeCall grants a permit and can revive an expired
     // circuit, so evaluating viability with it would change the state it is reading.
@@ -151,7 +156,14 @@ internal fun governProviderExecution(
             if (circuitBreaker.openUntilMillis(candidate.providerId) != null) ViabilityRefusal.AVAILABILITY else null
         }
     val viable = viability.viableCandidates(authorized)
-    return GovernedProviderEnvelope(authorizedSet, viable, authorizedSet.isEmpty(), routesByCandidate, indexByRoute, configuredOrder)
+    return GovernedProviderEnvelope(
+        authorizedSet,
+        viable,
+        authorizedSet.isEmpty(),
+        routesByCandidate,
+        indexByRoute,
+        configuredOrder,
+    )
 }
 
 /** Maps each resolved route to its exact candidate through the route's authoritative deployment. */
@@ -168,7 +180,8 @@ private fun routeCandidates(
         if (existing != null && existing != route) {
             throw ProviderException(
                 "Configured routes ${existing.providerName}/${existing.effectiveModelName} and " +
-                    "${route.providerName}/${route.effectiveModelName} map to one candidate: ambiguous candidate identity",
+                    "${route.providerName}/${route.effectiveModelName} map to one candidate: " +
+                    "ambiguous candidate identity",
                 retryable = false,
             )
         }
@@ -179,8 +192,9 @@ private fun routeCandidates(
 
 /** The governed run's classification claim, or none: a missing claim refuses rather than defaulting. */
 internal fun signalsOf(context: ExecutionSecurityContext): List<WorkloadClassificationSignal> {
-    val classification = context.dataClassification ?: return emptyList()
-    val source = context.classificationSource ?: return emptyList()
+    val classification = context.dataClassification
+    val source = context.classificationSource
+    if (classification == null || source == null) return emptyList()
     return listOf(WorkloadClassificationSignal(classification, source))
 }
 
@@ -197,7 +211,7 @@ internal fun deriveRequiredCapabilities(
     messages: List<Message>,
     streaming: Boolean,
 ): Set<ProviderCapability> {
-    val required = LinkedHashSet<ProviderCapability>(3)
+    val required = LinkedHashSet<ProviderCapability>()
     if (messages.any { it.hasImage() }) required += ProviderCapability.VISION
     if (operation.toolDefinitions.isNotEmpty()) required += ProviderCapability.TOOL_CALLING
     if (streaming) required += ProviderCapability.STREAMING
@@ -206,6 +220,21 @@ internal fun deriveRequiredCapabilities(
 
 internal fun governanceAbsent() =
     ProviderException(
-        "Provider execution requires the configured routing topology and a governed run; refusing to invoke a provider without them",
+        "Provider execution requires the configured routing topology and a governed run; " +
+            "refusing to invoke a provider without them",
+        retryable = false,
+    )
+
+/**
+ * The workload's zone, looked up by its exact deployment identity. An unconfigured deployment has no
+ * zone at all: the absence is a configuration defect and fails closed rather than being inferred from
+ * an environment convention. Shared by the synchronous and streaming governed paths.
+ */
+internal fun workloadZoneOf(
+    configuration: ProviderGovernanceConfiguration,
+    run: GovernedRunIdentity,
+) = configuration.workloadZones[run.deployment]
+    ?: throw ProviderException(
+        "Workload deployment '${run.deployment.deploymentId}' has no configured trust zone",
         retryable = false,
     )

@@ -263,7 +263,11 @@ internal class StreamingExecutionCoordinator(
                                                     // already enforced above; break exits this
                                                     // route so the outer candidate loop advances
                                                     // exactly once.
-                                                    recordCircuitBreakerFailure(permit, result.error, result.observation)
+                                                    recordCircuitBreakerFailure(
+                                                        permit,
+                                                        result.error,
+                                                        result.observation,
+                                                    )
                                                     enforceStreamingFallbackAfterFailure(
                                                         error = result.error,
                                                         route = route,
@@ -332,13 +336,24 @@ internal class StreamingExecutionCoordinator(
                 // support streaming, or a route error aborted the loop): the
                 // channel closes either way, so rethrow the job's failure here
                 // instead of silently completing the flow.
-                collectFailure.get()?.let { throw it }
+                rethrowCollected(collectFailure.get())
             } finally {
                 // If the caller stops collecting (or the engine closed), the
                 // engine-owned collection job must not keep running.
                 collectJob.cancel()
                 collectJob.join()
             }
+        }
+    }
+
+    /**
+     * Rethrows a failure collected by the engine-owned collection job, once its channel has closed.
+     * Extracted so the governed flow keeps a bounded number of throw sites while preserving the
+     * behaviour exactly: the failure the collector saw is what the caller sees.
+     */
+    private fun rethrowCollected(failure: Throwable?) {
+        if (failure != null) {
+            throw failure
         }
     }
 
@@ -408,8 +423,12 @@ internal class StreamingExecutionCoordinator(
                         if (continuationCandidate != null) {
                             val continuationPosition = envelope.configuredOrder.indexOf(continuationCandidate)
                             val gates =
-                                excludedByAvailability(envelope.authorized, remaining, envelope.configuredOrder, circuitBreaker)
-                                    .filter { envelope.configuredOrder.indexOf(it) < continuationPosition }
+                                excludedByAvailability(
+                                    envelope.authorized,
+                                    remaining,
+                                    envelope.configuredOrder,
+                                    circuitBreaker,
+                                ).filter { envelope.configuredOrder.indexOf(it) < continuationPosition }
                             for (excluded in gates) {
                                 val excludedRoute = envelope.routeOf(excluded)
                                 val openUntil = circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L
@@ -560,7 +579,11 @@ internal class StreamingExecutionCoordinator(
                                                     // already enforced above; break exits this
                                                     // route so the outer candidate loop advances
                                                     // exactly once.
-                                                    recordCircuitBreakerFailure(permit, result.error, result.observation)
+                                                    recordCircuitBreakerFailure(
+                                                        permit,
+                                                        result.error,
+                                                        result.observation,
+                                                    )
                                                     enforceStreamingFallbackAfterFailure(
                                                         error = result.error,
                                                         route = route,
@@ -638,7 +661,7 @@ internal class StreamingExecutionCoordinator(
                 // support streaming, or a route error aborted the loop): the
                 // channel closes either way, so rethrow the job's failure here
                 // instead of silently completing the flow.
-                collectFailure.get()?.let { throw it }
+                rethrowCollected(collectFailure.get())
             } finally {
                 // If the caller stops collecting (or the engine closed), the
                 // engine-owned collection job must not keep running.
@@ -660,6 +683,16 @@ internal class StreamingExecutionCoordinator(
         val emitChunk: suspend (StreamChunk) -> Unit,
         val permit: CircuitBreakerPermit,
     )
+
+    /** A provider without streaming support is refused, releasing its permit first. */
+    private fun failStreamingCapability(
+        route: ResolvedProviderRoute,
+        request: StreamingExecutionRoute,
+        circuitBreaker: ProviderCircuitBreaker,
+    ): Nothing {
+        circuitBreaker.onAbandoned(request.permit)
+        throw ProviderCapabilityException(route.providerName, "streaming")
+    }
 
     private suspend fun executeStreamingRoute(
         request: StreamingExecutionRoute,
@@ -684,10 +717,8 @@ internal class StreamingExecutionCoordinator(
         }
 
         val streamCapable =
-            route.provider as? StreamCapable ?: run {
-                circuitBreaker.onAbandoned(request.permit)
-                throw ProviderCapabilityException(route.providerName, "streaming")
-            }
+            route.provider as? StreamCapable
+                ?: failStreamingCapability(route, request, circuitBreaker)
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
         val memoryInjectedRequest = request.memoryMessages?.let { modelRequest.copy(messages = it) } ?: modelRequest
         return collectStreamingRoute(
@@ -1046,7 +1077,9 @@ internal class StreamingExecutionCoordinator(
 
             else -> {
                 ProviderException(
-                    message = "Provider $providerName failed while streaming $qualifiedServiceName.${operation.method.name}",
+                    message =
+                        "Provider $providerName failed while streaming " +
+                            "$qualifiedServiceName.${operation.method.name}",
                     cause = error,
                 )
             }
@@ -1125,7 +1158,9 @@ internal class StreamingExecutionCoordinator(
         providerId: String,
         operation: OperationDefinition,
         timeoutMillis: Long,
-    ): String = "Provider $providerId timed out after ${timeoutMillis}ms while invoking $qualifiedServiceName.${operation.method.name}"
+    ): String =
+        "Provider $providerId timed out after ${timeoutMillis}ms while invoking " +
+            "$qualifiedServiceName.${operation.method.name}"
 
     private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
         try {

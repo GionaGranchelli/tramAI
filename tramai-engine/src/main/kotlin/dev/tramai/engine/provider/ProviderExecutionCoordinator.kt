@@ -121,20 +121,17 @@ internal class ProviderExecutionCoordinator(
         // from the authoritative run scope by the construction sites above, never taken from a
         // caller-supplied request field, so a governed execution cannot opt out of governance by
         // omitting one. Inside the governed branch every missing fact still fails closed.
-        val configuration = governance ?: return executeLegacy(request, resolvedRoutes)
-        if (request.governedRun == null) return executeLegacy(request, resolvedRoutes)
+        val configuration = governance
+        val run = request.governedRun
+        if (configuration == null || run == null) {
+            return executeLegacy(request, resolvedRoutes)
+        }
 
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
-        val run = request.governedRun ?: throw governanceAbsent()
         // The workload's zone is looked up by its exact deployment identity: it is never inferred
         // from an environment convention, and an unconfigured deployment has no zone at all.
-        val workloadZone =
-            configuration.workloadZones[run.deployment]
-                ?: throw ProviderException(
-                    "Workload deployment '${run.deployment.deploymentId}' has no configured trust zone",
-                    retryable = false,
-                )
+        val workloadZone = workloadZoneOf(configuration, run)
 
         // The release predicate is built from the governed configuration: a default release instance
         // carries an empty rule map and would release nothing, so authorization would refuse every
@@ -215,7 +212,11 @@ internal class ProviderExecutionCoordinator(
                 excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker)
                     .filter { configuredOrder.indexOf(it) < continuationPosition }
             for (excluded in outsideEnvelope) {
-                val error = CircuitBreakerOpenException(excluded.providerId, circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L)
+                val error =
+                    CircuitBreakerOpenException(
+                        excluded.providerId,
+                        circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L,
+                    )
                 lastCircuitOpen = error
                 transition(
                     error,
@@ -232,7 +233,7 @@ internal class ProviderExecutionCoordinator(
             val strategy = CandidateSelectionStrategy { preference.preferred(remaining, configuredOrder) }
             when (val decision = selection.select(remaining, strategy)) {
                 is CandidateSelectionDecision.NoSelection -> {
-                    throw exhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
+                    failExhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
                 }
 
                 is CandidateSelectionDecision.Selected -> {
@@ -255,7 +256,9 @@ internal class ProviderExecutionCoordinator(
                     val permit = (admission as CircuitBreakerAdmission.Allowed).permit
                     try {
                         request.beforeRoute.beforeRoute()
-                        return attemptExecutor.execute(routeRequest(route, resolvedRoutes.indexOf(route), request, permit))
+                        return attemptExecutor.execute(
+                            routeRequest(route, resolvedRoutes.indexOf(route), request, permit),
+                        )
                     } catch (error: Throwable) {
                         error.rethrowIfCancellation()
                         when (val fallback = fallbackPolicy.decide(error)) {
@@ -266,7 +269,13 @@ internal class ProviderExecutionCoordinator(
                             is ProviderFallbackDecision.Continue -> {
                                 lastFailure = error
                                 remaining = remaining.without(candidate)
-                                transition(error, route, nextSelected(remaining, configuredOrder, routeOf), fallback.reason, request)
+                                transition(
+                                    error,
+                                    route,
+                                    nextSelected(remaining, configuredOrder, routeOf),
+                                    fallback.reason,
+                                    request,
+                                )
                             }
                         }
                     } finally {
@@ -319,8 +328,9 @@ internal class ProviderExecutionCoordinator(
     ): ResolvedProviderRoute? = remaining.orderedBy(configuredOrder).firstOrNull()?.let { routeOf[it] }
 
     private fun signalsOf(context: ExecutionSecurityContext): List<WorkloadClassificationSignal> {
-        val classification = context.dataClassification ?: return emptyList()
-        val source = context.classificationSource ?: return emptyList()
+        val classification = context.dataClassification
+        val source = context.classificationSource
+        if (classification == null || source == null) return emptyList()
         return listOf(WorkloadClassificationSignal(classification, source))
     }
 
@@ -372,8 +382,14 @@ internal class ProviderExecutionCoordinator(
         )
     }
 
-    private fun governanceAbsent() =
-        ProviderException("Provider execution requires governance inputs and none were supplied", retryable = false)
+    /** Terminal refusal: no candidate remains selectable. Fails closed rather than returning empty. */
+    private fun failExhausted(
+        reason: SelectionRefusal,
+        nothingAuthorized: Boolean,
+        lastFailure: Throwable?,
+        lastCircuitOpen: CircuitBreakerOpenException?,
+        request: ProviderExecutionRequest,
+    ): Nothing = throw exhausted(reason, nothingAuthorized, lastFailure, lastCircuitOpen, request)
 
     private fun exhausted(
         reason: SelectionRefusal,
@@ -392,7 +408,10 @@ internal class ProviderExecutionCoordinator(
             reason == SelectionRefusal.NO_VIABLE_CANDIDATES -> {
                 lastFailure
                     ?: lastCircuitOpen
-                    ?: ProviderException("No available provider route for model '${request.operation.operation.model}'", retryable = true)
+                    ?: ProviderException(
+                        "No available provider route for model '${request.operation.operation.model}'",
+                        retryable = true,
+                    )
             }
 
             else -> {

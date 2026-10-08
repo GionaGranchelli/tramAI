@@ -41,6 +41,9 @@ internal class ToolLoopCoordinator(
     private val toolRegistry: ToolRegistry,
     private val toolReinjectionCoordinator: ToolReinjectionCoordinator,
 ) {
+    /** Rethrows a budget refusal unchanged: the observation is closed first, the cause is not wrapped. */
+    private fun rethrowBudgetExceeded(error: TokenBudgetExceededException): Nothing = throw error
+
     suspend fun execute(context: ToolLoopContext): ProviderCallResult {
         val operation = context.operation
         val messages = context.messages
@@ -75,7 +78,7 @@ internal class ToolLoopCoordinator(
                 )
             } catch (error: TokenBudgetExceededException) {
                 result.observation.onCallCompleted(parseSuccess = null)
-                throw error
+                rethrowBudgetExceeded(error)
             }
 
             val toolCalls = result.response.toolCalls

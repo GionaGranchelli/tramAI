@@ -653,6 +653,57 @@ including `GovernedProviderEnvelope` lines) at what appeared to be the same comm
 current 18-finding set is repeatable; the 26-finding superset was not, and is recorded here rather than
 quietly dropped.
 
+### Correction: the gate's reported set is mode-dependent
+
+Both of those numbers were wrong, and the reason matters more than the numbers. Measured on an unchanged
+tree, three consecutive `verifyStaticAnalysis` invocations:
+
+| run | mode | findings |
+| --- | --- | --- |
+| A | plain | 29 |
+| B | plain (identical, immediately after A) | 29 — byte-identical set |
+| C | `--rerun-tasks` (full re-analysis) | 17 — a *different* set |
+
+A and B agree exactly, so a warm incremental analysis is reproducible. C disagrees in **both directions**:
+it misses 17 findings that A and B report, and reports 5 that A and B do not
+(`ProviderRetryFallbackLifecyclePropertyTest` `LongParameterList:331`, `CyclomaticComplexMethod:428`,
+`LongMethod:428`, `LargeClass:95`, and `StreamingExecutionCoordinator:360 CyclomaticComplexMethod`). Only
+12 findings are stable across all three runs. Neither mode is a superset of the other, so **no single
+invocation reports the true non-baselined set**, and a green result in one mode does not imply green in the
+other. The union across the three runs (34 findings) is the only defensible work list, and "green" has to
+be asserted in both modes.
+
+### Progress: all production findings cleared
+
+Refactoring in source only — no Detekt configuration change, no suppression, no baseline entry — cleared
+every finding in production authority code:
+
+- `ProviderExecutionCoordinator.execute`: the two legacy guards became one (`ReturnCount` 3 → 2), the
+  work-zone lookup and the terminal refusal moved into `workloadZoneOf` / `failExhausted` (`ThrowsCount`
+  4 → 2), and the now-unreachable private `governanceAbsent()` — superseded by the merged guard, whose
+  null case returns the legacy path by design — was deleted as dead code (`UnusedPrivateMember`).
+- `GovernedProviderEnvelope`: `signalsOf` 3 → 2 returns, the magic number removed, six over-length lines
+  split, and the zone lookup shared with the sync path via one `workloadZoneOf` (DRY, same package).
+- `StreamingExecutionCoordinator`: five over-length lines split, plus `rethrowCollected` and
+  `failStreamingCapability` helpers for the throw sites (`ThrowsCount` 4 → 2 and 3 → 2).
+- `ToolLoopCoordinator`: `rethrowBudgetExceeded` for the budget refusal (`ThrowsCount` 3 → 2).
+
+No throw is swallowed, wrapped or weakened; every fail-closed guard survives, and the governed branch
+still cannot reach legacy routing. Verified after the refactor: `:tramai-engine:compileKotlin` and
+`compileTestKotlin` `rc=0`; focused sync/streaming/governed-execution/retry-fallback-property suites
+`rc=0`; `:tramai-engine:test` `rc=0`; `:tramai-security:test` `rc=0`; `spotlessKotlinCheck` `rc=0`.
+
+### Remaining: 29 findings, all test infrastructure
+
+Everything left is in test code: 21 `MaxLineLength` sites (121–139 characters, over Detekt's 120 and
+under ktlint's 139), `ReturnCount` in `StreamingExecutionCoordinatorTest:213`, two 13-parameter
+`coordinator(...)` helpers, `CyclomaticComplexMethod` on `recordLane` (23) and `runModel`,
+`LongMethod` on `runModel` (101) and `P0-N` (86), `LargeClass` on
+`ProviderRetryFallbackLifecyclePropertyTest`, and one loop in `StreamingExecutionCoordinator:453`
+holding more than one jump statement. Fixing those changes the mutation subject again, so the M1–M9
+campaign has to be rerun before any completion claim.
+
+
 
 
 
