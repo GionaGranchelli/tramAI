@@ -451,12 +451,17 @@ reach the legacy path. This pair is also the M9 killing proof.
 `GovernedRunScopeIdentityTest` 9) plus `:tramai-security:test` (41 classes) — rc=0, 0 failed. The two
 classes that were base-green/head-red at `3c2d26ea` are green through the legacy branch.
 
-**Mutation campaign at the final head `566d0158`** — M1–M9 with M9 split across both surfaces.
+**Mutation campaign on the final production shape `cf5931cd`** — M1–M9 with M9 split across both
+surfaces, rerun after the regression fix below changed the shape.
 M1 KILLED by the VISION proof; M2 by the TOOL_CALLING proof; M3 by the streaming-capability proof;
 M4 by the fallback/attempt-numbering proof; M5 by the property suite; M6 and M7 by non-termination
 (re-widening makes reselection non-terminating); M8 by the property suite; M9a by *"a configured next
 route outside the envelope is never invoked"* (+13); M9b by the streaming capability proof (+4).
 SURVIVED 0, NO_COVERAGE 0, UNDETERMINED 0, and no invalid or compile-rejected entry counted as a kill.
+Each verdict names a distinct killing test, which is what the attribution fix was for.
+
+An earlier run of the same campaign at `566d0158` produced identical verdicts, but that head is
+historical: the shape changed afterwards (see §15), and mutation evidence is content-addressed.
 
 **Two harness defects were found and fixed during this campaign; both had produced a verdict more
 favourable than the evidence.**
@@ -472,5 +477,47 @@ favourable than the evidence.**
 
 **Still required before 0.7.3 can close:** the exact-head repository gates (`verifyPr`) and the
 reconciliation of the 0.7.3 epic acceptance criteria against this evidence.
+
+## 15. The four example modules: a regression this Epic introduced and then fixed
+
+The conditional boundary broke four example modules — `approval-resume`,
+`sovereign-offline-verification`, `sovereign-document-intelligence`, `spring-sovereign-starter` — with
+`ProviderException: Provider execution requires governance inputs and none were supplied`. Attribution
+is by base/head discriminator, not by appearance: at `f8af2510` those modules pass (fresh result XMLs,
+7 and 10 tests, 0 failures); at the head before the fix they fail at the same identities. They were not
+environmental. The focused suites and the M1–M9 campaign were all green while these were red, because
+every fixture supplies a governed run and the examples are the only code exercising a routing topology
+without one.
+
+Two causes, both at a single choke point:
+
+1. `ProviderGovernanceConfiguration.from` projected a **defaulted** routing configuration
+   (`enabled = false`, empty zones/deployments/pairs) into a non-null governance configuration, so any
+   engine that configures policy at all looked governed. `from` now returns null for a configuration
+   that carries no topology. `rules` deliberately does not participate in that predicate: it defaults
+   to a non-empty sovereign matrix, so consulting it would make every configuration look governed.
+2. The governed topology is **keyed by `WorkloadDeploymentIdentity`**, so it is addressable only for
+   an execution that carries an admitted run identity. Both coordinators now branch on authoritative
+   state — topology *and* admitted identity — with the identity resolved from the run scope, never from
+   a caller-supplied request field, so a governed execution cannot opt out of governance by omitting
+   one. Missing facts inside the governed branch still fail closed.
+
+**Decision requiring owner ratification.** The second point makes "a governed topology exists for the
+execution" mean "a topology exists *and* is addressable for this execution's admitted identity". The
+alternative reading — any configured topology governs every execution, identity or not — fails the four
+example modules closed, and satisfying it would require registering workload identities for them, which
+is a control-plane change rather than an engine one. Under the chosen reading a governed run is never
+softer: it always carries an identity and therefore always takes the governed path.
+
+**Proof consequences.** The three "missing required fact" proofs previously used the absent run
+identity as their missing fact; that is now the discriminator, not an input. They were re-expressed to
+supply an admitted identity and remove a fact *inside* governance (no workload/deployment mapping), so
+they assert the same refusal with invocation count 0 while exercising the envelope's fact checking.
+One test identity changed with that re-expression
+(`execution without governance inputs invokes no provider` → `a governed execution whose required
+governance mapping is absent invokes no provider`).
+
+**Evidence after the fix at `cf5931cd`:** example modules base-equal and green; `:tramai-engine:test`
+111 tests and `:tramai-security:test` 1043 tests, 0 failures; M1–M9 rerun 10/10 KILLED, tree clean.
 
 
