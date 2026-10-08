@@ -561,11 +561,68 @@ per-argument, so the streaming refusals that exist are the non-streaming provide
 missing-governance-fact fail-closed and the discriminator pair. No test was added at closure because
 that would change a certified M1–M9 subject file and void the carry-forward above.
 
-**Repository-wide critical mutation baseline: PRE-EXISTING RED / SEPARATE DEBT.** See §15 and the
-Epic closure note; the staged MINT→CONSUME campaign is recorded in
-`TASK-MUTATION-AUTHORITY-POPULATION-REFRESH.md`. This task did not weaken
-`verifyCriticalMutationBaseline`, mass-classify survivors, or merge the experimental measurement branch
-`task/0.7.3-mutation-baseline-migration` (`0f98ba4b`, measurement evidence only).
+**Mutation evidence is content-addressed, and the formatting correction voided the carry-forward.** The
+formatting commit (`77f665a1`) touches all four M1–M9 subject files, and the gap-closing assertions
+(`342113f2`) touch two more, so the campaign was rerun rather than carried over. The earlier harness
+scripts were lost with `/tmp`, so the mutants are re-derivations of the documented intents, not the
+original substitutions; that is stated here rather than implied.
+
+**Measured control and a corrected harness.** A first rebuild scored 7 KILLED / 2 SURVIVED / 1 INVALID,
+but its four "killed by non-termination" verdicts were not trustworthy: the control run was up-to-date
+at 11s, so a 600s timeout proved nothing. The rerun measures a real-execution control first (`--rerun-tasks`,
+clean daemons per mutant) and reports a timeout against it: control 77.3s / 79.8s, so a 900s and later a
+420s cap is a 5-12x ratio, which is what makes non-termination a verdict rather than a guess. Two further
+harness holes were closed: `rc=0` with zero fresh result XMLs is now `UNDETERMINED`, never `SURVIVED`, and
+compile errors are read from stdout **and** stderr.
+
+**Two real coverage gaps were exposed and closed, both by adding one assertion each.**
+
+- The fallback transition's reason was never asserted: misattributing it to a circuit-open exclusion broke
+  nothing. `ProviderExecutionCoordinatorTest` now asserts the reason that caused the transition.
+- An exclusion positioned *after* the running candidate emits no transition, but only routing was asserted,
+  so emitting a transition that changed nobody's execution was invisible. `ProviderGovernedExecutionPathTest`
+  now asserts the emitted transition set is empty.
+
+Both assertions pass on the unmutated code and fail under the mutants they are meant to catch (verified by
+applying each substitution and running the class): M4b dies on the fallback-event test, M8a on the exclusion
+test.
+
+**M9a was a broken mutant twice, not a survivor twice.** Inverting the discriminator guard makes Kotlin
+smart-cast `request.governedRun` to a `null`-typed expression, so `run.deployment` stops resolving and the
+file never compiles. Guarding on the configuration's own topology instead compiles and is killed by the
+governed fail-closed proofs. `M4a` is deliberately **not** counted: it mutates an advisory `next`-route hint
+that no claimed invariant pins, so its survival violates nothing — a no-op-equivalent, classified separately
+and never counted as a kill.
+
+**Known base-red, from a clean-daemon A/B at both trees** (`:build-logic:test`, HEAD 15 vs base 8, base
+subset of head):
+
+- 8 identities fail identically at the pristine base — `CancellationWiringTest C1` and seven
+  `ReleaseVerificationPluginTest` cases, all nested-Gradle environment failures that die during task
+  creation (`Could not create task ':verifySovereignRuntimeSignedBundle'`). Base-red, not this branch.
+- 7 identities fail only at HEAD — all `StaticAnalysis*` fixtures, and they are **downstream of this
+  branch**, see the blocker below. They are not daemon contention.
+
+### Blocker — `verifyStaticAnalysis` is red on this branch
+
+One command, reproducible: `./gradlew verifyStaticAnalysis` → `rc=1`,
+`Detekt reported non-baselined findings (exit 2)`. Two distinct causes, both this branch's:
+
+1. **Genuinely new findings from the 0.7.3h code shape**, absent from `config/detekt/baseline.xml`:
+   `ReturnCount` on `ProviderExecutionCoordinator.execute` (the two structural-branch guards plus the final
+   return make 3, limit 2) and `ThrowsCount` on the same function. Fixing these means restructuring
+   production code, which changes the mutation subject again.
+2. **Baselined-identity shifts caused by the ktlint-mandated rewrapping.** The Detekt baseline keys findings
+   on the rendered signature or line text, so wrapping a parameter list or re-emitting a long line changes
+   the identity even though the finding is unchanged: `ThrowsCount:ToolLoopCoordinator.kt` (baselined),
+   `MaxLineLength:StreamingExecutionCoordinator.kt` (26 entries), `recordLane` complexity. Re-keying the
+   baseline is a baseline change of its own.
+
+Because 7 `:build-logic:test` fixtures assert that this gate passes on the current tree, they fail with it —
+one root cause, two symptoms. Per `AGENTS.md` ("do not push while a required local check is failing") the
+branch is not pushed, and per the repository's own rule new baseline entries require a `baseline-migration`
+change with an analyzer change to justify them, which this change does not have.
+
 
 
 
