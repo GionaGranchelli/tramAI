@@ -64,6 +64,30 @@ optimization signals can rank but cannot authorize
 - Historical evidence identifies the relevant workload/config/policy/routing context.
 - Decision identity and structured reasons are not coupled to TramAI owning the workflow runtime or to provider selection as the only future decision family.
 
+### Evidence status (0.7.3h reconciliation)
+
+The hard obligation on 0.7.3h — *the execution path must select only from the viable set* — is now met:
+`ProviderExecutionCoordinator` and `StreamingExecutionCoordinator` both route through the
+`GovernedProviderEnvelope` boundary, which is entered whenever a governed routing topology exists, and
+an availability exclusion that execution advances past is answered by the continuation policy rather
+than by walking configured order. A governed execution cannot opt out of that boundary: forcing one
+down the legacy branch is killed by *"a configured next route outside the envelope is never invoked"*.
+
+| Criterion | Evidence |
+| --- | --- |
+| Every selected candidate is viable and authorized | selection reads only `ViableCandidates`, which is derived from the authorized set; mutants M4, M5 and M8 (route substitution, configured-order execution, strategy ignoring the eligible set) are all killed on this boundary |
+| Ineligible candidates cannot be selected via retry/fallback/preference | pre-open and late-open circuit exclusions consult the continuation policy exactly once and narrow with `remaining.without(chosen)`; M6/M7 (re-widening to the envelope snapshot) are killed by non-termination, which is itself the proof that monotonic narrowing is load-bearing |
+| Rejected/non-selected candidates expose structured safe reasons | `SelectionRefusal` / `ProviderFallbackReason.CIRCUIT_BREAKER_OPEN` / `FallbackDenied(CIRCUIT_OPEN_ONLY)`; the three "nothing to execute" reasons (governance refused, all candidates circuit-open, no candidate qualified) stay distinguishable, asserted in the governed execution-path suite |
+| Historical evidence identifies workload/config/policy/routing context | 0.7.3f decision identity: `GovernedRunIdentity` is transported per execution and the config topology is the explicit `ProviderRoutingConfiguration`; absence fails closed rather than being inferred |
+| Decision identity/reasons are not coupled to owning the runtime or to provider selection alone | structural: the envelope is a fact carrier over the shared selection/viability types, and no new reason or policy abstraction was introduced for 0.7.3h |
+
+**Gap against "Mutation expectations" above.** "Kill set-membership/boundary mutations, fallback
+filter removal" is covered (M4–M8). "Authorization/viability stage swaps" and "permissive defaults in
+candidate-state mapping" are **not** covered by the M1–M9 set: no mutant inverts the
+authorization/viability order and none relaxes a candidate-state mapping default. Until those two
+mutants exist and are killed, this Epic's mutation expectation is partially, not fully, satisfied.
+
+
 ## Post-Epic release checkpoint
 
 After 0.7.3 decision semantics are available, run [XR1 — External Runtime Authority Proof](CHECKPOINT-0.7-XR1-EXTERNAL-RUNTIME-AUTHORITY-PROOF.md) using Spring AI as the reference non-TramAI runtime. XR1 must complete before 0.7.4 evidence/projection contracts are considered frozen.
