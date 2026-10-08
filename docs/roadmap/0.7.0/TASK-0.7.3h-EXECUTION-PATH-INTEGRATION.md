@@ -426,3 +426,51 @@ cluster and the engine-wide hang are a regression from the governed boundary bei
 routing topology, reproduced as base-green/head-red at the same test identity. §11 records the
 evidence and the contract question it raises.
 
+## 14. Closure evidence for the conditional boundary
+
+**Implemented on both surfaces.** `ProviderExecutionCoordinator` returns
+`executeLegacy(request, resolvedRoutes)` when `governance` is null;
+`StreamingExecutionCoordinator` dispatches `if (governance == null) executeLegacy(request) else
+executeGoverned(request)`. Both legacy bodies are the pre-0.7.3h code restored verbatim from
+`f8af2510` — route walking, retry, fallback, breaker permit, cancellation and emission semantics are
+the original code, not a reconstruction. Neither branch can recover a governed refusal into legacy
+routing, and the branch is taken before governed selection.
+
+**Boundary discriminator proofs**, on each surface independently:
+
+- no governed topology → the pre-existing path executes and walks configured order after a retryable
+failure (asserted by per-provider invocation counts, not by the terminal result);
+- topology present, required fact absent → fail closed, provider invocation count 0, no legacy
+fallback;
+- candidate absent from the topology → executes without one, does not execute with one and does not
+reach the legacy path. This pair is also the M9 killing proof.
+
+**Pre-mutation ladder**: engine suites (`ProviderExecutionCoordinatorTest` 7,
+`ProviderGovernedExecutionPathTest` 28, `StreamingExecutionCoordinatorTest` 57,
+`ProviderRetryFallbackLifecyclePropertyTest` 4, `EngineMemoryIntegrationTest` 6,
+`GovernedRunScopeIdentityTest` 9) plus `:tramai-security:test` (41 classes) — rc=0, 0 failed. The two
+classes that were base-green/head-red at `3c2d26ea` are green through the legacy branch.
+
+**Mutation campaign at the final head `566d0158`** — M1–M9 with M9 split across both surfaces.
+M1 KILLED by the VISION proof; M2 by the TOOL_CALLING proof; M3 by the streaming-capability proof;
+M4 by the fallback/attempt-numbering proof; M5 by the property suite; M6 and M7 by non-termination
+(re-widening makes reselection non-terminating); M8 by the property suite; M9a by *"a configured next
+route outside the envelope is never invoked"* (+13); M9b by the streaming capability proof (+4).
+SURVIVED 0, NO_COVERAGE 0, UNDETERMINED 0, and no invalid or compile-rejected entry counted as a kill.
+
+**Two harness defects were found and fixed during this campaign; both had produced a verdict more
+favourable than the evidence.**
+
+1. The failure reader scanned every result XML in the directory, so failures from an earlier mutant's
+ run were attributed to a later mutant — every verdict named the same killing test. Attribution is
+ now restricted to XMLs written after that run began.
+2. Compile errors reach the harness on stderr as well as stdout, and a mutant that fails to compile
+ never runs the test task. That produced `SURVIVED` for a mutant that had never compiled. The
+ non-zero-rc / no-fresh-results case is now `UNDETERMINED`, and the first M9a substitution (which
+ left `configuration` nullable and could not compile) is recorded as compile-rejected, not counted,
+ and replaced by a compile-valid mutation that forces the legacy branch.
+
+**Still required before 0.7.3 can close:** the exact-head repository gates (`verifyPr`) and the
+reconciliation of the 0.7.3 epic acceptance criteria against this evidence.
+
+
