@@ -329,7 +329,7 @@ class StreamingExecutionCoordinatorTest {
         closed: AtomicBoolean = AtomicBoolean(false),
         qualifiedServiceName: String? = "test.StreamingService",
         retryPolicy: ProviderRetryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
-        governance: ProviderGovernanceConfiguration = governanceFor(routingPlan),
+        governance: ProviderGovernanceConfiguration? = governanceFor(routingPlan),
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
@@ -1026,6 +1026,46 @@ class StreamingExecutionCoordinatorTest {
             assertThat(sink.count("policy.fallback")).isEqualTo(1)
             assertThat(a.streamRequests).isEmpty()
             assertThat(b.streamRequests).isEmpty()
+        }
+    }
+
+    // ---- boundary discriminator (streaming) -----------------------------------------------------
+
+    @Test fun `without a governed topology the pre-existing streaming path still executes`() {
+        runBlocking {
+            // No governed routing topology is configured, so this execution is not a governed one and
+            // keeps its pre-0.7.3h streaming semantics: after a retryable failure it walks to the next
+            // configured route. Asserted by invocation counts, not by the terminal chunk alone.
+            val a = RecordingProvider("a") { flow { throw ProviderException("down", retryable = true) } }
+            val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("b")) } }
+            val c = coordinator(plan("a" to a, "b" to b), RecordingOperationObserver(OrderedSink()), governance = null)
+
+            val chunks = c.execute(requestWithZeroRetries()).toList()
+
+            assertThat(a.streamRequests.size).isEqualTo(1)
+            assertThat(b.streamRequests.size).isEqualTo(1)
+            assertThat(chunks).contains(StreamChunk.Complete("b"))
+        }
+    }
+
+    @Test fun `a governed streaming execution with a missing required fact fails closed`() {
+        runBlocking {
+            // The topology is present, so this execution is governed. The admitted run identity is a
+            // required governance fact: without it execution refuses and no provider is invoked.
+            // Recovering into the legacy streaming path here would be a governance downgrade.
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("a")) } }
+            val c = coordinator(plan("a" to a), RecordingOperationObserver(OrderedSink()))
+            val ungoverned =
+                StreamingExecutionRequest(
+                    operationWithZeroRetries(),
+                    listOf(classifiedInput),
+                    TokenBudgetCoordinator(defaultBudget).createTracker(),
+                    null,
+                    null,
+                )
+
+            assertThatThrownBy { runBlocking { c.execute(ungoverned).toList() } }.isInstanceOf(ProviderException::class.java)
+            assertThat(a.streamRequests).isEmpty()
         }
     }
 
