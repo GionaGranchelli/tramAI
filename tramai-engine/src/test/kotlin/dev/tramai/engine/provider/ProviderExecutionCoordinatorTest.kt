@@ -150,12 +150,22 @@ class ProviderExecutionCoordinatorTest {
     fun `fallback route events carry is_fallback true and shared attempt numbering continues`() {
         runBlocking {
             val observations = mutableListOf<RecordingObservation>()
+            val reasons = mutableListOf<String>()
             val primary = FakeProvider { throw ProviderException("down", retryable = true) }
             val secondary = FakeProvider { ModelResponse("fallback") }
-            val coordinator = coordinator(plan(primary, secondary), observerFactory = { RecordingObservation().also(observations::add) })
+            val coordinator =
+                coordinator(
+                    plan(primary, secondary),
+                    observerFactory = { RecordingObservation().also(observations::add) },
+                    fallback = ProviderFallbackGate { _, _, _, _, reason, _ -> reasons += reason },
+                )
             assertThat(coordinator.execute(executionRequest(retries = 1)).response.content).isEqualTo("fallback")
             assertThat(observations.map { it.routeSelected()["is_fallback"] }).containsExactly(false, false, true)
             assertThat(observations.map { it.routeSelected()["route_index"] }).containsExactly(0L, 0L, 1L)
+            // The transition is attributed to the retryable provider failure that caused it, never to a
+            // circuit-open exclusion: the reason travels with the transition, so a misattributed reason
+            // is a wrong explanation of why execution moved.
+            assertThat(reasons).containsExactly("provider-failure")
         }
     }
 

@@ -108,9 +108,22 @@ class ProviderGovernedExecutionPathTest {
             // beta is excluded but nothing reaches it: alpha is selected and runs, so no transition
             // past beta exists and no continuation is authorized on its behalf.
             val breaker = openCircuitFor("beta")
-            val response = coordinator(plan, breaker = breaker).execute(request())
+            val transitions = mutableListOf<String>()
+            val response =
+                coordinator(
+                    plan,
+                    breaker = breaker,
+                    fallbackGate =
+                        ProviderFallbackGate { _, previous, _, next, reason, _ ->
+                            transitions += "$previous->$next:$reason"
+                        },
+                ).execute(request())
             assertThat(response.response.content).isEqualTo("alpha")
             assertThat(invoked).containsExactly("alpha")
+            // An exclusion positioned after the running candidate gates nothing, so no transition is
+            // emitted on its behalf. Asserting the routing alone would not see a transition that is
+            // emitted without changing who executes.
+            assertThat(transitions).isEmpty()
         }
     }
 
