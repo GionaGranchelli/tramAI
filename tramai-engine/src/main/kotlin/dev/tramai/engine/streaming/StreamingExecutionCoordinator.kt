@@ -90,7 +90,226 @@ internal class StreamingExecutionCoordinator(
     /** The governed routing topology; absent means execution refuses rather than using configured routing. */
     private val governance: ProviderGovernanceConfiguration? = null,
 ) {
-    fun execute(request: StreamingExecutionRequest): Flow<StreamChunk> {
+    fun execute(request: StreamingExecutionRequest): Flow<StreamChunk> =
+        // Structural branch on authoritative configuration state: `governance` is derived from the
+        // engine's configured routing topology, so its absence means no governed routing topology
+        // exists for this execution, not that a caller omitted a request field. A governed execution
+        // never enters the legacy path: the branch is taken before governed selection and there is no
+        // recovery from a governed refusal into legacy routing.
+        if (governance == null) executeLegacy(request) else executeGoverned(request)
+
+    private fun executeLegacy(request: StreamingExecutionRequest): Flow<StreamChunk> {
+        val operation = request.operation
+        val arguments = request.arguments
+        val tokenBudgetTracker = request.tokenBudgetTracker
+        val conversationId = request.conversationId
+        val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
+        val initialMessages = operation.initialMessages(arguments)
+        val prepared = conversationMemoryCoordinator.prepareMessages(initialMessages, conversationId)
+        val history = prepared?.history ?: emptyList()
+        val effectiveMessages = prepared?.effectiveMessages ?: initialMessages
+
+        return flow {
+            check(!isClosed.get()) { "Tramai runtime is closed" }
+            // The provider collection runs as a child of the engine's OWN
+            // lifecycle job (lifecycleScope), NOT the collector's job: close()
+            // cancels lifecycleJob, which cancels an in-flight collection
+            // (including the provider stream's cleanup), and close() joins
+            // lifecycleJob — so the collection has terminated before close()
+            // returns. Chunks are bridged to the caller's emit through a
+            // RENDEZVOUS channel: emit must stay in the collector's coroutine
+            // (SafeCollector invariant), and a rendezvous keeps Flow
+            // backpressure semantics — a slow caller blocks the provider
+            // instead of letting it race ahead into unbounded buffering.
+            val chunks = Channel<StreamChunk>(Channel.RENDEZVOUS)
+            val collectFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+            val collectJob = lifecycleScope.launch {
+                try {
+                    val correlationId = identitySource.newCorrelationId()
+                    require(correlationId.isNotBlank()) { "Engine correlationId must not be blank" }
+                    beforeResolution.beforeResolution(operation, correlationId, securityContext)
+                    val candidates = routingPlan.resolveCandidates(operation.operation)
+                    var lastFailure: Throwable? = null
+                    var lastCircuitOpen: CircuitBreakerOpenException? = null
+                    val attemptCounter = AttemptCounter()
+
+                    for ((routeIndex, route) in candidates.withIndex()) {
+                        val admission = handleCircuitBreakerOpenRoute(
+                            route = route,
+                            nextRoute = candidates.getOrNull(routeIndex + 1),
+                            correlationId = correlationId,
+                            securityContext = securityContext,
+                        )
+                        if (admission is CircuitBreakerAdmission.Rejected) {
+                            lastCircuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
+                            continue
+                        }
+                        val permit = (admission as CircuitBreakerAdmission.Allowed).permit
+
+                        try {
+                            // Provider retry budget (Epic 8.2h P0-A): transient
+                            // STREAMING STARTUP failures retry the SAME route
+                            // before any token, honoring @Operation.providerRetries
+                            // exactly like the sync path — maxAttempts =
+                            // providerRetries + 1, same ProviderRetryPolicy, same
+                            // retry-after cap / backoff / jitter. Retry never
+                            // changes route; fallback only after exhaustion.
+                            // Every attempt of a route shares the SAME circuit-
+                            // breaker permit (8.2g boundary): intermediate retries
+                            // never call onFailure — only the terminal route
+                            // outcome completes breaker authority.
+                            // After any token, retry/fallback authority is
+                            // permanently gone (handleFallbackResult's
+                            // emittedAnyTokens gate).
+                            val maxAttempts = operation.operation.providerRetries + 1
+                            for (retryIndex in 0 until maxAttempts) {
+                                when (
+                                    val result = executeStreamingRoute(
+                                        StreamingExecutionRoute(
+                                            operation = operation,
+                                            route = route,
+                                            routeIndex = routeIndex,
+                                            attempt = attemptCounter.next(),
+                                            tokenBudgetTracker = tokenBudgetTracker,
+                                            memoryMessages = effectiveMessages,
+                                            historySize = history.size,
+                                            conversationId = conversationId,
+                                            emitChunk = { chunks.send(it) },
+                                            permit = permit,
+                                        ),
+                                        correlationId = correlationId,
+                                        securityContext = securityContext,
+                                        arguments = arguments,
+                                    )
+                                ) {
+                                    is StreamingRouteResult.Completed -> {
+                                        if (conversationId != null) {
+                                            val assistantMessage = Message(
+                                                role = MessageRole.ASSISTANT,
+                                                content = result.fullText,
+                                            )
+                                            conversationMemoryCoordinator.persistTurn(
+                                                PersistConversationTurnRequest(conversationId, effectiveMessages, history.size, assistantMessage),
+                                            )
+                                        }
+                                        return@launch
+                                    }
+                                    is StreamingRouteResult.StartupFailure -> {
+                                        // STREAMING_STARTUP_RETRY: recovery-eligible
+                                        // marker (8.2h P0-M, Option 1). Emitted at
+                                        // most once per route, when a retryable
+                                        // pre-token failure will ACTUALLY be
+                                        // followed by recovery — a same-route
+                                        // retry or a fallback to a next route.
+                                        // providerRetries=0 + no fallback route =
+                                        // no recovery, so no event: the name
+                                        // must never announce a retry that cannot
+                                        // happen. RETRY_SCHEDULED remains the
+                                        // decision event for actual same-route
+                                        // retries.
+                                        val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)
+                                        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || candidates.getOrNull(routeIndex + 1) != null)) {
+                                            recordStartupRetryEvent(route.providerName, result.error::class.simpleName ?: "unknown", result.observation)
+                                        }
+                                        when (decision) {
+                                            is ProviderRetryDecision.Retry -> {
+                                                result.observation.emitRuntimeEvent(
+                                                    RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
+                                                        set(RuntimeAttributes.PROVIDER_ID, route.providerName)
+                                                        set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
+                                                        set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
+                                                        set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
+                                                    },
+                                                )
+                                                delay(decision.delayMillis)
+                                            }
+                                            ProviderRetryDecision.Stop -> {
+                                                // Stop is authoritative REGARDLESS of why it
+                                                // stopped (exhaustion OR classification): it
+                                                // permanently relinquishes same-route retry
+                                                // authority (8.2h P0-O). The fallback gate was
+                                                // already enforced above; break exits this
+                                                // route so the outer candidate loop advances
+                                                // exactly once.
+                                                recordCircuitBreakerFailure(permit, result.error, result.observation)
+                                                enforceStreamingFallbackAfterFailure(
+                                                    error = result.error,
+                                                    route = route,
+                                                    nextRoute = candidates.getOrNull(routeIndex + 1),
+                                                    correlationId = correlationId,
+                                                    securityContext = securityContext,
+                                                )
+                                                lastFailure = result.error
+                                                break
+                                            }
+                                        }
+                                    }
+                                    is StreamingRouteResult.TerminalError -> {
+                                        chunks.send(result.errorChunk)
+                                        return@launch
+                                    }
+                                }
+                            }
+                        } finally {
+                            // Structural permit relinquishment (same invariant
+                            // as the sync coordinator): admission creates an
+                            // obligation and scope exit ALWAYS discharges it.
+                            // Covers the streaming pre-try escapes that manual
+                            // call-site cleanup could miss — startStreamingObservation
+                            // observer failures and collectStreamingRoute's
+                            // interceptRequest, both of which run before their
+                            // own try. Idempotent by construction: success and
+                            // recorded failures have already advanced the state
+                            // (CLOSED / OPEN gen+1), so this is a no-op there;
+                            // an unrecorded neutral escape releases the probe.
+                            circuitBreaker.onAbandoned(permit)
+                        }
+                    }
+
+                    chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
+                } catch (e: CancellationException) {
+                    // The engine closed (or the collector stopped): terminate
+                    // the collection job normally; the invokeOnCompletion
+                    // below closes the channel with the cancellation cause.
+                    throw e
+                } catch (failure: Throwable) {
+                    failure.rethrowIfCancellation()
+                    // Surface the failure to the collector WITHOUT rethrowing
+                    // it here: rethrowing would let an arbitrary (possibly
+                    // sensitive, externally supplied) throwable reach the
+                    // lifecycle scope's CoroutineExceptionHandler and the
+                    // normal logger. The collector rethrows it after the
+                    // channel drains.
+                    collectFailure.set(failure)
+                }
+            }
+            // Channel termination depends on JOB completion, not on the
+            // coroutine body having started: if close() cancels lifecycleJob
+            // after the flow's open check but before this launch's body runs,
+            // the body's finally never executes — but invokeOnCompletion still
+            // fires, closing the channel so the collector terminates instead
+            // of hanging forever on receive.
+            collectJob.invokeOnCompletion { cause -> chunks.close(cause) }
+            try {
+                for (chunk in chunks) {
+                    check(!isClosed.get()) { "Tramai runtime is closed" }
+                    emit(chunk)
+                }
+                // The collection job may have failed (e.g. provider does not
+                // support streaming, or a route error aborted the loop): the
+                // channel closes either way, so rethrow the job's failure here
+                // instead of silently completing the flow.
+                collectFailure.get()?.let { throw it }
+            } finally {
+                // If the caller stops collecting (or the engine closed), the
+                // engine-owned collection job must not keep running.
+                collectJob.cancel()
+                collectJob.join()
+            }
+        }
+    }
+
+    private fun executeGoverned(request: StreamingExecutionRequest): Flow<StreamChunk> {
         val operation = request.operation
         val arguments = request.arguments
         val tokenBudgetTracker = request.tokenBudgetTracker
