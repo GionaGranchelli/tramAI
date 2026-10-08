@@ -1069,6 +1069,33 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `a streaming candidate absent from the governed topology executes without one and cannot escape with one`() {
+        runBlocking {
+            // The same plan twice. Without a topology the provider runs through the legacy streaming
+            // path; with a topology that carries no deployment for it, the same provider does not run.
+            // The pair is the proof that a governed streaming execution cannot opt out of authority by
+            // entering the legacy branch.
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("a")) } }
+            val routingPlan = plan("a" to a)
+
+            val legacy = coordinator(routingPlan, RecordingOperationObserver(OrderedSink()), governance = null)
+            assertThat(legacy.execute(requestWithZeroRetries()).toList()).contains(StreamChunk.Complete("a"))
+            assertThat(a.streamRequests.size).isEqualTo(1)
+
+            a.streamRequests.clear()
+            // A topology for a plan that does not carry 'a': the provider has no deployment, so it is
+            // not a governed candidate. Built rather than copied because the configuration is a plain
+            // class, not a data class.
+            val topologyWithoutA = governanceFor(plan())
+            val governed = coordinator(routingPlan, RecordingOperationObserver(OrderedSink()), governance = topologyWithoutA)
+
+            val chunks = governed.execute(requestWithZeroRetries()).toList()
+
+            assertThat(a.streamRequests).isEmpty()
+            assertThat(chunks.filterIsInstance<StreamChunk.Error>()).isNotEmpty()
+        }
+    }
+
     @Test fun `fallback gate denial prevents second provider invocation`() {
         val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }; val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
         val c = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(OrderedSink()), denyFallback = true)
