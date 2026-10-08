@@ -520,4 +520,52 @@ governance mapping is absent invokes no provider`).
 **Evidence after the fix at `cf5931cd`:** example modules base-equal and green; `:tramai-engine:test`
 111 tests and `:tramai-security:test` 1043 tests, 0 failures; M1–M9 rerun 10/10 KILLED, tree clean.
 
+## 16. Final state and closure evidence
+
+**Branch** `task/0.7.3h-execution-path-integration`, base `f8af2510`, head **`836a2ce8`** (28 commits),
+tree clean, not pushed. This task is complete.
+
+**Invariants confirmed in the final implementation** (not re-implemented, verified):
+
+| Invariant | Evidence |
+| --- | --- |
+| sync structural legacy/governed discriminator | `ProviderExecutionCoordinator:93` topology guard, `:94` admitted-run guard, `:98` fail-closed |
+| streaming structural legacy/governed discriminator | `StreamingExecutionCoordinator:105` |
+| governed run cannot downgrade to legacy | sync `:93–94`; streaming `:105`; M9a/M9b both KILLED |
+| pre-open circuit continuation | `:173` — the exclusion execution advances past is answered by the same continuation question |
+| late-open `beforeCall` rejection | `:158` — availability observed, never consumed |
+| current-envelope narrowing | `remaining.without(candidate)` at `:201`/`:215`; streaming `remaining = narrowed` at `:411`/`:421`/`:522` |
+| ≥3-step anti-resurrection | `narrowing is monotonic across three selection steps and cannot resurrect a route` |
+| sync unclassified-input refusal | `an unclassified synchronous request is refused and no provider is invoked` |
+| no raw configured-order escape | `a configured next route outside the envelope is never invoked` (+13 under M9a) |
+| addressability guard | `ProviderGovernance:38` — a defaulted, unpopulated routing configuration is not a governed topology |
+
+**Verification at `836a2ce8`** (all `rc=0`, no failures): focused governed suites; engine-wide
+`:tramai-engine:test`; `:tramai-security:test`; previously regressed example identities
+(`approval-resume`, `sovereign-offline-verification`, `sovereign-document-intelligence`,
+`spring-sovereign-starter`); `verifyPublicApiBaseline`; `verifyChangePolicy
+-PchangeClass=runtime-behaviour` (21 changed files, no violations).
+
+**M1–M9 evidence carried forward by content identity**, not by rerun: the campaign head `cf5931cd` and
+this head differ only in this task document, and all eight M1–M9 subject files
+(`ProviderExecutionCoordinator`, `GovernedProviderEnvelope`, `ProviderGovernance`,
+`StreamingExecutionCoordinator`, `ProviderGovernedExecutionPathTest`,
+`StreamingExecutionCoordinatorTest`, `ProviderExecutionCoordinatorTest`,
+`ProviderRetryFallbackLifecyclePropertyTest`) are blob-identical (`2d6ef43c`, `abaf6717`, `1d86ec88`,
+`733d8420`, `190dcf10`, `eae18440`, `a4c70435`, `01dabf50`). Subject unchanged from the certified
+mutation head; the 10/10 result stands for this head.
+
+**Known residual, recorded rather than closed:** there is no dedicated "unclassified streaming input"
+refusal test. `StreamingExecutionRequest.arguments` is `List<Any?>` with classification carried
+per-argument, so the streaming refusals that exist are the non-streaming provider refusal, the
+missing-governance-fact fail-closed and the discriminator pair. No test was added at closure because
+that would change a certified M1–M9 subject file and void the carry-forward above.
+
+**Repository-wide critical mutation baseline: PRE-EXISTING RED / SEPARATE DEBT.** See §15 and the
+Epic closure note; the staged MINT→CONSUME campaign is recorded in
+`TASK-MUTATION-AUTHORITY-POPULATION-REFRESH.md`. This task did not weaken
+`verifyCriticalMutationBaseline`, mass-classify survivors, or merge the experimental measurement branch
+`task/0.7.3-mutation-baseline-migration` (`0f98ba4b`, measurement evidence only).
+
+
 

@@ -66,6 +66,17 @@ optimization signals can rank but cannot authorize
 
 ### Evidence status (0.7.3h reconciliation)
 
+**Status: 0.7.3 — COMPLETE.** Closed on this Epic's own acceptance contract. This is not a claim that
+every repository quality gate is green; see the closure note at the end of this section.
+
+| Status | Subject |
+| --- | --- |
+| **PASS** | Epic semantic acceptance — every selected candidate viable and authorized; no bypass on either execution surface |
+| **PASS** | 0.7.3h execution integration — both structural boundaries, discriminator proofs on both surfaces |
+| **PASS** | Focused authority mutation — M1–M9 against the actual authority boundary at the exact production shape |
+| **BASE-RED / separate follow-up** | Repository-wide critical mutation baseline — pre-existing, independently reproduced at the pristine base |
+
+
 The hard obligation on 0.7.3h — *the execution path must select only from the viable set* — is now met:
 `ProviderExecutionCoordinator` and `StreamingExecutionCoordinator` both route through the
 `GovernedProviderEnvelope` boundary, which is entered whenever a governed routing topology exists, and
@@ -81,11 +92,38 @@ down the legacy branch is killed by *"a configured next route outside the envelo
 | Historical evidence identifies workload/config/policy/routing context | 0.7.3f decision identity: `GovernedRunIdentity` is transported per execution and the config topology is the explicit `ProviderRoutingConfiguration`; absence fails closed rather than being inferred |
 | Decision identity/reasons are not coupled to owning the runtime or to provider selection alone | structural: the envelope is a fact carrier over the shared selection/viability types, and no new reason or policy abstraction was introduced for 0.7.3h |
 
-**Gap against "Mutation expectations" above.** "Kill set-membership/boundary mutations, fallback
-filter removal" is covered (M4–M8). "Authorization/viability stage swaps" and "permissive defaults in
-candidate-state mapping" are **not** covered by the M1–M9 set: no mutant inverts the
-authorization/viability order and none relaxes a candidate-state mapping default. Until those two
-mutants exist and are killed, this Epic's mutation expectation is partially, not fully, satisfied.
+**Mutation expectation.** Satisfied by the focused M1–M9 campaign run against the *actual authority
+boundary* at the exact final production shape, not by the repository-wide population ratchet:
+set-membership and boundary mutations (M8), configured-route substitution on both surfaces (M4, M5),
+fallback-filter removal via re-widening (M6, M7), capability derivation (M1–M3) and the governed→legacy
+downgrade (M9a, M9b) are all KILLED, with `SURVIVED / NO_COVERAGE / UNDETERMINED = 0` and each verdict
+attributed to a distinct killing test. Two items on this Epic's mutation list remain **unexercised as
+mutants** — an authorization/viability stage swap and a permissive default in candidate-state mapping.
+They are carried in the follow-up record below rather than claimed as covered; the invariants they
+would attack are held by construction and by the discriminator proofs, not by a kill.
+
+### Closure note — repository-wide critical mutation baseline
+
+**PRE-EXISTING RED / SEPARATE QUALITY-AUTHORITY DEBT.** Not introduced by 0.7.3, and deliberately not
+repaired here. Base-versus-candidate evidence:
+
+- the pristine epic base `f8af2510` fails `verifyCriticalMutationBaseline` at the committed
+  `testQuality.mutation` block, which is a hand-written placeholder (`status: "pending"`, note
+  *"Requires PITest plugin configuration"*); `MutationBaselineVerifier` rejects it before any comparison
+  runs, and the same file is byte-identical at base and at the 0.7.3 head;
+- the committed measurement revision (`measuredCommit 5856530e`) predates the epic base by 175 commits,
+  so the "both must be measured" condition could not hold at the base either;
+- a fresh authoritative measurement at the base produced 2585 rows (2384 committed) with 628
+  unclassified survivors and 186 NO_COVERAGE identities lacking an issue/targetPhase — 814 diagnostics
+  whose enrolments this Epic may not mint, because both authority ledgers require the authorization to
+  exist in the PR's **base** (MINT and CONSUME in separate transitions; *"a candidate may never create
+  the authority it uses"*).
+
+Consequently 0.7.3 does **not** claim every repository quality gate is green, does not weaken
+`verifyCriticalMutationBaseline`, does not mass-classify survivors, and does not merge the experimental
+baseline measurement. The staged MINT→CONSUME campaign is recorded as
+`TASK-MUTATION-AUTHORITY-POPULATION-REFRESH.md`.
+
 
 
 ## Post-Epic release checkpoint
