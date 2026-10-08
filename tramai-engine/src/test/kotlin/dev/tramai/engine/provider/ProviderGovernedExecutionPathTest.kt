@@ -493,6 +493,67 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
+    // ---- 18. boundary discriminator: the presence of a governed topology is the switch ---------
+
+    @Test
+    fun `without a governed topology the pre-existing routing path still executes`() {
+        runBlocking {
+            // No governed routing topology is configured for this engine, so this execution is not a
+            // governed one: routing keeps its pre-0.7.3h semantics, including walking to the fallback
+            // route in configured order after a retryable failure. The governed selector is not
+            // consulted and is not required.
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers =
+                        mapOf(
+                            "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
+                            "beta" to provider("beta"),
+                        ),
+                )
+
+            val response = coordinator(plan, governance = null).execute(request())
+
+            assertThat(response.response.content).isEqualTo("beta")
+            assertThat(invoked).containsExactly("alpha", "beta")
+        }
+    }
+
+    @Test
+    fun `a governed execution with a missing required fact fails closed rather than falling back to legacy`() {
+        runBlocking {
+            val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha")))
+            // The topology exists, so this execution is governed. The run identity is a required
+            // governance fact; its absence must fail closed. Recovering into legacy routing would
+            // downgrade a governed execution, which is exactly what is forbidden.
+            val thrown = catchThrowable { runBlocking { coordinator(plan).execute(request(run = null)) } }
+
+            assertThat(thrown).isInstanceOf(ProviderException::class.java)
+            assertThat(invoked).isEmpty()
+        }
+    }
+
+    @Test
+    fun `a candidate absent from the governed topology executes without one and cannot escape with one`() {
+        runBlocking {
+            // The same plan is executed twice. Without a topology the provider runs through the
+            // legacy path; with a topology that does not carry it, the same provider does not run.
+            // The pair is the proof that a governed execution cannot opt out of authority by taking
+            // the legacy branch.
+            val plan = planOf(chain = listOf("alpha"), providers = mapOf("alpha" to provider("alpha")))
+
+            assertThat(coordinator(plan, governance = null).execute(request()).response.content).isEqualTo("alpha")
+            assertThat(invoked).containsExactly("alpha")
+
+            invoked.clear()
+            val topologyWithoutAlpha = governance(deployments = mapOf("brand-local" to ProviderTrustZone.LOCAL))
+            val thrown = catchThrowable { runBlocking { coordinator(plan, governance = topologyWithoutAlpha).execute(request()) } }
+
+            assertThat(thrown).isInstanceOf(ProviderException::class.java)
+            assertThat(invoked).isEmpty()
+        }
+    }
+
     // ---- 17. capability cannot be bypassed ------------------------------------------------------
 
     @Test
@@ -677,7 +738,7 @@ class ProviderGovernedExecutionPathTest {
     private fun coordinator(
         plan: ProviderRoutingPlan,
         breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
-        governance: ProviderGovernanceConfiguration = governance(),
+        governance: ProviderGovernanceConfiguration? = governance(),
         preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
         fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
     ): ProviderExecutionCoordinator {
