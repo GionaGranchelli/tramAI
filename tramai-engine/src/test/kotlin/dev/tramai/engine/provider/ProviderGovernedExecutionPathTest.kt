@@ -8,10 +8,10 @@ import dev.tramai.core.identity.ConfigurationId
 import dev.tramai.core.identity.ConfigurationVersion
 import dev.tramai.core.identity.DeploymentId
 import dev.tramai.core.identity.EnvironmentId
-import dev.tramai.core.identity.WorkloadConfigurationIdentity
-import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.RunId
+import dev.tramai.core.identity.WorkloadConfigurationIdentity
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.identity.WorkloadId
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
@@ -47,12 +47,12 @@ import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.governance.NamedTrustZone
 import dev.tramai.security.governance.ProviderDeployment
-import dev.tramai.security.governance.TrustZonePolicy
 import dev.tramai.security.governance.TrustZoneName
+import dev.tramai.security.governance.TrustZonePolicy
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Test
 import org.assertj.core.api.Assertions.catchThrowable
+import org.junit.jupiter.api.Test
 
 /**
  * 0.7.3h execution-path proof.
@@ -82,10 +82,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a pre-open primary circuit consults the continuation policy and the viable fallback runs`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             // alpha is authorized but not viable: its circuit is already open at the snapshot, so the
             // transition past it to the viable fallback is a continuation, not an execution.
             val breaker = openCircuitFor("alpha")
@@ -99,10 +100,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `an exclusion positioned after the selected candidate does not gate it`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             // beta is excluded but nothing reaches it: alpha is selected and runs, so no transition
             // past beta exists and no continuation is authorized on its behalf.
             val breaker = openCircuitFor("beta")
@@ -114,17 +116,21 @@ class ProviderGovernedExecutionPathTest {
 
     private fun openCircuitFor(providerId: String): ProviderCircuitBreaker {
         val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000L))
-        breaker.onFailure((breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit, ProviderException("down", retryable = true))
+        breaker.onFailure(
+            (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit,
+            ProviderException("down", retryable = true),
+        )
         return breaker
     }
 
     @Test
     fun `an unclassified synchronous request is refused and no provider is invoked`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             val unclassified =
                 ProviderExecutionRequest(
                     componentOperation(0),
@@ -148,10 +154,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a pre-open primary circuit whose continuation policy denies is terminal and invokes nobody`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             val thrown =
                 catchThrowable {
                     runBlocking {
@@ -166,10 +173,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a late circuit rejection narrows the envelope and reselects only if policy permits`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             // alpha is viable at the snapshot and rejected at beforeCall: the same continuation
             // question as a pre-open exclusion, reached by a different mechanism.
             val allowed = coordinator(plan, breaker = lateRejectingBreaker("alpha")).execute(request())
@@ -189,7 +197,17 @@ class ProviderGovernedExecutionPathTest {
     }
 
     /** A gate that refuses continuation, reusing the existing policy refusal shape. */
-    private fun denyingGate() = ProviderFallbackGate { _, _, _, _, _, _ -> throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST")) }
+    private fun denyingGate() =
+        ProviderFallbackGate {
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            ->
+            throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
+        }
 
     /**
      * Viable at the viability snapshot, rejected at admission: the late race. Availability is read
@@ -201,17 +219,24 @@ class ProviderGovernedExecutionPathTest {
             override fun openUntilMillis(providerId: String): Long? = null
 
             override fun beforeCall(providerId: String): CircuitBreakerAdmission =
-                if (providerId == rejectProviderId) CircuitBreakerAdmission.Rejected(System.currentTimeMillis() + 60_000L) else super.beforeCall(providerId)
+                if (providerId ==
+                    rejectProviderId
+                ) {
+                    CircuitBreakerAdmission.Rejected(System.currentTimeMillis() + 60_000L)
+                } else {
+                    super.beforeCall(providerId)
+                }
         }
 
     @Test
     fun `an unauthorized primary is never invoked and the authorized fallback is selected`() {
         runBlocking {
             // "global" sits in a zone no permitted pair allows, so authorization refuses it.
-            val plan = planOf(
-                chain = listOf("global", "alpha"),
-                providers = mapOf("global" to provider("global"), "alpha" to provider("alpha")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("global", "alpha"),
+                    providers = mapOf("global" to provider("global"), "alpha" to provider("alpha")),
+                )
 
             assertThat(coordinator(plan).execute(request()).response.content).isEqualTo("alpha")
             assertThat(invoked).containsExactly("alpha")
@@ -223,10 +248,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `an authorized but unavailable primary is never invoked and the viable candidate is used`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("beta", "alpha"),
-                providers = mapOf("beta" to provider("beta"), "alpha" to provider("alpha")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("beta", "alpha"),
+                    providers = mapOf("beta" to provider("beta"), "alpha" to provider("alpha")),
+                )
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(true, 1, 60_000)) { 0L }
             breaker.onFailure(
                 (breaker.beforeCall("beta") as CircuitBreakerAdmission.Allowed).permit,
@@ -282,13 +308,15 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `fallback narrows the envelope and reselects from it`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf(
-                    "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
-                    "beta" to provider("beta"),
-                ),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers =
+                        mapOf(
+                            "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
+                            "beta" to provider("beta"),
+                        ),
+                )
 
             assertThat(coordinator(plan).execute(request()).response.content).isEqualTo("beta")
             assertThat(invoked).containsExactly("alpha", "beta")
@@ -302,13 +330,15 @@ class ProviderGovernedExecutionPathTest {
         runBlocking {
             // Configured order is alpha then global; global is forbidden by zone. Fallback must
             // narrow to nothing, never advance to the next configured route.
-            val plan = planOf(
-                chain = listOf("alpha", "global"),
-                providers = mapOf(
-                    "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
-                    "global" to provider("global"),
-                ),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "global"),
+                    providers =
+                        mapOf(
+                            "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
+                            "global" to provider("global"),
+                        ),
+                )
 
             catchThrowable { runBlocking { coordinator(plan).execute(request()) } }
 
@@ -322,10 +352,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a preference for a forbidden candidate cannot inject it`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("global", "alpha"),
-                providers = mapOf("global" to provider("global"), "alpha" to provider("alpha")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("global", "alpha"),
+                    providers = mapOf("global" to provider("global"), "alpha" to provider("alpha")),
+                )
             // The preference asks for the forbidden candidate first, every time.
             val hostile = ProviderSelectionPreference { _, _ -> selectedButForbidden }
 
@@ -341,10 +372,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `an unavailable candidate is never invoked and the next candidate comes from selection`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("beta", "alpha"),
-                providers = mapOf("beta" to provider("beta"), "alpha" to provider("alpha")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("beta", "alpha"),
+                    providers = mapOf("beta" to provider("beta"), "alpha" to provider("alpha")),
+                )
             // beta's circuit is open before execution starts.
             val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(true, 1, 60_000)) { 0L }
             breaker.beforeCall("beta")
@@ -364,10 +396,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a selected candidate that loses admission narrows the envelope and reselects`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             // Viability observes the circuit as available, admission then rejects the first
             // candidate: the race must narrow authority, never widen it.
             val rejecting =
@@ -396,13 +429,24 @@ class ProviderGovernedExecutionPathTest {
     fun `retry of the selected route does not select another candidate`() {
         runBlocking {
             var calls = 0
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf(
-                    "alpha" to provider("alpha") { if (calls++ == 0) throw ProviderException("transient", retryable = true) else ModelResponse("alpha-ok") },
-                    "beta" to provider("beta"),
-                ),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers =
+                        mapOf(
+                            "alpha" to
+                                provider("alpha") {
+                                    if (calls++ ==
+                                        0
+                                    ) {
+                                        throw ProviderException("transient", retryable = true)
+                                    } else {
+                                        ModelResponse("alpha-ok")
+                                    }
+                                },
+                            "beta" to provider("beta"),
+                        ),
+                )
 
             assertThat(coordinator(plan).execute(request(retries = 1)).response.content).isEqualTo("alpha-ok")
             assertThat(invoked).containsExactly("alpha", "alpha")
@@ -414,13 +458,15 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `retry exhaustion narrows and the next candidate is selected from the envelope`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf(
-                    "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
-                    "beta" to provider("beta"),
-                ),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers =
+                        mapOf(
+                            "alpha" to provider("alpha") { throw ProviderException("down", retryable = true) },
+                            "beta" to provider("beta"),
+                        ),
+                )
 
             assertThat(coordinator(plan).execute(request(retries = 1)).response.content).isEqualTo("beta")
             assertThat(invoked).containsExactly("alpha", "alpha", "beta")
@@ -448,10 +494,11 @@ class ProviderGovernedExecutionPathTest {
     @Test
     fun `a throwing preference fails closed without fallback or invocation`() {
         runBlocking {
-            val plan = planOf(
-                chain = listOf("alpha", "beta"),
-                providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("alpha", "beta"),
+                    providers = mapOf("alpha" to provider("alpha"), "beta" to provider("beta")),
+                )
             val throwing = ProviderSelectionPreference { _, _ -> throw IllegalStateException("hostile preference") }
 
             val thrown = catchThrowable { runBlocking { coordinator(plan, preference = throwing).execute(request()) } }
@@ -468,10 +515,11 @@ class ProviderGovernedExecutionPathTest {
         runBlocking {
             // Same brand, two registrations, two zones. Only the LOCAL one may be used for a
             // LOCAL workload, and the invoked route must be the one that was selected.
-            val plan = planOf(
-                chain = listOf("brand-global", "brand-local"),
-                providers = mapOf("brand-global" to provider("brand-global"), "brand-local" to provider("brand-local")),
-            )
+            val plan =
+                planOf(
+                    chain = listOf("brand-global", "brand-local"),
+                    providers = mapOf("brand-global" to provider("brand-global"), "brand-local" to provider("brand-local")),
+                )
 
             assertThat(coordinator(plan).execute(request()).response.content).isEqualTo("brand-local")
             assertThat(invoked).containsExactly("brand-local")
@@ -655,27 +703,38 @@ class ProviderGovernedExecutionPathTest {
             deployment = deployment("global", ProviderTrustZone.GLOBAL_CLOUD),
         )
 
-    private fun provider(name: String, vision: Boolean = true, toolCalling: Boolean = true, block: suspend () -> ModelResponse = { ModelResponse(name) }) =
-        object : ModelProvider {
-            override suspend fun complete(request: ModelRequest): ModelResponse {
-                invoked += name
-                return block()
-            }
-
-            override fun providerId() = name
-
-            override fun supportsCapability(capability: ProviderCapability) =
-                when (capability) {
-                    ProviderCapability.VISION -> vision
-                    ProviderCapability.TOOL_CALLING -> toolCalling
-                    else -> true
-                }
+    private fun provider(
+        name: String,
+        vision: Boolean = true,
+        toolCalling: Boolean = true,
+        block: suspend () -> ModelResponse = {
+            ModelResponse(name)
+        },
+    ) = object : ModelProvider {
+        override suspend fun complete(request: ModelRequest): ModelResponse {
+            invoked += name
+            return block()
         }
 
-    private fun deployment(providerId: String, zone: ProviderTrustZone) =
-        ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), zone))
+        override fun providerId() = name
 
-    private fun planOf(chain: List<String>, providers: Map<String, ModelProvider>): ProviderRoutingPlan {
+        override fun supportsCapability(capability: ProviderCapability) =
+            when (capability) {
+                ProviderCapability.VISION -> vision
+                ProviderCapability.TOOL_CALLING -> toolCalling
+                else -> true
+            }
+    }
+
+    private fun deployment(
+        providerId: String,
+        zone: ProviderTrustZone,
+    ) = ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), zone))
+
+    private fun planOf(
+        chain: List<String>,
+        providers: Map<String, ModelProvider>,
+    ): ProviderRoutingPlan {
         val builder = ProviderRoutingPlan.builder()
         providers.forEach { (name, instance) -> builder.provider(name, instance) }
         builder.model("model", chain.first())
@@ -684,7 +743,13 @@ class ProviderGovernedExecutionPathTest {
     }
 
     private fun governance(
-        deployments: Map<String, ProviderTrustZone> = mapOf("alpha" to ProviderTrustZone.LOCAL, "beta" to ProviderTrustZone.LOCAL, "brand-local" to ProviderTrustZone.LOCAL, "brand-global" to ProviderTrustZone.GLOBAL_CLOUD),
+        deployments: Map<String, ProviderTrustZone> =
+            mapOf(
+                "alpha" to ProviderTrustZone.LOCAL,
+                "beta" to ProviderTrustZone.LOCAL,
+                "brand-local" to ProviderTrustZone.LOCAL,
+                "brand-global" to ProviderTrustZone.GLOBAL_CLOUD,
+            ),
         pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
     ) = ProviderGovernanceConfiguration(
         rules =
@@ -717,7 +782,10 @@ class ProviderGovernedExecutionPathTest {
             override val idempotent = false
             override val sideEffectLevel = SideEffectLevel.WRITE
 
-            override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult = error("a refused capability must not reach a tool call")
+            override suspend fun execute(
+                input: Any,
+                context: ToolExecutionContext,
+            ): ToolResult = error("a refused capability must not reach a tool call")
         }
 
     /** An operation exposing a tool: the actual request fact that makes TOOL_CALLING required. */
@@ -729,8 +797,16 @@ class ProviderGovernedExecutionPathTest {
 
     private fun toolOperation(): OperationDefinition {
         val method = ToolExposingService::class.java.methods.single { it.name == "pay" }
-        val compiler = ServiceDefinitionCompiler(OperationDefinitionCompiler(ToolRegistry(mapOf(paymentTool.name to paymentTool)), null, OperationFingerprintFactory()))
-        return compiler.compile(ToolExposingService::class).operations.getValue(method).definition ?: error("the tool-exposing operation must compile")
+        val compiler =
+            ServiceDefinitionCompiler(
+                OperationDefinitionCompiler(ToolRegistry(mapOf(paymentTool.name to paymentTool)), null, OperationFingerprintFactory()),
+            )
+        return compiler
+            .compile(ToolExposingService::class)
+            .operations
+            .getValue(method)
+            .definition
+            ?: error("the tool-exposing operation must compile")
     }
 
     private fun request(
@@ -758,7 +834,9 @@ class ProviderGovernedExecutionPathTest {
         preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
         fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
     ): ProviderExecutionCoordinator {
-        val observer = dev.tramai.core.observation.OperationObserver { RecordingObservation() }
+        val observer =
+            dev.tramai.core.observation
+                .OperationObserver { RecordingObservation() }
         val attempt =
             ProviderAttemptExecutor(
                 "service",
@@ -787,8 +865,10 @@ class ProviderGovernedExecutionPathTest {
         ProviderAuthorizationService(
             ModelRegistryEnforcer(
                 object : ModelRegistry {
-                    override suspend fun findApprovedModel(providerId: String, modelName: String) =
-                        RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
+                    override suspend fun findApprovedModel(
+                        providerId: String,
+                        modelName: String,
+                    ) = RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
                 },
                 ModelRegistrySettings(enabled = true),
             ),

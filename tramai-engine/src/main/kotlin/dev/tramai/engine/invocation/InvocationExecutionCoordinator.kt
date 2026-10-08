@@ -11,7 +11,6 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ToolInvalidInputException
-import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
@@ -57,6 +56,7 @@ import dev.tramai.engine.provider.ProviderExecutionCoordinator
 import dev.tramai.engine.provider.ProviderExecutionRequest
 import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderFallbackPolicy
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.provider.ProviderResponseSanitizer
@@ -229,7 +229,7 @@ internal class InvocationExecutionCoordinator(
             beforeResolution = beforeResolutionGate,
             fallbackGate = fallbackGate,
             governance = providerGovernance,
-            )
+        )
     private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
     private val conversationMemoryCoordinator =
         ConversationMemoryCoordinator(
@@ -273,7 +273,7 @@ internal class InvocationExecutionCoordinator(
                     enforceBeforeResponseReturn(route, correlationId, securityContext)
                 },
             governance = providerGovernance,
-            )
+        )
     private val toolResultSanitizer =
         ToolResultSanitizer(
             toolRegistry = toolRegistry,

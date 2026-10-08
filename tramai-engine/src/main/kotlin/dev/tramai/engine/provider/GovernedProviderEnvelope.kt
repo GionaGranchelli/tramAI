@@ -146,9 +146,10 @@ internal fun governProviderExecution(
 
     // Availability is observed, never consumed: beforeCall grants a permit and can revive an expired
     // circuit, so evaluating viability with it would change the state it is reading.
-    val viability = CandidateViability { candidate ->
-        if (circuitBreaker.openUntilMillis(candidate.providerId) != null) ViabilityRefusal.AVAILABILITY else null
-    }
+    val viability =
+        CandidateViability { candidate ->
+            if (circuitBreaker.openUntilMillis(candidate.providerId) != null) ViabilityRefusal.AVAILABILITY else null
+        }
     val viable = viability.viableCandidates(authorized)
     return GovernedProviderEnvelope(authorizedSet, viable, authorizedSet.isEmpty(), routesByCandidate, indexByRoute, configuredOrder)
 }

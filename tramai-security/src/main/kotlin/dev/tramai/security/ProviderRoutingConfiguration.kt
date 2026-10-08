@@ -12,8 +12,10 @@ import dev.tramai.security.governance.ProviderDeployment
 enum class ProviderTrustZone {
     /** Same-host or isolated network boundary (Ollama, vLLM, llama.cpp). */
     LOCAL,
+
     /** Cloud providers hosted within the EU trust boundary. */
     EU_CLOUD,
+
     /** Global cloud providers outside EU jurisdiction. */
     GLOBAL_CLOUD,
 }
@@ -68,7 +70,7 @@ data class ProviderRoutingConfiguration(
         rules.forEach { (classification, rule) ->
             require(rule.allowedFallbackZones.all { it in rule.allowedZones }) {
                 "allowedFallbackZones ($classification) must be subset of allowedZones: " +
-                "allowedZones=${rule.allowedZones}, allowedFallbackZones=${rule.allowedFallbackZones}"
+                    "allowedZones=${rule.allowedZones}, allowedFallbackZones=${rule.allowedFallbackZones}"
             }
         }
         providerZones.forEach { (key, _) ->
@@ -98,22 +100,26 @@ data class ProviderRoutingConfiguration(
             val localOnly = setOf(ProviderTrustZone.LOCAL)
             val localAndEu = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD)
             return mapOf(
-                DataClassification.RESTRICTED to ClassificationRoutingRule(
-                    allowedZones = localOnly,
-                    allowedFallbackZones = emptySet(),
-                ),
-                DataClassification.CONFIDENTIAL to ClassificationRoutingRule(
-                    allowedZones = localAndEu,
-                    allowedFallbackZones = localAndEu,
-                ),
-                DataClassification.INTERNAL to ClassificationRoutingRule(
-                    allowedZones = allZones,
-                    allowedFallbackZones = allZones,
-                ),
-                DataClassification.PUBLIC to ClassificationRoutingRule(
-                    allowedZones = allZones,
-                    allowedFallbackZones = allZones,
-                ),
+                DataClassification.RESTRICTED to
+                    ClassificationRoutingRule(
+                        allowedZones = localOnly,
+                        allowedFallbackZones = emptySet(),
+                    ),
+                DataClassification.CONFIDENTIAL to
+                    ClassificationRoutingRule(
+                        allowedZones = localAndEu,
+                        allowedFallbackZones = localAndEu,
+                    ),
+                DataClassification.INTERNAL to
+                    ClassificationRoutingRule(
+                        allowedZones = allZones,
+                        allowedFallbackZones = allZones,
+                    ),
+                DataClassification.PUBLIC to
+                    ClassificationRoutingRule(
+                        allowedZones = allZones,
+                        allowedFallbackZones = allZones,
+                    ),
             )
         }
     }

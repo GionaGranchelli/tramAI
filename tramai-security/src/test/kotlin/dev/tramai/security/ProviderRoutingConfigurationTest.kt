@@ -64,12 +64,15 @@ class ProviderRoutingConfigurationTest {
         assertThat(configuration.workloadZones[identity("deployment-c")]).isNull()
     }
 
-    private fun deployment(providerId: String, zone: ProviderTrustZone, deploymentId: String) =
-        ProviderDeployment(
-            deploymentId,
-            providerId,
-            NamedTrustZone(TrustZoneName("zone-$deploymentId"), zone),
-        )
+    private fun deployment(
+        providerId: String,
+        zone: ProviderTrustZone,
+        deploymentId: String,
+    ) = ProviderDeployment(
+        deploymentId,
+        providerId,
+        NamedTrustZone(TrustZoneName("zone-$deploymentId"), zone),
+    )
 
     private fun identity(deploymentId: String) =
         WorkloadDeploymentIdentity(

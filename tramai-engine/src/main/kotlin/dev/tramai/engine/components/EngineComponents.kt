@@ -6,7 +6,6 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
-import dev.tramai.engine.EngineIdentitySource
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.observation.OperationInterceptor
@@ -14,7 +13,6 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.ToolFailureDiagnosticObserver
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.security.ProviderRoutingConfiguration
 import dev.tramai.core.provider.ProviderRoutingPlan
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
@@ -23,12 +21,14 @@ import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.EngineIdentitySource
 import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.engine.provider.ProviderRetryDelayPolicy
+import dev.tramai.security.ProviderRoutingConfiguration
 import java.time.Clock
 
 /**
@@ -47,10 +47,15 @@ internal data class EngineComponents(
 )
 
 /** Runtime snapshot of provider routing. The snapshot reference is immutable; supplied providers retain their existing ownership and thread-safety contracts. */
-internal data class ProviderComponents(val routingPlan: ProviderRoutingPlan)
+internal data class ProviderComponents(
+    val routingPlan: ProviderRoutingPlan,
+)
 
 /** Runtime snapshot of tool resolution and filtering settings. Caller-supplied registries remain caller-owned. */
-internal data class ToolComponents(val toolRegistry: ToolRegistry, val toolResultFilteringSettings: ToolResultFilteringSettings)
+internal data class ToolComponents(
+    val toolRegistry: ToolRegistry,
+    val toolResultFilteringSettings: ToolResultFilteringSettings,
+)
 
 /** Runtime snapshot of security enforcement. Caller-supplied policy, registry, DLP, and audit collaborators remain caller-owned. */
 internal data class SecurityComponents(
@@ -69,6 +74,7 @@ internal data class SecurityComponents(
 /** Explicit approval capability: partial approval state is unrepresentable. */
 internal sealed interface ApprovalCapability {
     data object Disabled : ApprovalCapability
+
     data class Enabled(
         val continuationStore: ApprovalContinuationStore,
         val argumentsDigester: ToolArgumentsDigester,

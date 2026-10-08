@@ -1,9 +1,9 @@
 package dev.tramai.engine.streaming
 
 import dev.tramai.core.exception.TramaiException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.observation.OperationObservation
-import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.engine.OperationDefinition
 import dev.tramai.engine.budget.TokenBudgetTracker
 

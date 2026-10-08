@@ -30,9 +30,28 @@ import dev.tramai.security.governance.WorkloadClassificationSignal
 import dev.tramai.security.governance.WorkloadGovernanceResolution
 import dev.tramai.security.governance.WorkloadGovernanceResolver
 
-internal fun interface ProviderRouteGate { suspend fun beforeRoute() }
-internal fun interface ProviderResolutionGate { suspend fun beforeResolution(operation: OperationDefinition, correlationId: String, securityContext: ExecutionSecurityContext) }
-internal fun interface ProviderFallbackGate { suspend fun transition(correlationId: String, previousProviderId: String?, previousModelName: String?, nextProviderId: String, reason: String, securityContext: ExecutionSecurityContext) }
+internal fun interface ProviderRouteGate {
+    suspend fun beforeRoute()
+}
+
+internal fun interface ProviderResolutionGate {
+    suspend fun beforeResolution(
+        operation: OperationDefinition,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+    )
+}
+
+internal fun interface ProviderFallbackGate {
+    suspend fun transition(
+        correlationId: String,
+        previousProviderId: String?,
+        previousModelName: String?,
+        nextProviderId: String,
+        reason: String,
+        securityContext: ExecutionSecurityContext,
+    )
+}
 
 /**
  * How the viable envelope is turned into one preferred candidate.
@@ -42,7 +61,10 @@ internal fun interface ProviderFallbackGate { suspend fun transition(correlation
  * that authorization permitted and viability found usable.
  */
 internal fun interface ProviderSelectionPreference {
-    fun preferred(viable: ViableCandidates, configuredOrder: List<ProviderCandidate>): ProviderCandidate?
+    fun preferred(
+        viable: ViableCandidates,
+        configuredOrder: List<ProviderCandidate>,
+    ): ProviderCandidate?
 
     companion object {
         /** The configured route order, filtered through the viable envelope. */
@@ -50,7 +72,16 @@ internal fun interface ProviderSelectionPreference {
             ProviderSelectionPreference { viable, configuredOrder -> viable.orderedBy(configuredOrder).firstOrNull() }
     }
 }
-internal data class ProviderExecutionRequest(val operation: OperationDefinition, val messages: List<Message>, val attemptCounter: AttemptCounter, val correlationId: String, val securityContext: ExecutionSecurityContext, val beforeRoute: ProviderRouteGate, val governedRun: GovernedRunIdentity? = null)
+
+internal data class ProviderExecutionRequest(
+    val operation: OperationDefinition,
+    val messages: List<Message>,
+    val attemptCounter: AttemptCounter,
+    val correlationId: String,
+    val securityContext: ExecutionSecurityContext,
+    val beforeRoute: ProviderRouteGate,
+    val governedRun: GovernedRunIdentity? = null,
+)
 
 /**
  * Drives provider execution through the 0.7.3 authority chain.
@@ -116,12 +147,13 @@ internal class ProviderExecutionCoordinator(
 
         // Classification and the workload's own trust zone are resolved, not assumed: a missing
         // claim or an unestablished deployment zone refuses rather than defaulting to a wider zone.
-        val workload = WorkloadGovernanceResolver.resolve(
-            identity = run.deployment,
-            signals = signalsOf(request.securityContext),
-            deploymentZone = workloadZone,
-            rules = configuration.rules,
-        )
+        val workload =
+            WorkloadGovernanceResolver.resolve(
+                identity = run.deployment,
+                signals = signalsOf(request.securityContext),
+                deploymentZone = workloadZone,
+                rules = configuration.rules,
+            )
         if (workload is WorkloadGovernanceResolution.Refused) {
             throw ProviderException("Provider execution is refused: ${workload.failure.name}", retryable = false)
         }
@@ -179,10 +211,19 @@ internal class ProviderExecutionCoordinator(
         val continuationCandidate = remaining.orderedBy(configuredOrder).firstOrNull()
         if (continuationCandidate != null) {
             val continuationPosition = configuredOrder.indexOf(continuationCandidate)
-            for (excluded in excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker).filter { configuredOrder.indexOf(it) < continuationPosition }) {
+            val outsideEnvelope =
+                excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker)
+                    .filter { configuredOrder.indexOf(it) < continuationPosition }
+            for (excluded in outsideEnvelope) {
                 val error = CircuitBreakerOpenException(excluded.providerId, circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L)
                 lastCircuitOpen = error
-                transition(error, routeOf.getValue(excluded), routeOf.getValue(continuationCandidate), ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
+                transition(
+                    error,
+                    routeOf.getValue(excluded),
+                    routeOf.getValue(continuationCandidate),
+                    ProviderFallbackReason.CIRCUIT_BREAKER_OPEN,
+                    request,
+                )
             }
         }
 
@@ -190,7 +231,10 @@ internal class ProviderExecutionCoordinator(
             // Configured order is a preference over the viable envelope — never a source of membership.
             val strategy = CandidateSelectionStrategy { preference.preferred(remaining, configuredOrder) }
             when (val decision = selection.select(remaining, strategy)) {
-                is CandidateSelectionDecision.NoSelection -> throw exhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
+                is CandidateSelectionDecision.NoSelection -> {
+                    throw exhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
+                }
+
                 is CandidateSelectionDecision.Selected -> {
                     val candidate = decision.candidate
                     val route = routeOf.getValue(candidate)
@@ -199,7 +243,13 @@ internal class ProviderExecutionCoordinator(
                         val error = CircuitBreakerOpenException(candidate.providerId, admission.blockedUntilMillis)
                         lastCircuitOpen = error
                         remaining = remaining.without(candidate)
-                        transition(error, route, nextSelected(remaining, configuredOrder, routeOf), ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
+                        transition(
+                            error,
+                            route,
+                            nextSelected(remaining, configuredOrder, routeOf),
+                            ProviderFallbackReason.CIRCUIT_BREAKER_OPEN,
+                            request,
+                        )
                         continue
                     }
                     val permit = (admission as CircuitBreakerAdmission.Allowed).permit
@@ -209,7 +259,10 @@ internal class ProviderExecutionCoordinator(
                     } catch (error: Throwable) {
                         error.rethrowIfCancellation()
                         when (val fallback = fallbackPolicy.decide(error)) {
-                            ProviderFallbackDecision.Stop -> throw error
+                            ProviderFallbackDecision.Stop -> {
+                                throw error
+                            }
+
                             is ProviderFallbackDecision.Continue -> {
                                 lastFailure = error
                                 remaining = remaining.without(candidate)
@@ -277,7 +330,10 @@ internal class ProviderExecutionCoordinator(
      * as before; this path is unreachable once a governed topology exists, because the branch above
      * returns here only when no governed configuration is present.
      */
-    private suspend fun executeLegacy(request: ProviderExecutionRequest, candidates: List<ResolvedProviderRoute>): ProviderCallResult {
+    private suspend fun executeLegacy(
+        request: ProviderExecutionRequest,
+        candidates: List<ResolvedProviderRoute>,
+    ): ProviderCallResult {
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
         for ((index, route) in candidates.withIndex()) {
@@ -296,7 +352,10 @@ internal class ProviderExecutionCoordinator(
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 when (val decision = fallbackPolicy.decide(error)) {
-                    ProviderFallbackDecision.Stop -> throw error
+                    ProviderFallbackDecision.Stop -> {
+                        throw error
+                    }
+
                     is ProviderFallbackDecision.Continue -> {
                         transition(error, route, next, decision.reason, request)
                         lastFailure = error
@@ -307,7 +366,10 @@ internal class ProviderExecutionCoordinator(
                 circuitBreaker.onAbandoned(permit)
             }
         }
-        throw lastFailure ?: lastCircuitOpen ?: ProviderException("No available provider route for model '${request.operation.operation.model}'", retryable = true)
+        throw lastFailure ?: lastCircuitOpen ?: ProviderException(
+            "No available provider route for model '${request.operation.operation.model}'",
+            retryable = true,
+        )
     }
 
     private fun governanceAbsent() =
@@ -333,22 +395,57 @@ internal class ProviderExecutionCoordinator(
                     ?: ProviderException("No available provider route for model '${request.operation.operation.model}'", retryable = true)
             }
 
-            else -> ProviderException("Selection refused: ${reason.name}", retryable = false)
+            else -> {
+                ProviderException("Selection refused: ${reason.name}", retryable = false)
+            }
         }
 
-    private suspend fun transition(error: Throwable, route: ResolvedProviderRoute, next: ResolvedProviderRoute?, reason: ProviderFallbackReason, request: ProviderExecutionRequest) {
+    private suspend fun transition(
+        error: Throwable,
+        route: ResolvedProviderRoute,
+        next: ResolvedProviderRoute?,
+        reason: ProviderFallbackReason,
+        request: ProviderExecutionRequest,
+    ) {
         if (next == null) return
         try {
-            fallbackGate.transition(request.correlationId, route.providerName, route.effectiveModelName, next.providerName, fallbackPolicy.reasonString(reason), request.securityContext)
+            fallbackGate.transition(
+                request.correlationId,
+                route.providerName,
+                route.effectiveModelName,
+                next.providerName,
+                fallbackPolicy.reasonString(reason),
+                request.securityContext,
+            )
         } catch (policyError: PolicyViolationException) {
             policyError.addSuppressed(error)
             throw policyError
         }
     }
 
-    private fun routeRequest(route: ResolvedProviderRoute, routeIndex: Int, request: ProviderExecutionRequest, permit: CircuitBreakerPermit) = ProviderRetryRequest(
-        providerId = route.providerName, provider = route.provider,
-        request = ModelRequest(model = route.effectiveModelName, messages = request.messages.toList(), tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() }, timeoutMillis = request.operation.operation.timeoutMillis, operationInterface = request.operation.method.declaringClass.name, operationMethod = request.operation.method.name),
-        operation = request.operation, attemptCounter = request.attemptCounter, routeIndex = routeIndex, correlationId = request.correlationId, securityContext = request.securityContext, permit = permit,
+    private fun routeRequest(
+        route: ResolvedProviderRoute,
+        routeIndex: Int,
+        request: ProviderExecutionRequest,
+        permit: CircuitBreakerPermit,
+    ) = ProviderRetryRequest(
+        providerId = route.providerName,
+        provider = route.provider,
+        request =
+            ModelRequest(
+                model = route.effectiveModelName,
+                messages = request.messages.toList(),
+                tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() },
+                timeoutMillis = request.operation.operation.timeoutMillis,
+                operationInterface = request.operation.method.declaringClass.name,
+                operationMethod = request.operation.method.name,
+            ),
+        operation = request.operation,
+        attemptCounter = request.attemptCounter,
+        routeIndex = routeIndex,
+        correlationId = request.correlationId,
+        securityContext = request.securityContext,
+        permit =
+        permit,
     )
 }
