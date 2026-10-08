@@ -623,6 +623,37 @@ one root cause, two symptoms. Per `AGENTS.md` ("do not push while a required loc
 branch is not pushed, and per the repository's own rule new baseline entries require a `baseline-migration`
 change with an analyzer change to justify them, which this change does not have.
 
+**Authoritative inventory — 18 distinct findings, reproducible.** Identical across a plain run and
+`./gradlew verifyStaticAnalysis --rerun-tasks` at `16fec355`:
+
+- `ThrowsCount` (3): `ToolLoopCoordinator.execute`, `StreamingExecutionCoordinator.executeGoverned`,
+  `StreamingExecutionCoordinator.executeStreamingRoute` — all baselined entries whose identity shifted when
+  the formatter collapsed their signatures onto one line.
+- `MaxLineLength` (5): `StreamingExecutionCoordinator` 266, 411, 563, 1049, 1128 — lines still over Detekt's
+  120 after being rewrapped only to ktlint's 139.
+- `CyclomaticComplexMethod` (3): `StreamingExecutionCoordinator.executeGoverned` (new code, too complex),
+  and test helpers `recordLane` (23) and `runModel`.
+- `LongMethod` (2), `LongParameterList` (2), `LargeClass` (1), `LoopWithTooManyJumpStatements` (1),
+  `ReturnCount` (1, `ProviderExecutionCoordinator.execute` with 3 returns).
+
+Three of these are production authority code (`execute` returns, `executeGoverned` complexity/throws,
+`executeStreamingRoute` throws, the streaming loop's jump statements); the rest are test infrastructure,
+including two 13-parameter `coordinator(...)` helpers used across many call sites and a `LargeClass`.
+
+**Attempted narrow correction, and why it did not land.** A first pass applied the mechanical part —
+eliminating every `MaxLineLength` finding, collapsing both `signalsOf` helpers to a single return, and
+removing a magic number — and it was discarded: blindly rewrapping arbitrary over-length lines produced
+syntax errors at two sites (`StreamingExecutionCoordinator` 555 and ~1059, a `when`-branch region), which
+the compiler and `spotlessKotlinCheck` both caught. The attempt was reverted; the tree is back to the
+committed, valid state (compiles `rc=0`, `spotlessKotlinCheck` `rc=0`, tree clean). The correction has to
+be hand-crafted per site, then the subject changes again and the campaign must be rerun.
+
+**Observed once, not reproduced:** an earlier run in the same session listed a superset (26 findings,
+including `GovernedProviderEnvelope` lines) at what appeared to be the same commit and clean tree. The
+current 18-finding set is repeatable; the 26-finding superset was not, and is recorded here rather than
+quietly dropped.
+
+
 
 
 
