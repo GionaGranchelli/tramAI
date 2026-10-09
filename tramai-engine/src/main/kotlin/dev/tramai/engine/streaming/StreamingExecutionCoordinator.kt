@@ -1034,7 +1034,13 @@ internal class StreamingExecutionCoordinator(
         }
         ctx.observation.onCallCompleted(parseSuccess = null)
         circuitBreaker.onSuccess(ctx.permit)
-        ctx.emitChunk(if (interceptedResponse.content != chunk.fullText) chunk.copy(fullText = interceptedResponse.content) else chunk)
+        val corrected =
+            if (interceptedResponse.content != chunk.fullText) {
+                chunk.copy(fullText = interceptedResponse.content)
+            } else {
+                chunk
+            }
+        ctx.emitChunk(corrected)
         throw StreamingRouteFinished(StreamingRouteResult.Completed(interceptedResponse.content))
     }
 
