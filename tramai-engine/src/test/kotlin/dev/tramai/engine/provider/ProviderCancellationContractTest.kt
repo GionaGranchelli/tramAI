@@ -55,7 +55,9 @@ class ProviderCancellationContractTest {
     }
 
     private class CountingCircuitBreaker :
-        ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000)) {
+        ProviderCircuitBreaker(
+            CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000),
+        ) {
         val failureCalls = AtomicInteger()
 
         override fun onFailure(

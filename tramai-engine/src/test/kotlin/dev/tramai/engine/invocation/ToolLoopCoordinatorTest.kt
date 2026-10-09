@@ -249,7 +249,14 @@ class ToolLoopCoordinatorTest {
                     override suspend fun findApprovedModel(
                         providerId: String,
                         modelName: String,
-                    ) = RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
+                    ) = RegisteredModel(
+                        "id",
+                        providerId,
+                        modelName,
+                        "r1",
+                        ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+                        true,
+                    )
                 },
                 ModelRegistrySettings(enabled = true),
             ),

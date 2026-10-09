@@ -299,7 +299,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             val provider =
                 FakeProvider {
                     calls++
-                    if (calls == 1 || calls == 3) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                    if (calls == 1 || calls == 3) {
+                        throw ProviderException("down", retryable = true)
+                    }
+                    ModelResponse("ok")
                 }
             val dlp = DlpInspectionException("dlp blocked")
             val coordinator =
@@ -347,7 +350,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                         plan(
                             FakeProvider {
                                 calls++
-                                if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
                             },
                         ),
                     breaker = breaker,
@@ -406,7 +412,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                         plan(
                             FakeProvider {
                                 calls++
-                                if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
                             },
                         ),
                     breaker = breaker,
@@ -465,7 +474,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                         plan(
                             FakeProvider {
                                 calls++
-                                if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
                             },
                         ),
                     breaker = breaker,
@@ -531,7 +543,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
                         plan(
                             FakeProvider {
                                 calls++
-                                if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
                             },
                         ),
                     breaker = breaker,
