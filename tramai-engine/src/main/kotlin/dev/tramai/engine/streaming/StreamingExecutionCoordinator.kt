@@ -177,6 +177,15 @@ internal class StreamingExecutionCoordinator(
                                 // permanently gone (handleFallbackResult's
                                 // emittedAnyTokens gate).
                                 val maxAttempts = operation.operation.providerRetries + 1
+                                val handoff =
+                                    FallbackHandoff(
+                                        route = route,
+                                        nextRoute = candidates.getOrNull(routeIndex + 1),
+                                        correlationId = correlationId,
+                                        securityContext = securityContext,
+                                    )
+                                val budget = RouteAttemptBudget(permit = permit, maxAttempts = maxAttempts)
+
                                 for (retryIndex in 0 until maxAttempts) {
                                     when (
                                         val result =
@@ -209,67 +218,9 @@ internal class StreamingExecutionCoordinator(
                                         }
 
                                         is StreamingRouteResult.StartupFailure -> {
-                                            // STREAMING_STARTUP_RETRY: recovery-eligible
-                                            // marker (8.2h P0-M, Option 1). Emitted at
-                                            // most once per route, when a retryable
-                                            // pre-token failure will ACTUALLY be
-                                            // followed by recovery — a same-route
-                                            // retry or a fallback to a next route.
-                                            // providerRetries=0 + no fallback route =
-                                            // no recovery, so no event: the name
-                                            // must never announce a retry that cannot
-                                            // happen. RETRY_SCHEDULED remains the
-                                            // decision event for actual same-route
-                                            // retries.
-                                            val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)
-                                            if (retryIndex == 0 && (
-                                                    decision is ProviderRetryDecision.Retry || candidates.getOrNull(
-                                                        routeIndex + 1,
-                                                    ) != null
-                                                )
-                                            ) {
-                                                recordStartupRetryEvent(
-                                                    route.providerName,
-                                                    result.error::class.simpleName ?: "unknown",
-                                                    result.observation,
-                                                )
-                                            }
-                                            when (decision) {
-                                                is ProviderRetryDecision.Retry -> {
-                                                    result.observation.emitRuntimeEvent(
-                                                        RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
-                                                            set(RuntimeAttributes.PROVIDER_ID, route.providerName)
-                                                            set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
-                                                            set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
-                                                            set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
-                                                        },
-                                                    )
-                                                    delay(decision.delayMillis)
-                                                }
-
-                                                ProviderRetryDecision.Stop -> {
-                                                    // Stop is authoritative REGARDLESS of why it
-                                                    // stopped (exhaustion OR classification): it
-                                                    // permanently relinquishes same-route retry
-                                                    // authority (8.2h P0-O). The fallback gate was
-                                                    // already enforced above; break exits this
-                                                    // route so the outer candidate loop advances
-                                                    // exactly once.
-                                                    recordCircuitBreakerFailure(
-                                                        permit,
-                                                        result.error,
-                                                        result.observation,
-                                                    )
-                                                    enforceStreamingFallbackAfterFailure(
-                                                        error = result.error,
-                                                        route = route,
-                                                        nextRoute = candidates.getOrNull(routeIndex + 1),
-                                                        correlationId = correlationId,
-                                                        securityContext = securityContext,
-                                                    )
-                                                    lastFailure = result.error
-                                                    break
-                                                }
+                                            if (handleStreamingStartupFailure(result, handoff, budget, retryIndex)) {
+                                                lastFailure = result.error
+                                                break
                                             }
                                         }
 
@@ -358,6 +309,75 @@ internal class StreamingExecutionCoordinator(
             ),
         )
     }
+
+    /**
+     * Decides what a retryable streaming startup failure means for one route, and returns true when
+     * the route is finished (the caller then exits it and lets the candidate loop advance once).
+     *
+     * STREAMING_STARTUP_RETRY is a recovery-eligible marker (8.2h P0-M, Option 1), emitted at most
+     * once per route and only when a retryable pre-token failure will ACTUALLY be followed by
+     * recovery: a same-route retry or a fallback to a next route. providerRetries=0 with no fallback
+     * route means no recovery and therefore no event, because the name must never announce a retry
+     * that cannot happen. RETRY_SCHEDULED remains the decision event for actual same-route retries.
+     */
+    private suspend fun handleStreamingStartupFailure(
+        result: StreamingRouteResult.StartupFailure,
+        handoff: FallbackHandoff,
+        budget: RouteAttemptBudget,
+        retryIndex: Int,
+    ): Boolean {
+        val decision = retryPolicy.decide(result.error, retryIndex, budget.maxAttempts)
+        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || handoff.nextRoute != null)) {
+            recordStartupRetryEvent(
+                handoff.route.providerName,
+                result.error::class.simpleName ?: "unknown",
+                result.observation,
+            )
+        }
+        return when (decision) {
+            is ProviderRetryDecision.Retry -> {
+                result.observation.emitRuntimeEvent(
+                    RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
+                        set(RuntimeAttributes.PROVIDER_ID, handoff.route.providerName)
+                        set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
+                        set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
+                        set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
+                    },
+                )
+                delay(decision.delayMillis)
+                false
+            }
+
+            ProviderRetryDecision.Stop -> {
+                // Stop is authoritative REGARDLESS of why it stopped (exhaustion OR classification):
+                // it permanently relinquishes same-route retry authority (8.2h P0-O), and the
+                // fallback gate has already had its say by the time this returns true.
+                recordCircuitBreakerFailure(budget.permit, result.error, result.observation)
+                enforceStreamingFallbackAfterFailure(
+                    error = result.error,
+                    route = handoff.route,
+                    nextRoute = handoff.nextRoute,
+                    correlationId = handoff.correlationId,
+                    securityContext = handoff.securityContext,
+                )
+                true
+            }
+        }
+    }
+
+    /** What the fallback gate is told when a route fails and continuation is permitted. */
+    private data class FallbackHandoff(
+        val route: ResolvedProviderRoute,
+        val nextRoute: ResolvedProviderRoute?,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+    )
+
+    /** One route's retry authority: the permit its attempts share and how many attempts it gets. */
+    private data class RouteAttemptBudget(
+        val permit: CircuitBreakerPermit,
+        val maxAttempts: Int,
+    )
 
     /**
      * Rethrows a failure collected by the engine-owned collection job, once its channel has closed.
@@ -517,6 +537,15 @@ internal class StreamingExecutionCoordinator(
                                 // permanently gone (handleFallbackResult's
                                 // emittedAnyTokens gate).
                                 val maxAttempts = operation.operation.providerRetries + 1
+                                val handoff =
+                                    FallbackHandoff(
+                                        route = route,
+                                        nextRoute = nextRoute,
+                                        correlationId = correlationId,
+                                        securityContext = securityContext,
+                                    )
+                                val budget = RouteAttemptBudget(permit = permit, maxAttempts = maxAttempts)
+
                                 for (retryIndex in 0 until maxAttempts) {
                                     when (
                                         val result =
@@ -549,65 +578,10 @@ internal class StreamingExecutionCoordinator(
                                         }
 
                                         is StreamingRouteResult.StartupFailure -> {
-                                            // STREAMING_STARTUP_RETRY: recovery-eligible
-                                            // marker (8.2h P0-M, Option 1). Emitted at
-                                            // most once per route, when a retryable
-                                            // pre-token failure will ACTUALLY be
-                                            // followed by recovery — a same-route
-                                            // retry or a fallback to a next route.
-                                            // providerRetries=0 + no fallback route =
-                                            // no recovery, so no event: the name
-                                            // must never announce a retry that cannot
-                                            // happen. RETRY_SCHEDULED remains the
-                                            // decision event for actual same-route
-                                            // retries.
-                                            val decision = retryPolicy.decide(result.error, retryIndex, maxAttempts)
-                                            if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || nextRoute != null)) {
-                                                recordStartupRetryEvent(
-                                                    route.providerName,
-                                                    result.error::class.simpleName ?: "unknown",
-                                                    result.observation,
-                                                )
-                                            }
-                                            when (decision) {
-                                                is ProviderRetryDecision.Retry -> {
-                                                    result.observation.emitRuntimeEvent(
-                                                        RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
-                                                            set(RuntimeAttributes.PROVIDER_ID, route.providerName)
-                                                            set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
-                                                            set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
-                                                            set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
-                                                        },
-                                                    )
-                                                    delay(decision.delayMillis)
-                                                }
-
-                                                ProviderRetryDecision.Stop -> {
-                                                    // Stop is authoritative REGARDLESS of why it
-                                                    // stopped (exhaustion OR classification): it
-                                                    // permanently relinquishes same-route retry
-                                                    // authority (8.2h P0-O). The fallback gate was
-                                                    // already enforced above; break exits this
-                                                    // route so the outer candidate loop advances
-                                                    // exactly once.
-                                                    recordCircuitBreakerFailure(
-                                                        permit,
-                                                        result.error,
-                                                        result.observation,
-                                                    )
-                                                    enforceStreamingFallbackAfterFailure(
-                                                        error = result.error,
-                                                        route = route,
-                                                        nextRoute = nextRoute,
-                                                        correlationId = correlationId,
-                                                        securityContext = securityContext,
-                                                    )
-                                                    lastFailure = result.error
-                                                    // Narrow and reselect rather than advancing to the
-                                                    // next configured route.
-                                                    remaining = narrowed
-                                                    break
-                                                }
+                                            if (handleStreamingStartupFailure(result, handoff, budget, retryIndex)) {
+                                                lastFailure = result.error
+                                                remaining = narrowed
+                                                break
                                             }
                                         }
 
