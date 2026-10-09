@@ -1140,6 +1140,16 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         script: RetryFallbackScript,
         lanes: MutableSet<String>,
     ) {
+        recordRetryLanes(model, script, lanes)
+        recordFallbackLanes(model, script, lanes)
+        recordTerminalLanes(model, script, lanes)
+    }
+
+    private fun recordRetryLanes(
+        model: ModelTrace,
+        script: RetryFallbackScript,
+        lanes: MutableSet<String>,
+    ) {
         if (model.dispositions.any { it.disposition is RouteDisposition.RetrySameRoute }) lanes += "same-route-retry"
         if (model.dispositions.zipWithNext().any { (a, b) ->
                 a.disposition is RouteDisposition.RetrySameRoute &&
@@ -1161,18 +1171,33 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         if (retryAfterAttempts && model.retryTransitions >= 1) {
             lanes += "retry-after-retry"
         }
+    }
+
+    private fun recordFallbackLanes(
+        model: ModelTrace,
+        script: RetryFallbackScript,
+        lanes: MutableSet<String>,
+    ) {
         if (model.dispositions.any { it.disposition is RouteDisposition.Fallback } &&
             model.breakerDispositions.contains(BreakerDisposition.QUALIFYING_FAILURE)
         ) {
             lanes += "fallback-after-exhaustion"
         }
-        val fallbacks = model.dispositions.count { it.disposition is RouteDisposition.Fallback }
-        if (fallbacks >= 2) lanes += "multi-fallback-traversal"
+        if (model.dispositions.count { it.disposition is RouteDisposition.Fallback } >= 2) {
+            lanes += "multi-fallback-traversal"
+        }
         if (script.actions.any { it is RetryFallbackScriptAction.Admit && it.circuitOpen } &&
             model.dispositions.any { it.disposition is RouteDisposition.Fallback }
         ) {
             lanes += "circuit-open-fallback"
         }
+    }
+
+    private fun recordTerminalLanes(
+        model: ModelTrace,
+        script: RetryFallbackScript,
+        lanes: MutableSet<String>,
+    ) {
         if (model.terminalOutcome == TerminalOutcome.Failure(FailureKind.CIRCUIT_OPEN_ONLY)) lanes += "all-routes-open"
         if (model.terminalOutcome is TerminalOutcome.FallbackDenied) lanes += "fallback-denial"
         if (script.explicitProvider) lanes += "explicit-provider"
