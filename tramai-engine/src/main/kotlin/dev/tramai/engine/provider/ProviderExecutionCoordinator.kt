@@ -84,6 +84,22 @@ internal data class ProviderExecutionRequest(
 )
 
 /**
+ * Everything one provider execution is assembled from. One carrier rather than eleven constructor
+ * parameters: a caller has the whole set or none of it, and the parameter count is not the interface.
+ * The governed-selection pair defaults to the pre-governance behaviour.
+ */
+internal data class ProviderCoordinationDependencies(
+    val routingPlan: ProviderRoutingPlan,
+    val circuitBreaker: ProviderCircuitBreaker,
+    val attemptExecutor: ProviderAttemptExecutor,
+    val fallbackPolicy: ProviderFallbackPolicy,
+    val beforeResolution: ProviderResolutionGate,
+    val fallbackGate: ProviderFallbackGate,
+    val governance: ProviderGovernanceConfiguration? = null,
+    val preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
+)
+
+/**
  * Drives provider execution through the 0.7.3 authority chain.
  *
  * Configured routes propose; they do not authorize. Each resolved route becomes a
@@ -93,15 +109,38 @@ internal data class ProviderExecutionRequest(
  * the next configured route.
  */
 internal class ProviderExecutionCoordinator(
-    private val routingPlan: ProviderRoutingPlan,
-    private val circuitBreaker: ProviderCircuitBreaker,
-    private val attemptExecutor: ProviderAttemptExecutor,
-    private val fallbackPolicy: ProviderFallbackPolicy,
-    private val beforeResolution: ProviderResolutionGate,
-    private val fallbackGate: ProviderFallbackGate,
-    private val governance: ProviderGovernanceConfiguration? = null,
-    private val preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
+    private val dependencies: ProviderCoordinationDependencies,
 ) {
+    /**
+     * The original six-dependency shape, kept so callers that pass dependencies only construct the
+     * coordinator exactly as before. It delegates, so there is one implementation to keep in step.
+     */
+    constructor(
+        routingPlan: ProviderRoutingPlan,
+        circuitBreaker: ProviderCircuitBreaker,
+        attemptExecutor: ProviderAttemptExecutor,
+        fallbackPolicy: ProviderFallbackPolicy,
+        beforeResolution: ProviderResolutionGate,
+        fallbackGate: ProviderFallbackGate,
+    ) : this(
+        ProviderCoordinationDependencies(
+            routingPlan = routingPlan,
+            circuitBreaker = circuitBreaker,
+            attemptExecutor = attemptExecutor,
+            fallbackPolicy = fallbackPolicy,
+            beforeResolution = beforeResolution,
+            fallbackGate = fallbackGate,
+        ),
+    )
+
+    private val routingPlan = dependencies.routingPlan
+    private val circuitBreaker = dependencies.circuitBreaker
+    private val attemptExecutor = dependencies.attemptExecutor
+    private val fallbackPolicy = dependencies.fallbackPolicy
+    private val beforeResolution = dependencies.beforeResolution
+    private val fallbackGate = dependencies.fallbackGate
+    private val governance = dependencies.governance
+    private val preference = dependencies.preference
     private val selection = CandidateSelection()
     private val walk =
         GovernedCandidateWalk(routingPlan, circuitBreaker, fallbackGate, fallbackPolicy)

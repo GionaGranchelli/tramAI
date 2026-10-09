@@ -228,14 +228,17 @@ abstract class ProviderGovernedExecutionPathTestBase {
                 ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
             )
         return ProviderExecutionCoordinator(
-            plan,
-            breaker,
-            attempt,
-            ProviderFallbackPolicy(),
-            ProviderResolutionGate { _, _, _ -> },
-            fallbackGate,
-            governance,
-            preference,
+            dependencies =
+                ProviderCoordinationDependencies(
+                    plan,
+                    breaker,
+                    attempt,
+                    ProviderFallbackPolicy(),
+                    ProviderResolutionGate { _, _, _ -> },
+                    fallbackGate,
+                    governance,
+                    preference,
+                ),
         )
     }
 

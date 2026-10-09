@@ -299,18 +299,21 @@ class ProviderExecutionCoordinatorTest {
                 ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
             )
         return ProviderExecutionCoordinator(
-            plan,
-            breaker,
-            attempt,
-            ProviderFallbackPolicy(),
-            ProviderResolutionGate {
-                _,
-                _,
-                _,
-                ->
-            },
-            fallback,
-            governance,
+            dependencies =
+                ProviderCoordinationDependencies(
+                    plan,
+                    breaker,
+                    attempt,
+                    ProviderFallbackPolicy(),
+                    ProviderResolutionGate {
+                        _,
+                        _,
+                        _,
+                        ->
+                    },
+                    fallback,
+                    governance,
+                ),
         )
     }
 

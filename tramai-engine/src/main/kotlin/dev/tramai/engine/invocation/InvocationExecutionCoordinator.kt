@@ -52,6 +52,7 @@ import dev.tramai.engine.planning.ServiceDefinition
 import dev.tramai.engine.provider.ProviderAttemptExecutor
 import dev.tramai.engine.provider.ProviderAuthorizationService
 import dev.tramai.engine.provider.ProviderCallResult
+import dev.tramai.engine.provider.ProviderCoordinationDependencies
 import dev.tramai.engine.provider.ProviderExecutionCoordinator
 import dev.tramai.engine.provider.ProviderExecutionRequest
 import dev.tramai.engine.provider.ProviderFallbackGate
@@ -195,44 +196,47 @@ internal class InvocationExecutionCoordinator(
         }
     private val providerExecutionCoordinator =
         ProviderExecutionCoordinator(
-            routingPlan = routingPlan,
-            circuitBreaker = circuitBreaker,
-            attemptExecutor =
-                ProviderAttemptExecutor(
-                    serviceInterface =
-                        serviceDefinition.serviceType.qualifiedName
-                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-                    operationObserver = operationObserver,
-                    operationInterceptor = operationInterceptor,
+            dependencies =
+                ProviderCoordinationDependencies(
+                    routingPlan = routingPlan,
                     circuitBreaker = circuitBreaker,
-                    retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
-                    authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
-                    beforeProviderInvocation = beforeProviderInvocationGate,
-                    responseSanitizer =
-                        ProviderResponseSanitizer {
-                            response,
-                            operation,
-                            providerId,
-                            modelName,
-                            correlationId,
-                            securityContext,
-                            observation,
-                            ->
-                            providerResponseDlpSanitizer.sanitizeProviderResponse(
-                                response,
-                                operation,
-                                providerId,
-                                modelName,
-                                correlationId,
-                                securityContext,
-                                observation,
-                            )
-                        },
+                    attemptExecutor =
+                        ProviderAttemptExecutor(
+                            serviceInterface =
+                                serviceDefinition.serviceType.qualifiedName
+                                    ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                            operationObserver = operationObserver,
+                            operationInterceptor = operationInterceptor,
+                            circuitBreaker = circuitBreaker,
+                            retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
+                            authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
+                            beforeProviderInvocation = beforeProviderInvocationGate,
+                            responseSanitizer =
+                                ProviderResponseSanitizer {
+                                    response,
+                                    operation,
+                                    providerId,
+                                    modelName,
+                                    correlationId,
+                                    securityContext,
+                                    observation,
+                                    ->
+                                    providerResponseDlpSanitizer.sanitizeProviderResponse(
+                                        response,
+                                        operation,
+                                        providerId,
+                                        modelName,
+                                        correlationId,
+                                        securityContext,
+                                        observation,
+                                    )
+                                },
+                        ),
+                    fallbackPolicy = ProviderFallbackPolicy(),
+                    beforeResolution = beforeResolutionGate,
+                    fallbackGate = fallbackGate,
+                    governance = providerGovernance,
                 ),
-            fallbackPolicy = ProviderFallbackPolicy(),
-            beforeResolution = beforeResolutionGate,
-            fallbackGate = fallbackGate,
-            governance = providerGovernance,
         )
     private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
     private val conversationMemoryCoordinator =
