@@ -365,6 +365,43 @@ internal class StreamingExecutionCoordinator(
         )
     }
 
+    /** What admitting the next route produced: the step, and the narrowed envelope it left behind. */
+    private class GovernedStreamingAdmissionStep(
+        val step: GovernedStreamingStep,
+        val remaining: ViableCandidates,
+        val lastCircuitOpen: CircuitBreakerOpenException?,
+    )
+
+    /**
+     * The next governed streaming route that admission allows.
+     *
+     * A route the circuit breaker refuses is not a failure: the refusal narrows the envelope and the walk
+     * selects again from what remains, exactly as configured order would. Returns null when no candidate
+     * is left to select, carrying the narrowed envelope and the last refusal.
+     */
+    private suspend fun admitNextGovernedStreamingRoute(
+        envelope: GovernedProviderEnvelope,
+        remaining: ViableCandidates,
+        authority: StreamingAuthority,
+        lastCircuitOpen: CircuitBreakerOpenException?,
+    ): GovernedStreamingAdmissionStep? {
+        var viable = remaining
+        var open = lastCircuitOpen
+        while (true) {
+            val step = nextGovernedStreamingRoute(envelope, viable, authority) ?: return null
+            val admission = step.admission
+            if (admission !is CircuitBreakerAdmission.Rejected) {
+                return GovernedStreamingAdmissionStep(step, viable, open)
+            }
+            open =
+                CircuitBreakerOpenException(
+                    step.selection.route.providerName,
+                    admission.blockedUntilMillis,
+                )
+            viable = step.selection.narrowed
+        }
+    }
+
     /**
      * Walks the governed envelope: authorize what the configured routes propose, consult the
      * continuation policy for every pre-open exclusion execution advances past, select each route from
@@ -408,22 +445,17 @@ internal class StreamingExecutionCoordinator(
         }
 
         while (true) {
-            val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
-            val step =
-                nextGovernedStreamingRoute(envelope, remaining, authority)
-                    ?: break
-            val selection = step.selection
-            val admission = step.admission
-            if (admission is CircuitBreakerAdmission.Rejected) {
-                lastCircuitOpen =
-                    CircuitBreakerOpenException(
-                        selection.route.providerName,
-                        admission.blockedUntilMillis,
-                    )
-                remaining = selection.narrowed
-                continue
-            }
-            val permit = (admission as CircuitBreakerAdmission.Allowed).permit
+            val admitted =
+                admitNextGovernedStreamingRoute(
+                    envelope,
+                    remaining,
+                    authority,
+                    lastCircuitOpen,
+                ) ?: break
+            remaining = admitted.remaining
+            lastCircuitOpen = admitted.lastCircuitOpen
+            val selection = admitted.step.selection
+            val permit = (admitted.step.admission as CircuitBreakerAdmission.Allowed).permit
 
             // Provider retry budget (Epic 8.2h P0-A): transient
             // STREAMING STARTUP failures retry the SAME route
@@ -444,7 +476,7 @@ internal class StreamingExecutionCoordinator(
                     attemptStreamingCandidate(
                         run,
                         authority,
-                        step.candidate,
+                        admitted.step.candidate,
                         permit,
                         attemptCounter,
                     )
