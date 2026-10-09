@@ -199,21 +199,12 @@ internal class StreamingExecutionCoordinator(
                                             )
                                     ) {
                                         is StreamingRouteResult.Completed -> {
-                                            if (conversationId != null) {
-                                                val assistantMessage =
-                                                    Message(
-                                                        role = MessageRole.ASSISTANT,
-                                                        content = result.fullText,
-                                                    )
-                                                conversationMemoryCoordinator.persistTurn(
-                                                    PersistConversationTurnRequest(
-                                                        conversationId,
-                                                        effectiveMessages,
-                                                        history.size,
-                                                        assistantMessage,
-                                                    ),
-                                                )
-                                            }
+                                            persistStreamingTurn(
+                                                conversationId,
+                                                effectiveMessages,
+                                                history.size,
+                                                result.fullText,
+                                            )
                                             return@launch
                                         }
 
@@ -345,6 +336,27 @@ internal class StreamingExecutionCoordinator(
                 collectJob.join()
             }
         }
+    }
+
+    /**
+     * Persists the assistant turn for a completed streaming route. A run without a conversation id
+     * persists nothing, exactly as the inline form did.
+     */
+    private suspend fun persistStreamingTurn(
+        conversationId: String?,
+        effectiveMessages: List<Message>,
+        historySize: Int,
+        fullText: String,
+    ) {
+        if (conversationId == null) return
+        conversationMemoryCoordinator.persistTurn(
+            PersistConversationTurnRequest(
+                conversationId,
+                effectiveMessages,
+                historySize,
+                Message(role = MessageRole.ASSISTANT, content = fullText),
+            ),
+        )
     }
 
     /**
@@ -527,21 +539,12 @@ internal class StreamingExecutionCoordinator(
                                             )
                                     ) {
                                         is StreamingRouteResult.Completed -> {
-                                            if (conversationId != null) {
-                                                val assistantMessage =
-                                                    Message(
-                                                        role = MessageRole.ASSISTANT,
-                                                        content = result.fullText,
-                                                    )
-                                                conversationMemoryCoordinator.persistTurn(
-                                                    PersistConversationTurnRequest(
-                                                        conversationId,
-                                                        effectiveMessages,
-                                                        history.size,
-                                                        assistantMessage,
-                                                    ),
-                                                )
-                                            }
+                                            persistStreamingTurn(
+                                                conversationId,
+                                                effectiveMessages,
+                                                history.size,
+                                                result.fullText,
+                                            )
                                             return@launch
                                         }
 
