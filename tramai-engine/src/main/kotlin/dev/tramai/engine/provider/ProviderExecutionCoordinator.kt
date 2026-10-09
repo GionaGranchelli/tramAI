@@ -103,6 +103,9 @@ internal class ProviderExecutionCoordinator(
     private val preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
 ) {
     private val selection = CandidateSelection()
+    private val walk =
+        GovernedCandidateWalk(routingPlan, circuitBreaker, fallbackGate, fallbackPolicy)
+
 
     suspend fun execute(request: ProviderExecutionRequest): ProviderCallResult {
         beforeResolution.beforeResolution(request.operation, request.correlationId, request.securityContext)
@@ -129,14 +132,14 @@ internal class ProviderExecutionCoordinator(
 
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
-        val candidateSet = governedCandidateSet(request, resolvedRoutes, configuration, run)
+        val candidateSet = walk.governedCandidateSet(request, resolvedRoutes, configuration, run)
         val authorizedSet = candidateSet.authorizedSet
         val configuredOrder = candidateSet.configuredOrder
         val routeOf = candidateSet.routeOf
         var remaining = candidateSet.remaining
 
         lastCircuitOpen =
-            announceAvailabilityTransitions(authorizedSet, remaining, configuredOrder, routeOf, request)
+            walk.announceAvailabilityTransitions(authorizedSet, remaining, configuredOrder, routeOf, request)
                 ?: lastCircuitOpen
 
         while (true) {
@@ -144,7 +147,7 @@ internal class ProviderExecutionCoordinator(
             val strategy = CandidateSelectionStrategy { preference.preferred(remaining, configuredOrder) }
             when (val decision = selection.select(remaining, strategy)) {
                 is CandidateSelectionDecision.NoSelection -> {
-                    failExhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
+                    walk.failExhausted(decision.reason, authorizedSet.isEmpty(), lastFailure, lastCircuitOpen, request)
                 }
 
                 is CandidateSelectionDecision.Selected -> {
@@ -155,10 +158,10 @@ internal class ProviderExecutionCoordinator(
                         val error = CircuitBreakerOpenException(candidate.providerId, admission.blockedUntilMillis)
                         lastCircuitOpen = error
                         remaining = remaining.without(candidate)
-                        transition(
+                        walk.transition(
                             error,
                             route,
-                            nextSelected(remaining, configuredOrder, routeOf),
+                            walk.nextSelected(remaining, configuredOrder, routeOf),
                             ProviderFallbackReason.CIRCUIT_BREAKER_OPEN,
                             request,
                         )
@@ -180,10 +183,10 @@ internal class ProviderExecutionCoordinator(
                             is ProviderFallbackDecision.Continue -> {
                                 lastFailure = error
                                 remaining = remaining.without(candidate)
-                                transition(
+                                walk.transition(
                                     error,
                                     route,
-                                    nextSelected(remaining, configuredOrder, routeOf),
+                                    walk.nextSelected(remaining, configuredOrder, routeOf),
                                     fallback.reason,
                                     request,
                                 )
@@ -208,11 +211,102 @@ internal class ProviderExecutionCoordinator(
     }
 
     /**
+     * The pre-0.7.3h execution path, preserved unchanged for engines with no governed routing
+     * topology configured. Route walking, retry policy and circuit-breaker accounting behave exactly
+     * as before; this path is unreachable once a governed topology exists, because the branch above
+     * returns here only when no governed configuration is present.
+     */
+    private suspend fun executeLegacy(
+        request: ProviderExecutionRequest,
+        candidates: List<ResolvedProviderRoute>,
+    ): ProviderCallResult {
+        var lastFailure: Throwable? = null
+        var lastCircuitOpen: CircuitBreakerOpenException? = null
+        for ((index, route) in candidates.withIndex()) {
+            val next = candidates.getOrNull(index + 1)
+            val admission = circuitBreaker.beforeCall(route.providerName)
+            if (admission is CircuitBreakerAdmission.Rejected) {
+                val error = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
+                walk.transition(error, route, next, ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
+                lastCircuitOpen = error
+                continue
+            }
+            val permit = (admission as CircuitBreakerAdmission.Allowed).permit
+            try {
+                request.beforeRoute.beforeRoute()
+                return attemptExecutor.execute(routeRequest(route, index, request, permit))
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+                when (val decision = fallbackPolicy.decide(error)) {
+                    ProviderFallbackDecision.Stop -> {
+                        throw error
+                    }
+
+                    is ProviderFallbackDecision.Continue -> {
+                        walk.transition(error, route, next, decision.reason, request)
+                        lastFailure = error
+                    }
+                }
+            } finally {
+                // Structural permit relinquishment: scope exit always discharges the admission.
+                circuitBreaker.onAbandoned(permit)
+            }
+        }
+        throw lastFailure ?: lastCircuitOpen ?: ProviderException(
+            "No available provider route for model '${request.operation.operation.model}'",
+            retryable = true,
+        )
+    }
+
+
+    private fun routeRequest(
+        route: ResolvedProviderRoute,
+        routeIndex: Int,
+        request: ProviderExecutionRequest,
+        permit: CircuitBreakerPermit,
+    ) = ProviderRetryRequest(
+        providerId = route.providerName,
+        provider = route.provider,
+        request =
+            ModelRequest(
+                model = route.effectiveModelName,
+                messages = request.messages.toList(),
+                tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() },
+                timeoutMillis = request.operation.operation.timeoutMillis,
+                operationInterface = request.operation.method.declaringClass.name,
+                operationMethod = request.operation.method.name,
+            ),
+        operation = request.operation,
+        attemptCounter = request.attemptCounter,
+        routeIndex = routeIndex,
+        correlationId = request.correlationId,
+        securityContext = request.securityContext,
+        permit =
+        permit,
+    )
+}
+
+
+/**
+ * The governed candidate walk for one execution: which candidates may run, in what order, how a
+ * route maps back to its candidate, and which fallback transitions that walk must announce.
+ *
+ * A collaborator rather than part of the coordinator because the coordinator's job is admission
+ * and dispatch: the walk owns candidate-set derivation, narrowing and exhaustion reporting.
+ * The class is file-private, so its members are not reachable outside this file.
+ */
+private class GovernedCandidateWalk(
+    private val routingPlan: ProviderRoutingPlan,
+    private val circuitBreaker: ProviderCircuitBreaker,
+    private val fallbackGate: ProviderFallbackGate,
+    private val fallbackPolicy: ProviderFallbackPolicy,
+) {
+    /**
      * The governed candidate set for one execution: the authorized envelope, the configured order,
      * the candidate-to-route lookup and the viability snapshot it starts from. Authorization and
      * workload resolution happen here, so a refused workload fails before any provider is reached.
      */
-    private fun governedCandidateSet(
+    fun governedCandidateSet(
         request: ProviderExecutionRequest,
         resolvedRoutes: List<ResolvedProviderRoute>,
         configuration: ProviderGovernanceConfiguration,
@@ -292,12 +386,6 @@ internal class ProviderExecutionCoordinator(
     }
 
     /** What one governed execution may run, in what order, and where each candidate's route is. */
-    private class GovernedCandidateSet(
-        val authorizedSet: Set<ProviderCandidate>,
-        val configuredOrder: List<ProviderCandidate>,
-        val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
-        val remaining: ViableCandidates,
-    )
 
     /**
      * Hands the fallback policy every exclusion execution actually advances past. Availability answers
@@ -309,7 +397,7 @@ internal class ProviderExecutionCoordinator(
      *
      * @return the last circuit-open failure announced, or null when no transition was made.
      */
-    private suspend fun announceAvailabilityTransitions(
+    suspend fun announceAvailabilityTransitions(
         authorizedSet: Set<ProviderCandidate>,
         remaining: ViableCandidates,
         configuredOrder: List<ProviderCandidate>,
@@ -346,7 +434,7 @@ internal class ProviderExecutionCoordinator(
      * viable, selected or invoked. Two routes collapsing onto one candidate is ambiguous, and
      * ambiguity fails closed rather than being guessed by provider or model name.
      */
-    private fun mapRoutesToCandidates(
+    fun mapRoutesToCandidates(
         resolvedRoutes: List<ResolvedProviderRoute>,
         configuration: ProviderGovernanceConfiguration,
     ): List<Pair<ResolvedProviderRoute, ProviderCandidate>> {
@@ -365,69 +453,22 @@ internal class ProviderExecutionCoordinator(
     }
 
     /** The candidate governance would select next from the narrowed envelope, or null. */
-    private fun nextSelected(
+    fun nextSelected(
         remaining: ViableCandidates,
         configuredOrder: List<ProviderCandidate>,
         routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
     ): ResolvedProviderRoute? = remaining.orderedBy(configuredOrder).firstOrNull()?.let { routeOf[it] }
 
-    private fun signalsOf(context: ExecutionSecurityContext): List<WorkloadClassificationSignal> {
+
+    fun signalsOf(context: ExecutionSecurityContext): List<WorkloadClassificationSignal> {
         val classification = context.dataClassification
         val source = context.classificationSource
         if (classification == null || source == null) return emptyList()
         return listOf(WorkloadClassificationSignal(classification, source))
     }
 
-    /**
-     * The pre-0.7.3h execution path, preserved unchanged for engines with no governed routing
-     * topology configured. Route walking, retry policy and circuit-breaker accounting behave exactly
-     * as before; this path is unreachable once a governed topology exists, because the branch above
-     * returns here only when no governed configuration is present.
-     */
-    private suspend fun executeLegacy(
-        request: ProviderExecutionRequest,
-        candidates: List<ResolvedProviderRoute>,
-    ): ProviderCallResult {
-        var lastFailure: Throwable? = null
-        var lastCircuitOpen: CircuitBreakerOpenException? = null
-        for ((index, route) in candidates.withIndex()) {
-            val next = candidates.getOrNull(index + 1)
-            val admission = circuitBreaker.beforeCall(route.providerName)
-            if (admission is CircuitBreakerAdmission.Rejected) {
-                val error = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
-                transition(error, route, next, ProviderFallbackReason.CIRCUIT_BREAKER_OPEN, request)
-                lastCircuitOpen = error
-                continue
-            }
-            val permit = (admission as CircuitBreakerAdmission.Allowed).permit
-            try {
-                request.beforeRoute.beforeRoute()
-                return attemptExecutor.execute(routeRequest(route, index, request, permit))
-            } catch (error: Throwable) {
-                error.rethrowIfCancellation()
-                when (val decision = fallbackPolicy.decide(error)) {
-                    ProviderFallbackDecision.Stop -> {
-                        throw error
-                    }
-
-                    is ProviderFallbackDecision.Continue -> {
-                        transition(error, route, next, decision.reason, request)
-                        lastFailure = error
-                    }
-                }
-            } finally {
-                // Structural permit relinquishment: scope exit always discharges the admission.
-                circuitBreaker.onAbandoned(permit)
-            }
-        }
-        throw lastFailure ?: lastCircuitOpen ?: ProviderException(
-            "No available provider route for model '${request.operation.operation.model}'",
-            retryable = true,
-        )
-    }
-
     /** Terminal refusal: no candidate remains selectable. Fails closed rather than returning empty. */
-    private fun failExhausted(
+    fun failExhausted(
         reason: SelectionRefusal,
         nothingAuthorized: Boolean,
         lastFailure: Throwable?,
@@ -435,7 +476,8 @@ internal class ProviderExecutionCoordinator(
         request: ProviderExecutionRequest,
     ): Nothing = throw exhausted(reason, nothingAuthorized, lastFailure, lastCircuitOpen, request)
 
-    private fun exhausted(
+
+    fun exhausted(
         reason: SelectionRefusal,
         nothingAuthorized: Boolean,
         lastFailure: Throwable?,
@@ -463,7 +505,8 @@ internal class ProviderExecutionCoordinator(
             }
         }
 
-    private suspend fun transition(
+
+    suspend fun transition(
         error: Throwable,
         route: ResolvedProviderRoute,
         next: ResolvedProviderRoute?,
@@ -485,30 +528,11 @@ internal class ProviderExecutionCoordinator(
             throw policyError
         }
     }
-
-    private fun routeRequest(
-        route: ResolvedProviderRoute,
-        routeIndex: Int,
-        request: ProviderExecutionRequest,
-        permit: CircuitBreakerPermit,
-    ) = ProviderRetryRequest(
-        providerId = route.providerName,
-        provider = route.provider,
-        request =
-            ModelRequest(
-                model = route.effectiveModelName,
-                messages = request.messages.toList(),
-                tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() },
-                timeoutMillis = request.operation.operation.timeoutMillis,
-                operationInterface = request.operation.method.declaringClass.name,
-                operationMethod = request.operation.method.name,
-            ),
-        operation = request.operation,
-        attemptCounter = request.attemptCounter,
-        routeIndex = routeIndex,
-        correlationId = request.correlationId,
-        securityContext = request.securityContext,
-        permit =
-        permit,
-    )
 }
+
+    private class GovernedCandidateSet(
+        val authorizedSet: Set<ProviderCandidate>,
+        val configuredOrder: List<ProviderCandidate>,
+        val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
+        val remaining: ViableCandidates,
+    )
