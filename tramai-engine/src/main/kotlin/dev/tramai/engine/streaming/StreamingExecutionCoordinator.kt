@@ -860,12 +860,12 @@ internal class StreamingExecutionCoordinator(
                     observation,
                     emitChunk,
                     permit,
+                    { emittedAnyTokens },
+                    { chunk ->
+                        emittedAnyTokens = true
+                        emitChunk(chunk)
+                    },
                 ),
-                { emittedAnyTokens },
-                { chunk ->
-                    emittedAnyTokens = true
-                    emitChunk(chunk)
-                },
             )
             error("Streaming route completed without a terminal result")
         } catch (finished: StreamingRouteFinished) {
@@ -954,6 +954,10 @@ internal class StreamingExecutionCoordinator(
         val observation: OperationObservation,
         val emitChunk: suspend (StreamChunk) -> Unit,
         val permit: CircuitBreakerPermit,
+        /** Live predicate: whether any token has been emitted for this route so far. */
+        val hasEmittedTokens: () -> Boolean,
+        /** The caller's token sink for this route. */
+        val onToken: suspend (StreamChunk.Token) -> Unit,
     )
 
     private suspend fun collectStreamingRouteChunks(
@@ -961,36 +965,30 @@ internal class StreamingExecutionCoordinator(
         request: ModelRequest,
         timeoutMillis: Long,
         ctx: StreamingRouteContext,
-        hasEmittedTokens: () -> Boolean,
-        onToken: suspend (StreamChunk.Token) -> Unit,
     ) {
         withTimeout(timeoutMillis) {
-            streamCapable.stream(request).collect { chunk -> handleStreamingChunk(chunk, ctx, hasEmittedTokens(), onToken) }
-            handleStreamingTerminationWithoutTerminalChunk(ctx.route, ctx.operation, ctx.observation, hasEmittedTokens(), ctx.permit)
+            streamCapable.stream(request).collect { chunk -> handleStreamingChunk(chunk, ctx) }
+            handleStreamingTerminationWithoutTerminalChunk(
+                ctx.route,
+                ctx.operation,
+                ctx.observation,
+                ctx.hasEmittedTokens(),
+                ctx.permit,
+            )
         }
     }
 
     private suspend fun handleStreamingChunk(
         chunk: StreamChunk,
         ctx: StreamingRouteContext,
-        emittedAnyTokens: Boolean,
-        onToken: suspend (StreamChunk.Token) -> Unit,
     ) {
         when (chunk) {
             is StreamChunk.Token -> {
-                onToken(chunk)
+                ctx.onToken(chunk)
             }
 
             is StreamChunk.Complete -> {
-                handleStreamingComplete(
-                    chunk,
-                    ctx.route,
-                    ctx.tokenBudgetTracker,
-                    ctx.callContext,
-                    ctx.observation,
-                    ctx.emitChunk,
-                    ctx.permit,
-                )
+                handleStreamingComplete(chunk, ctx)
             }
 
             is StreamChunk.Error -> {
@@ -998,7 +996,7 @@ internal class StreamingExecutionCoordinator(
                 finishStreamingRoute(
                     handleFallbackResult(
                         chunk.cause,
-                        emittedAnyTokens,
+                        ctx.hasEmittedTokens(),
                         ctx.route.providerName,
                         ctx.observation,
                         ctx.permit,
@@ -1011,12 +1009,7 @@ internal class StreamingExecutionCoordinator(
 
     private suspend fun handleStreamingComplete(
         chunk: StreamChunk.Complete,
-        route: ResolvedProviderRoute,
-        tokenBudgetTracker: TokenBudgetTracker,
-        callContext: OperationCallContext,
-        observation: OperationObservation,
-        emitChunk: suspend (StreamChunk) -> Unit,
-        permit: CircuitBreakerPermit,
+        ctx: StreamingRouteContext,
     ) {
         val response =
             ModelResponse(
@@ -1024,27 +1017,27 @@ internal class StreamingExecutionCoordinator(
                 inputTokens = chunk.usage.inputTokens,
                 outputTokens = chunk.usage.outputTokens,
                 thinkingTokens = chunk.usage.thinkingTokens,
-                modelUsed = route.effectiveModelName,
+                modelUsed = ctx.route.effectiveModelName,
                 finishReason = FinishReason.STOP,
             )
-        val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
-        observation.onProviderResponse(interceptedResponse)
+        val interceptedResponse = operationInterceptor.interceptResponse(ctx.callContext, response)
+        ctx.observation.onProviderResponse(interceptedResponse)
         try {
             tokenBudgetCoordinator.enforce(
-                tokenBudgetTracker,
+                ctx.tokenBudgetTracker,
                 interceptedResponse,
-                observation,
-                route.providerName,
-                route.effectiveModelName,
+                ctx.observation,
+                ctx.route.providerName,
+                ctx.route.effectiveModelName,
             )
         } catch (error: TokenBudgetExceededException) {
-            observation.onCallCompleted(parseSuccess = null)
-            circuitBreaker.onAbandoned(permit)
+            ctx.observation.onCallCompleted(parseSuccess = null)
+            circuitBreaker.onAbandoned(ctx.permit)
             throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error)))
         }
-        observation.onCallCompleted(parseSuccess = null)
-        circuitBreaker.onSuccess(permit)
-        emitChunk(if (interceptedResponse.content != chunk.fullText) chunk.copy(fullText = interceptedResponse.content) else chunk)
+        ctx.observation.onCallCompleted(parseSuccess = null)
+        circuitBreaker.onSuccess(ctx.permit)
+        ctx.emitChunk(if (interceptedResponse.content != chunk.fullText) chunk.copy(fullText = interceptedResponse.content) else chunk)
         throw StreamingRouteFinished(StreamingRouteResult.Completed(interceptedResponse.content))
     }
 
