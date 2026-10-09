@@ -345,7 +345,6 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         sink: OrderedSink,
         observer: AttemptRecordingObserver,
         denyFallback: Boolean = false,
-        governance: ProviderGovernanceConfiguration = governanceFor(routingPlan),
     ): StreamingExecutionCoordinator {
         val policy = PolicyEngine { PolicyDecision.Allow }
         return StreamingExecutionCoordinator(
@@ -403,7 +402,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                     if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
                 },
             StreamingBeforeResponseReturnGate { _, _, _ -> Unit },
-            governance = governance,
+            governance = governanceFor(routingPlan),
         )
     }
 
