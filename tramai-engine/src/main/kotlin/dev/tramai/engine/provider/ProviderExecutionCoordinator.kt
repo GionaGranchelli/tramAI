@@ -104,7 +104,7 @@ internal class ProviderExecutionCoordinator(
 ) {
     private val selection = CandidateSelection()
     private val walk =
-        GovernedCandidateWalk(routingPlan, circuitBreaker, fallbackGate, fallbackPolicy)
+        GovernedCandidateWalk(routingPlan, circuitBreaker, attemptExecutor, fallbackGate, fallbackPolicy)
 
     suspend fun execute(request: ProviderExecutionRequest): ProviderCallResult {
         beforeResolution.beforeResolution(request.operation, request.correlationId, request.securityContext)
@@ -167,42 +167,19 @@ internal class ProviderExecutionCoordinator(
                         continue
                     }
                     val permit = (admission as CircuitBreakerAdmission.Allowed).permit
-                    try {
-                        request.beforeRoute.beforeRoute()
-                        return attemptExecutor.execute(
-                            routeRequest(route, resolvedRoutes.indexOf(route), request, permit),
-                        )
-                    } catch (error: Throwable) {
-                        error.rethrowIfCancellation()
-                        when (val fallback = fallbackPolicy.decide(error)) {
-                            ProviderFallbackDecision.Stop -> {
-                                throw error
-                            }
-
-                            is ProviderFallbackDecision.Continue -> {
-                                lastFailure = error
-                                remaining = remaining.without(candidate)
-                                walk.transition(
-                                    error,
-                                    route,
-                                    walk.nextSelected(remaining, configuredOrder, routeOf),
-                                    fallback.reason,
-                                    request,
-                                )
-                            }
+                    when (val attempt = walk.attemptCandidate(candidateSet, remaining, route, candidate, permit, request)) {
+                        is CandidateAttempt.Completed -> {
+                            return attempt.result
                         }
-                    } finally {
-                        // Structural permit relinquishment: admission creates an
-                        // obligation and scope exit ALWAYS discharges it. This closes
-                        // every post-admission escape that a manual call-site cleanup
-                        // could miss — beforeRoute throwing policy/cancellation,
-                        // startAttempt observer/interceptor failures, cancellation
-                        // during the retry delay — without double-completing:
-                        //   success            -> CLOSED (same gen)      -> no-op
-                        //   qualifying failure -> OPEN (gen+1)           -> stale no-op
-                        //   neutral CLOSED     -> CLOSED (same gen)      -> no-op
-                        //   neutral HALF_OPEN  -> OPEN (gen+1) released  -> stale no-op
-                        circuitBreaker.onAbandoned(permit)
+
+                        is CandidateAttempt.Stopped -> {
+                            throw attempt.error
+                        }
+
+                        is CandidateAttempt.Continued -> {
+                            lastFailure = attempt.failure
+                            remaining = attempt.remaining
+                        }
                     }
                 }
             }
@@ -256,33 +233,52 @@ internal class ProviderExecutionCoordinator(
             retryable = true,
         )
     }
-
-    private fun routeRequest(
-        route: ResolvedProviderRoute,
-        routeIndex: Int,
-        request: ProviderExecutionRequest,
-        permit: CircuitBreakerPermit,
-    ) = ProviderRetryRequest(
-        providerId = route.providerName,
-        provider = route.provider,
-        request =
-            ModelRequest(
-                model = route.effectiveModelName,
-                messages = request.messages.toList(),
-                tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() },
-                timeoutMillis = request.operation.operation.timeoutMillis,
-                operationInterface = request.operation.method.declaringClass.name,
-                operationMethod = request.operation.method.name,
-            ),
-        operation = request.operation,
-        attemptCounter = request.attemptCounter,
-        routeIndex = routeIndex,
-        correlationId = request.correlationId,
-        securityContext = request.securityContext,
-        permit =
-        permit,
-    )
 }
+
+/** What running one selected candidate produced. */
+private sealed interface CandidateAttempt {
+    /** The attempt reached a terminal provider result. */
+    data class Completed(
+        val result: ProviderCallResult,
+    ) : CandidateAttempt
+
+    /** The failure policy allowed continuation: the walk goes on from a narrowed remainder. */
+    data class Continued(
+        val failure: Throwable,
+        val remaining: ViableCandidates,
+    ) : CandidateAttempt
+
+    /** The failure policy refused continuation: the error is authoritative and propagates. */
+    data class Stopped(
+        val error: Throwable,
+    ) : CandidateAttempt
+}
+
+private fun routeRequest(
+    route: ResolvedProviderRoute,
+    routeIndex: Int,
+    request: ProviderExecutionRequest,
+    permit: CircuitBreakerPermit,
+) = ProviderRetryRequest(
+    providerId = route.providerName,
+    provider = route.provider,
+    request =
+        ModelRequest(
+            model = route.effectiveModelName,
+            messages = request.messages.toList(),
+            tools = request.operation.toolDefinitions.takeIf { it.isNotEmpty() },
+            timeoutMillis = request.operation.operation.timeoutMillis,
+            operationInterface = request.operation.method.declaringClass.name,
+            operationMethod = request.operation.method.name,
+        ),
+    operation = request.operation,
+    attemptCounter = request.attemptCounter,
+    routeIndex = routeIndex,
+    correlationId = request.correlationId,
+    securityContext = request.securityContext,
+    permit =
+    permit,
+)
 
 /**
  * The governed candidate walk for one execution: which candidates may run, in what order, how a
@@ -295,6 +291,7 @@ internal class ProviderExecutionCoordinator(
 private class GovernedCandidateWalk(
     private val routingPlan: ProviderRoutingPlan,
     private val circuitBreaker: ProviderCircuitBreaker,
+    private val attemptExecutor: ProviderAttemptExecutor,
     private val fallbackGate: ProviderFallbackGate,
     private val fallbackPolicy: ProviderFallbackPolicy,
 ) {
@@ -378,6 +375,7 @@ private class GovernedCandidateWalk(
             authorizedSet = authorizedSet,
             configuredOrder = configuredOrder,
             routeOf = routeOf,
+            resolvedRoutes = resolvedRoutes,
             remaining = viability.viableCandidates(authorized),
         )
     }
@@ -445,6 +443,51 @@ private class GovernedCandidateWalk(
             mappings += route to candidate
         }
         return mappings
+    }
+
+    /**
+     * Runs one selected candidate: the route gate, the attempt itself, and the fallback decision if
+     * it fails. The permit is discharged on every escape, including cancellation, by the `finally`.
+     */
+    suspend fun attemptCandidate(
+        set: GovernedCandidateSet,
+        remaining: ViableCandidates,
+        route: ResolvedProviderRoute,
+        candidate: ProviderCandidate,
+        permit: CircuitBreakerPermit,
+        request: ProviderExecutionRequest,
+    ): CandidateAttempt {
+        try {
+            request.beforeRoute.beforeRoute()
+            return CandidateAttempt.Completed(
+                attemptExecutor.execute(routeRequest(route, set.resolvedRoutes.indexOf(route), request, permit)),
+            )
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            when (val fallback = fallbackPolicy.decide(error)) {
+                ProviderFallbackDecision.Stop -> {
+                    return CandidateAttempt.Stopped(error)
+                }
+
+                is ProviderFallbackDecision.Continue -> {
+                    val narrowed = remaining.without(candidate)
+                    transition(error, route, nextSelected(narrowed, set.configuredOrder, set.routeOf), fallback.reason, request)
+                    return CandidateAttempt.Continued(error, narrowed)
+                }
+            }
+        } finally {
+            // Structural permit relinquishment: admission creates an
+            // obligation and scope exit ALWAYS discharges it. This closes
+            // every post-admission escape that a manual call-site cleanup
+            // could miss — beforeRoute throwing policy/cancellation,
+            // startAttempt observer/interceptor failures, cancellation
+            // during the retry delay — without double-completing:
+            //   success            -> CLOSED (same gen)      -> no-op
+            //   qualifying failure -> OPEN (gen+1)           -> stale no-op
+            //   neutral CLOSED     -> CLOSED (same gen)      -> no-op
+            //   neutral HALF_OPEN  -> OPEN (gen+1) released  -> stale no-op
+            circuitBreaker.onAbandoned(permit)
+        }
     }
 
     /** The candidate governance would select next from the narrowed envelope, or null. */
@@ -527,5 +570,6 @@ private class GovernedCandidateSet(
     val authorizedSet: Set<ProviderCandidate>,
     val configuredOrder: List<ProviderCandidate>,
     val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
+    val resolvedRoutes: List<ResolvedProviderRoute>,
     val remaining: ViableCandidates,
 )
