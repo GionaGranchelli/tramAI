@@ -448,6 +448,49 @@ class StreamingExecutionCoordinatorTest {
         governedRun,
     )
 
+    /** The four gates a streaming request passes, wired to this class's sink and denial switches. */
+    private fun streamingTestGates(
+        recordingSink: OrderedSink,
+        denyFallback: Boolean,
+        denyBeforeResponseReturn: Boolean,
+    ): StreamingTestGates =
+        StreamingTestGates(
+            beforeResolution = ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
+            beforeInvocation = ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
+            fallbackGate =
+                ProviderFallbackGate { _, _, _, _, _, _ ->
+                    recordingSink.record("policy.fallback")
+                    ; if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
+                },
+            beforeResponseReturn =
+                StreamingBeforeResponseReturnGate { _, _, _ ->
+                    recordingSink.record("policy.before-response-return")
+                    ; if (denyBeforeResponseReturn) {
+                        throw PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
+                    }
+                },
+        )
+
+    /** The gates a streaming request passes, as the streaming tests wire them. */
+    private data class StreamingTestGates(
+        val beforeResolution: ProviderResolutionGate,
+        val beforeInvocation: ProviderInvocationGate,
+        val fallbackGate: ProviderFallbackGate,
+        val beforeResponseReturn: StreamingBeforeResponseReturnGate,
+    )
+
+    /** A registry that approves nothing: streaming capability refusal is exercised its own way. */
+    private val disabledModelRegistryEnforcer =
+        ModelRegistryEnforcer(
+            object : ModelRegistry {
+                override suspend fun findApprovedModel(
+                    providerId: String,
+                    modelName: String,
+                ) = null
+            },
+            ModelRegistrySettings(enabled = false),
+        )
+
     private fun coordinator(
         routingPlan: ProviderRoutingPlan,
         observer: OperationObserver,
@@ -472,8 +515,8 @@ class StreamingExecutionCoordinatorTest {
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
+        val gates = streamingTestGates(recordingSink, denyFallback, denyBeforeResponseReturn)
 
-        fun denied() = PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
         return StreamingExecutionCoordinator(
             identitySource = DefaultEngineIdentitySource,
             routingPlan = routingPlan,
@@ -491,34 +534,12 @@ class StreamingExecutionCoordinatorTest {
                 ),
             conversationMemoryCoordinator = ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }),
             tokenBudgetCoordinator = TokenBudgetCoordinator(budgetSettings),
-            modelRegistryEnforcer =
-                ModelRegistryEnforcer(
-                    object : ModelRegistry {
-                        override suspend fun findApprovedModel(
-                            providerId: String,
-                            modelName: String,
-                        ) = null
-                    },
-                    ModelRegistrySettings(enabled = false),
-                ),
+            modelRegistryEnforcer = disabledModelRegistryEnforcer,
             retryPolicy = retryPolicy,
-            beforeResolution = ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
-            beforeInvocation =
-                ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
-            fallbackGate =
-                ProviderFallbackGate { _, _, _, _, _, _ ->
-                    recordingSink.record(
-                        "policy.fallback",
-                    )
-                    ; if (denyFallback) throw denied()
-                },
-            beforeResponseReturn =
-                StreamingBeforeResponseReturnGate { _, _, _ ->
-                    recordingSink.record(
-                        "policy.before-response-return",
-                    )
-                    ; if (denyBeforeResponseReturn) throw denied()
-                },
+            beforeResolution = gates.beforeResolution,
+            beforeInvocation = gates.beforeInvocation,
+            fallbackGate = gates.fallbackGate,
+            beforeResponseReturn = gates.beforeResponseReturn,
             governance = governance,
         )
     }
