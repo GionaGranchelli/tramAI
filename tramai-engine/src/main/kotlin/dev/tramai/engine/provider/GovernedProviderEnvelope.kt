@@ -149,7 +149,12 @@ internal fun governProviderExecution(
     val authorization =
         CandidateAuthorization(ProviderInputRelease(governed.trustZonePolicy, governed.rules), input.routingPlan)
     val authorizedSet =
-        authorization.authorizedSet(configuredOrder, resolved.trustZone, resolved.classification, input.requiredCapabilities)
+        authorization.authorizedSet(
+            configuredOrder,
+            resolved.trustZone,
+            resolved.classification,
+            input.requiredCapabilities,
+        )
     val authorized =
         authorization.authorizedCandidates(
             configuredOrder,

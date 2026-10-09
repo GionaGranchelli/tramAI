@@ -535,7 +535,8 @@ class ProviderRetryFallbackLifecyclePropertyTest {
 
         private fun attempt(action: RetryFallbackScriptAction.Attempt) {
             require(action.routeIndex == model.routeIndex) {
-                "script attempt on route ${action.routeIndex} but the model's decisions led to route ${model.routeIndex} — script inconsistent or model routing bug"
+                "script attempt on route ${action.routeIndex} but the model's decisions led to " +
+                    "route ${model.routeIndex} — script inconsistent or model routing bug"
             }
             attemptTrace += AttemptStep(model.routeIndex, model.globalAttempt, action.outcome)
             val result = model.apply(RouteAdmission.Allowed, action.outcome)
