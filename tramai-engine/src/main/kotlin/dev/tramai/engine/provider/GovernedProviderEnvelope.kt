@@ -93,6 +93,18 @@ internal fun excludedByAvailability(
     }
 
 /**
+ * What governance must evaluate for one execution: the resolved routes, the routing plan they came
+ * from, the security context that supplies classification signals, and the capabilities this
+ * execution requires. They travel together because they describe one execution's evaluation input.
+ */
+internal data class GovernedExecutionInput(
+    val routes: List<ResolvedProviderRoute>,
+    val routingPlan: ProviderRoutingPlan,
+    val securityContext: ExecutionSecurityContext,
+    val requiredCapabilities: Set<ProviderCapability>,
+)
+
+/**
  * Derives the authority envelope for one execution request from the configured topology and observed
  * runtime availability. Shared by the synchronous and streaming paths so the two cannot drift.
  *
@@ -102,13 +114,10 @@ internal fun excludedByAvailability(
  * a provider name, and not a capability from a provider's identity.
  */
 internal fun governProviderExecution(
-    routes: List<ResolvedProviderRoute>,
-    routingPlan: ProviderRoutingPlan,
+    input: GovernedExecutionInput,
     configuration: ProviderGovernanceConfiguration?,
     governedRun: GovernedRunIdentity?,
-    securityContext: ExecutionSecurityContext,
     circuitBreaker: ProviderCircuitBreaker,
-    requiredCapabilities: Set<ProviderCapability>,
 ): GovernedProviderEnvelope {
     val governed = configuration
     val run = governedRun
@@ -117,7 +126,7 @@ internal fun governProviderExecution(
     }
     val workloadZone = workloadZoneOf(governed, run)
 
-    val mappings = routeCandidates(routes, governed)
+    val mappings = routeCandidates(input.routes, governed)
     val configuredOrder = mappings.map { it.second }
     val routesByCandidate = mappings.associate { (route, candidate) -> candidate to route }
     val indexByRoute = mappings.mapIndexed { index, (route, _) -> route to index }.toMap()
@@ -125,7 +134,7 @@ internal fun governProviderExecution(
     val workload =
         WorkloadGovernanceResolver.resolve(
             identity = run.deployment,
-            signals = signalsOf(securityContext),
+            signals = signalsOf(input.securityContext),
             deploymentZone = workloadZone,
             rules = governed.rules,
         )
@@ -138,15 +147,15 @@ internal fun governProviderExecution(
     // carries an empty rule map, which would release nothing and refuse every candidate for a reason
     // the configuration never expressed.
     val authorization =
-        CandidateAuthorization(ProviderInputRelease(governed.trustZonePolicy, governed.rules), routingPlan)
+        CandidateAuthorization(ProviderInputRelease(governed.trustZonePolicy, governed.rules), input.routingPlan)
     val authorizedSet =
-        authorization.authorizedSet(configuredOrder, resolved.trustZone, resolved.classification, requiredCapabilities)
+        authorization.authorizedSet(configuredOrder, resolved.trustZone, resolved.classification, input.requiredCapabilities)
     val authorized =
         authorization.authorizedCandidates(
             configuredOrder,
             resolved.trustZone,
             resolved.classification,
-            requiredCapabilities,
+            input.requiredCapabilities,
         )
 
     // Availability is observed, never consumed: beforeCall grants a permit and can revive an expired

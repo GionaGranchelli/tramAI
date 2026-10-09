@@ -39,6 +39,7 @@ import dev.tramai.engine.emitRuntimeEvent
 import dev.tramai.engine.memory.ConversationMemoryCoordinator
 import dev.tramai.engine.memory.PersistConversationTurnRequest
 import dev.tramai.engine.provider.AttemptCounter
+import dev.tramai.engine.provider.GovernedExecutionInput
 import dev.tramai.engine.provider.GovernedProviderEnvelope
 import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
@@ -400,13 +401,20 @@ internal class StreamingExecutionCoordinator(
                         // synchronous path does, and a streaming request inherently requires STREAMING.
                         val envelope =
                             governProviderExecution(
-                                candidates,
-                                routingPlan,
-                                governance,
-                                request.governedRun,
-                                securityContext,
-                                circuitBreaker,
-                                deriveRequiredCapabilities(operation, effectiveMessages, streaming = true),
+                                GovernedExecutionInput(
+                                    routes = candidates,
+                                    routingPlan = routingPlan,
+                                    securityContext = securityContext,
+                                    requiredCapabilities =
+                                        deriveRequiredCapabilities(
+                                            operation,
+                                            effectiveMessages,
+                                            streaming = true,
+                                        ),
+                                ),
+                                configuration = governance,
+                                governedRun = request.governedRun,
+                                circuitBreaker = circuitBreaker,
                             )
                         var remaining = envelope.viable
 
@@ -847,25 +855,27 @@ internal class StreamingExecutionCoordinator(
         val callContext = streamingCallContext(operation, route.providerName, attempt)
         val interceptedRequest = request.copy(messages = operationInterceptor.interceptRequest(callContext, request.messages))
         val permit = call.permit
+        val ctx =
+            StreamingRouteContext(
+                route,
+                operation,
+                tokenBudgetTracker,
+                callContext,
+                observation,
+                emitChunk,
+                permit,
+                { emittedAnyTokens },
+                { chunk ->
+                    emittedAnyTokens = true
+                    emitChunk(chunk)
+                },
+            )
         return try {
             collectStreamingRouteChunks(
                 streamCapable,
                 interceptedRequest,
                 request.timeoutMillis ?: operation.operation.timeoutMillis,
-                StreamingRouteContext(
-                    route,
-                    operation,
-                    tokenBudgetTracker,
-                    callContext,
-                    observation,
-                    emitChunk,
-                    permit,
-                    { emittedAnyTokens },
-                    { chunk ->
-                        emittedAnyTokens = true
-                        emitChunk(chunk)
-                    },
-                ),
+                ctx,
             )
             error("Streaming route completed without a terminal result")
         } catch (finished: StreamingRouteFinished) {
@@ -883,7 +893,7 @@ internal class StreamingExecutionCoordinator(
                     cause = error,
                 )
             observation.onProviderFailure(timeout)
-            handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation, permit)
+            handleFallbackResult(timeout, emittedAnyTokens, ctx)
         } catch (error: CancellationException) {
             observation.completeCancellation(error)
             circuitBreaker.onAbandoned(permit)
@@ -892,7 +902,7 @@ internal class StreamingExecutionCoordinator(
             error.rethrowIfCancellation()
             val normalized = normalizeStreamingError(error, route.providerName, operation)
             observation.onProviderFailure(normalized)
-            handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation, permit)
+            handleFallbackResult(normalized, emittedAnyTokens, ctx)
         }
     }
 
@@ -968,13 +978,7 @@ internal class StreamingExecutionCoordinator(
     ) {
         withTimeout(timeoutMillis) {
             streamCapable.stream(request).collect { chunk -> handleStreamingChunk(chunk, ctx) }
-            handleStreamingTerminationWithoutTerminalChunk(
-                ctx.route,
-                ctx.operation,
-                ctx.observation,
-                ctx.hasEmittedTokens(),
-                ctx.permit,
-            )
+            handleStreamingTerminationWithoutTerminalChunk(ctx, ctx.hasEmittedTokens())
         }
     }
 
@@ -994,14 +998,7 @@ internal class StreamingExecutionCoordinator(
             is StreamChunk.Error -> {
                 ctx.observation.onProviderFailure(chunk.cause)
                 finishStreamingRoute(
-                    handleFallbackResult(
-                        chunk.cause,
-                        ctx.hasEmittedTokens(),
-                        ctx.route.providerName,
-                        ctx.observation,
-                        ctx.permit,
-                        chunk,
-                    ),
+                    handleFallbackResult(chunk.cause, ctx.hasEmittedTokens(), ctx, chunk),
                 )
             }
         }
@@ -1042,20 +1039,17 @@ internal class StreamingExecutionCoordinator(
     }
 
     private fun handleStreamingTerminationWithoutTerminalChunk(
-        route: ResolvedProviderRoute,
-        operation: OperationDefinition,
-        observation: OperationObservation,
+        ctx: StreamingRouteContext,
         emittedAnyTokens: Boolean,
-        permit: CircuitBreakerPermit,
     ): Nothing {
         val error =
             ProviderException(
                 message =
-                    "Provider ${route.providerName} ended streaming without a terminal chunk " +
-                        "while invoking $qualifiedServiceName.${operation.method.name}",
+                    "Provider ${ctx.route.providerName} ended streaming without a terminal chunk " +
+                        "while invoking $qualifiedServiceName.${ctx.operation.method.name}",
             )
-        observation.onProviderFailure(error)
-        finishStreamingRoute(handleFallbackResult(error, emittedAnyTokens, route.providerName, observation, permit))
+        ctx.observation.onProviderFailure(error)
+        finishStreamingRoute(handleFallbackResult(error, emittedAnyTokens, ctx))
     }
 
     private fun normalizeStreamingError(
@@ -1113,9 +1107,7 @@ internal class StreamingExecutionCoordinator(
     private fun handleFallbackResult(
         error: TramaiException,
         emittedAnyTokens: Boolean,
-        providerName: String,
-        observation: OperationObservation,
-        permit: CircuitBreakerPermit,
+        ctx: StreamingRouteContext,
         terminalChunk: StreamChunk.Error = StreamChunk.Error(error),
     ): StreamingRouteResult {
         val result =
@@ -1125,15 +1117,15 @@ internal class StreamingExecutionCoordinator(
                 // touched here — an intermediate retry must not record a breaker
                 // failure (8.2h P0-K); the terminal exhausted failure records in
                 // the route loop's Stop branch. STREAMING_STARTUP_RETRY is emitted
-                // once per route by the route loop (retryIndex == 0), not here.
-                StreamingRouteResult.StartupFailure(error, observation)
+                // once per ctx.route by the route loop (retryIndex == 0), not here.
+                StreamingRouteResult.StartupFailure(error, ctx.observation)
             } else {
                 // Terminal: non-retryable, post-token failure, or fallback-disallowed.
-                // This completes breaker authority for the route.
-                recordCircuitBreakerFailure(permit, error, observation)
+                // This completes breaker authority for the ctx.route.
+                recordCircuitBreakerFailure(ctx.permit, error, ctx.observation)
                 StreamingRouteResult.TerminalError(terminalChunk)
             }
-        observation.onCallCompleted(parseSuccess = null)
+        ctx.observation.onCallCompleted(parseSuccess = null)
         return result
     }
 
