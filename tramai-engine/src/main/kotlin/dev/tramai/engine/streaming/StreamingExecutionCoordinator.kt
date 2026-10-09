@@ -52,6 +52,8 @@ import dev.tramai.engine.provider.excludedByAvailability
 import dev.tramai.engine.provider.governProviderExecution
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.security.governance.CandidateSelectionDecision
+import dev.tramai.security.governance.ProviderCandidate
+import dev.tramai.security.governance.ViableCandidates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -266,6 +268,87 @@ internal class StreamingExecutionCoordinator(
         } finally {
             circuitBreaker.onAbandoned(budget.permit)
         }
+    }
+
+    /**
+     * Asks the continuation policy about every pre-open exclusion that execution actually advances
+     * past, before another candidate may execute. Approval permits continuation only: it cannot
+     * restore the excluded candidate, widen the envelope, or reach a route the envelope does not
+     * carry, and with no continuation target there is no transition to authorize. An exclusion
+     * positioned after the candidate about to run gates nothing, so it is not consulted.
+     *
+     * Returns the last refusal recorded, or null when no exclusion was gated.
+     */
+    private suspend fun gateExcludedStreamingCandidates(
+        envelope: GovernedProviderEnvelope,
+        remaining: ViableCandidates,
+        continuationCandidate: ProviderCandidate,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+    ): CircuitBreakerOpenException? {
+        var lastOpen: CircuitBreakerOpenException? = null
+        val continuationPosition = envelope.configuredOrder.indexOf(continuationCandidate)
+        val gates =
+            excludedByAvailability(
+                envelope.authorized,
+                remaining,
+                envelope.configuredOrder,
+                circuitBreaker,
+            ).filter { envelope.configuredOrder.indexOf(it) < continuationPosition }
+        for (excluded in gates) {
+            val excludedRoute = envelope.routeOf(excluded)
+            val openUntil = circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L
+            val circuitOpen = CircuitBreakerOpenException(excluded.providerId, openUntil)
+            lastOpen = circuitOpen
+            try {
+                fallbackGate.transition(
+                    correlationId,
+                    excludedRoute.providerName,
+                    excludedRoute.effectiveModelName,
+                    envelope.routeOf(continuationCandidate).providerName,
+                    "circuit-breaker-open",
+                    securityContext,
+                )
+            } catch (policyError: PolicyViolationException) {
+                policyError.addSuppressed(circuitOpen)
+                throw policyError
+            }
+        }
+        return lastOpen
+    }
+
+    /** The route governance selected, the remainder after removing it, and its successor. */
+    private data class GovernedStreamingRouteSelection(
+        val route: ResolvedProviderRoute,
+        val routeIndex: Int,
+        val narrowed: ViableCandidates,
+        val nextRoute: ResolvedProviderRoute?,
+    )
+
+    /**
+     * Selects the next route from the CURRENT remainder and reports it with its successor.
+     *
+     * Narrow the current remainder, never the envelope's viable snapshot: subtracting from the
+     * snapshot would restore a candidate removed by an earlier iteration and let a route be
+     * revisited. The successor is asked for after narrowing, so the fallback gate is never told about
+     * a route governance has not selected.
+     */
+    private fun selectGovernedStreamingRoute(
+        envelope: GovernedProviderEnvelope,
+        remaining: ViableCandidates,
+    ): GovernedStreamingRouteSelection? {
+        val chosen =
+            when (val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)) {
+                is CandidateSelectionDecision.Selected -> decision.candidate
+                is CandidateSelectionDecision.NoSelection -> null
+            } ?: return null
+        val narrowed = remaining.without(chosen)
+        return GovernedStreamingRouteSelection(
+            route = envelope.routeOf(chosen),
+            routeIndex = envelope.routeIndexOf(envelope.routeOf(chosen)),
+            narrowed = narrowed,
+            nextRoute = envelope.nextSelected(narrowed),
+        )
     }
 
     /**
@@ -541,56 +624,25 @@ internal class StreamingExecutionCoordinator(
             // it, so no transition exists and the gate is not consulted on its behalf.
             val continuationCandidate = remaining.orderedBy(envelope.configuredOrder).firstOrNull()
             if (continuationCandidate != null) {
-                val continuationPosition = envelope.configuredOrder.indexOf(continuationCandidate)
-                val gates =
-                    excludedByAvailability(
-                        envelope.authorized,
+                lastCircuitOpen =
+                    gateExcludedStreamingCandidates(
+                        envelope,
                         remaining,
-                        envelope.configuredOrder,
-                        circuitBreaker,
-                    ).filter { envelope.configuredOrder.indexOf(it) < continuationPosition }
-                for (excluded in gates) {
-                    val excludedRoute = envelope.routeOf(excluded)
-                    val openUntil = circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L
-                    val circuitOpen = CircuitBreakerOpenException(excluded.providerId, openUntil)
-                    lastCircuitOpen = circuitOpen
-                    try {
-                        fallbackGate.transition(
-                            correlationId,
-                            excludedRoute.providerName,
-                            excludedRoute.effectiveModelName,
-                            envelope.routeOf(continuationCandidate).providerName,
-                            "circuit-breaker-open",
-                            securityContext,
-                        )
-                    } catch (policyError: PolicyViolationException) {
-                        policyError.addSuppressed(circuitOpen)
-                        throw policyError
-                    }
-                }
+                        continuationCandidate,
+                        correlationId,
+                        securityContext,
+                    ) ?: lastCircuitOpen
             }
 
             while (true) {
                 val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
-                val chosen =
-                    when (decision) {
-                        is CandidateSelectionDecision.Selected -> decision.candidate
-                        is CandidateSelectionDecision.NoSelection -> null
-                    }
-                if (chosen == null) break
-                val route = envelope.routeOf(chosen)
-                val routeIndex = envelope.routeIndexOf(route)
-                // Narrow first, then ask governance for the next route: the fallback gate must
-                // never be told about a route governance has not selected.
-                // Narrow the CURRENT remainder, never the original viable set: subtracting
-                // from the envelope's snapshot would restore a candidate removed by an
-                // earlier iteration and allow a route to be revisited.
-                val narrowed = remaining.without(chosen)
-                val nextRoute = envelope.nextSelected(narrowed)
+                val selection = selectGovernedStreamingRoute(envelope, remaining) ?: break
+                val route = selection.route
+                val narrowed = selection.narrowed
                 val admission =
                     handleCircuitBreakerOpenRoute(
                         route = route,
-                        nextRoute = nextRoute,
+                        nextRoute = selection.nextRoute,
                         correlationId = correlationId,
                         securityContext = securityContext,
                     )
@@ -601,89 +653,64 @@ internal class StreamingExecutionCoordinator(
                 }
                 val permit = (admission as CircuitBreakerAdmission.Allowed).permit
 
-                try {
-                    // Provider retry budget (Epic 8.2h P0-A): transient
-                    // STREAMING STARTUP failures retry the SAME route
-                    // before any token, honoring @Operation.providerRetries
-                    // exactly like the sync path — maxAttempts =
-                    // providerRetries + 1, same ProviderRetryPolicy, same
-                    // retry-after cap / backoff / jitter. Retry never
-                    // changes route; fallback only after exhaustion.
-                    // Every attempt of a route shares the SAME circuit-
-                    // breaker permit (8.2g boundary): intermediate retries
-                    // never call onFailure — only the terminal route
-                    // outcome completes breaker authority.
-                    // After any token, retry/fallback authority is
-                    // permanently gone (handleFallbackResult's
-                    // emittedAnyTokens gate).
-                    val maxAttempts = operation.operation.providerRetries + 1
-                    val handoff =
-                        FallbackHandoff(
-                            route = route,
-                            nextRoute = nextRoute,
-                            correlationId = correlationId,
-                            securityContext = securityContext,
-                        )
-                    val budget = RouteAttemptBudget(permit = permit, maxAttempts = maxAttempts)
+                // Provider retry budget (Epic 8.2h P0-A): transient
+                // STREAMING STARTUP failures retry the SAME route
+                // before any token, honoring @Operation.providerRetries
+                // exactly like the sync path — maxAttempts =
+                // providerRetries + 1, same ProviderRetryPolicy, same
+                // retry-after cap / backoff / jitter. Retry never
+                // changes route; fallback only after exhaustion.
+                // Every attempt of a route shares the SAME circuit-
+                // breaker permit (8.2g boundary): intermediate retries
+                // never call onFailure — only the terminal route
+                // outcome completes breaker authority.
+                // After any token, retry/fallback authority is
+                // permanently gone (handleFallbackResult's
+                // emittedAnyTokens gate).
+                val maxAttempts = operation.operation.providerRetries + 1
+                val handoff =
+                    FallbackHandoff(
+                        route = route,
+                        nextRoute = selection.nextRoute,
+                        correlationId = correlationId,
+                        securityContext = securityContext,
+                    )
+                val budget = RouteAttemptBudget(permit = permit, maxAttempts = maxAttempts)
 
-                    for (retryIndex in 0 until maxAttempts) {
-                        when (
-                            val result =
-                                executeStreamingRoute(
-                                    StreamingExecutionRoute(
-                                        operation = operation,
-                                        route = route,
-                                        routeIndex = routeIndex,
-                                        attempt = attemptCounter.next(),
-                                        tokenBudgetTracker = tokenBudgetTracker,
-                                        memoryMessages = effectiveMessages,
-                                        historySize = history.size,
-                                        conversationId = conversationId,
-                                        emitChunk = { chunks.send(it) },
-                                        permit = permit,
-                                    ),
-                                    correlationId = correlationId,
-                                    securityContext = securityContext,
-                                    arguments = arguments,
-                                )
-                        ) {
-                            is StreamingRouteResult.Completed -> {
-                                persistStreamingTurn(
-                                    conversationId,
-                                    effectiveMessages,
-                                    history.size,
-                                    result.fullText,
-                                )
-                                return@streamChunksToCollector
-                            }
-
-                            is StreamingRouteResult.StartupFailure -> {
-                                if (handleStreamingStartupFailure(result, handoff, budget, retryIndex)) {
-                                    lastFailure = result.error
-                                    remaining = narrowed
-                                    break
-                                }
-                            }
-
-                            is StreamingRouteResult.TerminalError -> {
-                                chunks.send(result.errorChunk)
-                                return@streamChunksToCollector
-                            }
-                        }
+                val template =
+                    StreamingExecutionRoute(
+                        operation = operation,
+                        route = route,
+                        routeIndex = selection.routeIndex,
+                        attempt = 0,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        memoryMessages = effectiveMessages,
+                        historySize = history.size,
+                        conversationId = conversationId,
+                        emitChunk = { chunks.send(it) },
+                        permit = permit,
+                    )
+                when (val outcome = attemptStreamingRoute(template, handoff, budget, attemptCounter, arguments)) {
+                    is StreamingRouteAttemptOutcome.Completed -> {
+                        persistStreamingTurn(conversationId, effectiveMessages, history.size, outcome.fullText)
+                        return@streamChunksToCollector
                     }
-                } finally {
-                    // Structural permit relinquishment (same invariant
-                    // as the sync coordinator): admission creates an
-                    // obligation and scope exit ALWAYS discharges it.
-                    // Covers the streaming pre-try escapes that manual
-                    // call-site cleanup could miss — startStreamingObservation
-                    // observer failures and collectStreamingRoute's
-                    // interceptRequest, both of which run before their
-                    // own try. Idempotent by construction: success and
-                    // recorded failures have already advanced the state
-                    // (CLOSED / OPEN gen+1), so this is a no-op there;
-                    // an unrecorded neutral escape releases the probe.
-                    circuitBreaker.onAbandoned(permit)
+
+                    is StreamingRouteAttemptOutcome.Terminal -> {
+                        chunks.send(outcome.chunk)
+                        return@streamChunksToCollector
+                    }
+
+                    is StreamingRouteAttemptOutcome.Stop -> {
+                        lastFailure = outcome.error
+                        // Narrow and reselect rather than advancing to the next configured route. The
+                        // candidate loop advances because Stop ended the route's attempts, not the walk.
+                        remaining = narrowed
+                    }
+
+                    StreamingRouteAttemptOutcome.Exhausted -> {
+                        Unit
+                    }
                 }
             }
 
