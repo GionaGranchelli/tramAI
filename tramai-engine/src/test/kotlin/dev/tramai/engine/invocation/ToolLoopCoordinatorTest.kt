@@ -46,14 +46,14 @@ import dev.tramai.engine.provider.ProviderRetryDelayPolicy
 import dev.tramai.engine.provider.ProviderRetryPolicy
 import dev.tramai.engine.provider.componentOperation
 import dev.tramai.engine.tool.ToolApprovalGate
-import dev.tramai.engine.tool.policyHelper
-import dev.tramai.engine.tool.testTool
 import dev.tramai.engine.tool.ToolAuthorizationCoordinator
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.engine.tool.ToolInvocationExecutor
 import dev.tramai.engine.tool.ToolReinjectionCoordinator
 import dev.tramai.engine.tool.ToolResultSanitizer
 import dev.tramai.engine.tool.ToolRetryPolicy
+import dev.tramai.engine.tool.policyHelper
+import dev.tramai.engine.tool.testTool
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -80,10 +80,14 @@ class ToolLoopCoordinatorTest {
     fun `unknown tool call is normalized to unregistered placeholder`() {
         runBlocking {
             var calls = 0
-            val provider = FakeProvider {
-                if (calls++ == 0) ModelResponse("calls", toolCalls = listOf(ToolCall("1", "ghost-tool", "{\"x\":1}")))
-                else ModelResponse("done")
-            }
+            val provider =
+                FakeProvider {
+                    if (calls++ == 0) {
+                        ModelResponse("calls", toolCalls = listOf(ToolCall("1", "ghost-tool", "{\"x\":1}")))
+                    } else {
+                        ModelResponse("done")
+                    }
+                }
             val coordinator = coordinator(provider, ToolRegistry(), RecordingObservation())
 
             coordinator.execute(context())
@@ -111,10 +115,11 @@ class ToolLoopCoordinatorTest {
     fun `max five iterations then fails with exceeded message`() {
         runBlocking {
             val calls = AtomicInteger()
-            val provider = FakeProvider {
-                calls.incrementAndGet()
-                ModelResponse("loop", toolCalls = listOf(ToolCall("c$calls", "echo", "{}")))
-            }
+            val provider =
+                FakeProvider {
+                    calls.incrementAndGet()
+                    ModelResponse("loop", toolCalls = listOf(ToolCall("c$calls", "echo", "{}")))
+                }
             val registry = ToolRegistry(mapOf("echo" to testTool("echo") { _, _ -> ToolResult.Success("ok") }))
             val coordinator = coordinator(provider, registry, RecordingObservation())
 
@@ -131,13 +136,15 @@ class ToolLoopCoordinatorTest {
             val observation = RecordingObservation()
             val provider = FakeProvider { ModelResponse("calls", toolCalls = listOf(ToolCall("1", "ok", "{}"))) }
             val registry = ToolRegistry(mapOf("ok" to testTool("ok")))
-            val denying = policyHelper {
-                if (it.enforcementPoint == dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION) {
-                    dev.tramai.core.policy.PolicyDecision.Deny("no", "no")
-                } else {
-                    dev.tramai.core.policy.PolicyDecision.Allow
+            val denying =
+                policyHelper {
+                    if (it.enforcementPoint == dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION) {
+                        dev.tramai.core.policy.PolicyDecision
+                            .Deny("no", "no")
+                    } else {
+                        dev.tramai.core.policy.PolicyDecision.Allow
+                    }
                 }
-            }
             val coordinator = coordinator(provider, registry, observation, reinjectionPolicy = denying)
 
             assertThatThrownBy { runBlocking { coordinator.execute(context()) } }
@@ -165,38 +172,54 @@ class ToolLoopCoordinatorTest {
         budget: TokenBudgetCoordinator = TokenBudgetCoordinator(TokenBudgetSettings()),
         reinjectionPolicy: dev.tramai.engine.PolicyEnforcementHelper = policyHelper(),
     ): ToolLoopCoordinator {
-        val observer = dev.tramai.core.observation.OperationObserver { observation }
-        val attempt = ProviderAttemptExecutor(
-            "service",
-            observer,
-            object : dev.tramai.core.observation.OperationInterceptor {},
-            ProviderCircuitBreaker(CircuitBreakerSettings()),
-            ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
-            permissiveAuthorization(),
-            ProviderInvocationGate { _, _, _, _ -> },
-            ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
-        )
-        val providerCoordinator = ProviderExecutionCoordinator(
-            ProviderRoutingPlan.builder().provider("primary", provider).model("model", "primary").build(),
-            ProviderCircuitBreaker(CircuitBreakerSettings()),
-            attempt,
-            ProviderFallbackPolicy(),
-            ProviderResolutionGate { _, _, _ -> },
-            ProviderFallbackGate { _ -> },
-        )
+        val observer =
+            dev.tramai.core.observation
+                .OperationObserver { observation }
+        val attempt =
+            ProviderAttemptExecutor(
+                "service",
+                observer,
+                object : dev.tramai.core.observation.OperationInterceptor {},
+                ProviderCircuitBreaker(CircuitBreakerSettings()),
+                ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+                permissiveAuthorization(),
+                ProviderInvocationGate { _, _, _, _ -> },
+                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+            )
+        val providerCoordinator =
+            ProviderExecutionCoordinator(
+                ProviderRoutingPlan
+                    .builder()
+                    .provider("primary", provider)
+                    .model("model", "primary")
+                    .build(),
+                ProviderCircuitBreaker(CircuitBreakerSettings()),
+                attempt,
+                ProviderFallbackPolicy(),
+                ProviderResolutionGate { _, _, _ -> },
+                ProviderFallbackGate { _ -> },
+            )
         val exposure = ToolExposureCoordinator(registry, policyHelper())
-        val invocation = ToolInvocationExecutor(
-            ToolAuthorizationCoordinator(policyHelper()),
-            ToolRetryPolicy(),
-            RecordingToolObserver(),
-            ToolApprovalGate { _, _, _ -> },
-        )
-        val reinjection = ToolReinjectionCoordinator(
-            registry,
-            reinjectionPolicy,
-            invocation,
-            ToolResultSanitizer(registry, NoOpDlpInterceptor, NoOpDlpRedactionAuditEmitter, ToolResultFilteringSettings(), NoOpEngineEventObserver),
-        )
+        val invocation =
+            ToolInvocationExecutor(
+                ToolAuthorizationCoordinator(policyHelper()),
+                ToolRetryPolicy(),
+                RecordingToolObserver(),
+                ToolApprovalGate { _, _, _ -> },
+            )
+        val reinjection =
+            ToolReinjectionCoordinator(
+                registry,
+                reinjectionPolicy,
+                invocation,
+                ToolResultSanitizer(
+                    registry,
+                    NoOpDlpInterceptor,
+                    NoOpDlpRedactionAuditEmitter,
+                    ToolResultFilteringSettings(),
+                    NoOpEngineEventObserver,
+                ),
+            )
         return ToolLoopCoordinator(providerCoordinator, exposure, budget, registry, reinjection)
     }
 
@@ -204,7 +227,14 @@ class ToolLoopCoordinatorTest {
         budgetTracker: TokenBudgetTracker = TokenBudgetTracker(TokenBudgetSettings()),
         messages: MutableList<Message> = mutableListOf(),
     ) = ToolLoopContext(
-        operation = componentOperation().copy(toolDefinitions = listOf(dev.tramai.core.model.ToolDefinition("echo", "echo", "{}"))),
+        operation =
+            componentOperation().copy(
+                toolDefinitions =
+                    listOf(
+                        dev.tramai.core.model
+                            .ToolDefinition("echo", "echo", "{}"),
+                    ),
+            ),
         messages = messages,
         tokenBudgetTracker = budgetTracker,
         correlationId = "cid",
@@ -212,34 +242,65 @@ class ToolLoopCoordinatorTest {
         identity = EngineExecutionIdentity("run", "cid", Sha256Digest.of("sha256:${"a".repeat(64)}"), "v1", "actor"),
     )
 
-    private fun permissiveAuthorization() = ProviderAuthorizationService(
-        ModelRegistryEnforcer(
-            object : ModelRegistry {
-                override suspend fun findApprovedModel(providerId: String, modelName: String) =
-                    RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
-            },
-            ModelRegistrySettings(enabled = true),
-        ),
-    )
+    private fun permissiveAuthorization() =
+        ProviderAuthorizationService(
+            ModelRegistryEnforcer(
+                object : ModelRegistry {
+                    override suspend fun findApprovedModel(
+                        providerId: String,
+                        modelName: String,
+                    ) = RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
+                },
+                ModelRegistrySettings(enabled = true),
+            ),
+        )
 }
 
 private class FakeProvider(
     private val block: suspend (ModelRequest) -> ModelResponse,
 ) : ModelProvider {
     override suspend fun complete(request: ModelRequest): ModelResponse = block(request).also { requests += request }
+
     override fun providerId() = "primary"
+
     val requests = mutableListOf<ModelRequest>()
+
     fun requestedMessages(): List<Message> = requests.flatMap { it.messages }
 }
 
 private class RecordingObservation : OperationObservation {
     val events = mutableListOf<Pair<String, Map<String, Any?>>>()
-    override fun onProviderResponse(response: ModelResponse) { events += "tramai.provider.response" to mapOf() }
-    override fun onProviderFailure(error: Throwable) { events += "tramai.provider.failure" to mapOf() }
-    override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) { events += "tramai.structured.parse_failure" to mapOf() }
-    override fun onEngineEvent(name: String, attributes: Map<String, Any?>) { events += name to attributes }
-    override fun onCallCompleted(parseSuccess: Boolean?) { events += "tramai.call.completed" to mapOf() }
-    override fun onCallCancelled() { events += "tramai.call.cancelled" to mapOf() }
+
+    override fun onProviderResponse(response: ModelResponse) {
+        events += "tramai.provider.response" to mapOf()
+    }
+
+    override fun onProviderFailure(error: Throwable) {
+        events += "tramai.provider.failure" to mapOf()
+    }
+
+    override fun onStructuredParseFailure(
+        rawResponse: String,
+        errorSummary: String,
+    ) {
+        events +=
+            "tramai.structured.parse_failure" to mapOf()
+    }
+
+    override fun onEngineEvent(
+        name: String,
+        attributes: Map<String, Any?>,
+    ) {
+        events += name to attributes
+    }
+
+    override fun onCallCompleted(parseSuccess: Boolean?) {
+        events += "tramai.call.completed" to mapOf()
+    }
+
+    override fun onCallCancelled() {
+        events += "tramai.call.cancelled" to mapOf()
+    }
 }
 
 private class RecordingToolObserver : dev.tramai.core.observation.ToolFailureDiagnosticObserver {

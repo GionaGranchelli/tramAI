@@ -869,3 +869,21 @@ private val nullModelRegistry =
             modelName: String,
         ) = null
     }
+
+/**
+ * Builds a breaker with the settings these regression tests all share, kept here so the long
+ * construction exists once instead of at every site.
+ */
+internal fun circuitBreaker(
+    failureThreshold: Int,
+    openDurationMillis: Long = 100,
+    now: () -> Long,
+): ProviderCircuitBreaker =
+    ProviderCircuitBreaker(
+        CircuitBreakerSettings(
+            enabled = true,
+            failureThreshold = failureThreshold,
+            openDurationMillis = openDurationMillis,
+        ),
+        now,
+    )

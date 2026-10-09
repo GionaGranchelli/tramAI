@@ -29,12 +29,17 @@ import java.util.concurrent.atomic.AtomicInteger
  * these counters fail.
  */
 class ProviderCancellationContractTest {
-
-    private class CountingRetryPolicy : ProviderRetryPolicy(
-        ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 },
-    ) {
+    private class CountingRetryPolicy :
+        ProviderRetryPolicy(
+            ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 },
+        ) {
         val decideCalls = AtomicInteger()
-        override fun decide(error: Throwable, retryIndex: Int, maxAttempts: Int): ProviderRetryDecision {
+
+        override fun decide(
+            error: Throwable,
+            retryIndex: Int,
+            maxAttempts: Int,
+        ): ProviderRetryDecision {
             decideCalls.incrementAndGet()
             return super.decide(error, retryIndex, maxAttempts)
         }
@@ -42,15 +47,21 @@ class ProviderCancellationContractTest {
 
     private class CountingFallbackPolicy : ProviderFallbackPolicy() {
         val decideCalls = AtomicInteger()
+
         override fun decide(error: Throwable): ProviderFallbackDecision {
             decideCalls.incrementAndGet()
             return super.decide(error)
         }
     }
 
-    private class CountingCircuitBreaker : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000)) {
+    private class CountingCircuitBreaker :
+        ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000)) {
         val failureCalls = AtomicInteger()
-        override fun onFailure(permit: CircuitBreakerPermit, error: Throwable): Boolean {
+
+        override fun onFailure(
+            permit: CircuitBreakerPermit,
+            error: Throwable,
+        ): Boolean {
             failureCalls.incrementAndGet()
             return super.onFailure(permit, error)
         }
@@ -69,7 +80,15 @@ class ProviderCancellationContractTest {
                     observation = observation,
                     retryPolicy = retryPolicy,
                     circuitBreaker = circuitBreaker,
-                ).execute(request(FakeProvider { calls++; throw CancellationException("stop") }, retries = 1))
+                ).execute(
+                    request(
+                        FakeProvider {
+                            calls++
+                            throw CancellationException("stop")
+                        },
+                        retries = 1,
+                    ),
+                )
             }
         }.isInstanceOf(CancellationException::class.java)
 
@@ -84,30 +103,36 @@ class ProviderCancellationContractTest {
     @Test
     fun `cancellation during retry delay prevents second invocation and fallback`() {
         runBlocking {
-        val fallbackPolicy = CountingFallbackPolicy()
-        var calls = 0
-        // Primary always fails retryably; coordinator plan routes "model" to it.
-        val coordinator = coordinator(
-            primary = FakeProvider { calls++; throw ProviderException("transient", retryable = true) },
-            fallbackPolicy = fallbackPolicy,
-        )
-        val job = launch {
-            coordinator.execute(
-                ProviderExecutionRequest(
-                    operation = componentOperation(1),
-                    messages = emptyList(),
-                    attemptCounter = AttemptCounter(),
-                    correlationId = "cid",
-                    securityContext = ExecutionSecurityContext(),
-                    beforeRoute = ProviderRouteGate {},
-                ),
-            )
-        }
-        // Let the first attempt fail and enter the retry delay (50ms backoff + 0 jitter).
-        withTimeout(2_000) { while (calls < 1) kotlinx.coroutines.yield() }
-        job.cancelAndJoin()
-        assertThat(calls).isEqualTo(1)
-        assertThat(fallbackPolicy.decideCalls.get()).isZero()
+            val fallbackPolicy = CountingFallbackPolicy()
+            var calls = 0
+            // Primary always fails retryably; coordinator plan routes "model" to it.
+            val coordinator =
+                coordinator(
+                    primary =
+                        FakeProvider {
+                            calls++
+                            throw ProviderException("transient", retryable = true)
+                        },
+                    fallbackPolicy = fallbackPolicy,
+                )
+            val job =
+                launch {
+                    coordinator.execute(
+                        ProviderExecutionRequest(
+                            operation = componentOperation(1),
+                            messages = emptyList(),
+                            attemptCounter = AttemptCounter(),
+                            correlationId = "cid",
+                            securityContext = ExecutionSecurityContext(),
+                            beforeRoute = ProviderRouteGate {},
+                        ),
+                    )
+                }
+            // Let the first attempt fail and enter the retry delay (50ms backoff + 0 jitter).
+            withTimeout(2_000) { while (calls < 1) kotlinx.coroutines.yield() }
+            job.cancelAndJoin()
+            assertThat(calls).isEqualTo(1)
+            assertThat(fallbackPolicy.decideCalls.get()).isZero()
         }
     }
 
@@ -118,16 +143,21 @@ class ProviderCancellationContractTest {
         val retryPolicy = CountingRetryPolicy()
         val fallbackPolicy = CountingFallbackPolicy()
         val cancellation = CancellationException("auth")
-        val attemptExecutor = executor(
-            observation = observation,
-            retryPolicy = retryPolicy,
-            authorization = authorization { throw cancellation },
-        )
+        val attemptExecutor =
+            executor(
+                observation = observation,
+                retryPolicy = retryPolicy,
+                authorization = authorization { throw cancellation },
+            )
 
         assertThatThrownBy {
             runBlocking {
                 coordinator(
-                    primary = FakeProvider { calls++; ModelResponse("never") },
+                    primary =
+                        FakeProvider {
+                            calls++
+                            ModelResponse("never")
+                        },
                     attemptExecutor = attemptExecutor,
                     fallbackPolicy = fallbackPolicy,
                 ).execute(
@@ -156,10 +186,12 @@ class ProviderCancellationContractTest {
         attemptExecutor: ProviderAttemptExecutor = executor(),
         fallbackPolicy: ProviderFallbackPolicy = ProviderFallbackPolicy(),
     ) = ProviderExecutionCoordinator(
-        routingPlan = ProviderRoutingPlan.builder()
-            .provider("primary", primary)
-            .model("model", "primary")
-            .build(),
+        routingPlan =
+            ProviderRoutingPlan
+                .builder()
+                .provider("primary", primary)
+                .model("model", "primary")
+                .build(),
         circuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
         attemptExecutor = attemptExecutor,
         fallbackPolicy = fallbackPolicy,
