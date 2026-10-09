@@ -440,7 +440,17 @@ class ProviderRetryFallbackLifecyclePropertyTest {
      * a mismatch means either the generator produced an inconsistent script or
      * the model's routing decision is wrong (the property then fails loudly).
      */
-    private fun runModel(script: RetryFallbackScript): ModelTrace {
+    private fun runModel(script: RetryFallbackScript): ModelTrace = ModelRun(script).walk()
+
+    /**
+     * The model walk for one script: the routing decisions, the attempt trace and the fallback
+     * edges the property's invariants are asserted over. Each action's handling is one step here
+     * rather than another branch in a long method. The walk still stops as soon as the model
+     * reaches a terminal state, which is what the branches' own breaks did.
+     */
+    private class ModelRun(
+        private val script: RetryFallbackScript,
+    ) {
         var model =
             ProviderRetryFallbackModel(
                 routeCount = script.routeCount,
@@ -450,6 +460,7 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val dispositions = mutableListOf<DispositionTrace>()
         val attemptTrace = mutableListOf<AttemptStep>()
         val fallbackEdges = mutableListOf<Pair<Int, Int>>()
+
         // A transition onto a route whose circuit is open is not a transition that can happen: the
         // routed target has to be usable for the edge to exist. Without this the projection encodes
         // the pre-0.7.3h assumption that fallback lands on the next CONFIGURED route, which is the
@@ -461,117 +472,120 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                 .filter { it.circuitOpen }
                 .map { it.routeIndex }
                 .toSet()
-        // The routing model decides where fallback would go; the staged contract decides whether the
-        // transition can happen at all. A routed transition onto an unusable route with no other
-        // continuation target is never gate-consulted, so neither an edge nor a gate transition
-        // exists for it — the all-circuit-open terminal stands instead.
-        var unreachableTransitions = 0
-        for (action in script.actions) {
-            when (action) {
-                is RetryFallbackScriptAction.EmitToken -> {
-                    model = model.emitToken()
+
+        /** Transitions the projection must not count: the routed target cannot be reached at all. */
+        private var unreachableTransitions = 0
+
+        fun walk(): ModelTrace {
+            for (action in script.actions) {
+                when (action) {
+                    is RetryFallbackScriptAction.EmitToken -> model = model.emitToken()
+                    is RetryFallbackScriptAction.Admit -> admit(action)
+                    is RetryFallbackScriptAction.Attempt -> attempt(action)
                 }
+                if (model.isTerminal) break
+            }
+            return trace()
+        }
 
-                is RetryFallbackScriptAction.Admit -> {
-                    require(action.routeIndex == model.routeIndex) {
-                        "script admits route ${action.routeIndex} but the model's decisions led to " +
-                            "route ${model.routeIndex} — script inconsistent or model routing bug"
-                    }
-                    if (action.circuitOpen) {
-                        val result =
-                            model.apply(
-                                RouteAdmission.CircuitOpen(action.routeIndex),
-                                AttemptOutcome.RetryableFailure,
-                            )
-                        dispositions +=
-                            DispositionTrace(
-                                model.routeIndex,
-                                model.retryIndex,
-                                model.visibility,
-                                result.disposition,
-                            )
-                        when {
-                            result.disposition is RouteDisposition.Fallback -> {
-                                if (result.next.routeIndex in
-                                    unusableRoutes
-                                ) {
-                                    unreachableTransitions++
-                                } else {
-                                    fallbackEdges +=
-                                        model.routeIndex to result.next.routeIndex
-                                }
-                            }
-
-                            result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> {
-                                if (model.routeIndex + 1 in
-                                    unusableRoutes
-                                ) {
-                                    unreachableTransitions++
-                                } else {
-                                    fallbackEdges +=
-                                        model.routeIndex to (model.routeIndex + 1)
-                                }
-                            }
-                        }
-                        model = result.next
-                        if (model.isTerminal) break
-                    }
-                }
-
-                is RetryFallbackScriptAction.Attempt -> {
-                    require(action.routeIndex == model.routeIndex) {
-                        "script attempt on route ${action.routeIndex} but the model's decisions led to route ${model.routeIndex} — script inconsistent or model routing bug"
-                    }
-                    attemptTrace += AttemptStep(model.routeIndex, model.globalAttempt, action.outcome)
-                    val result = model.apply(RouteAdmission.Allowed, action.outcome)
-                    dispositions +=
-                        DispositionTrace(
-                            model.routeIndex,
-                            model.retryIndex,
-                            model.visibility,
-                            result.disposition,
-                        )
-                    when {
-                        result.disposition is RouteDisposition.Fallback -> {
-                            if (result.next.routeIndex in
-                                unusableRoutes
-                            ) {
-                                unreachableTransitions++
-                            } else {
-                                fallbackEdges += model.routeIndex to result.next.routeIndex
-                            }
-                        }
-
-                        // A DENIED fallback still invoked the gate with the
-                        // (route -> route+1) edge before the denial threw (P0-G).
-                        result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> {
-                            if (model.routeIndex + 1 in
-                                unusableRoutes
-                            ) {
-                                unreachableTransitions++
-                            } else {
-                                fallbackEdges += model.routeIndex to (model.routeIndex + 1)
-                            }
+        private fun admit(action: RetryFallbackScriptAction.Admit) {
+            require(action.routeIndex == model.routeIndex) {
+                "script admits route ${action.routeIndex} but the model's decisions led to " +
+                    "route ${model.routeIndex} — script inconsistent or model routing bug"
+            }
+            if (action.circuitOpen) {
+                val result =
+                    model.apply(
+                        RouteAdmission.CircuitOpen(action.routeIndex),
+                        AttemptOutcome.RetryableFailure,
+                    )
+                dispositions +=
+                    DispositionTrace(
+                        model.routeIndex,
+                        model.retryIndex,
+                        model.visibility,
+                        result.disposition,
+                    )
+                when {
+                    result.disposition is RouteDisposition.Fallback -> {
+                        if (result.next.routeIndex in
+                            unusableRoutes
+                        ) {
+                            unreachableTransitions++
+                        } else {
+                            fallbackEdges +=
+                                model.routeIndex to result.next.routeIndex
                         }
                     }
-                    model = result.next
-                    if (model.isTerminal) break
+
+                    result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> {
+                        if (model.routeIndex + 1 in
+                            unusableRoutes
+                        ) {
+                            unreachableTransitions++
+                        } else {
+                            fallbackEdges +=
+                                model.routeIndex to (model.routeIndex + 1)
+                        }
+                    }
                 }
+                model = result.next
             }
         }
-        return ModelTrace(
-            dispositions = dispositions,
-            retryTransitions = model.retryTransitions,
-            fallbackTransitions = model.fallbackTransitions - unreachableTransitions,
-            totalAttempts = attemptTrace.size,
-            terminalOutcome = model.terminalOutcome,
-            breakerQualifyingFailures = model.breakerQualifyingFailures,
-            breakerSuccesses = model.breakerSuccesses,
-            breakerDispositions = model.breakerDispositions,
-            visibility = model.visibility,
-            attemptTrace = attemptTrace,
-            fallbackEdges = fallbackEdges,
-        )
+
+        private fun attempt(action: RetryFallbackScriptAction.Attempt) {
+            require(action.routeIndex == model.routeIndex) {
+                "script attempt on route ${action.routeIndex} but the model's decisions led to route ${model.routeIndex} — script inconsistent or model routing bug"
+            }
+            attemptTrace += AttemptStep(model.routeIndex, model.globalAttempt, action.outcome)
+            val result = model.apply(RouteAdmission.Allowed, action.outcome)
+            dispositions +=
+                DispositionTrace(
+                    model.routeIndex,
+                    model.retryIndex,
+                    model.visibility,
+                    result.disposition,
+                )
+            when {
+                result.disposition is RouteDisposition.Fallback -> {
+                    if (result.next.routeIndex in
+                        unusableRoutes
+                    ) {
+                        unreachableTransitions++
+                    } else {
+                        fallbackEdges += model.routeIndex to result.next.routeIndex
+                    }
+                }
+
+                // A DENIED fallback still invoked the gate with the
+                // (route -> route+1) edge before the denial threw (P0-G).
+                result.next.terminalOutcome is TerminalOutcome.FallbackDenied -> {
+                    if (model.routeIndex + 1 in
+                        unusableRoutes
+                    ) {
+                        unreachableTransitions++
+                    } else {
+                        fallbackEdges += model.routeIndex to (model.routeIndex + 1)
+                    }
+                }
+            }
+            model = result.next
+        }
+
+        private fun trace(): ModelTrace =
+            ModelTrace(
+                dispositions = dispositions,
+                retryTransitions = model.retryTransitions,
+                fallbackTransitions = model.fallbackTransitions - unreachableTransitions,
+                totalAttempts = attemptTrace.size,
+                terminalOutcome = model.terminalOutcome,
+                breakerQualifyingFailures = model.breakerQualifyingFailures,
+                breakerSuccesses = model.breakerSuccesses,
+                breakerDispositions = model.breakerDispositions,
+                visibility = model.visibility,
+                attemptTrace = attemptTrace,
+                fallbackEdges = fallbackEdges,
+            )
     }
 
     private fun scriptToChunks(outcome: AttemptOutcome): ScriptedProvider.Response =
