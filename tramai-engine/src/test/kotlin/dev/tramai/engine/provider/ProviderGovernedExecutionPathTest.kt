@@ -185,7 +185,6 @@ abstract class ProviderGovernedExecutionPathTestBase {
             .operations
             .getValue(method)
             .definition
-            ?: error("the tool-exposing operation must compile")
     }
 
     internal fun request(
@@ -211,7 +210,7 @@ abstract class ProviderGovernedExecutionPathTestBase {
         breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
         governance: ProviderGovernanceConfiguration? = governance(),
         preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
-        fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+        fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _ -> },
     ): ProviderExecutionCoordinator {
         val observer =
             dev.tramai.core.observation
@@ -323,8 +322,10 @@ class ProviderGovernedExecutionPathTest : ProviderGovernedExecutionPathTestBase(
                     plan,
                     breaker = breaker,
                     fallbackGate =
-                        ProviderFallbackGate { _, previous, _, next, reason, _ ->
-                            transitions += "$previous->$next:$reason"
+                        ProviderFallbackGate { transition ->
+                            transitions +=
+                                "${transition.previousProviderId}->${transition.nextProviderId}:" +
+                                transition.reason
                         },
                 ).execute(request())
             assertThat(response.response.content).isEqualTo("alpha")
@@ -429,14 +430,7 @@ class ProviderGovernedExecutionPathTest : ProviderGovernedExecutionPathTestBase(
 
 /** A gate that refuses continuation, reusing the existing policy refusal shape. */
     internal fun denyingGate() =
-        ProviderFallbackGate {
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            ->
+        ProviderFallbackGate { _ ->
             throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
         }
 

@@ -370,9 +370,9 @@ internal fun coordinator(
                 beforeResolution = ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
                 beforeInvocation = ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
                 fallbackGate =
-                    ProviderFallbackGate { _, previousProviderId, _, nextProviderId, _, _ ->
+                    ProviderFallbackGate { transition ->
                         sink.record("policy.fallback")
-                        sink.record("fallback-edge:$previousProviderId->$nextProviderId")
+                        sink.record("fallback-edge:${transition.previousProviderId}->${transition.nextProviderId}")
                         if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
                     },
                 beforeResponseReturn = StreamingBeforeResponseReturnGate { _, _, _ -> Unit },

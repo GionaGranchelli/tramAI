@@ -42,6 +42,7 @@ import dev.tramai.engine.provider.AttemptCounter
 import dev.tramai.engine.provider.GovernedExecutionInput
 import dev.tramai.engine.provider.GovernedProviderEnvelope
 import dev.tramai.engine.provider.ProviderFallbackGate
+import dev.tramai.engine.provider.ProviderFallbackTransition
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
@@ -552,12 +553,14 @@ internal class StreamingExecutionCoordinator(
             lastOpen = circuitOpen
             try {
                 fallbackGate.transition(
-                    correlationId,
-                    excludedRoute.providerName,
-                    excludedRoute.effectiveModelName,
-                    envelope.routeOf(continuationCandidate).providerName,
-                    "circuit-breaker-open",
-                    securityContext,
+                    ProviderFallbackTransition(
+                        correlationId,
+                        excludedRoute.providerName,
+                        excludedRoute.effectiveModelName,
+                        envelope.routeOf(continuationCandidate).providerName,
+                        "circuit-breaker-open",
+                        securityContext,
+                    ),
                 )
             } catch (policyError: PolicyViolationException) {
                 policyError.addSuppressed(circuitOpen)
@@ -941,7 +944,7 @@ internal class StreamingExecutionCoordinator(
             route.provider as? StreamCapable
                 ?: failStreamingCapability(route, request, circuitBreaker)
         val modelRequest = request.operation.toRequest(arguments, modelName = route.effectiveModelName)
-        val memoryInjectedRequest = request.memoryMessages?.let { modelRequest.copy(messages = it) } ?: modelRequest
+        val memoryInjectedRequest = modelRequest.copy(messages = request.memoryMessages)
         return collectStreamingRoute(
             StreamingRouteCall(
                 streamCapable,
@@ -982,12 +985,14 @@ internal class StreamingExecutionCoordinator(
             val circuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
             try {
                 fallbackGate.transition(
-                    correlationId,
-                    route.providerName,
-                    route.effectiveModelName,
-                    nextRoute.providerName,
-                    "circuit-breaker-open",
-                    securityContext,
+                    ProviderFallbackTransition(
+                        correlationId,
+                        route.providerName,
+                        route.effectiveModelName,
+                        nextRoute.providerName,
+                        "circuit-breaker-open",
+                        securityContext,
+                    ),
                 )
             } catch (policyError: PolicyViolationException) {
                 policyError.addSuppressed(circuitOpen)
@@ -1007,12 +1012,14 @@ internal class StreamingExecutionCoordinator(
         if (nextRoute == null) return
         try {
             fallbackGate.transition(
-                correlationId,
-                route.providerName,
-                route.effectiveModelName,
-                nextRoute.providerName,
-                "streaming-startup-failure",
-                securityContext,
+                ProviderFallbackTransition(
+                    correlationId,
+                    route.providerName,
+                    route.effectiveModelName,
+                    nextRoute.providerName,
+                    "streaming-startup-failure",
+                    securityContext,
+                ),
             )
         } catch (policyError: PolicyViolationException) {
             policyError.addSuppressed(error)

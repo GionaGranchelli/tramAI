@@ -97,7 +97,7 @@ class ProviderExecutionCoordinatorTest {
                     plan(primary, secondary),
                     observerFactory = { RecordingObservation().also(observations::add) },
                     fallback =
-                        ProviderFallbackGate { _, _, _, _, _, _ ->
+                        ProviderFallbackGate { _ ->
                             order +=
                                 "fallback-gate"
                         },
@@ -162,7 +162,7 @@ class ProviderExecutionCoordinatorTest {
                 coordinator(
                     plan(primary, secondary),
                     observerFactory = { RecordingObservation().also(observations::add) },
-                    fallback = ProviderFallbackGate { _, _, _, _, reason, _ -> reasons += reason },
+                    fallback = ProviderFallbackGate { transition -> reasons += transition.reason },
                 )
             assertThat(coordinator.execute(executionRequest(retries = 1)).response.content).isEqualTo("fallback")
             assertThat(observations.map { it.routeSelected()["is_fallback"] }).containsExactly(false, false, true)
@@ -182,14 +182,7 @@ class ProviderExecutionCoordinatorTest {
                 plan(FakeProvider { throw original }, FakeProvider { ModelResponse("never") }),
                 RecordingObservation(),
                 fallback =
-                    ProviderFallbackGate {
-                        _,
-                        _,
-                        _,
-                        _,
-                        _,
-                        _,
-                        ->
+                    ProviderFallbackGate { _ ->
                         throw PolicyViolationException(PolicyDecision.Deny("denied", "denied"))
                     },
             )
@@ -270,7 +263,7 @@ class ProviderExecutionCoordinatorTest {
         observation: RecordingObservation = RecordingObservation(),
         breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
         observerFactory: (() -> RecordingObservation)? = null,
-        fallback: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+        fallback: ProviderFallbackGate = ProviderFallbackGate { _ -> },
     ): ProviderExecutionCoordinator {
         val observer =
             dev.tramai.core.observation

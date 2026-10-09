@@ -43,14 +43,7 @@ internal fun interface ProviderResolutionGate {
 }
 
 internal fun interface ProviderFallbackGate {
-    suspend fun transition(
-        correlationId: String,
-        previousProviderId: String?,
-        previousModelName: String?,
-        nextProviderId: String,
-        reason: String,
-        securityContext: ExecutionSecurityContext,
-    )
+    suspend fun transition(transition: ProviderFallbackTransition)
 }
 
 /**
@@ -97,6 +90,19 @@ internal data class ProviderCoordinationDependencies(
     val fallbackGate: ProviderFallbackGate,
     val governance: ProviderGovernanceConfiguration? = null,
     val preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
+)
+
+/**
+ * One fallback transition: everything the gate is told about an execution leaving one provider for
+ * another. One argument instead of six, because these facts are only ever meaningful together.
+ */
+internal data class ProviderFallbackTransition(
+    val correlationId: String,
+    val previousProviderId: String?,
+    val previousModelName: String?,
+    val nextProviderId: String,
+    val reason: String,
+    val securityContext: ExecutionSecurityContext,
 )
 
 /**
@@ -563,12 +569,14 @@ private class GovernedCandidateWalk(
         if (next == null) return
         try {
             fallbackGate.transition(
-                request.correlationId,
-                route.providerName,
-                route.effectiveModelName,
-                next.providerName,
-                fallbackPolicy.reasonString(reason),
-                request.securityContext,
+                ProviderFallbackTransition(
+                    request.correlationId,
+                    route.providerName,
+                    route.effectiveModelName,
+                    next.providerName,
+                    fallbackPolicy.reasonString(reason),
+                    request.securityContext,
+                ),
             )
         } catch (policyError: PolicyViolationException) {
             policyError.addSuppressed(error)

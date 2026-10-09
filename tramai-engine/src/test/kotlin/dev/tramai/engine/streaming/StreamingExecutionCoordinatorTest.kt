@@ -459,7 +459,7 @@ class StreamingExecutionCoordinatorTest {
             beforeInvocation =
                 ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
             fallbackGate =
-                ProviderFallbackGate { _, _, _, _, _, _ ->
+                ProviderFallbackGate { _ ->
                     recordingSink.record("policy.fallback")
                     ; if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("denied", "TEST"))
                 },

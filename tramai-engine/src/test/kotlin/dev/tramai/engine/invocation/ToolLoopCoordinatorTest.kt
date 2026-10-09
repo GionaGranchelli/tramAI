@@ -22,8 +22,8 @@ import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
-import dev.tramai.engine.NoOpEngineEventObserver
 import dev.tramai.engine.ModelRegistryEnforcer
+import dev.tramai.engine.NoOpEngineEventObserver
 import dev.tramai.engine.ProviderCircuitBreaker
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
@@ -182,7 +182,7 @@ class ToolLoopCoordinatorTest {
             attempt,
             ProviderFallbackPolicy(),
             ProviderResolutionGate { _, _, _ -> },
-            ProviderFallbackGate { _, _, _, _, _, _ -> },
+            ProviderFallbackGate { _ -> },
         )
         val exposure = ToolExposureCoordinator(registry, policyHelper())
         val invocation = ToolInvocationExecutor(

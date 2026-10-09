@@ -177,21 +177,14 @@ internal class InvocationExecutionCoordinator(
             enforceBeforeProviderResolution(operation, correlationId, securityContext)
         }
     private val fallbackGate =
-        ProviderFallbackGate {
-            correlationId,
-            previousProviderId,
-            previousModelName,
-            nextProviderId,
-            reason,
-            securityContext,
-            ->
+        ProviderFallbackGate { transition ->
             enforceFallbackTransition(
-                correlationId,
-                previousProviderId,
-                previousModelName,
-                nextProviderId,
-                reason,
-                securityContext,
+                transition.correlationId,
+                transition.previousProviderId,
+                transition.previousModelName,
+                transition.nextProviderId,
+                transition.reason,
+                transition.securityContext,
             )
         }
     private val providerExecutionCoordinator =
