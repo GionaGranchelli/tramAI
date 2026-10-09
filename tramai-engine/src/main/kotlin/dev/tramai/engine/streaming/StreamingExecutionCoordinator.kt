@@ -280,9 +280,14 @@ internal class StreamingExecutionCoordinator(
         run: GovernedStreamingRun,
         authority: GovernedStreamingAuthority,
         selection: GovernedStreamingRouteSelection,
-        budget: RouteAttemptBudget,
+        permit: CircuitBreakerPermit,
         attemptCounter: AttemptCounter,
     ): StreamingRouteAttemptOutcome {
+        val budget =
+            RouteAttemptBudget(
+                permit = permit,
+                maxAttempts = run.operation.operation.providerRetries + 1,
+            )
         val handoff =
             FallbackHandoff(
                 route = selection.route,
@@ -307,6 +312,32 @@ internal class StreamingExecutionCoordinator(
     }
 
     /**
+     * Authorizes what the configured routes propose. This path reaches a provider only through a
+     * candidate selected from that envelope, exactly as the synchronous path does, and a streaming
+     * request inherently requires STREAMING.
+     */
+    private fun governedStreamingEnvelope(
+        run: GovernedStreamingRun,
+        authority: GovernedStreamingAuthority,
+    ): GovernedProviderEnvelope =
+        governProviderExecution(
+            GovernedExecutionInput(
+                routes = authority.candidates,
+                routingPlan = routingPlan,
+                securityContext = authority.securityContext,
+                requiredCapabilities =
+                    deriveRequiredCapabilities(
+                        run.operation,
+                        run.effectiveMessages,
+                        streaming = true,
+                    ),
+            ),
+            configuration = governance,
+            governedRun = authority.request.governedRun,
+            circuitBreaker = circuitBreaker,
+        )
+
+    /**
      * Walks the governed envelope: authorize what the configured routes propose, consult the
      * continuation policy for every pre-open exclusion execution advances past, select each route from
      * the current remainder, attempt it, and report exhaustion with the last failure and the last
@@ -324,26 +355,7 @@ internal class StreamingExecutionCoordinator(
         var lastCircuitOpen: CircuitBreakerOpenException? = null
         val attemptCounter = AttemptCounter()
 
-        // Configured routes propose; the governed envelope authorizes. This path reaches a
-        // provider only through a candidate selected from that envelope, exactly as the
-        // synchronous path does, and a streaming authority.request inherently requires STREAMING.
-        val envelope =
-            governProviderExecution(
-                GovernedExecutionInput(
-                    routes = authority.candidates,
-                    routingPlan = routingPlan,
-                    securityContext = authority.securityContext,
-                    requiredCapabilities =
-                        deriveRequiredCapabilities(
-                            run.operation,
-                            run.effectiveMessages,
-                            streaming = true,
-                        ),
-                ),
-                configuration = governance,
-                governedRun = authority.request.governedRun,
-                circuitBreaker = circuitBreaker,
-            )
+        val envelope = governedStreamingEnvelope(run, authority)
         var remaining = envelope.viable
 
         // Pre-open exclusions are still transitions execution advances past, so the
@@ -369,19 +381,18 @@ internal class StreamingExecutionCoordinator(
 
         while (true) {
             val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
-            val selection = selectGovernedStreamingRoute(envelope, remaining) ?: break
-            val route = selection.route
-            val narrowed = selection.narrowed
-            val admission =
-                handleCircuitBreakerOpenRoute(
-                    route = route,
-                    nextRoute = selection.nextRoute,
-                    correlationId = authority.correlationId,
-                    securityContext = authority.securityContext,
-                )
+            val step =
+                selectAndAdmitGovernedStreamingRoute(envelope, remaining, authority)
+                    ?: break
+            val selection = step.selection
+            val admission = step.admission
             if (admission is CircuitBreakerAdmission.Rejected) {
-                lastCircuitOpen = CircuitBreakerOpenException(route.providerName, admission.blockedUntilMillis)
-                remaining = narrowed
+                lastCircuitOpen =
+                    CircuitBreakerOpenException(
+                        selection.route.providerName,
+                        admission.blockedUntilMillis,
+                    )
+                remaining = selection.narrowed
                 continue
             }
             val permit = (admission as CircuitBreakerAdmission.Allowed).permit
@@ -400,8 +411,10 @@ internal class StreamingExecutionCoordinator(
             // After any token, retry/fallback authority is
             // permanently gone (handleFallbackResult's
             // emittedAnyTokens gate).
-            val budget = RouteAttemptBudget(permit = permit, maxAttempts = run.operation.operation.providerRetries + 1)
-            when (val outcome = attemptGovernedStreamingRoute(run, authority, selection, budget, attemptCounter)) {
+            when (
+                val outcome =
+                    attemptGovernedStreamingRoute(run, authority, selection, permit, attemptCounter)
+            ) {
                 is StreamingRouteAttemptOutcome.Completed -> {
                     persistStreamingTurn(run.conversationId, run.effectiveMessages, run.historySize, outcome.fullText)
                     return
@@ -507,6 +520,36 @@ internal class StreamingExecutionCoordinator(
         val narrowed: ViableCandidates,
         val nextRoute: ResolvedProviderRoute?,
     )
+
+    /** The route governance selected, with the breaker's admission decision for it. */
+    private data class GovernedStreamingAdmission(
+        val selection: GovernedStreamingRouteSelection,
+        val admission: CircuitBreakerAdmission,
+    )
+
+    /**
+     * Answers the walk's one recurring question: which route runs next, and is it admissible.
+     *
+     * Selection and admission belong together because the fallback handoff must be built from the
+     * route the breaker actually admitted, and because a refusal is the caller's to record - the walk
+     * owns the last circuit refusal and the narrowed remainder. Null means governance selected nothing,
+     * which ends the walk.
+     */
+    private suspend fun selectAndAdmitGovernedStreamingRoute(
+        envelope: GovernedProviderEnvelope,
+        remaining: ViableCandidates,
+        authority: GovernedStreamingAuthority,
+    ): GovernedStreamingAdmission? {
+        val selection = selectGovernedStreamingRoute(envelope, remaining) ?: return null
+        val admission =
+            handleCircuitBreakerOpenRoute(
+                route = selection.route,
+                nextRoute = selection.nextRoute,
+                correlationId = authority.correlationId,
+                securityContext = authority.securityContext,
+            )
+        return GovernedStreamingAdmission(selection, admission)
+    }
 
     /**
      * Selects the next route from the CURRENT remainder and reports it with its successor.
