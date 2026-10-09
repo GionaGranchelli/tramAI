@@ -874,7 +874,7 @@ internal class StreamingExecutionCoordinator(
             collectStreamingRouteChunks(
                 streamCapable,
                 interceptedRequest,
-                request.timeoutMillis ?: operation.operation.timeoutMillis,
+                timeoutMillisOf(request, operation),
                 ctx,
             )
             error("Streaming route completed without a terminal result")
@@ -882,16 +882,7 @@ internal class StreamingExecutionCoordinator(
             finished.result
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            val timeout =
-                TimeoutException(
-                    message =
-                        buildTimeoutMessage(
-                            route.providerName,
-                            operation,
-                            request.timeoutMillis ?: operation.operation.timeoutMillis,
-                        ),
-                    cause = error,
-                )
+            val timeout = streamingTimeout(route, operation, request, error)
             observation.onProviderFailure(timeout)
             handleFallbackResult(timeout, emittedAnyTokens, ctx)
         } catch (error: CancellationException) {
@@ -1144,6 +1135,23 @@ internal class StreamingExecutionCoordinator(
             is ProviderException -> error.retryable
             else -> false
         }
+
+    private fun timeoutMillisOf(
+        request: ModelRequest,
+        operation: OperationDefinition,
+    ): Long = request.timeoutMillis ?: operation.operation.timeoutMillis
+
+    /** The timeout failure for a route that ran out of time while streaming. */
+    private fun streamingTimeout(
+        route: ResolvedProviderRoute,
+        operation: OperationDefinition,
+        request: ModelRequest,
+        error: TimeoutCancellationException,
+    ): TimeoutException =
+        TimeoutException(
+            message = buildTimeoutMessage(route.providerName, operation, timeoutMillisOf(request, operation)),
+            cause = error,
+        )
 
     private fun buildTimeoutMessage(
         providerId: String,

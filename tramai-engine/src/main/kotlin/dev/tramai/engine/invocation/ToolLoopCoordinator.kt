@@ -4,6 +4,7 @@ package dev.tramai.engine.invocation
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.TokenBudgetExceededException
+import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.identity.GovernedRunScope
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
@@ -41,6 +42,49 @@ internal class ToolLoopCoordinator(
     private val toolRegistry: ToolRegistry,
     private val toolReinjectionCoordinator: ToolReinjectionCoordinator,
 ) {
+    /**
+     * One governed provider invocation for this turn, with the token budget enforced on its response.
+     * The budget refusal closes the observation and is rethrown unchanged; nothing is swallowed.
+     */
+    private suspend fun invokeAndEnforceBudget(
+        context: ToolLoopContext,
+        messages: List<Message>,
+        attemptCounter: AttemptCounter,
+        governedRun: GovernedRunIdentity?,
+    ): ProviderCallResult {
+        val result =
+            providerExecutionCoordinator.execute(
+                ProviderExecutionRequest(
+                    operation = context.operation,
+                    messages = messages,
+                    attemptCounter = attemptCounter,
+                    correlationId = context.correlationId,
+                    securityContext = context.securityContext,
+                    beforeRoute = {
+                        toolExposureCoordinator.enforce(
+                            context.operation,
+                            context.correlationId,
+                            context.securityContext,
+                        )
+                    },
+                    governedRun = governedRun,
+                ),
+            )
+        try {
+            tokenBudgetCoordinator.enforce(
+                tracker = context.tokenBudgetTracker,
+                response = result.response,
+                observation = result.observation,
+                providerId = result.providerId,
+                modelName = result.modelName,
+            )
+        } catch (error: TokenBudgetExceededException) {
+            result.observation.onCallCompleted(parseSuccess = null)
+            rethrowBudgetExceeded(error)
+        }
+        return result
+    }
+
     /** Rethrows a budget refusal unchanged: the observation is closed first, the cause is not wrapped. */
     private fun rethrowBudgetExceeded(error: TokenBudgetExceededException): Nothing = throw error
 
@@ -56,30 +100,7 @@ internal class ToolLoopCoordinator(
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
         repeat(maxToolLoops) {
-            val result =
-                providerExecutionCoordinator.execute(
-                    ProviderExecutionRequest(
-                        operation = operation,
-                        messages = messages,
-                        attemptCounter = attemptCounter,
-                        correlationId = correlationId,
-                        securityContext = securityContext,
-                        beforeRoute = { toolExposureCoordinator.enforce(operation, correlationId, securityContext) },
-                        governedRun = governedRun,
-                    ),
-                )
-            try {
-                tokenBudgetCoordinator.enforce(
-                    tracker = tokenBudgetTracker,
-                    response = result.response,
-                    observation = result.observation,
-                    providerId = result.providerId,
-                    modelName = result.modelName,
-                )
-            } catch (error: TokenBudgetExceededException) {
-                result.observation.onCallCompleted(parseSuccess = null)
-                rethrowBudgetExceeded(error)
-            }
+            val result = invokeAndEnforceBudget(context, messages, attemptCounter, governedRun)
 
             val toolCalls = result.response.toolCalls
             if (toolCalls.isNullOrEmpty()) {
