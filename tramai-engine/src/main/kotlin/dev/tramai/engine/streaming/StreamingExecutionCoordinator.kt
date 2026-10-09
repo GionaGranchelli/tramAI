@@ -131,6 +131,23 @@ internal class StreamingExecutionCoordinator(
             var lastFailure: Throwable? = null
             var lastCircuitOpen: CircuitBreakerOpenException? = null
             val attemptCounter = AttemptCounter()
+            val run =
+                StreamingRun(
+                    operation = operation,
+                    arguments = arguments,
+                    tokenBudgetTracker = tokenBudgetTracker,
+                    conversationId = conversationId,
+                    effectiveMessages = effectiveMessages,
+                    historySize = history.size,
+                    emitChunk = { chunks.send(it) },
+                )
+            val authority =
+                StreamingAuthority(
+                    request = request,
+                    securityContext = securityContext,
+                    correlationId = correlationId,
+                    candidates = candidates,
+                )
 
             for ((routeIndex, route) in candidates.withIndex()) {
                 val admission =
@@ -160,53 +177,12 @@ internal class StreamingExecutionCoordinator(
                 // After any token, retry/fallback authority is
                 // permanently gone (handleFallbackResult's
                 // emittedAnyTokens gate).
-                val maxAttempts = operation.operation.providerRetries + 1
-                val handoff =
-                    FallbackHandoff(
-                        route = route,
-                        nextRoute = candidates.getOrNull(routeIndex + 1),
-                        correlationId = correlationId,
-                        securityContext = securityContext,
-                    )
-                val budget = RouteAttemptBudget(permit = permit, maxAttempts = maxAttempts)
-
-                val template =
-                    StreamingExecutionRoute(
-                        operation = operation,
-                        route = route,
-                        routeIndex = routeIndex,
-                        attempt = 0,
-                        tokenBudgetTracker = tokenBudgetTracker,
-                        memoryMessages = effectiveMessages,
-                        historySize = history.size,
-                        conversationId = conversationId,
-                        emitChunk = { chunks.send(it) },
-                        permit = permit,
-                    )
-                when (
-                    val outcome =
-                        attemptStreamingRoute(
-                            template,
-                            handoff,
-                            budget,
-                            attemptCounter,
-                            arguments,
-                        )
-                ) {
-                    is StreamingRouteAttemptOutcome.Finished -> {
-                        return@streamChunksToCollector
-                    }
-
-                    is StreamingRouteAttemptOutcome.Stop -> {
-                        // The route is finished: record the failure and let the candidate loop advance.
-                        // The original `break` exited the RETRY loop, not this one; the attempt member
-                        // returns Stop instead, so breaking here would abandon the remaining candidates.
-                        lastFailure = outcome.error
-                    }
-
-                    StreamingRouteAttemptOutcome.Exhausted -> {
-                        Unit
-                    }
+                val candidate =
+                    StreamingCandidate(route, routeIndex, candidates.getOrNull(routeIndex + 1))
+                when (val outcome = attemptStreamingCandidate(run, authority, candidate, permit, attemptCounter)) {
+                    is StreamingRouteAttemptOutcome.Finished -> return@streamChunksToCollector
+                    is StreamingRouteAttemptOutcome.Stop -> lastFailure = outcome.error
+                    StreamingRouteAttemptOutcome.Exhausted -> Unit
                 }
             }
 
@@ -259,16 +235,23 @@ internal class StreamingExecutionCoordinator(
         }
     }
 
+    /** The route to attempt, its configured index, and the successor a fallback would reach. */
+    private data class StreamingCandidate(
+        val route: ResolvedProviderRoute,
+        val routeIndex: Int,
+        val nextRoute: ResolvedProviderRoute?,
+    )
+
     /**
      * Builds and runs one governed route's attempts: the handoff carries exactly what the gate is told,
      * the budget carries exactly this route's retry authority, and the template reuses the existing
      * route data class with a fresh attempt number. The retry decision and the permit's relinquishment
      * live in attemptStreamingRoute, which both streaming paths share.
      */
-    private suspend fun attemptGovernedStreamingRoute(
-        run: GovernedStreamingRun,
-        authority: GovernedStreamingAuthority,
-        selection: GovernedStreamingRouteSelection,
+    private suspend fun attemptStreamingCandidate(
+        run: StreamingRun,
+        authority: StreamingAuthority,
+        candidate: StreamingCandidate,
         permit: CircuitBreakerPermit,
         attemptCounter: AttemptCounter,
     ): StreamingRouteAttemptOutcome {
@@ -279,16 +262,16 @@ internal class StreamingExecutionCoordinator(
             )
         val handoff =
             FallbackHandoff(
-                route = selection.route,
-                nextRoute = selection.nextRoute,
+                route = candidate.route,
+                nextRoute = candidate.nextRoute,
                 correlationId = authority.correlationId,
                 securityContext = authority.securityContext,
             )
         val template =
             StreamingExecutionRoute(
                 operation = run.operation,
-                route = selection.route,
-                routeIndex = selection.routeIndex,
+                route = candidate.route,
+                routeIndex = candidate.routeIndex,
                 attempt = 0,
                 tokenBudgetTracker = run.tokenBudgetTracker,
                 memoryMessages = run.effectiveMessages,
@@ -306,8 +289,8 @@ internal class StreamingExecutionCoordinator(
      * request inherently requires STREAMING.
      */
     private fun governedStreamingEnvelope(
-        run: GovernedStreamingRun,
-        authority: GovernedStreamingAuthority,
+        run: StreamingRun,
+        authority: StreamingAuthority,
     ): GovernedProviderEnvelope =
         governProviderExecution(
             GovernedExecutionInput(
@@ -326,6 +309,23 @@ internal class StreamingExecutionCoordinator(
             circuitBreaker = circuitBreaker,
         )
 
+    /** Reports why no route could serve the request: the last failure and the last circuit refusal. */
+    private suspend fun reportStreamingExhaustion(
+        run: StreamingRun,
+        envelope: GovernedProviderEnvelope,
+        lastFailure: Throwable?,
+        lastCircuitOpen: CircuitBreakerOpenException?,
+    ) {
+        run.emitChunk(
+            noAvailableStreamingRouteChunk(
+                run.operation,
+                lastFailure,
+                // A walk that never recorded a refusal still reports the circuit state it ended on.
+                lastCircuitOpen ?: circuitOpenExhaustion(envelope),
+            ),
+        )
+    }
+
     /**
      * Walks the governed envelope: authorize what the configured routes propose, consult the
      * continuation policy for every pre-open exclusion execution advances past, select each route from
@@ -337,8 +337,8 @@ internal class StreamingExecutionCoordinator(
      * streaming request inherently requires STREAMING.
      */
     private suspend fun walkGovernedStreamingRoutes(
-        run: GovernedStreamingRun,
-        authority: GovernedStreamingAuthority,
+        run: StreamingRun,
+        authority: StreamingAuthority,
     ) {
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
@@ -371,7 +371,7 @@ internal class StreamingExecutionCoordinator(
         while (true) {
             val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)
             val step =
-                selectAndAdmitGovernedStreamingRoute(envelope, remaining, authority)
+                nextGovernedStreamingRoute(envelope, remaining, authority)
                     ?: break
             val selection = step.selection
             val admission = step.admission
@@ -402,7 +402,13 @@ internal class StreamingExecutionCoordinator(
             // emittedAnyTokens gate).
             when (
                 val outcome =
-                    attemptGovernedStreamingRoute(run, authority, selection, permit, attemptCounter)
+                    attemptStreamingCandidate(
+                        run,
+                        authority,
+                        step.candidate,
+                        permit,
+                        attemptCounter,
+                    )
             ) {
                 is StreamingRouteAttemptOutcome.Finished -> {
                     return
@@ -421,17 +427,11 @@ internal class StreamingExecutionCoordinator(
             }
         }
 
-        run.emitChunk(
-            noAvailableStreamingRouteChunk(
-                run.operation,
-                lastFailure,
-                lastCircuitOpen ?: circuitOpenExhaustion(envelope),
-            ),
-        )
+        reportStreamingExhaustion(run, envelope, lastFailure, lastCircuitOpen)
     }
 
     /** What the walk streams: the operation, its arguments and the conversation it answers into. */
-    private data class GovernedStreamingRun(
+    private data class StreamingRun(
         val operation: OperationDefinition,
         val arguments: List<Any?>,
         val tokenBudgetTracker: TokenBudgetTracker,
@@ -442,7 +442,7 @@ internal class StreamingExecutionCoordinator(
     )
 
     /** Who authorizes the walk and what the configured routes proposed. */
-    private data class GovernedStreamingAuthority(
+    private data class StreamingAuthority(
         val request: StreamingExecutionRequest,
         val securityContext: ExecutionSecurityContext,
         val correlationId: String,
@@ -505,10 +505,14 @@ internal class StreamingExecutionCoordinator(
     )
 
     /** The route governance selected, with the breaker's admission decision for it. */
-    private data class GovernedStreamingAdmission(
+    private data class GovernedStreamingStep(
         val selection: GovernedStreamingRouteSelection,
         val admission: CircuitBreakerAdmission,
-    )
+    ) {
+        /** The candidate those two together describe: what the attempt is handed. */
+        val candidate: StreamingCandidate
+            get() = StreamingCandidate(selection.route, selection.routeIndex, selection.nextRoute)
+    }
 
     /**
      * Answers the walk's one recurring question: which route runs next, and is it admissible.
@@ -518,11 +522,11 @@ internal class StreamingExecutionCoordinator(
      * owns the last circuit refusal and the narrowed remainder. Null means governance selected nothing,
      * which ends the walk.
      */
-    private suspend fun selectAndAdmitGovernedStreamingRoute(
+    private suspend fun nextGovernedStreamingRoute(
         envelope: GovernedProviderEnvelope,
         remaining: ViableCandidates,
-        authority: GovernedStreamingAuthority,
-    ): GovernedStreamingAdmission? {
+        authority: StreamingAuthority,
+    ): GovernedStreamingStep? {
         val selection = selectGovernedStreamingRoute(envelope, remaining) ?: return null
         val admission =
             handleCircuitBreakerOpenRoute(
@@ -531,7 +535,7 @@ internal class StreamingExecutionCoordinator(
                 correlationId = authority.correlationId,
                 securityContext = authority.securityContext,
             )
-        return GovernedStreamingAdmission(selection, admission)
+        return GovernedStreamingStep(selection, admission)
     }
 
     /**
@@ -798,7 +802,7 @@ internal class StreamingExecutionCoordinator(
             beforeResolution.beforeResolution(operation, correlationId, securityContext)
             val candidates = routingPlan.resolveCandidates(operation.operation)
             walkGovernedStreamingRoutes(
-                GovernedStreamingRun(
+                StreamingRun(
                     operation = operation,
                     arguments = arguments,
                     tokenBudgetTracker = tokenBudgetTracker,
@@ -807,7 +811,7 @@ internal class StreamingExecutionCoordinator(
                     historySize = history.size,
                     emitChunk = { chunks.send(it) },
                 ),
-                GovernedStreamingAuthority(
+                StreamingAuthority(
                     request = request,
                     securityContext = securityContext,
                     correlationId = correlationId,
