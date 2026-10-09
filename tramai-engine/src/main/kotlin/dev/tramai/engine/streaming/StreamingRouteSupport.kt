@@ -31,13 +31,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 internal class StreamingRouteSupport(
     runtime: StreamingEngineRuntime,
     services: StreamingCoordinationServices,
-    failurePolicy: StreamingFailurePolicy,
 ) {
     private val serviceTypeName = runtime.serviceTypeName
     private val qualifiedServiceName = runtime.qualifiedServiceName
     private val operationObserver = services.operationObserver
     private val modelRegistryEnforcer = services.modelRegistryEnforcer
-    private val circuitBreaker = failurePolicy.circuitBreaker
 
     /** A provider without streaming support is refused, releasing its permit first. */
     fun failStreamingCapability(
@@ -120,25 +118,6 @@ internal class StreamingRouteSupport(
                 )
             }
         }
-
-    fun recordCircuitBreakerFailure(
-        permit: CircuitBreakerPermit,
-        error: Throwable,
-        observation: OperationObservation,
-    ) {
-        val opened = circuitBreaker.onFailure(permit, error)
-        if (opened) {
-            observation.emitRuntimeEvent(
-                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
-                    set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
-                },
-            )
-        } else {
-            // Non-qualifying failure: never a breaker failure, but a HALF_OPEN
-            // probe permit must still be released or recovery strands forever.
-            circuitBreaker.onAbandoned(permit)
-        }
-    }
 
     fun shouldFallbackFrom(error: Throwable): Boolean =
         when (error) {
