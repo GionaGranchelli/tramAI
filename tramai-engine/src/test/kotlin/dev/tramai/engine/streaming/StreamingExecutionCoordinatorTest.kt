@@ -1423,96 +1423,109 @@ class StreamingExecutionCoordinatorTest {
         // timeouts, cap for oversized retryAfter, and the announced delay is
         // ACTUALLY applied (suspension elision is observable, not just the attr).
         runBlocking {
-            // Case A: retryAfterMillis=100 -> delay_millis=100, source=retry_after,
-            // and the coordinator actually suspends ~100ms before the next attempt.
-            val sink = OrderedSink()
-            val primary =
-                RecordingProvider("primary") {
-                    flow {
-                        emit(
-                            StreamChunk.Error(
-                                ProviderException(
-                                    "down",
-                                    retryable = true,
-                                    retryAfterMillis = 100,
-                                ),
-                            ),
-                        )
-                    }
-                }
-            primary.sink = sink
-            val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
-            fallback.sink = sink
-            coordinator(
-                plan(
-                    "primary" to primary,
-                    "fallback" to fallback,
-                ),
-                RecordingOperationObserver(sink),
-                sink,
-            ).execute(requestWithRetries()).toList()
-            assertThat(sink.events).contains("retry.attr:delay=100:source=retry_after:retryIndex=0")
-            val elapsed =
-                sink.elapsedBetween("observation.engine-event:tramai.retry.scheduled", "policy.before-invocation")
-                    ?: error("retry/next-attempt markers missing")
-            assertThat(elapsed).isGreaterThanOrEqualTo(80_000_000L) // 100ms announced -> >= 80ms actually suspended
-
-            // Case B: TimeoutException at retryIndex=0 -> backoff delay 50, source=backoff.
-            val sink2 = OrderedSink()
-            val p2 = RecordingProvider("primary") { flow { emit(StreamChunk.Error(TimeoutException("timeout"))) } }
-            p2.sink = sink2
-            val f2 = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
-            f2.sink = sink2
-            coordinator(
-                plan(
-                    "primary" to p2,
-                    "fallback" to f2,
-                ),
-                RecordingOperationObserver(sink2),
-                sink2,
-            ).execute(requestWithRetries()).toList()
-            assertThat(sink2.events).contains("retry.attr:delay=50:source=backoff:retryIndex=0")
-
-            // Case C: retryAfterMillis beyond the cap (maxRetryAfterMillis=200) is
-            // clamped to the cap: delay_millis=200, source still retry_after.
-            val sink3 = OrderedSink()
-            val p3 =
-                RecordingProvider("primary") {
-                    flow {
-                        emit(
-                            StreamChunk.Error(
-                                ProviderException(
-                                    "down",
-                                    retryable = true,
-                                    retryAfterMillis = 500,
-                                ),
-                            ),
-                        )
-                    }
-                }
-            p3.sink = sink3
-            val f3 = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
-            f3.sink = sink3
-            val capped =
-                ProviderRetryPolicy(
-                    ProviderRetryDelayPolicy(
-                        RetryPolicySettings(
-                            jitterRatio = 0.0,
-                            maxRetryAfterMillis = 200,
-                        ),
-                    ) { 0.0 },
-                )
-            coordinator(
-                plan(
-                    "primary" to p3,
-                    "fallback" to f3,
-                ),
-                RecordingOperationObserver(sink3),
-                sink3,
-                retryPolicy = capped,
-            ).execute(requestWithRetries()).toList()
-            assertThat(sink3.events).contains("retry.attr:delay=200:source=retry_after:retryIndex=0")
+            assertRetryAfterDelayIsAppliedAndObservable()
+            assertTimeoutBackoffIsObservable()
+            assertOversizedRetryAfterIsClampedToTheCap()
         }
+    }
+
+    /** Case A: the announced retry_after delay is what the lifecycle actually suspends. */
+    private suspend fun assertRetryAfterDelayIsAppliedAndObservable() {
+        // Case A: retryAfterMillis=100 -> delay_millis=100, source=retry_after,
+        // and the coordinator actually suspends ~100ms before the next attempt.
+        val sink = OrderedSink()
+        val primary =
+            RecordingProvider("primary") {
+                flow {
+                    emit(
+                        StreamChunk.Error(
+                            ProviderException(
+                                "down",
+                                retryable = true,
+                                retryAfterMillis = 100,
+                            ),
+                        ),
+                    )
+                }
+            }
+        primary.sink = sink
+        val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        fallback.sink = sink
+        coordinator(
+            plan(
+                "primary" to primary,
+                "fallback" to fallback,
+            ),
+            RecordingOperationObserver(sink),
+            sink,
+        ).execute(requestWithRetries()).toList()
+        assertThat(sink.events).contains("retry.attr:delay=100:source=retry_after:retryIndex=0")
+        val elapsed =
+            sink.elapsedBetween("observation.engine-event:tramai.retry.scheduled", "policy.before-invocation")
+                ?: error("retry/next-attempt markers missing")
+        assertThat(elapsed).isGreaterThanOrEqualTo(80_000_000L) // 100ms announced -> >= 80ms actually suspended
+    }
+
+    /** Case B: a retryable timeout at retryIndex 0 announces the backoff delay. */
+    private suspend fun assertTimeoutBackoffIsObservable() {
+        // Case B: TimeoutException at retryIndex=0 -> backoff delay 50, source=backoff.
+        val sink2 = OrderedSink()
+        val p2 = RecordingProvider("primary") { flow { emit(StreamChunk.Error(TimeoutException("timeout"))) } }
+        p2.sink = sink2
+        val f2 = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        f2.sink = sink2
+        coordinator(
+            plan(
+                "primary" to p2,
+                "fallback" to f2,
+            ),
+            RecordingOperationObserver(sink2),
+            sink2,
+        ).execute(requestWithRetries()).toList()
+        assertThat(sink2.events).contains("retry.attr:delay=50:source=backoff:retryIndex=0")
+    }
+
+    /** Case C: retry_after beyond the cap is clamped, and the source stays retry_after. */
+    private suspend fun assertOversizedRetryAfterIsClampedToTheCap() {
+        // Case C: retryAfterMillis beyond the cap (maxRetryAfterMillis=200) is
+        // clamped to the cap: delay_millis=200, source still retry_after.
+        val sink3 = OrderedSink()
+        val p3 =
+            RecordingProvider("primary") {
+                flow {
+                    emit(
+                        StreamChunk.Error(
+                            ProviderException(
+                                "down",
+                                retryable = true,
+                                retryAfterMillis = 500,
+                            ),
+                        ),
+                    )
+                }
+            }
+        p3.sink = sink3
+        val f3 = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
+        f3.sink = sink3
+        val capped =
+            ProviderRetryPolicy(
+                ProviderRetryDelayPolicy(
+                    RetryPolicySettings(
+                        jitterRatio = 0.0,
+                        maxRetryAfterMillis = 200,
+                    ),
+                ) { 0.0 },
+            )
+        coordinator(
+            plan(
+                "primary" to p3,
+                "fallback" to f3,
+            ),
+            RecordingOperationObserver(sink3),
+            sink3,
+            retryPolicy = capped,
+        ).execute(requestWithRetries()).toList()
+        assertThat(sink3.events).contains("retry.attr:delay=200:source=retry_after:retryIndex=0")
     }
 
     @Test fun `P0-K breaker neutral terminal completion when retries end in permanent failure`() {
