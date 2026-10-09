@@ -254,7 +254,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
 
         override fun providerId(): String = name
 
-        override fun supportsCapability(capability: ProviderCapability): Boolean = capability == ProviderCapability.STREAMING
+        override fun supportsCapability(capability: ProviderCapability): Boolean =
+            capability ==
+                ProviderCapability
+                    .STREAMING
     }
 
     private fun operation(retries: Int) =
@@ -292,7 +295,12 @@ class ProviderRetryFallbackLifecyclePropertyTest {
 
     private val governedRun = GovernedRunIdentity(workloadIdentity, RunId("run"))
 
-    private val classifiedInput = ClassifiedDocument("input", DataClassification.INTERNAL, ClassificationSource.DECLARED)
+    private val classifiedInput =
+        ClassifiedDocument(
+            "input",
+            DataClassification.INTERNAL,
+            ClassificationSource.DECLARED,
+        )
 
     private fun governanceFor(routingPlan: ProviderRoutingPlan) =
         ProviderGovernanceConfiguration(
@@ -300,7 +308,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
             rules =
                 mapOf(
                     DataClassification.INTERNAL to
-                        ClassificationRoutingRule(allowedZones = setOf(ProviderTrustZone.LOCAL), allowedFallbackZones = emptySet()),
+                        ClassificationRoutingRule(
+                            allowedZones = setOf(ProviderTrustZone.LOCAL),
+                            allowedFallbackZones = emptySet(),
+                        ),
                 ),
             trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
             deploymentOf = { providerId ->
@@ -347,7 +358,11 @@ class ProviderRetryFallbackLifecyclePropertyTest {
             qualifiedServiceName = "test.Service",
             operationObserver = observer,
             operationInterceptor = object : dev.tramai.core.observation.OperationInterceptor {},
-            toolExposureCoordinator = ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
+            toolExposureCoordinator =
+                ToolExposureCoordinator(
+                    ToolRegistry(),
+                    PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+                ),
             conversationMemoryCoordinator =
                 ConversationMemoryCoordinator(
                     object : ChatMemory {
@@ -459,11 +474,22 @@ class ProviderRetryFallbackLifecyclePropertyTest {
 
                 is RetryFallbackScriptAction.Admit -> {
                     require(action.routeIndex == model.routeIndex) {
-                        "script admits route ${action.routeIndex} but the model's decisions led to route ${model.routeIndex} — script inconsistent or model routing bug"
+                        "script admits route ${action.routeIndex} but the model's decisions led to " +
+                            "route ${model.routeIndex} — script inconsistent or model routing bug"
                     }
                     if (action.circuitOpen) {
-                        val result = model.apply(RouteAdmission.CircuitOpen(action.routeIndex), AttemptOutcome.RetryableFailure)
-                        dispositions += DispositionTrace(model.routeIndex, model.retryIndex, model.visibility, result.disposition)
+                        val result =
+                            model.apply(
+                                RouteAdmission.CircuitOpen(action.routeIndex),
+                                AttemptOutcome.RetryableFailure,
+                            )
+                        dispositions +=
+                            DispositionTrace(
+                                model.routeIndex,
+                                model.retryIndex,
+                                model.visibility,
+                                result.disposition,
+                            )
                         when {
                             result.disposition is RouteDisposition.Fallback -> {
                                 if (result.next.routeIndex in
@@ -498,7 +524,13 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                     }
                     attemptTrace += AttemptStep(model.routeIndex, model.globalAttempt, action.outcome)
                     val result = model.apply(RouteAdmission.Allowed, action.outcome)
-                    dispositions += DispositionTrace(model.routeIndex, model.retryIndex, model.visibility, result.disposition)
+                    dispositions +=
+                        DispositionTrace(
+                            model.routeIndex,
+                            model.retryIndex,
+                            model.visibility,
+                            result.disposition,
+                        )
                     when {
                         result.disposition is RouteDisposition.Fallback -> {
                             if (result.next.routeIndex in
@@ -663,8 +695,17 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val sink = OrderedSink()
         val responses = buildResponses(script, sink)
         val realityRouteCount = if (script.explicitProvider) 3 else script.routeCount
-        val providers = (0 until realityRouteCount).associate { "p$it" to ScriptedProvider("p$it", sink, responses["p$it"] ?: emptyList()) }
-        val breaker = RecordingCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 1_000L))
+        val providers =
+            (0 until realityRouteCount)
+                .associate { "p$it" to ScriptedProvider("p$it", sink, responses["p$it"] ?: emptyList()) }
+        val breaker =
+            RecordingCircuitBreaker(
+                CircuitBreakerSettings(
+                    enabled = true,
+                    failureThreshold = 1,
+                    openDurationMillis = 1_000L,
+                ),
+            )
         // Pre-open circuit for circuit-open admissions (harness setup — excluded
         // from the recorded trace).
         for (action in script.actions) {
@@ -678,7 +719,14 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         }
         breaker.resetRecording()
         val observer = AttemptRecordingObserver(sink)
-        val c = coordinator(plan(realityRouteCount, providers), breaker, sink, observer, denyFallback = script.fallbackDenied)
+        val c =
+            coordinator(
+                plan(realityRouteCount, providers),
+                breaker,
+                sink,
+                observer,
+                denyFallback = script.fallbackDenied,
+            )
         val request =
             if (script.explicitProvider) {
                 StreamingExecutionRequest(
@@ -763,30 +811,40 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         trace.attemptTrace.map { it.routeIndex }.distinct().forEach { route ->
             val attempts = trace.attemptTrace.count { it.routeIndex == route }
             assertThat(attempts)
-                .withFailMessage("$label P4 attempts(route $route)=$attempts > providerRetries+1=${script.providerRetries + 1}")
-                .isLessThanOrEqualTo(script.providerRetries + 1)
+                .withFailMessage(
+                    "$label P4 attempts(route $route)=$attempts > " +
+                        "providerRetries+1=${script.providerRetries + 1}",
+                ).isLessThanOrEqualTo(script.providerRetries + 1)
         }
         // P12: OUTPUT_VISIBLE is irreversible at disposition time — a VISIBLE
         // attempt never yields retry or fallback.
         trace.dispositions.forEach { d ->
             if (d.visibilityBefore == OutputVisibility.VISIBLE) {
-                assertThat(d.disposition is RouteDisposition.RetrySameRoute || d.disposition is RouteDisposition.Fallback)
-                    .withFailMessage("$label P12 visible disposition $d must not retry/fallback")
+                assertThat(
+                    d.disposition is RouteDisposition.RetrySameRoute ||
+                        d.disposition is RouteDisposition.Fallback,
+                ).withFailMessage("$label P12 visible disposition $d must not retry/fallback")
                     .isFalse()
             }
         }
         // P6: success terminates.
         if (trace.dispositions.any { it.disposition is RouteDisposition.Succeeded }) {
-            assertThat(trace.terminalOutcome).withFailMessage("$label P6 success terminal").isEqualTo(TerminalOutcome.Success)
+            assertThat(trace.terminalOutcome)
+                .withFailMessage("$label P6 success terminal")
+                .isEqualTo(TerminalOutcome.Success)
         }
         // P8: cancellation bypasses classification.
         if (trace.dispositions.any { it.disposition == RouteDisposition.Cancelled }) {
-            assertThat(trace.terminalOutcome).withFailMessage("$label P8 cancelled").isEqualTo(TerminalOutcome.Cancelled)
+            assertThat(trace.terminalOutcome)
+                .withFailMessage("$label P8 cancelled")
+                .isEqualTo(TerminalOutcome.Cancelled)
         }
         // P11: global attempt counter strictly increases across retries and fallbacks.
         val attempts = trace.attemptTrace.map { it.globalAttempt }
         assertThat(attempts).withFailMessage("$label P11 strictly increasing").isSorted()
-        assertThat(attempts.zipWithNext().all { (a, b) -> b > a }).withFailMessage("$label P11 strictly increasing").isTrue()
+        assertThat(attempts.zipWithNext().all { (a, b) -> b > a })
+            .withFailMessage("$label P11 strictly increasing")
+            .isTrue()
         // P14: every admitted route produces at most ONE semantic breaker
         // disposition; circuit-open routes produce none. The count equals the
         // number of DISTINCT routes that ran at least one attempt.
@@ -836,8 +894,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         // (configured -> authorized -> viable -> selected/attempted) can be compared with what the
         // reference model expects, without re-running under a debugger.
         assertThat(reality.observedAttempts)
-            .withFailMessage("$label P1 ordered attempt trace | model=$modelAttempts reality=${reality.observedAttempts} script=$script")
-            .containsExactlyElementsOf(modelAttempts)
+            .withFailMessage(
+                "$label P1 ordered attempt trace | model=$modelAttempts " +
+                    "reality=${reality.observedAttempts} script=$script",
+            ).containsExactlyElementsOf(modelAttempts)
         // P1: ordered fallback edges (P10: routes strictly advance, never revisited).
         // Diagnostics only: edges and attempts together, because an edge discrepancy can be either
         // a missing/extra transition between legitimately selected candidates, or secondary to a
@@ -850,11 +910,16 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         // P1: retry/fallback/breaker totals.
         assertThat(reality.retryEvents).withFailMessage("$label P1 retries").isEqualTo(model.retryTransitions)
         assertThat(reality.fallbackEvents).withFailMessage("$label P1 fallbacks").isEqualTo(model.fallbackTransitions)
-        assertThat(reality.circuitOpenedEvents).withFailMessage("$label P1 breaker failures").isEqualTo(model.breakerQualifyingFailures)
+        assertThat(reality.circuitOpenedEvents)
+            .withFailMessage("$label P1 breaker failures")
+            .isEqualTo(model.breakerQualifyingFailures)
         // P14: reality observes the SAME semantic breaker dispositions as the model.
         assertThat(
             reality.breakerDispositions,
-        ).withFailMessage("$label P14 reality breaker dispositions").containsExactlyElementsOf(model.breakerDispositions)
+        ).withFailMessage("$label P14 reality breaker dispositions").containsExactlyElementsOf(
+            model
+                .breakerDispositions,
+        )
         // P12: after the first REAL emitted token, no retry/fallback authority
         // remains. The breaker failure event is the TERMINAL disposition
         // recording (allowed after the token) — only recovery actions are
@@ -900,7 +965,12 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val seeds = 0L until 32L
         for (seed in seeds) {
             for (retries in listOf(0, 1, 2)) {
-                val script = ProviderRetryFallbackActionGenerator.generate(seed, providerRetries = retries, routeCount = 2)
+                val script =
+                    ProviderRetryFallbackActionGenerator.generate(
+                        seed,
+                        providerRetries = retries,
+                        routeCount = 2,
+                    )
                 driveScript(script, "seed=$seed retries=$retries")
             }
         }
@@ -919,7 +989,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         assertModelInvariants(model, script, "explicit-provider")
 
         val reality = runReality(script)
-        assertThat(reality.observedAttempts.map { it.first }).withFailMessage("P13 only p0 executes").containsExactly("p0", "p0")
+        assertThat(reality.observedAttempts.map { it.first }).withFailMessage("P13 only p0 executes").containsExactly(
+            "p0",
+            "p0",
+        )
         assertThat(reality.perRouteAttempts["p1"] ?: 0).withFailMessage("P13 p1 never executes").isZero()
         assertThat(reality.perRouteAttempts["p2"] ?: 0).withFailMessage("P13 p2 never executes").isZero()
         assertThat(reality.fallbackEdges).isEmpty()
@@ -945,7 +1018,9 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         assertThat(successModel.breakerSuccesses).isEqualTo(1)
         assertThat(successModel.breakerDispositions).containsExactly(BreakerDisposition.SUCCESS)
         val successReality = runReality(successScript)
-        assertThat(successReality.breakerDispositions).withFailMessage("P14 reality SUCCESS").containsExactly(BreakerDisposition.SUCCESS)
+        assertThat(successReality.breakerDispositions)
+            .withFailMessage("P14 reality SUCCESS")
+            .containsExactly(BreakerDisposition.SUCCESS)
 
         // retryable -> retry -> exhausted retryable: QUALIFYING_FAILURE, 1.
         val exhaustedScript =
@@ -984,7 +1059,9 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         assertThat(permanentModel.breakerDispositions).containsExactly(BreakerDisposition.NEUTRAL)
         assertThat(permanentModel.terminalOutcome).isEqualTo(TerminalOutcome.Failure(FailureKind.PERMANENT))
         val permanentReality = runReality(permanentScript)
-        assertThat(permanentReality.breakerDispositions).withFailMessage("P14 reality NEUTRAL").containsExactly(BreakerDisposition.NEUTRAL)
+        assertThat(permanentReality.breakerDispositions)
+            .withFailMessage("P14 reality NEUTRAL")
+            .containsExactly(BreakerDisposition.NEUTRAL)
 
         // primary exhausted -> fallback success: TWO route dispositions —
         // primary permit QUALIFYING_FAILURE, fallback permit SUCCESS. Not
@@ -1004,7 +1081,10 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         val fallbackModel = runModel(fallbackScript)
         assertThat(fallbackModel.breakerQualifyingFailures).isEqualTo(1)
         assertThat(fallbackModel.breakerSuccesses).isEqualTo(1)
-        assertThat(fallbackModel.breakerDispositions).containsExactly(BreakerDisposition.QUALIFYING_FAILURE, BreakerDisposition.SUCCESS)
+        assertThat(fallbackModel.breakerDispositions).containsExactly(
+            BreakerDisposition.QUALIFYING_FAILURE,
+            BreakerDisposition.SUCCESS,
+        )
         val fallbackReality = runReality(fallbackScript)
         assertThat(fallbackReality.breakerDispositions)
             .withFailMessage(
@@ -1073,9 +1153,12 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         ) {
             lanes += "retry-exhaustion"
         }
-        if (script.actions.any { it is RetryFallbackScriptAction.Attempt && it.outcome == AttemptOutcome.RetryableFailureWithRetryAfter } &&
-            model.retryTransitions >= 1
-        ) {
+        val retryAfterAttempts =
+            script.actions.any {
+                it is RetryFallbackScriptAction.Attempt &&
+                    it.outcome == AttemptOutcome.RetryableFailureWithRetryAfter
+            }
+        if (retryAfterAttempts && model.retryTransitions >= 1) {
             lanes += "retry-after-retry"
         }
         if (model.dispositions.any { it.disposition is RouteDisposition.Fallback } &&
@@ -1083,7 +1166,8 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         ) {
             lanes += "fallback-after-exhaustion"
         }
-        if (model.dispositions.count { it.disposition is RouteDisposition.Fallback } >= 2) lanes += "multi-fallback-traversal"
+        val fallbacks = model.dispositions.count { it.disposition is RouteDisposition.Fallback }
+        if (fallbacks >= 2) lanes += "multi-fallback-traversal"
         if (script.actions.any { it is RetryFallbackScriptAction.Admit && it.circuitOpen } &&
             model.dispositions.any { it.disposition is RouteDisposition.Fallback }
         ) {
@@ -1115,7 +1199,12 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         for (seed in 0L until 32L) {
             for (retries in listOf(0, 1, 2)) {
                 for (routeCount in listOf(1, 2, 3)) {
-                    val script = ProviderRetryFallbackActionGenerator.generate(seed, providerRetries = retries, routeCount = routeCount)
+                    val script =
+                        ProviderRetryFallbackActionGenerator.generate(
+                            seed,
+                            providerRetries = retries,
+                            routeCount = routeCount,
+                        )
                     val model = runModel(script)
                     recordLane(model, script, lanes)
                     if (model.retryTransitions > 0 || model.fallbackTransitions > 0) budgetsWithRecovery += retries

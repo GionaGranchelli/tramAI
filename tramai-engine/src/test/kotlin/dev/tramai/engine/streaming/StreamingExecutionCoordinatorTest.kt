@@ -131,7 +131,12 @@ class StreamingExecutionCoordinatorTest {
      * request arguments, so a service whose parameters carry no classification cannot reach a
      * provider. This is the shape the real proxy boundary passes.
      */
-    private val classifiedInput = ClassifiedDocument("input", DataClassification.INTERNAL, ClassificationSource.DECLARED)
+    private val classifiedInput =
+        ClassifiedDocument(
+            "input",
+            DataClassification.INTERNAL,
+            ClassificationSource.DECLARED,
+        )
 
     private val workloadIdentity =
         WorkloadDeploymentIdentity(
@@ -157,7 +162,10 @@ class StreamingExecutionCoordinatorTest {
         rules =
             mapOf(
                 DataClassification.INTERNAL to
-                    ClassificationRoutingRule(allowedZones = setOf(ProviderTrustZone.LOCAL), allowedFallbackZones = emptySet()),
+                    ClassificationRoutingRule(
+                        allowedZones = setOf(ProviderTrustZone.LOCAL),
+                        allowedFallbackZones = emptySet(),
+                    ),
             ),
         trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
         deploymentOf = { providerId ->
@@ -209,14 +217,14 @@ class StreamingExecutionCoordinatorTest {
 
         fun count(name: String): Int = events.count { it == name }
 
-        /** Monotonic elapsed nanos between the first occurrence of [from] and the first [to] that FOLLOWS it, or null when absent. */
+        /** Monotonic elapsed nanos between the first [from] and the first [to] that follows it, or null. */
         fun elapsedBetween(
             from: String,
             to: String,
         ): Long? {
             val fromIdx = events.indexOf(from).takeIf { it >= 0 } ?: return null
-            val toIdx = (fromIdx + 1 until events.size).firstOrNull { events[it] == to } ?: return null
-            return stamps[toIdx] - stamps[fromIdx]
+            val toIdx = (fromIdx + 1 until events.size).firstOrNull { events[it] == to }
+            return toIdx?.let { stamps[it] - stamps[fromIdx] }
         }
     }
 
@@ -386,12 +394,26 @@ class StreamingExecutionCoordinatorTest {
     private fun request(
         conversationId: String? = null,
         budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget),
-    ) = StreamingExecutionRequest(operation(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
+    ) = StreamingExecutionRequest(
+        operation(),
+        listOf(classifiedInput),
+        budget
+            .createTracker(),
+        conversationId,
+        governedRun,
+    )
 
     private fun requestWithRetries(
         conversationId: String? = null,
         budget: TokenBudgetCoordinator = TokenBudgetCoordinator(defaultBudget),
-    ) = StreamingExecutionRequest(operationWithRetries(), listOf(classifiedInput), budget.createTracker(), conversationId, governedRun)
+    ) = StreamingExecutionRequest(
+        operationWithRetries(),
+        listOf(classifiedInput),
+        budget
+            .createTracker(),
+        conversationId,
+        governedRun,
+    )
 
     private fun requestWithExplicitProvider(
         conversationId: String? = null,
@@ -444,7 +466,8 @@ class StreamingExecutionCoordinatorTest {
             ),
         closed: AtomicBoolean = AtomicBoolean(false),
         qualifiedServiceName: String? = "test.StreamingService",
-        retryPolicy: ProviderRetryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+        retryPolicy: ProviderRetryPolicy =
+            ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
         governance: ProviderGovernanceConfiguration? = governanceFor(routingPlan),
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
@@ -461,7 +484,11 @@ class StreamingExecutionCoordinatorTest {
             qualifiedServiceName = qualifiedServiceName,
             operationObserver = observer,
             operationInterceptor = NoOpOperationInterceptor,
-            toolExposureCoordinator = ToolExposureCoordinator(ToolRegistry(), PolicyEnforcementHelper(policy, AtomicBoolean(false))),
+            toolExposureCoordinator =
+                ToolExposureCoordinator(
+                    ToolRegistry(),
+                    PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+                ),
             conversationMemoryCoordinator = ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }),
             tokenBudgetCoordinator = TokenBudgetCoordinator(budgetSettings),
             modelRegistryEnforcer =
@@ -476,7 +503,8 @@ class StreamingExecutionCoordinatorTest {
                 ),
             retryPolicy = retryPolicy,
             beforeResolution = ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
-            beforeInvocation = ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
+            beforeInvocation =
+                ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
             fallbackGate =
                 ProviderFallbackGate { _, _, _, _, _, _ ->
                     recordingSink.record(
@@ -569,7 +597,10 @@ class StreamingExecutionCoordinatorTest {
                         emit(StreamChunk.Complete("hello world"))
                     }
                 }
-            val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink())).execute(request()).toList()
+            val chunks =
+                coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()))
+                    .execute(request())
+                    .toList()
             assertThat(chunks).containsExactly(
                 StreamChunk.Token("hello"),
                 StreamChunk.Token(" "),
@@ -591,7 +622,10 @@ class StreamingExecutionCoordinatorTest {
                         emit(StreamChunk.Complete("hello world"))
                     }
                 }
-            val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink())).execute(request()).toList()
+            val chunks =
+                coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()))
+                    .execute(request())
+                    .toList()
             assertThat(chunks.filterIsInstance<StreamChunk.Complete>().single().fullText).isEqualTo("hello world")
             assertThat(chunks.filterIsInstance<StreamChunk.Token>().map { it.text }).containsExactly("hello ", "world")
         }
@@ -638,9 +672,12 @@ class StreamingExecutionCoordinatorTest {
         val provider = RecordingProvider("p") { flow { emit(StreamChunk.Complete("no")) } }
         val observer = RecordingOperationObserver(sink)
         val c = coordinator(plan("p" to provider), observer, sink, denyBeforeResponseReturn = true)
-        assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
+        assertThatThrownBy { runBlocking { c.execute(request()).toList() } }
+            .isInstanceOf(PolicyViolationException::class.java)
         assertThat(provider.streamRequests).isEmpty()
-        assertThat(sink.events).contains("observation.engine-event:tramai.route.selected").doesNotContain("observation.provider-response")
+        assertThat(sink.events)
+            .contains("observation.engine-event:tramai.route.selected")
+            .doesNotContain("observation.provider-response")
     }
 
     @Test fun `P0-A streaming retryable startup failure honors providerRetries before fallback`() {
@@ -656,7 +693,9 @@ class StreamingExecutionCoordinatorTest {
                 RecordingProvider("primary") {
                     primaryAttempts++
                     if (primaryAttempts == 1) {
-                        flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) }
+                        flow {
+                            emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                        }
                     } else {
                         flow {
                             emit(StreamChunk.Token("ok"))
@@ -726,7 +765,8 @@ class StreamingExecutionCoordinatorTest {
             assertThat(fallback.streamRequests).hasSize(1) // fallback only after exhaustion
             assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
             assertThat(sink.events.filter { it == "observation.engine-event:tramai.retry.scheduled" }).hasSize(1)
-            assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" }).hasSize(1)
+            assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" })
+                .hasSize(1)
             assertThat(sink.events.filter { it == "policy.fallback" }).hasSize(1)
         }
     }
@@ -742,7 +782,9 @@ class StreamingExecutionCoordinatorTest {
                 RecordingProvider("primary") {
                     attempts++
                     if (attempts == 1) {
-                        flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+                        flow {
+                            emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
+                        }
                     } else {
                         flow {
                             emit(StreamChunk.Token("ok"))
@@ -767,7 +809,8 @@ class StreamingExecutionCoordinatorTest {
             assertThat(fallback.streamRequests).isEmpty()
             assertThat(sink.events).doesNotContain("policy.fallback")
             assertThat(sink.events.filter { it == "observation.engine-event:tramai.retry.scheduled" }).hasSize(1)
-            assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" }).hasSize(1)
+            assertThat(sink.events.filter { it == "observation.engine-event:tramai.streaming.startup_retry" })
+                .hasSize(1)
         }
     }
 
@@ -795,7 +838,9 @@ class StreamingExecutionCoordinatorTest {
             val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
             fallback.sink = sink
             val observer = AttemptRecordingObserver(sink)
-            coordinator(plan("primary" to primary, "fallback" to fallback), observer, sink).execute(requestWithRetries()).toList()
+            coordinator(plan("primary" to primary, "fallback" to fallback), observer, sink)
+                .execute(requestWithRetries())
+                .toList()
             assertThat(observer.attempts).containsExactly(
                 "primary" to 0,
                 "primary" to 1,
@@ -811,13 +856,22 @@ class StreamingExecutionCoordinatorTest {
         // authority via onSuccess.
         runBlocking {
             val sink = OrderedSink()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+            val breaker =
+                ProviderCircuitBreaker(
+                    CircuitBreakerSettings(
+                        enabled = true,
+                        failureThreshold = 1,
+                        openDurationMillis = 100,
+                    ),
+                )
             var attempts = 0
             val provider =
                 RecordingProvider("p") {
                     attempts++
                     if (attempts == 1) {
-                        flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+                        flow {
+                            emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
+                        }
                     } else {
                         flow { emit(StreamChunk.Complete("ok")) }
                     }
@@ -942,7 +996,12 @@ class StreamingExecutionCoordinatorTest {
             primary.sink = sink
             val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
             fallback.sink = sink
-            val c = coordinator(plan("primary" to primary, "fallback" to fallback), RecordingOperationObserver(sink), sink)
+            val c =
+                coordinator(
+                    plan("primary" to primary, "fallback" to fallback),
+                    RecordingOperationObserver(sink),
+                    sink,
+                )
             val collector = async { c.execute(requestWithRetries()).toList() }
             entered.await()
             collector.cancel()
@@ -960,7 +1019,14 @@ class StreamingExecutionCoordinatorTest {
         // and runs as the next global attempt. No retry events, no startup_retry.
         runBlocking {
             val sink = OrderedSink()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+            val breaker =
+                ProviderCircuitBreaker(
+                    CircuitBreakerSettings(
+                        enabled = true,
+                        failureThreshold = 1,
+                        openDurationMillis = 100,
+                    ),
+                )
             breaker.onFailure(
                 (breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit,
                 ProviderException(
@@ -1108,7 +1174,10 @@ class StreamingExecutionCoordinatorTest {
                     .provider("fallback", fallback)
                     .model("logical-model", "primary")
                     .fallbackModel("logical-model", "fallback-model", "fallback")
-            val chunks = coordinator(builder.build(), RecordingOperationObserver(sink), sink).execute(requestWithRetries()).toList()
+            val chunks =
+                coordinator(builder.build(), RecordingOperationObserver(sink), sink)
+                    .execute(requestWithRetries())
+                    .toList()
             assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
             assertThat(fallback.streamRequests).hasSize(1)
             assertThat(fallback.streamRequests.single().model).isEqualTo("fallback-model")
@@ -1123,7 +1192,14 @@ class StreamingExecutionCoordinatorTest {
         // error must be the provider failure, NOT the circuit-open exception.
         runBlocking {
             val sink = OrderedSink()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+            val breaker =
+                ProviderCircuitBreaker(
+                    CircuitBreakerSettings(
+                        enabled = true,
+                        failureThreshold = 1,
+                        openDurationMillis = 100,
+                    ),
+                )
             breaker.onFailure(
                 (breaker.beforeCall("fallback") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit,
                 ProviderException(
@@ -1171,7 +1247,14 @@ class StreamingExecutionCoordinatorTest {
         // error is the circuit-open exception from the LAST skipped route.
         runBlocking {
             val sink = OrderedSink()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100))
+            val breaker =
+                ProviderCircuitBreaker(
+                    CircuitBreakerSettings(
+                        enabled = true,
+                        failureThreshold = 1,
+                        openDurationMillis = 100,
+                    ),
+                )
             breaker.onFailure(
                 (breaker.beforeCall("primary") as dev.tramai.engine.CircuitBreakerAdmission.Allowed).permit,
                 ProviderException(
@@ -1283,7 +1366,10 @@ class StreamingExecutionCoordinatorTest {
             assertThat(chunks).containsExactly(StreamChunk.Complete("ok"))
             assertThat(primary.streamRequests).hasSize(1) // zero retries
             assertThat(fallback.streamRequests).hasSize(1)
-            assertThat(sink.events).contains("observation.engine-event:tramai.streaming.startup_retry", "policy.fallback")
+            assertThat(sink.events).contains(
+                "observation.engine-event:tramai.streaming.startup_retry",
+                "policy.fallback",
+            )
             assertThat(sink.events).doesNotContain("observation.engine-event:tramai.retry.scheduled")
         }
     }
@@ -1298,7 +1384,12 @@ class StreamingExecutionCoordinatorTest {
         // Regression: return@repeat re-entered the same route on Stop.
         runBlocking {
             val sink = OrderedSink()
-            val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(CircuitBreakerOpenException("primary", 0L))) } }
+            val primary =
+                RecordingProvider("primary") {
+                    flow {
+                        emit(StreamChunk.Error(CircuitBreakerOpenException("primary", 0L)))
+                    }
+                }
             primary.sink = sink
             val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
             fallback.sink = sink
@@ -1316,8 +1407,13 @@ class StreamingExecutionCoordinatorTest {
             assertThat(primary.streamRequests).withFailMessage("P0-O primary invoked once after Stop").hasSize(1)
             assertThat(fallback.streamRequests).withFailMessage("P0-O fallback invoked exactly once").hasSize(1)
             assertThat(sink.count("policy.fallback")).withFailMessage("P0-O gate invoked exactly once").isEqualTo(1)
-            assertThat(sink.count("observation.engine-event:tramai.retry.scheduled")).withFailMessage("P0-O no same-route retry").isZero()
-            assertThat(observer.attempts).withFailMessage("P0-O ordered attempt trace").containsExactly("primary" to 0, "fallback" to 1)
+            assertThat(sink.count("observation.engine-event:tramai.retry.scheduled"))
+                .withFailMessage("P0-O no same-route retry")
+                .isZero()
+            assertThat(observer.attempts).withFailMessage("P0-O ordered attempt trace").containsExactly(
+                "primary" to 0,
+                "fallback" to 1,
+            )
         }
     }
 
@@ -1441,7 +1537,9 @@ class StreamingExecutionCoordinatorTest {
                 RecordingProvider("p") {
                     attempts++
                     if (attempts == 1) {
-                        flow { emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0))) }
+                        flow {
+                            emit(StreamChunk.Error(ProviderException("down", retryable = true, retryAfterMillis = 0)))
+                        }
                     } else {
                         flow { emit(StreamChunk.Error(ProviderException("permanent", retryable = false))) }
                     }
@@ -1464,7 +1562,12 @@ class StreamingExecutionCoordinatorTest {
     @Test fun `retryable startup error before first token falls back to next route`() {
         runBlocking {
             val sink = OrderedSink()
-            val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val primary =
+                RecordingProvider("primary") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                    }
+                }
             val fallback =
                 RecordingProvider("fallback") {
                     flow {
@@ -1500,7 +1603,12 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `non retryable provider error does not fall back`() {
         runBlocking {
-            val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("boom", retryable = false))) } }
+            val primary =
+                RecordingProvider("primary") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("boom", retryable = false)))
+                    }
+                }
             val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
             val chunks =
                 coordinator(
@@ -1546,7 +1654,11 @@ class StreamingExecutionCoordinatorTest {
             val incapable = RecordingProvider("primary") { flow { emit(StreamChunk.Complete("bad")) } }
             incapable.capabilities = emptySet()
             val capable = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("ok")) } }
-            val c = coordinator(plan("primary" to incapable, "fallback" to capable), RecordingOperationObserver(OrderedSink()))
+            val c =
+                coordinator(
+                    plan("primary" to incapable, "fallback" to capable),
+                    RecordingOperationObserver(OrderedSink()),
+                )
             val chunks = c.execute(requestWithRetries()).toList()
             assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
             assertThat(incapable.streamRequests).isEmpty()
@@ -1560,7 +1672,13 @@ class StreamingExecutionCoordinatorTest {
      */
     private class LateOpeningCircuitBreaker(
         private val rejectProviderId: String,
-    ) : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 1000)) {
+    ) : ProviderCircuitBreaker(
+            CircuitBreakerSettings(
+                enabled = true,
+                failureThreshold = 1,
+                openDurationMillis = 1000,
+            ),
+        ) {
         override fun openUntilMillis(providerId: String): Long? = null
 
         override fun beforeCall(providerId: String): CircuitBreakerAdmission =
@@ -1572,7 +1690,12 @@ class StreamingExecutionCoordinatorTest {
     }
 
     private fun openedCircuitFor(providerId: String): ProviderCircuitBreaker {
-        val settings = CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = OPEN_FOR_MILLIS)
+        val settings =
+            CircuitBreakerSettings(
+                enabled = true,
+                failureThreshold = 1,
+                openDurationMillis = OPEN_FOR_MILLIS,
+            )
         val breaker = ProviderCircuitBreaker(settings)
         val permit = (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit
         breaker.onFailure(permit, ProviderException("down", retryable = true))
@@ -1581,7 +1704,12 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `configured but non viable fallback cannot execute`() {
         runBlocking {
-            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val a =
+                RecordingProvider("a") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                    }
+                }
             val x = RecordingProvider("x") { flow { emit(StreamChunk.Complete("unreachable")) } }
             val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
             val c =
@@ -1600,7 +1728,12 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `pre-token exhaustion reselects from the narrowed envelope not the configured order`() {
         runBlocking {
-            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val a =
+                RecordingProvider("a") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                    }
+                }
             val x = RecordingProvider("x") { flow { emit(StreamChunk.Complete("unreachable")) } }
             val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("ok")) } }
             val c =
@@ -1638,8 +1771,18 @@ class StreamingExecutionCoordinatorTest {
 
     @Test fun `narrowing is monotonic across three selection steps and cannot resurrect a route`() {
         runBlocking {
-            val a = RecordingProvider("a") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
-            val b = RecordingProvider("b") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+            val a =
+                RecordingProvider("a") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                    }
+                }
+            val b =
+                RecordingProvider("b") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                    }
+                }
             val c = RecordingProvider("c") { flow { emit(StreamChunk.Complete("ok")) } }
             val c0 = coordinator(plan("a" to a, "b" to b, "c" to c), RecordingOperationObserver(OrderedSink()))
             val chunks = c0.execute(requestWithZeroRetries()).toList()
@@ -1667,7 +1810,8 @@ class StreamingExecutionCoordinatorTest {
                     circuitBreaker = openedCircuitFor("a"),
                     denyFallback = true,
                 )
-            assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
+            assertThatThrownBy { runBlocking { c.execute(request()).toList() } }
+                .isInstanceOf(PolicyViolationException::class.java)
             assertThat(sink.count("policy.fallback")).isEqualTo(1)
             assertThat(a.streamRequests).isEmpty()
             assertThat(b.streamRequests).isEmpty()
@@ -1758,12 +1902,13 @@ class StreamingExecutionCoordinatorTest {
                     governedRun,
                 )
 
-            assertThatThrownBy { runBlocking { c.execute(governedRequest).toList() } }.isInstanceOf(ProviderException::class.java)
+            assertThatThrownBy { runBlocking { c.execute(governedRequest).toList() } }
+                .isInstanceOf(ProviderException::class.java)
             assertThat(a.streamRequests).isEmpty()
         }
     }
 
-    @Test fun `a streaming candidate absent from the governed topology executes without one and cannot escape with one`() {
+    @Test fun `a streaming candidate absent from the governed topology cannot escape with one`() {
         runBlocking {
             // The same plan twice. Without a topology the provider runs through the legacy streaming
             // path; with a topology that carries no deployment for it, the same provider does not run.
@@ -1781,7 +1926,12 @@ class StreamingExecutionCoordinatorTest {
             // not a governed candidate. Built rather than copied because the configuration is a plain
             // class, not a data class.
             val topologyWithoutA = governanceFor(plan())
-            val governed = coordinator(routingPlan, RecordingOperationObserver(OrderedSink()), governance = topologyWithoutA)
+            val governed =
+                coordinator(
+                    routingPlan,
+                    RecordingOperationObserver(OrderedSink()),
+                    governance = topologyWithoutA,
+                )
 
             val chunks = governed.execute(requestWithZeroRetries()).toList()
 
@@ -1791,7 +1941,12 @@ class StreamingExecutionCoordinatorTest {
     }
 
     @Test fun `fallback gate denial prevents second provider invocation`() {
-        val primary = RecordingProvider("primary") { flow { emit(StreamChunk.Error(ProviderException("down", retryable = true))) } }
+        val primary =
+            RecordingProvider("primary") {
+                flow {
+                    emit(StreamChunk.Error(ProviderException("down", retryable = true)))
+                }
+            }
         val fallback = RecordingProvider("fallback") { flow { emit(StreamChunk.Complete("bad")) } }
         val c =
             coordinator(
@@ -1802,7 +1957,8 @@ class StreamingExecutionCoordinatorTest {
                 RecordingOperationObserver(OrderedSink()),
                 denyFallback = true,
             )
-        assertThatThrownBy { runBlocking { c.execute(request()).toList() } }.isInstanceOf(PolicyViolationException::class.java)
+        assertThatThrownBy { runBlocking { c.execute(request()).toList() } }
+            .isInstanceOf(PolicyViolationException::class.java)
         assertThat(fallback.streamRequests).isEmpty()
     }
 
@@ -2136,8 +2292,16 @@ class StreamingExecutionCoordinatorTest {
     @Test fun `stream error chunk semantics unchanged`() {
         runBlocking {
             val sink = OrderedSink()
-            val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("boom", retryable = false))) } }
-            val chunks = coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink).execute(request()).toList()
+            val provider =
+                RecordingProvider("p") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("boom", retryable = false)))
+                    }
+                }
+            val chunks =
+                coordinator(plan("p" to provider), RecordingOperationObserver(sink), sink)
+                    .execute(request())
+                    .toList()
             val error = chunks.single() as StreamChunk.Error
             assertThat(error.cause).isInstanceOf(ProviderException::class.java)
             assertThat(error.cause.message).isEqualTo("boom")
@@ -2175,15 +2339,23 @@ class StreamingExecutionCoordinatorTest {
                     qualifiedServiceName = null,
                 ).execute(request()).toList()
             val error = chunks.single() as StreamChunk.Error
-            assertThat(error.cause.message).contains("ended streaming without a terminal chunk while invoking null.stream")
+            assertThat(error.cause.message)
+                .contains("ended streaming without a terminal chunk while invoking null.stream")
         }
     }
 
     @Test fun `failed stream does not persist memory`() {
         runBlocking {
-            val provider = RecordingProvider("p") { flow { emit(StreamChunk.Error(ProviderException("boom", retryable = false))) } }
+            val provider =
+                RecordingProvider("p") {
+                    flow {
+                        emit(StreamChunk.Error(ProviderException("boom", retryable = false)))
+                    }
+                }
             val memory = RecordingMemory()
-            coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), memory = memory).execute(request("cid")).toList()
+            coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), memory = memory)
+                .execute(request("cid"))
+                .toList()
             assertThat(memory.stored).isEmpty()
         }
     }
@@ -2233,7 +2405,9 @@ class StreamingExecutionCoordinatorTest {
             val history = listOf(Message(MessageRole.USER, "old"))
             val memory = RecordingMemory().also { it.history = history }
             val provider = RecordingProvider("p") { flow { emit(StreamChunk.Complete("ok")) } }
-            coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), memory = memory).execute(request("cid")).toList()
+            coordinator(plan("p" to provider), RecordingOperationObserver(OrderedSink()), memory = memory)
+                .execute(request("cid"))
+                .toList()
             assertThat(
                 provider.streamRequests
                     .single()

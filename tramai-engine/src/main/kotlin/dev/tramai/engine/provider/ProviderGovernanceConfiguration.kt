@@ -28,18 +28,17 @@ internal class ProviderGovernanceConfiguration(
 ) {
     companion object {
         /** Projects the configured routing topology; the configured zone pairs feed the existing policy. */
-        fun from(routing: ProviderRoutingConfiguration): ProviderGovernanceConfiguration? =
+        fun from(routing: ProviderRoutingConfiguration): ProviderGovernanceConfiguration? {
             // A defaulted configuration carries no governed topology: `enabled` is false and every
             // topology field is empty. That is the absence of governed routing, not an incomplete
             // governed execution, so such an execution keeps the pre-0.7.3h path instead of failing
             // closed on governance inputs it was never asked to supply. Note `rules` deliberately
             // does not participate: it defaults to a non-empty sovereign matrix, so consulting it
             // would make every configuration look governed.
-            if (!routing.enabled &&
-                routing.workloadZones.isEmpty() &&
-                routing.providerDeployments.isEmpty() &&
-                routing.allowedZonePairs.isEmpty()
-            ) {
+            val noDeployments =
+                routing.workloadZones.isEmpty() && routing.providerDeployments.isEmpty()
+            val noTopology = !routing.enabled && noDeployments && routing.allowedZonePairs.isEmpty()
+            return if (noTopology) {
                 null
             } else {
                 ProviderGovernanceConfiguration(
@@ -49,5 +48,6 @@ internal class ProviderGovernanceConfiguration(
                     deploymentOf = { routing.providerDeployments[it] },
                 )
             }
+        }
     }
 }

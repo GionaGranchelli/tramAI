@@ -128,7 +128,14 @@ class ProviderGovernedExecutionPathTest {
     }
 
     private fun openCircuitFor(providerId: String): ProviderCircuitBreaker {
-        val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000L))
+        val breaker =
+            ProviderCircuitBreaker(
+                CircuitBreakerSettings(
+                    enabled = true,
+                    failureThreshold = 1,
+                    openDurationMillis = 60_000L,
+                ),
+            )
         breaker.onFailure(
             (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit,
             ProviderException("down", retryable = true),
@@ -175,7 +182,8 @@ class ProviderGovernedExecutionPathTest {
             val thrown =
                 catchThrowable {
                     runBlocking {
-                        coordinator(plan, breaker = openCircuitFor("alpha"), fallbackGate = denyingGate()).execute(request())
+                        coordinator(plan, breaker = openCircuitFor("alpha"), fallbackGate = denyingGate())
+                            .execute(request())
                     }
                 }
             assertThat(thrown).isInstanceOf(PolicyViolationException::class.java)
@@ -201,7 +209,8 @@ class ProviderGovernedExecutionPathTest {
             val denied =
                 catchThrowable {
                     runBlocking {
-                        coordinator(plan, breaker = lateRejectingBreaker("alpha"), fallbackGate = denyingGate()).execute(request())
+                        coordinator(plan, breaker = lateRejectingBreaker("alpha"), fallbackGate = denyingGate())
+                            .execute(request())
                     }
                 }
             assertThat(denied).isInstanceOf(PolicyViolationException::class.java)
@@ -228,7 +237,13 @@ class ProviderGovernedExecutionPathTest {
      * beforeCall models the breaker opening between selection and the call.
      */
     private fun lateRejectingBreaker(rejectProviderId: String) =
-        object : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 60_000L)) {
+        object : ProviderCircuitBreaker(
+            CircuitBreakerSettings(
+                enabled = true,
+                failureThreshold = 1,
+                openDurationMillis = 60_000L,
+            ),
+        ) {
             override fun openUntilMillis(providerId: String): Long? = null
 
             override fun beforeCall(providerId: String): CircuitBreakerAdmission =
@@ -531,7 +546,11 @@ class ProviderGovernedExecutionPathTest {
             val plan =
                 planOf(
                     chain = listOf("brand-global", "brand-local"),
-                    providers = mapOf("brand-global" to provider("brand-global"), "brand-local" to provider("brand-local")),
+                    providers =
+                        mapOf(
+                            "brand-global" to provider("brand-global"),
+                            "brand-local" to provider("brand-local"),
+                        ),
                 )
 
             assertThat(coordinator(plan).execute(request()).response.content).isEqualTo("brand-local")
@@ -615,7 +634,10 @@ class ProviderGovernedExecutionPathTest {
 
             invoked.clear()
             val topologyWithoutAlpha = governance(deployments = mapOf("brand-local" to ProviderTrustZone.LOCAL))
-            val thrown = catchThrowable { runBlocking { coordinator(plan, governance = topologyWithoutAlpha).execute(request()) } }
+            val thrown =
+                catchThrowable {
+                    runBlocking { coordinator(plan, governance = topologyWithoutAlpha).execute(request()) }
+                }
 
             assertThat(thrown).isInstanceOf(ProviderException::class.java)
             assertThat(invoked).isEmpty()
@@ -635,7 +657,11 @@ class ProviderGovernedExecutionPathTest {
             val plan =
                 planOf(
                     chain = listOf("alpha", "beta"),
-                    providers = mapOf("alpha" to provider("alpha", vision = false), "beta" to provider("beta", vision = true)),
+                    providers =
+                        mapOf(
+                            "alpha" to provider("alpha", vision = false),
+                            "beta" to provider("beta", vision = true),
+                        ),
                 )
 
             val response = coordinator(plan).execute(request(withImage = true))
@@ -707,7 +733,12 @@ class ProviderGovernedExecutionPathTest {
     private val selectedButForbidden = forbiddenCandidate()
 
     /** A message carrying image content: the actual fact that makes VISION required. */
-    private val imageMessage = Message(MessageRole.USER, "", contentParts = listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))))
+    private val imageMessage =
+        Message(
+            MessageRole.USER,
+            "",
+            contentParts = listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))),
+        )
 
     private fun forbiddenCandidate() =
         dev.tramai.security.governance.ProviderCandidate(
@@ -763,7 +794,8 @@ class ProviderGovernedExecutionPathTest {
                 "brand-local" to ProviderTrustZone.LOCAL,
                 "brand-global" to ProviderTrustZone.GLOBAL_CLOUD,
             ),
-        pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> = setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
+        pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> =
+            setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
     ) = ProviderGovernanceConfiguration(
         rules =
             mapOf(
@@ -812,7 +844,11 @@ class ProviderGovernedExecutionPathTest {
         val method = ToolExposingService::class.java.methods.single { it.name == "pay" }
         val compiler =
             ServiceDefinitionCompiler(
-                OperationDefinitionCompiler(ToolRegistry(mapOf(paymentTool.name to paymentTool)), null, OperationFingerprintFactory()),
+                OperationDefinitionCompiler(
+                    ToolRegistry(mapOf(paymentTool.name to paymentTool)),
+                    null,
+                    OperationFingerprintFactory(),
+                ),
             )
         return compiler
             .compile(ToolExposingService::class)
@@ -881,7 +917,15 @@ class ProviderGovernedExecutionPathTest {
                     override suspend fun findApprovedModel(
                         providerId: String,
                         modelName: String,
-                    ) = RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
+                    ) = RegisteredModel(
+                        "id",
+                        providerId,
+                        modelName,
+                        "r1",
+                        ModelArtifactDigest
+                            .of("sha256:${"a".repeat(64)}"),
+                        true,
+                    )
                 },
                 ModelRegistrySettings(enabled = true),
             ),

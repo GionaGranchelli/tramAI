@@ -46,7 +46,9 @@ class ProviderExecutionCoordinatorTest {
             assertThat(observation.events.single().first).isEqualTo("tramai.route.selected")
             assertThat(
                 observation.events.single().second,
-            ).containsEntry("provider_id", "primary").containsEntry("route_index", 0L).containsEntry("is_fallback", false)
+            ).containsEntry("provider_id", "primary")
+                .containsEntry("route_index", 0L)
+                .containsEntry("is_fallback", false)
         }
     }
 
@@ -65,7 +67,10 @@ class ProviderExecutionCoordinatorTest {
                     }
                 }
             assertThat(
-                coordinator(plan(primary), RecordingObservation()).execute(executionRequest(retries = 1)).response.content,
+                coordinator(plan(primary), RecordingObservation())
+                    .execute(executionRequest(retries = 1))
+                    .response
+                    .content,
             ).isEqualTo("ok")
             assertThat(calls).isEqualTo(2)
         }
@@ -234,7 +239,11 @@ class ProviderExecutionCoordinatorTest {
     private val governance =
         ProviderGovernanceConfiguration(
             workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
-            rules = mapOf(DataClassification.INTERNAL to ClassificationRoutingRule(setOf(ProviderTrustZone.LOCAL), emptySet())),
+            rules =
+                mapOf(
+                    DataClassification.INTERNAL to
+                        ClassificationRoutingRule(setOf(ProviderTrustZone.LOCAL), emptySet()),
+                ),
             trustZonePolicy = TrustZonePolicy(setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL)),
             deploymentOf = { governedDeployments[it] },
         )
@@ -313,7 +322,15 @@ class ProviderExecutionCoordinatorTest {
                     override suspend fun findApprovedModel(
                         providerId: String,
                         modelName: String,
-                    ) = RegisteredModel("id", providerId, modelName, "r1", ModelArtifactDigest.of("sha256:${"a".repeat(64)}"), true)
+                    ) = RegisteredModel(
+                        "id",
+                        providerId,
+                        modelName,
+                        "r1",
+                        ModelArtifactDigest
+                            .of("sha256:${"a".repeat(64)}"),
+                        true,
+                    )
                 },
                 ModelRegistrySettings(enabled = true),
             ),
