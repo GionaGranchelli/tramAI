@@ -129,104 +129,15 @@ internal class ProviderExecutionCoordinator(
 
         var lastFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
-        // The workload's zone is looked up by its exact deployment identity: it is never inferred
-        // from an environment convention, and an unconfigured deployment has no zone at all.
-        val workloadZone = workloadZoneOf(configuration, run)
+        val candidateSet = governedCandidateSet(request, resolvedRoutes, configuration, run)
+        val authorizedSet = candidateSet.authorizedSet
+        val configuredOrder = candidateSet.configuredOrder
+        val routeOf = candidateSet.routeOf
+        var remaining = candidateSet.remaining
 
-        // The release predicate is built from the governed configuration: a default release instance
-        // carries an empty rule map and would release nothing, so authorization would refuse every
-        // candidate for a reason the configuration never expressed.
-        val authorization =
-            CandidateAuthorization(
-                ProviderInputRelease(configuration.trustZonePolicy, configuration.rules),
-                routingPlan,
-            )
-
-        // Classification and the workload's own trust zone are resolved, not assumed: a missing
-        // claim or an unestablished deployment zone refuses rather than defaulting to a wider zone.
-        val workload =
-            WorkloadGovernanceResolver.resolve(
-                identity = run.deployment,
-                signals = signalsOf(request.securityContext),
-                deploymentZone = workloadZone,
-                rules = configuration.rules,
-            )
-        if (workload is WorkloadGovernanceResolution.Refused) {
-            throw ProviderException("Provider execution is refused: ${workload.failure.name}", retryable = false)
-        }
-        val governanceFacts = workload as WorkloadGovernanceResolution.Resolved
-
-        val mappings = mapRoutesToCandidates(resolvedRoutes, configuration)
-        // Configured order over the candidate universe, preserved for preference only.
-        val configuredOrder = mappings.map { it.second }
-        val routeOf = mappings.associate { (route, candidate) -> candidate to route }
-
-        // Required capabilities come from the actual request the provider will receive, so capability
-        // refusal happens in authorization rather than after selection. Nothing is inferred from a
-        // return type: a structured service still prompts, parses and repairs without a native
-        // structured-output capability, so STRUCTURED_OUTPUT is not required here.
-        val requiredCapabilities = deriveRequiredCapabilities(request.operation, request.messages, streaming = false)
-
-        // The engine reads authorization through the public set view: an authorization envelope
-        // cannot be inspected or fabricated from outside the security module, which is the point.
-        val authorizedSet =
-            authorization.authorizedSet(
-                configuredOrder,
-                governanceFacts.trustZone,
-                governanceFacts.classification,
-                requiredCapabilities,
-            )
-        val authorized =
-            authorization.authorizedCandidates(
-                configuredOrder,
-                governanceFacts.trustZone,
-                governanceFacts.classification,
-                requiredCapabilities,
-            )
-
-        // Availability is observed, never consumed: beforeCall grants a permit and can revive a
-        // circuit, so it must not be used to populate the viable set.
-        val viability =
-            CandidateViability { candidate ->
-                if (circuitBreaker.openUntilMillis(candidate.providerId) != null) {
-                    ViabilityRefusal.AVAILABILITY
-                } else {
-                    null
-                }
-            }
-        var remaining = viability.viableCandidates(authorized)
-
-        // A candidate excluded at the viability snapshot is still one execution advances past:
-        // availability answers "can this execute now?", never "may execution continue?". So every such
-        // transition passes through the existing fallback policy before any other candidate may
-        // execute — the same continuation question asked for a rejection at beforeCall below. A
-        // gate approval permits continuation only: it cannot restore the excluded candidate, widen
-        // the envelope, or reach a route this envelope does not carry.
-        // Only an exclusion execution actually advances PAST gates a continuation: an excluded
-        // candidate positioned after the candidate about to run does not gate it, so no transition
-        // exists and the gate is not consulted on its behalf.
-        val continuationCandidate = remaining.orderedBy(configuredOrder).firstOrNull()
-        if (continuationCandidate != null) {
-            val continuationPosition = configuredOrder.indexOf(continuationCandidate)
-            val outsideEnvelope =
-                excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker)
-                    .filter { configuredOrder.indexOf(it) < continuationPosition }
-            for (excluded in outsideEnvelope) {
-                val error =
-                    CircuitBreakerOpenException(
-                        excluded.providerId,
-                        circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L,
-                    )
-                lastCircuitOpen = error
-                transition(
-                    error,
-                    routeOf.getValue(excluded),
-                    routeOf.getValue(continuationCandidate),
-                    ProviderFallbackReason.CIRCUIT_BREAKER_OPEN,
-                    request,
-                )
-            }
-        }
+        lastCircuitOpen =
+            announceAvailabilityTransitions(authorizedSet, remaining, configuredOrder, routeOf, request)
+                ?: lastCircuitOpen
 
         while (true) {
             // Configured order is a preference over the viable envelope — never a source of membership.
@@ -294,6 +205,139 @@ internal class ProviderExecutionCoordinator(
                 }
             }
         }
+    }
+
+    /**
+     * The governed candidate set for one execution: the authorized envelope, the configured order,
+     * the candidate-to-route lookup and the viability snapshot it starts from. Authorization and
+     * workload resolution happen here, so a refused workload fails before any provider is reached.
+     */
+    private fun governedCandidateSet(
+        request: ProviderExecutionRequest,
+        resolvedRoutes: List<ResolvedProviderRoute>,
+        configuration: ProviderGovernanceConfiguration,
+        run: GovernedRunIdentity,
+    ): GovernedCandidateSet {
+        // The workload's zone is looked up by its exact deployment identity: it is never inferred
+        // from an environment convention, and an unconfigured deployment has no zone at all.
+        val workloadZone = workloadZoneOf(configuration, run)
+
+        // The release predicate is built from the governed configuration: a default release instance
+        // carries an empty rule map and would release nothing, so authorization would refuse every
+        // candidate for a reason the configuration never expressed.
+        val authorization =
+            CandidateAuthorization(
+                ProviderInputRelease(configuration.trustZonePolicy, configuration.rules),
+                routingPlan,
+            )
+
+        // Classification and the workload's own trust zone are resolved, not assumed: a missing
+        // claim or an unestablished deployment zone refuses rather than defaulting to a wider zone.
+        val workload =
+            WorkloadGovernanceResolver.resolve(
+                identity = run.deployment,
+                signals = signalsOf(request.securityContext),
+                deploymentZone = workloadZone,
+                rules = configuration.rules,
+            )
+        if (workload is WorkloadGovernanceResolution.Refused) {
+            throw ProviderException("Provider execution is refused: ${workload.failure.name}", retryable = false)
+        }
+        val governanceFacts = workload as WorkloadGovernanceResolution.Resolved
+
+        val mappings = mapRoutesToCandidates(resolvedRoutes, configuration)
+        // Configured order over the candidate universe, preserved for preference only.
+        val configuredOrder = mappings.map { it.second }
+        val routeOf = mappings.associate { (route, candidate) -> candidate to route }
+
+        // Required capabilities come from the actual request the provider will receive, so capability
+        // refusal happens in authorization rather than after selection. Nothing is inferred from a
+        // return type: a structured service still prompts, parses and repairs without a native
+        // structured-output capability, so STRUCTURED_OUTPUT is not required here.
+        val requiredCapabilities = deriveRequiredCapabilities(request.operation, request.messages, streaming = false)
+
+        // The engine reads authorization through the public set view: an authorization envelope
+        // cannot be inspected or fabricated from outside the security module, which is the point.
+        val authorizedSet =
+            authorization.authorizedSet(
+                configuredOrder,
+                governanceFacts.trustZone,
+                governanceFacts.classification,
+                requiredCapabilities,
+            )
+        val authorized =
+            authorization.authorizedCandidates(
+                configuredOrder,
+                governanceFacts.trustZone,
+                governanceFacts.classification,
+                requiredCapabilities,
+            )
+
+        // Availability is observed, never consumed: beforeCall grants a permit and can revive a
+        // circuit, so it must not be used to populate the viable set.
+        val viability =
+            CandidateViability { candidate ->
+                if (circuitBreaker.openUntilMillis(candidate.providerId) != null) {
+                    ViabilityRefusal.AVAILABILITY
+                } else {
+                    null
+                }
+            }
+        return GovernedCandidateSet(
+            authorizedSet = authorizedSet,
+            configuredOrder = configuredOrder,
+            routeOf = routeOf,
+            remaining = viability.viableCandidates(authorized),
+        )
+    }
+
+    /** What one governed execution may run, in what order, and where each candidate's route is. */
+    private class GovernedCandidateSet(
+        val authorizedSet: Set<ProviderCandidate>,
+        val configuredOrder: List<ProviderCandidate>,
+        val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
+        val remaining: ViableCandidates,
+    )
+
+    /**
+     * Hands the fallback policy every exclusion execution actually advances past. Availability answers
+     * "can this execute now?", never "may execution continue?", so each such transition asks the same
+     * continuation question a rejection at beforeCall asks below. A gate approval permits continuation
+     * only: it cannot restore the excluded candidate, widen the envelope, or reach a route the envelope
+     * does not carry. Only an exclusion positioned before the candidate about to run gates it, so no
+     * transition exists for exclusions after it and the gate is never consulted on their behalf.
+     *
+     * @return the last circuit-open failure announced, or null when no transition was made.
+     */
+    private suspend fun announceAvailabilityTransitions(
+        authorizedSet: Set<ProviderCandidate>,
+        remaining: ViableCandidates,
+        configuredOrder: List<ProviderCandidate>,
+        routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
+        request: ProviderExecutionRequest,
+    ): CircuitBreakerOpenException? {
+        val continuationCandidate = remaining.orderedBy(configuredOrder).firstOrNull() ?: return null
+        val continuationPosition = configuredOrder.indexOf(continuationCandidate)
+        val outsideEnvelope =
+            excludedByAvailability(authorizedSet, remaining, configuredOrder, circuitBreaker)
+                .filter { configuredOrder.indexOf(it) < continuationPosition }
+        var lastCircuitOpen: CircuitBreakerOpenException? = null
+        for (excluded in outsideEnvelope) {
+            val error =
+                CircuitBreakerOpenException(
+                    excluded.providerId,
+                    circuitBreaker.openUntilMillis(excluded.providerId) ?: 0L,
+                )
+            lastCircuitOpen = error
+            transition(
+                error,
+                routeOf.getValue(excluded),
+                routeOf.getValue(continuationCandidate),
+                ProviderFallbackReason.CIRCUIT_BREAKER_OPEN,
+                request,
+            )
+        }
+        return lastCircuitOpen
     }
 
     /**
