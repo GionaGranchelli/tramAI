@@ -54,6 +54,7 @@ import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.security.governance.CandidateSelectionDecision
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -270,22 +271,33 @@ internal class StreamingExecutionCoordinator(
             // fires, closing the channel so the collector terminates instead
             // of hanging forever on receive.
             collectJob.invokeOnCompletion { cause -> chunks.close(cause) }
-            try {
-                for (chunk in chunks) {
-                    check(!isClosed.get()) { "Tramai runtime is closed" }
-                    emit(chunk)
-                }
-                // The collection job may have failed (e.g. provider does not
-                // support streaming, or a route error aborted the loop): the
-                // channel closes either way, so rethrow the job's failure here
-                // instead of silently completing the flow.
-                rethrowCollected(collectFailure.get())
-            } finally {
-                // If the caller stops collecting (or the engine closed), the
-                // engine-owned collection job must not keep running.
-                collectJob.cancel()
-                collectJob.join()
+            drainStreamingChunks(chunks, collectFailure, collectJob) { chunk -> emit(chunk) }
+        }
+    }
+
+    /**
+     * Forwards the route's chunks to the caller and rethrows whatever the collection job failed with.
+     *
+     * The channel closes whether the collection job succeeded or failed, so a failure must surface
+     * here rather than letting the flow complete silently. The closed-runtime check stays per chunk,
+     * and the engine-owned collection job is always stopped: if the caller stops collecting, or the
+     * engine closes, that job must not keep running.
+     */
+    private suspend fun drainStreamingChunks(
+        chunks: Channel<StreamChunk>,
+        collectFailure: java.util.concurrent.atomic.AtomicReference<Throwable?>,
+        collectJob: Job,
+        emit: suspend (StreamChunk) -> Unit,
+    ) {
+        try {
+            for (chunk in chunks) {
+                check(!isClosed.get()) { "Tramai runtime is closed" }
+                emit(chunk)
             }
+            rethrowCollected(collectFailure.get())
+        } finally {
+            collectJob.cancel()
+            collectJob.join()
         }
     }
 
@@ -637,22 +649,7 @@ internal class StreamingExecutionCoordinator(
             // fires, closing the channel so the collector terminates instead
             // of hanging forever on receive.
             collectJob.invokeOnCompletion { cause -> chunks.close(cause) }
-            try {
-                for (chunk in chunks) {
-                    check(!isClosed.get()) { "Tramai runtime is closed" }
-                    emit(chunk)
-                }
-                // The collection job may have failed (e.g. provider does not
-                // support streaming, or a route error aborted the loop): the
-                // channel closes either way, so rethrow the job's failure here
-                // instead of silently completing the flow.
-                rethrowCollected(collectFailure.get())
-            } finally {
-                // If the caller stops collecting (or the engine closed), the
-                // engine-owned collection job must not keep running.
-                collectJob.cancel()
-                collectJob.join()
-            }
+            drainStreamingChunks(chunks, collectFailure, collectJob) { chunk -> emit(chunk) }
         }
     }
 
