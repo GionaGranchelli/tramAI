@@ -54,6 +54,214 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 
+/** The fixtures these governed-execution tests share, with per-test state. */
+abstract class ProviderGovernedExecutionPathTestBase {
+    internal val invoked = mutableListOf<String>()
+
+// ---- fixtures -------------------------------------------------------------------------------
+
+    internal val selectedButForbidden = forbiddenCandidate()
+
+/** A message carrying image content: the actual fact that makes VISION required. */
+    internal val imageMessage =
+        Message(
+            MessageRole.USER,
+            "",
+            contentParts = listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))),
+        )
+
+    internal fun forbiddenCandidate() =
+        dev.tramai.security.governance.ProviderCandidate(
+            providerId = "global",
+            modelId = "model",
+            deployment = deployment("global", ProviderTrustZone.GLOBAL_CLOUD),
+        )
+
+    internal fun provider(
+        name: String,
+        vision: Boolean = true,
+        toolCalling: Boolean = true,
+        block: suspend () -> ModelResponse = {
+            ModelResponse(name)
+        },
+    ) = object : ModelProvider {
+        override suspend fun complete(request: ModelRequest): ModelResponse {
+            invoked += name
+            return block()
+        }
+
+        override fun providerId() = name
+
+        override fun supportsCapability(capability: ProviderCapability) =
+            when (capability) {
+                ProviderCapability.VISION -> vision
+                ProviderCapability.TOOL_CALLING -> toolCalling
+                else -> true
+            }
+    }
+
+    internal fun deployment(
+        providerId: String,
+        zone: ProviderTrustZone,
+    ) = ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), zone))
+
+    internal fun planOf(
+        chain: List<String>,
+        providers: Map<String, ModelProvider>,
+    ): ProviderRoutingPlan {
+        val builder = ProviderRoutingPlan.builder()
+        providers.forEach { (name, instance) -> builder.provider(name, instance) }
+        builder.model("model", chain.first())
+        chain.drop(1).forEach { builder.fallbackProvider("model", it) }
+        return builder.build()
+    }
+
+    internal fun governance(
+        deployments: Map<String, ProviderTrustZone> =
+            mapOf(
+                "alpha" to ProviderTrustZone.LOCAL,
+                "beta" to ProviderTrustZone.LOCAL,
+                "brand-local" to ProviderTrustZone.LOCAL,
+                "brand-global" to ProviderTrustZone.GLOBAL_CLOUD,
+            ),
+        pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> =
+            setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
+    ) = ProviderGovernanceConfiguration(
+        rules =
+            mapOf(
+                DataClassification.INTERNAL to
+                    ClassificationRoutingRule(
+                        allowedZones = setOf(ProviderTrustZone.LOCAL),
+                        allowedFallbackZones = emptySet(),
+                    ),
+            ),
+        trustZonePolicy = TrustZonePolicy(pairs),
+        workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
+        deploymentOf = { providerId -> deployments[providerId]?.let { deployment(providerId, it) } },
+    )
+
+    internal val workloadIdentity =
+        WorkloadDeploymentIdentity(
+            WorkloadId("workload"),
+            WorkloadConfigurationIdentity(ConfigurationId("config"), ConfigurationVersion("1")),
+            EnvironmentId("env"),
+            DeploymentId("deployment"),
+        )
+
+/** The tool the operation exposes: the governed path must refuse before any tool call happens. */
+    internal val paymentTool =
+        object : ResolvedTool {
+            override val name = "payment"
+            override val description = "Executes a payment"
+            override val inputSchemaJson = "{}"
+            override val idempotent = false
+            override val sideEffectLevel = SideEffectLevel.WRITE
+
+            override suspend fun execute(
+                input: Any,
+                context: ToolExecutionContext,
+            ): ToolResult = error("a refused capability must not reach a tool call")
+        }
+
+/** An operation exposing a tool: the actual request fact that makes TOOL_CALLING required. */
+    @AiService
+    internal interface ToolExposingService {
+        @Operation(prompt = "Pay", model = "model", tools = ["payment"])
+        suspend fun pay(amount: Double): String
+    }
+
+    internal fun toolOperation(): OperationDefinition {
+        val method = ToolExposingService::class.java.methods.single { it.name == "pay" }
+        val compiler =
+            ServiceDefinitionCompiler(
+                OperationDefinitionCompiler(
+                    ToolRegistry(mapOf(paymentTool.name to paymentTool)),
+                    null,
+                    OperationFingerprintFactory(),
+                ),
+            )
+        return compiler
+            .compile(ToolExposingService::class)
+            .operations
+            .getValue(method)
+            .definition
+            ?: error("the tool-exposing operation must compile")
+    }
+
+    internal fun request(
+        retries: Int = 0,
+        withImage: Boolean = false,
+        run: GovernedRunIdentity? = GovernedRunIdentity(workloadIdentity, RunId("run")),
+        operation: OperationDefinition = componentOperation(retries),
+    ) = ProviderExecutionRequest(
+        operation,
+        if (withImage) listOf(imageMessage) else emptyList(),
+        AttemptCounter(),
+        "cid",
+        ExecutionSecurityContext(
+            dataClassification = DataClassification.INTERNAL,
+            classificationSource = ClassificationSource.DECLARED,
+        ),
+        ProviderRouteGate {},
+        run,
+    )
+
+    internal fun coordinator(
+        plan: ProviderRoutingPlan,
+        breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
+        governance: ProviderGovernanceConfiguration? = governance(),
+        preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
+        fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+    ): ProviderExecutionCoordinator {
+        val observer =
+            dev.tramai.core.observation
+                .OperationObserver { RecordingObservation() }
+        val attempt =
+            ProviderAttemptExecutor(
+                "service",
+                observer,
+                object : dev.tramai.core.observation.OperationInterceptor {},
+                breaker,
+                ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+                authorization(),
+                ProviderInvocationGate { _, _, _, _ -> },
+                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
+            )
+        return ProviderExecutionCoordinator(
+            plan,
+            breaker,
+            attempt,
+            ProviderFallbackPolicy(),
+            ProviderResolutionGate { _, _, _ -> },
+            fallbackGate,
+            governance,
+            preference,
+        )
+    }
+
+/** Authorization fake that approves the requested provider and model. */
+    internal fun authorization() =
+        ProviderAuthorizationService(
+            ModelRegistryEnforcer(
+                object : ModelRegistry {
+                    override suspend fun findApprovedModel(
+                        providerId: String,
+                        modelName: String,
+                    ) = RegisteredModel(
+                        "id",
+                        providerId,
+                        modelName,
+                        "r1",
+                        ModelArtifactDigest
+                            .of("sha256:${"a".repeat(64)}"),
+                        true,
+                    )
+                },
+                ModelRegistrySettings(enabled = true),
+            ),
+        )
+}
+
 /**
  * 0.7.3h execution-path proof.
  *
@@ -61,9 +269,7 @@ import org.junit.jupiter.api.Test
  * and asserts on provider invocation counts: the invariant under test is that no provider is invoked
  * unless that exact candidate was selected from a viable envelope derived for the same request.
  */
-class ProviderGovernedExecutionPathTest {
-    private val invoked = mutableListOf<String>()
-
+class ProviderGovernedExecutionPathTest : ProviderGovernedExecutionPathTestBase() {
     // ---- 1. happy path ---------------------------------------------------------------------------
 
     @Test
@@ -77,7 +283,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 2. unauthorized primary ----------------------------------------------------------------
+// ---- 2. unauthorized primary ----------------------------------------------------------------
 
     @Test
     fun `a pre-open primary circuit consults the continuation policy and the viable fallback runs`() {
@@ -127,7 +333,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    private fun openCircuitFor(providerId: String): ProviderCircuitBreaker {
+    internal fun openCircuitFor(providerId: String): ProviderCircuitBreaker {
         val breaker =
             ProviderCircuitBreaker(
                 CircuitBreakerSettings(
@@ -218,8 +424,8 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    /** A gate that refuses continuation, reusing the existing policy refusal shape. */
-    private fun denyingGate() =
+/** A gate that refuses continuation, reusing the existing policy refusal shape. */
+    internal fun denyingGate() =
         ProviderFallbackGate {
             _,
             _,
@@ -231,12 +437,12 @@ class ProviderGovernedExecutionPathTest {
             throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
         }
 
-    /**
+/**
      * Viable at the viability snapshot, rejected at admission: the late race. Availability is read
      * only through [openUntilMillis] for viability, so returning null there while rejecting at
      * beforeCall models the breaker opening between selection and the call.
      */
-    private fun lateRejectingBreaker(rejectProviderId: String) =
+    internal fun lateRejectingBreaker(rejectProviderId: String) =
         object : ProviderCircuitBreaker(
             CircuitBreakerSettings(
                 enabled = true,
@@ -271,7 +477,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 3. authorized but unavailable ----------------------------------------------------------
+// ---- 3. authorized but unavailable ----------------------------------------------------------
 
     @Test
     fun `an authorized but unavailable primary is never invoked and the viable candidate is used`() {
@@ -293,7 +499,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 4. nothing authorized ------------------------------------------------------------------
+// ---- 4. nothing authorized ------------------------------------------------------------------
 
     @Test
     fun `nothing authorized fails closed with zero provider invocations`() {
@@ -310,7 +516,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 5. nothing viable ----------------------------------------------------------------------
+// ---- 5. nothing viable ----------------------------------------------------------------------
 
     @Test
     fun `nothing viable fails closed with zero provider invocations`() {
@@ -331,7 +537,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 6. fallback narrowing ------------------------------------------------------------------
+// ---- 6. fallback narrowing ------------------------------------------------------------------
 
     @Test
     fun `fallback narrows the envelope and reselects from it`() {
@@ -351,7 +557,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 7. forbidden configured fallback -------------------------------------------------------
+// ---- 7. forbidden configured fallback -------------------------------------------------------
 
     @Test
     fun `a configured next route outside the envelope is never invoked`() {
@@ -375,7 +581,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 8. preference cannot inject ------------------------------------------------------------
+// ---- 8. preference cannot inject ------------------------------------------------------------
 
     @Test
     fun `a preference for a forbidden candidate cannot inject it`() {
@@ -395,7 +601,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 9. circuit opens before execution ------------------------------------------------------
+// ---- 9. circuit opens before execution ------------------------------------------------------
 
     @Test
     fun `an unavailable candidate is never invoked and the next candidate comes from selection`() {
@@ -419,7 +625,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 10. circuit state changes after selection ----------------------------------------------
+// ---- 10. circuit state changes after selection ----------------------------------------------
 
     @Test
     fun `a selected candidate that loses admission narrows the envelope and reselects`() {
@@ -451,7 +657,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 11. same-route retry --------------------------------------------------------------------
+// ---- 11. same-route retry --------------------------------------------------------------------
 
     @Test
     fun `retry of the selected route does not select another candidate`() {
@@ -481,7 +687,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 12. retry exhaustion then fallback -----------------------------------------------------
+// ---- 12. retry exhaustion then fallback -----------------------------------------------------
 
     @Test
     fun `retry exhaustion narrows and the next candidate is selected from the envelope`() {
@@ -501,7 +707,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 13. strategy outside viable ------------------------------------------------------------
+// ---- 13. strategy outside viable ------------------------------------------------------------
 
     @Test
     fun `an escape attempt outside the viable envelope invokes no provider`() {
@@ -517,7 +723,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 14. strategy throws --------------------------------------------------------------------
+// ---- 14. strategy throws --------------------------------------------------------------------
 
     @Test
     fun `a throwing preference fails closed without fallback or invocation`() {
@@ -536,7 +742,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 15. candidate to route mapping ---------------------------------------------------------
+// ---- 15. candidate to route mapping ---------------------------------------------------------
 
     @Test
     fun `two deployments of one brand do not collapse`() {
@@ -558,8 +764,10 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 16. registration cannot be bypassed ----------------------------------------------------
+// ---- 16. registration cannot be bypassed ----------------------------------------------------
+}
 
+class ProviderGovernedExecutionPathContainmentTest : ProviderGovernedExecutionPathTestBase() {
     @Test
     fun `a route without an authoritative deployment never executes`() {
         runBlocking {
@@ -573,7 +781,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 18. boundary discriminator: the presence of a governed topology is the switch ---------
+// ---- 18. boundary discriminator: the presence of a governed topology is the switch ---------
 
     @Test
     fun `without a governed topology the pre-existing routing path still executes`() {
@@ -644,7 +852,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 17. capability cannot be bypassed ------------------------------------------------------
+// ---- 17. capability cannot be bypassed ------------------------------------------------------
 
     @Test
     fun `an incapable configured provider is not authorized so the capable candidate executes`() {
@@ -705,7 +913,7 @@ class ProviderGovernedExecutionPathTest {
         }
     }
 
-    // ---- 18. absent governance ------------------------------------------------------------------
+// ---- 18. absent governance ------------------------------------------------------------------
 
     @Test
     fun `a governed execution whose required governance mapping is absent invokes no provider`() {
@@ -727,207 +935,4 @@ class ProviderGovernedExecutionPathTest {
             assertThat(invoked).isEmpty()
         }
     }
-
-    // ---- fixtures -------------------------------------------------------------------------------
-
-    private val selectedButForbidden = forbiddenCandidate()
-
-    /** A message carrying image content: the actual fact that makes VISION required. */
-    private val imageMessage =
-        Message(
-            MessageRole.USER,
-            "",
-            contentParts = listOf(ContentPart.ImagePart("image/png", byteArrayOf(1))),
-        )
-
-    private fun forbiddenCandidate() =
-        dev.tramai.security.governance.ProviderCandidate(
-            providerId = "global",
-            modelId = "model",
-            deployment = deployment("global", ProviderTrustZone.GLOBAL_CLOUD),
-        )
-
-    private fun provider(
-        name: String,
-        vision: Boolean = true,
-        toolCalling: Boolean = true,
-        block: suspend () -> ModelResponse = {
-            ModelResponse(name)
-        },
-    ) = object : ModelProvider {
-        override suspend fun complete(request: ModelRequest): ModelResponse {
-            invoked += name
-            return block()
-        }
-
-        override fun providerId() = name
-
-        override fun supportsCapability(capability: ProviderCapability) =
-            when (capability) {
-                ProviderCapability.VISION -> vision
-                ProviderCapability.TOOL_CALLING -> toolCalling
-                else -> true
-            }
-    }
-
-    private fun deployment(
-        providerId: String,
-        zone: ProviderTrustZone,
-    ) = ProviderDeployment("dep-$providerId", providerId, NamedTrustZone(TrustZoneName("zone-$providerId"), zone))
-
-    private fun planOf(
-        chain: List<String>,
-        providers: Map<String, ModelProvider>,
-    ): ProviderRoutingPlan {
-        val builder = ProviderRoutingPlan.builder()
-        providers.forEach { (name, instance) -> builder.provider(name, instance) }
-        builder.model("model", chain.first())
-        chain.drop(1).forEach { builder.fallbackProvider("model", it) }
-        return builder.build()
-    }
-
-    private fun governance(
-        deployments: Map<String, ProviderTrustZone> =
-            mapOf(
-                "alpha" to ProviderTrustZone.LOCAL,
-                "beta" to ProviderTrustZone.LOCAL,
-                "brand-local" to ProviderTrustZone.LOCAL,
-                "brand-global" to ProviderTrustZone.GLOBAL_CLOUD,
-            ),
-        pairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> =
-            setOf(ProviderTrustZone.LOCAL to ProviderTrustZone.LOCAL),
-    ) = ProviderGovernanceConfiguration(
-        rules =
-            mapOf(
-                DataClassification.INTERNAL to
-                    ClassificationRoutingRule(
-                        allowedZones = setOf(ProviderTrustZone.LOCAL),
-                        allowedFallbackZones = emptySet(),
-                    ),
-            ),
-        trustZonePolicy = TrustZonePolicy(pairs),
-        workloadZones = mapOf(workloadIdentity to ProviderTrustZone.LOCAL),
-        deploymentOf = { providerId -> deployments[providerId]?.let { deployment(providerId, it) } },
-    )
-
-    private val workloadIdentity =
-        WorkloadDeploymentIdentity(
-            WorkloadId("workload"),
-            WorkloadConfigurationIdentity(ConfigurationId("config"), ConfigurationVersion("1")),
-            EnvironmentId("env"),
-            DeploymentId("deployment"),
-        )
-
-    /** The tool the operation exposes: the governed path must refuse before any tool call happens. */
-    private val paymentTool =
-        object : ResolvedTool {
-            override val name = "payment"
-            override val description = "Executes a payment"
-            override val inputSchemaJson = "{}"
-            override val idempotent = false
-            override val sideEffectLevel = SideEffectLevel.WRITE
-
-            override suspend fun execute(
-                input: Any,
-                context: ToolExecutionContext,
-            ): ToolResult = error("a refused capability must not reach a tool call")
-        }
-
-    /** An operation exposing a tool: the actual request fact that makes TOOL_CALLING required. */
-    @AiService
-    internal interface ToolExposingService {
-        @Operation(prompt = "Pay", model = "model", tools = ["payment"])
-        suspend fun pay(amount: Double): String
-    }
-
-    private fun toolOperation(): OperationDefinition {
-        val method = ToolExposingService::class.java.methods.single { it.name == "pay" }
-        val compiler =
-            ServiceDefinitionCompiler(
-                OperationDefinitionCompiler(
-                    ToolRegistry(mapOf(paymentTool.name to paymentTool)),
-                    null,
-                    OperationFingerprintFactory(),
-                ),
-            )
-        return compiler
-            .compile(ToolExposingService::class)
-            .operations
-            .getValue(method)
-            .definition
-            ?: error("the tool-exposing operation must compile")
-    }
-
-    private fun request(
-        retries: Int = 0,
-        withImage: Boolean = false,
-        run: GovernedRunIdentity? = GovernedRunIdentity(workloadIdentity, RunId("run")),
-        operation: OperationDefinition = componentOperation(retries),
-    ) = ProviderExecutionRequest(
-        operation,
-        if (withImage) listOf(imageMessage) else emptyList(),
-        AttemptCounter(),
-        "cid",
-        ExecutionSecurityContext(
-            dataClassification = DataClassification.INTERNAL,
-            classificationSource = ClassificationSource.DECLARED,
-        ),
-        ProviderRouteGate {},
-        run,
-    )
-
-    private fun coordinator(
-        plan: ProviderRoutingPlan,
-        breaker: ProviderCircuitBreaker = ProviderCircuitBreaker(CircuitBreakerSettings()),
-        governance: ProviderGovernanceConfiguration? = governance(),
-        preference: ProviderSelectionPreference = ProviderSelectionPreference.CONFIGURED_ORDER,
-        fallbackGate: ProviderFallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
-    ): ProviderExecutionCoordinator {
-        val observer =
-            dev.tramai.core.observation
-                .OperationObserver { RecordingObservation() }
-        val attempt =
-            ProviderAttemptExecutor(
-                "service",
-                observer,
-                object : dev.tramai.core.observation.OperationInterceptor {},
-                breaker,
-                ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
-                authorization(),
-                ProviderInvocationGate { _, _, _, _ -> },
-                ProviderResponseSanitizer { response, _, _, _, _, _, _ -> response },
-            )
-        return ProviderExecutionCoordinator(
-            plan,
-            breaker,
-            attempt,
-            ProviderFallbackPolicy(),
-            ProviderResolutionGate { _, _, _ -> },
-            fallbackGate,
-            governance,
-            preference,
-        )
-    }
-
-    /** Authorization fake that approves the requested provider and model. */
-    private fun authorization() =
-        ProviderAuthorizationService(
-            ModelRegistryEnforcer(
-                object : ModelRegistry {
-                    override suspend fun findApprovedModel(
-                        providerId: String,
-                        modelName: String,
-                    ) = RegisteredModel(
-                        "id",
-                        providerId,
-                        modelName,
-                        "r1",
-                        ModelArtifactDigest
-                            .of("sha256:${"a".repeat(64)}"),
-                        true,
-                    )
-                },
-                ModelRegistrySettings(enabled = true),
-            ),
-        )
 }
