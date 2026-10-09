@@ -275,13 +275,6 @@ internal class StreamingExecutionCoordinator(
         }
     }
 
-    /** The route to attempt, its configured index, and the successor a fallback would reach. */
-    private data class StreamingCandidate(
-        val route: ResolvedProviderRoute,
-        val routeIndex: Int,
-        val nextRoute: ResolvedProviderRoute?,
-    )
-
     /**
      * Builds and runs one governed route's attempts: the handoff carries exactly what the gate is told,
      * the budget carries exactly this route's retry authority, and the template reuses the existing
@@ -365,13 +358,6 @@ internal class StreamingExecutionCoordinator(
             ),
         )
     }
-
-    /** What admitting the next route produced: the step, and the narrowed envelope it left behind. */
-    private class GovernedStreamingAdmissionStep(
-        val step: GovernedStreamingStep,
-        val remaining: ViableCandidates,
-        val lastCircuitOpen: CircuitBreakerOpenException?,
-    )
 
     /**
      * The next governed streaming route that admission allows.
@@ -502,25 +488,6 @@ internal class StreamingExecutionCoordinator(
         reportStreamingExhaustion(run, envelope, lastFailure, lastCircuitOpen)
     }
 
-    /** What the walk streams: the operation, its arguments and the conversation it answers into. */
-    private data class StreamingRun(
-        val operation: OperationDefinition,
-        val arguments: List<Any?>,
-        val tokenBudgetTracker: TokenBudgetTracker,
-        val conversationId: String?,
-        val effectiveMessages: List<Message>,
-        val historySize: Int,
-        val emitChunk: suspend (StreamChunk) -> Unit,
-    )
-
-    /** Who authorizes the walk and what the configured routes proposed. */
-    private data class StreamingAuthority(
-        val request: StreamingExecutionRequest,
-        val securityContext: ExecutionSecurityContext,
-        val correlationId: String,
-        val candidates: List<ResolvedProviderRoute>,
-    )
-
     /**
      * Asks the continuation policy about every pre-open exclusion that execution actually advances
      * past, before another candidate may execute. Approval permits continuation only: it cannot
@@ -568,24 +535,6 @@ internal class StreamingExecutionCoordinator(
             }
         }
         return lastOpen
-    }
-
-    /** The route governance selected, the remainder after removing it, and its successor. */
-    private data class GovernedStreamingRouteSelection(
-        val route: ResolvedProviderRoute,
-        val routeIndex: Int,
-        val narrowed: ViableCandidates,
-        val nextRoute: ResolvedProviderRoute?,
-    )
-
-    /** The route governance selected, with the breaker's admission decision for it. */
-    private data class GovernedStreamingStep(
-        val selection: GovernedStreamingRouteSelection,
-        val admission: CircuitBreakerAdmission,
-    ) {
-        /** The candidate those two together describe: what the attempt is handed. */
-        val candidate: StreamingCandidate
-            get() = StreamingCandidate(selection.route, selection.routeIndex, selection.nextRoute)
     }
 
     /**
@@ -673,20 +622,6 @@ internal class StreamingExecutionCoordinator(
                 StreamingRouteAttemptOutcome.Finished
             }
         }
-
-    /** What one route's attempts decided: either the collection leaves, or the route ends. */
-    private sealed interface StreamingRouteAttemptOutcome {
-        /** The route reached its end for the caller: the turn is persisted or the error forwarded. */
-        object Finished : StreamingRouteAttemptOutcome
-
-        /** The route is finished without completing; the caller records the failure and advances. */
-        data class Stop(
-            val error: Throwable,
-        ) : StreamingRouteAttemptOutcome
-
-        /** The attempt budget ran out with no decision; the caller advances to the next route. */
-        object Exhausted : StreamingRouteAttemptOutcome
-    }
 
     /**
      * Bridges a collection job to the caller's collector through a RENDEZVOUS channel.
@@ -834,20 +769,6 @@ internal class StreamingExecutionCoordinator(
         }
     }
 
-    /** What the fallback gate is told when a route fails and continuation is permitted. */
-    private data class FallbackHandoff(
-        val route: ResolvedProviderRoute,
-        val nextRoute: ResolvedProviderRoute?,
-        val correlationId: String,
-        val securityContext: ExecutionSecurityContext,
-    )
-
-    /** One route's retry authority: the permit its attempts share and how many attempts it gets. */
-    private data class RouteAttemptBudget(
-        val permit: CircuitBreakerPermit,
-        val maxAttempts: Int,
-    )
-
     /**
      * Rethrows a failure collected by the engine-owned collection job, once its channel has closed.
      * Extracted so the governed flow keeps a bounded number of throw sites while preserving the
@@ -894,19 +815,6 @@ internal class StreamingExecutionCoordinator(
             )
         }
     }
-
-    private data class StreamingExecutionRoute(
-        val operation: OperationDefinition,
-        val route: ResolvedProviderRoute,
-        val routeIndex: Int,
-        val attempt: Int,
-        val tokenBudgetTracker: TokenBudgetTracker,
-        val memoryMessages: List<Message>,
-        val historySize: Int,
-        val conversationId: String?,
-        val emitChunk: suspend (StreamChunk) -> Unit,
-        val permit: CircuitBreakerPermit,
-    )
 
     /** A provider without streaming support is refused, releasing its permit first. */
     private fun failStreamingCapability(
