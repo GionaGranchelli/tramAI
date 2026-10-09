@@ -53,8 +53,12 @@ import dev.tramai.engine.planning.OperationFingerprintFactory
 import dev.tramai.engine.planning.ServiceDefinitionCompiler
 import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
+import dev.tramai.engine.streaming.StreamingCallGates
+import dev.tramai.engine.streaming.StreamingCoordinationServices
+import dev.tramai.engine.streaming.StreamingEngineRuntime
 import dev.tramai.engine.streaming.StreamingExecutionCoordinator
 import dev.tramai.engine.streaming.StreamingExecutionRequest
+import dev.tramai.engine.streaming.StreamingFailurePolicy
 import dev.tramai.engine.tool.ToolExposureCoordinator
 import dev.tramai.security.ClassificationRoutingRule
 import dev.tramai.security.ProviderTrustZone
@@ -337,33 +341,48 @@ internal fun coordinator(
 ): StreamingExecutionCoordinator {
     val policy = PolicyEngine { PolicyDecision.Allow }
     return StreamingExecutionCoordinator(
-        identitySource = DefaultEngineIdentitySource,
-        routingPlan = routingPlan,
-        circuitBreaker = breaker,
-        lifecycleScope = CoroutineScope(Dispatchers.Default),
-        isClosed = AtomicBoolean(false),
-        serviceTypeName = "test.Service",
-        qualifiedServiceName = "test.Service",
-        operationObserver = observer,
-        operationInterceptor = object : dev.tramai.core.observation.OperationInterceptor {},
-        toolExposureCoordinator =
-            ToolExposureCoordinator(
-                ToolRegistry(),
-                PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+        runtime =
+            StreamingEngineRuntime(
+                identitySource = DefaultEngineIdentitySource,
+                routingPlan = routingPlan,
+                lifecycleScope = CoroutineScope(Dispatchers.Default),
+                isClosed = AtomicBoolean(false),
+                serviceTypeName = "test.Service",
+                qualifiedServiceName = "test.Service",
             ),
-        conversationMemoryCoordinator = ConversationMemoryCoordinator(noOpChatMemory, ConversationIdProvider { "cid" }),
-        tokenBudgetCoordinator = TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)),
-        modelRegistryEnforcer = ModelRegistryEnforcer(nullModelRegistry, ModelRegistrySettings(enabled = false)),
-        retryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
-        beforeResolution = ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
-        beforeInvocation = ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
-        fallbackGate =
-            ProviderFallbackGate { _, previousProviderId, _, nextProviderId, _, _ ->
-                sink.record("policy.fallback")
-                sink.record("fallback-edge:$previousProviderId->$nextProviderId")
-                if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
-            },
-        StreamingBeforeResponseReturnGate { _, _, _ -> Unit },
+        services =
+            StreamingCoordinationServices(
+                operationObserver = observer,
+                operationInterceptor = object : dev.tramai.core.observation.OperationInterceptor {},
+                toolExposureCoordinator =
+                    ToolExposureCoordinator(
+                        ToolRegistry(),
+                        PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+                    ),
+                conversationMemoryCoordinator =
+                    ConversationMemoryCoordinator(noOpChatMemory, ConversationIdProvider { "cid" }),
+                tokenBudgetCoordinator = TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)),
+                modelRegistryEnforcer =
+                    ModelRegistryEnforcer(nullModelRegistry, ModelRegistrySettings(enabled = false)),
+            ),
+        gates =
+            StreamingCallGates(
+                beforeResolution = ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
+                beforeInvocation = ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
+                fallbackGate =
+                    ProviderFallbackGate { _, previousProviderId, _, nextProviderId, _, _ ->
+                        sink.record("policy.fallback")
+                        sink.record("fallback-edge:$previousProviderId->$nextProviderId")
+                        if (denyFallback) throw PolicyViolationException(PolicyDecision.Deny("fallback denied", "TEST"))
+                    },
+                beforeResponseReturn = StreamingBeforeResponseReturnGate { _, _, _ -> Unit },
+            ),
+        failurePolicy =
+            StreamingFailurePolicy(
+                circuitBreaker = breaker,
+                retryPolicy =
+                    ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
+            ),
         governance = governanceFor(routingPlan),
     )
 }

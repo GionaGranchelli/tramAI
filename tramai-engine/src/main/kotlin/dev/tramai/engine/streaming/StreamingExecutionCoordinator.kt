@@ -76,28 +76,67 @@ internal fun interface StreamingBeforeResponseReturnGate {
     )
 }
 
+/** The runtime a streaming execution runs inside. */
+internal class StreamingEngineRuntime(
+    val identitySource: EngineIdentitySource,
+    val routingPlan: ProviderRoutingPlan,
+    val lifecycleScope: CoroutineScope,
+    val isClosed: AtomicBoolean,
+    val serviceTypeName: String,
+    val qualifiedServiceName: String?,
+)
+
+/** The collaborators a streaming execution calls out to. */
+internal class StreamingCoordinationServices(
+    val operationObserver: OperationObserver,
+    val operationInterceptor: OperationInterceptor,
+    val toolExposureCoordinator: ToolExposureCoordinator,
+    val conversationMemoryCoordinator: ConversationMemoryCoordinator,
+    val tokenBudgetCoordinator: TokenBudgetCoordinator,
+    val modelRegistryEnforcer: ModelRegistryEnforcer,
+)
+
+/** The gates a streaming request passes. */
+internal class StreamingCallGates(
+    val beforeResolution: ProviderResolutionGate,
+    val beforeInvocation: ProviderInvocationGate,
+    val fallbackGate: ProviderFallbackGate,
+    val beforeResponseReturn: StreamingBeforeResponseReturnGate,
+)
+
+/** How provider failures are handled on this path. */
+internal class StreamingFailurePolicy(
+    val circuitBreaker: ProviderCircuitBreaker,
+    val retryPolicy: ProviderRetryPolicy,
+)
+
 internal class StreamingExecutionCoordinator(
-    private val identitySource: EngineIdentitySource,
-    private val routingPlan: ProviderRoutingPlan,
-    private val circuitBreaker: ProviderCircuitBreaker,
-    private val lifecycleScope: CoroutineScope,
-    private val isClosed: AtomicBoolean,
-    private val serviceTypeName: String,
-    private val qualifiedServiceName: String?,
-    private val operationObserver: OperationObserver,
-    private val operationInterceptor: OperationInterceptor,
-    private val toolExposureCoordinator: ToolExposureCoordinator,
-    private val conversationMemoryCoordinator: ConversationMemoryCoordinator,
-    private val tokenBudgetCoordinator: TokenBudgetCoordinator,
-    private val modelRegistryEnforcer: ModelRegistryEnforcer,
-    private val retryPolicy: ProviderRetryPolicy,
-    private val beforeResolution: ProviderResolutionGate,
-    private val beforeInvocation: ProviderInvocationGate,
-    private val fallbackGate: ProviderFallbackGate,
-    private val beforeResponseReturn: StreamingBeforeResponseReturnGate,
+    runtime: StreamingEngineRuntime,
+    services: StreamingCoordinationServices,
+    gates: StreamingCallGates,
+    failurePolicy: StreamingFailurePolicy,
     /** The governed routing topology; absent means execution refuses rather than using configured routing. */
     private val governance: ProviderGovernanceConfiguration? = null,
 ) {
+    private val identitySource = runtime.identitySource
+    private val routingPlan = runtime.routingPlan
+    private val circuitBreaker = failurePolicy.circuitBreaker
+    private val lifecycleScope = runtime.lifecycleScope
+    private val isClosed = runtime.isClosed
+    private val serviceTypeName = runtime.serviceTypeName
+    private val qualifiedServiceName = runtime.qualifiedServiceName
+    private val operationObserver = services.operationObserver
+    private val operationInterceptor = services.operationInterceptor
+    private val toolExposureCoordinator = services.toolExposureCoordinator
+    private val conversationMemoryCoordinator = services.conversationMemoryCoordinator
+    private val tokenBudgetCoordinator = services.tokenBudgetCoordinator
+    private val modelRegistryEnforcer = services.modelRegistryEnforcer
+    private val retryPolicy = failurePolicy.retryPolicy
+    private val beforeResolution = gates.beforeResolution
+    private val beforeInvocation = gates.beforeInvocation
+    private val fallbackGate = gates.fallbackGate
+    private val beforeResponseReturn = gates.beforeResponseReturn
+
     fun execute(request: StreamingExecutionRequest): Flow<StreamChunk> =
         // Structural branch on authoritative configuration state: `governance` is derived from the
         // engine's configured routing topology, so its absence means no governed routing topology

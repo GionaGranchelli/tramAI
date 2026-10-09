@@ -453,10 +453,11 @@ class StreamingExecutionCoordinatorTest {
         recordingSink: OrderedSink,
         denyFallback: Boolean,
         denyBeforeResponseReturn: Boolean,
-    ): StreamingTestGates =
-        StreamingTestGates(
+    ): StreamingCallGates =
+        StreamingCallGates(
             beforeResolution = ProviderResolutionGate { _, _, _ -> recordingSink.record("policy.before-resolution") },
-            beforeInvocation = ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
+            beforeInvocation =
+                ProviderInvocationGate { _, _, _, _ -> recordingSink.record("policy.before-invocation") },
             fallbackGate =
                 ProviderFallbackGate { _, _, _, _, _, _ ->
                     recordingSink.record("policy.fallback")
@@ -470,14 +471,6 @@ class StreamingExecutionCoordinatorTest {
                     }
                 },
         )
-
-    /** The gates a streaming request passes, as the streaming tests wire them. */
-    private data class StreamingTestGates(
-        val beforeResolution: ProviderResolutionGate,
-        val beforeInvocation: ProviderInvocationGate,
-        val fallbackGate: ProviderFallbackGate,
-        val beforeResponseReturn: StreamingBeforeResponseReturnGate,
-    )
 
     /** A registry that approves nothing: streaming capability refusal is exercised its own way. */
     private val disabledModelRegistryEnforcer =
@@ -515,31 +508,38 @@ class StreamingExecutionCoordinatorTest {
     ): StreamingExecutionCoordinator {
         val recordingSink = sink ?: OrderedSink()
         val policy = PolicyEngine { PolicyDecision.Allow }
-        val gates = streamingTestGates(recordingSink, denyFallback, denyBeforeResponseReturn)
+        val callGates = streamingTestGates(recordingSink, denyFallback, denyBeforeResponseReturn)
 
         return StreamingExecutionCoordinator(
-            identitySource = DefaultEngineIdentitySource,
-            routingPlan = routingPlan,
-            circuitBreaker = circuitBreaker,
-            lifecycleScope = CoroutineScope(Dispatchers.Default),
-            isClosed = closed,
-            serviceTypeName = "test.StreamingService",
-            qualifiedServiceName = qualifiedServiceName,
-            operationObserver = observer,
-            operationInterceptor = NoOpOperationInterceptor,
-            toolExposureCoordinator =
-                ToolExposureCoordinator(
-                    ToolRegistry(),
-                    PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+            runtime =
+                StreamingEngineRuntime(
+                    identitySource = DefaultEngineIdentitySource,
+                    routingPlan = routingPlan,
+                    lifecycleScope = CoroutineScope(Dispatchers.Default),
+                    isClosed = closed,
+                    serviceTypeName = "test.StreamingService",
+                    qualifiedServiceName = qualifiedServiceName,
                 ),
-            conversationMemoryCoordinator = ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }),
-            tokenBudgetCoordinator = TokenBudgetCoordinator(budgetSettings),
-            modelRegistryEnforcer = disabledModelRegistryEnforcer,
-            retryPolicy = retryPolicy,
-            beforeResolution = gates.beforeResolution,
-            beforeInvocation = gates.beforeInvocation,
-            fallbackGate = gates.fallbackGate,
-            beforeResponseReturn = gates.beforeResponseReturn,
+            services =
+                StreamingCoordinationServices(
+                    operationObserver = observer,
+                    operationInterceptor = NoOpOperationInterceptor,
+                    toolExposureCoordinator =
+                        ToolExposureCoordinator(
+                            ToolRegistry(),
+                            PolicyEnforcementHelper(policy, AtomicBoolean(false)),
+                        ),
+                    conversationMemoryCoordinator =
+                        ConversationMemoryCoordinator(memory, ConversationIdProvider { "cid" }),
+                    tokenBudgetCoordinator = TokenBudgetCoordinator(budgetSettings),
+                    modelRegistryEnforcer = disabledModelRegistryEnforcer,
+                ),
+            gates = callGates,
+            failurePolicy =
+                StreamingFailurePolicy(
+                    circuitBreaker = circuitBreaker,
+                    retryPolicy = retryPolicy,
+                ),
             governance = governance,
         )
     }
