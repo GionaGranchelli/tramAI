@@ -106,7 +106,6 @@ internal class ProviderExecutionCoordinator(
     private val walk =
         GovernedCandidateWalk(routingPlan, circuitBreaker, fallbackGate, fallbackPolicy)
 
-
     suspend fun execute(request: ProviderExecutionRequest): ProviderCallResult {
         beforeResolution.beforeResolution(request.operation, request.correlationId, request.securityContext)
 
@@ -258,7 +257,6 @@ internal class ProviderExecutionCoordinator(
         )
     }
 
-
     private fun routeRequest(
         route: ResolvedProviderRoute,
         routeIndex: Int,
@@ -285,7 +283,6 @@ internal class ProviderExecutionCoordinator(
         permit,
     )
 }
-
 
 /**
  * The governed candidate walk for one execution: which candidates may run, in what order, how a
@@ -385,8 +382,6 @@ private class GovernedCandidateWalk(
         )
     }
 
-    /** What one governed execution may run, in what order, and where each candidate's route is. */
-
     /**
      * Hands the fallback policy every exclusion execution actually advances past. Availability answers
      * "can this execute now?", never "may execution continue?", so each such transition asks the same
@@ -459,7 +454,6 @@ private class GovernedCandidateWalk(
         routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
     ): ResolvedProviderRoute? = remaining.orderedBy(configuredOrder).firstOrNull()?.let { routeOf[it] }
 
-
     fun signalsOf(context: ExecutionSecurityContext): List<WorkloadClassificationSignal> {
         val classification = context.dataClassification
         val source = context.classificationSource
@@ -475,7 +469,6 @@ private class GovernedCandidateWalk(
         lastCircuitOpen: CircuitBreakerOpenException?,
         request: ProviderExecutionRequest,
     ): Nothing = throw exhausted(reason, nothingAuthorized, lastFailure, lastCircuitOpen, request)
-
 
     fun exhausted(
         reason: SelectionRefusal,
@@ -505,7 +498,6 @@ private class GovernedCandidateWalk(
             }
         }
 
-
     suspend fun transition(
         error: Throwable,
         route: ResolvedProviderRoute,
@@ -530,9 +522,10 @@ private class GovernedCandidateWalk(
     }
 }
 
-    private class GovernedCandidateSet(
-        val authorizedSet: Set<ProviderCandidate>,
-        val configuredOrder: List<ProviderCandidate>,
-        val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
-        val remaining: ViableCandidates,
-    )
+/** What one governed execution may run, in what order, and where each candidate's route is. */
+private class GovernedCandidateSet(
+    val authorizedSet: Set<ProviderCandidate>,
+    val configuredOrder: List<ProviderCandidate>,
+    val routeOf: Map<ProviderCandidate, ResolvedProviderRoute>,
+    val remaining: ViableCandidates,
+)
