@@ -351,36 +351,9 @@ internal fun coordinator(
                 ToolRegistry(),
                 PolicyEnforcementHelper(policy, AtomicBoolean(false)),
             ),
-        conversationMemoryCoordinator =
-            ConversationMemoryCoordinator(
-                object : ChatMemory {
-                    override fun get(conversationId: String): List<Message> = emptyList()
-
-                    override fun add(
-                        conversationId: String,
-                        messages: List<Message>,
-                    ) = Unit
-
-                    override fun add(
-                        conversationId: String,
-                        message: Message,
-                    ) = Unit
-
-                    override fun clear(conversationId: String) = Unit
-                },
-                ConversationIdProvider { "cid" },
-            ),
+        conversationMemoryCoordinator = ConversationMemoryCoordinator(noOpChatMemory, ConversationIdProvider { "cid" }),
         tokenBudgetCoordinator = TokenBudgetCoordinator(TokenBudgetSettings(hardMaxTokensPerOperation = 20)),
-        modelRegistryEnforcer =
-            ModelRegistryEnforcer(
-                object : ModelRegistry {
-                    override suspend fun findApprovedModel(
-                        providerId: String,
-                        modelName: String,
-                    ) = null
-                },
-                ModelRegistrySettings(enabled = false),
-            ),
+        modelRegistryEnforcer = ModelRegistryEnforcer(nullModelRegistry, ModelRegistrySettings(enabled = false)),
         retryPolicy = ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
         beforeResolution = ProviderResolutionGate { _, _, _ -> sink.record("policy.before-resolution") },
         beforeInvocation = ProviderInvocationGate { _, _, _, _ -> sink.record("policy.before-invocation") },
@@ -850,3 +823,30 @@ internal fun recordTerminalLanes(
         lanes += "neutral-terminal-after-retry"
     }
 }
+
+/** A chat memory that stores nothing: memory writes are asserted through RecordingMemory. */
+private val noOpChatMemory =
+    object : ChatMemory {
+        override fun get(conversationId: String): List<Message> = emptyList()
+
+        override fun add(
+            conversationId: String,
+            messages: List<Message>,
+        ) = Unit
+
+        override fun add(
+            conversationId: String,
+            message: Message,
+        ) = Unit
+
+        override fun clear(conversationId: String) = Unit
+    }
+
+/** A registry that approves nothing: model approval is exercised by the registry's own tests. */
+private val nullModelRegistry =
+    object : ModelRegistry {
+        override suspend fun findApprovedModel(
+            providerId: String,
+            modelName: String,
+        ) = null
+    }
