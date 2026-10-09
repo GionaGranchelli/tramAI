@@ -193,18 +193,7 @@ internal class StreamingExecutionCoordinator(
                             arguments,
                         )
                 ) {
-                    is StreamingRouteAttemptOutcome.Completed -> {
-                        persistStreamingTurn(
-                            conversationId,
-                            effectiveMessages,
-                            history.size,
-                            outcome.fullText,
-                        )
-                        return@streamChunksToCollector
-                    }
-
-                    is StreamingRouteAttemptOutcome.Terminal -> {
-                        chunks.send(outcome.chunk)
+                    is StreamingRouteAttemptOutcome.Finished -> {
                         return@streamChunksToCollector
                     }
 
@@ -258,7 +247,7 @@ internal class StreamingExecutionCoordinator(
                         securityContext = handoff.securityContext,
                         arguments = arguments,
                     )
-                val decided = routeOutcomeFor(result, handoff, budget, retryIndex)
+                val decided = routeOutcomeFor(result, template, handoff, budget, retryIndex)
                 if (decided != null) {
                     outcome = decided
                     break
@@ -415,13 +404,7 @@ internal class StreamingExecutionCoordinator(
                 val outcome =
                     attemptGovernedStreamingRoute(run, authority, selection, permit, attemptCounter)
             ) {
-                is StreamingRouteAttemptOutcome.Completed -> {
-                    persistStreamingTurn(run.conversationId, run.effectiveMessages, run.historySize, outcome.fullText)
-                    return
-                }
-
-                is StreamingRouteAttemptOutcome.Terminal -> {
-                    run.emitChunk(outcome.chunk)
+                is StreamingRouteAttemptOutcome.Finished -> {
                     return
                 }
 
@@ -583,13 +566,20 @@ internal class StreamingExecutionCoordinator(
      */
     private suspend fun routeOutcomeFor(
         result: StreamingRouteResult,
+        template: StreamingExecutionRoute,
         handoff: FallbackHandoff,
         budget: RouteAttemptBudget,
         retryIndex: Int,
     ): StreamingRouteAttemptOutcome? =
         when (result) {
             is StreamingRouteResult.Completed -> {
-                StreamingRouteAttemptOutcome.Completed(result.fullText)
+                persistStreamingTurn(
+                    template.conversationId,
+                    template.memoryMessages,
+                    template.historySize,
+                    result.fullText,
+                )
+                StreamingRouteAttemptOutcome.Finished
             }
 
             is StreamingRouteResult.StartupFailure -> {
@@ -601,21 +591,15 @@ internal class StreamingExecutionCoordinator(
             }
 
             is StreamingRouteResult.TerminalError -> {
-                StreamingRouteAttemptOutcome.Terminal(result.errorChunk)
+                template.emitChunk(result.errorChunk)
+                StreamingRouteAttemptOutcome.Finished
             }
         }
 
     /** What one route's attempts decided: either the collection leaves, or the route ends. */
     private sealed interface StreamingRouteAttemptOutcome {
-        /** The route completed; the caller persists the turn and leaves the collection. */
-        data class Completed(
-            val fullText: String,
-        ) : StreamingRouteAttemptOutcome
-
-        /** The route produced a terminal error chunk; the caller forwards it and leaves. */
-        data class Terminal(
-            val chunk: StreamChunk,
-        ) : StreamingRouteAttemptOutcome
+        /** The route reached its end for the caller: the turn is persisted or the error forwarded. */
+        object Finished : StreamingRouteAttemptOutcome
 
         /** The route is finished without completing; the caller records the failure and advances. */
         data class Stop(
@@ -839,7 +823,7 @@ internal class StreamingExecutionCoordinator(
         val routeIndex: Int,
         val attempt: Int,
         val tokenBudgetTracker: TokenBudgetTracker,
-        val memoryMessages: List<Message>?,
+        val memoryMessages: List<Message>,
         val historySize: Int,
         val conversationId: String?,
         val emitChunk: suspend (StreamChunk) -> Unit,
