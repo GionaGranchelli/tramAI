@@ -820,6 +820,16 @@ class ProviderRetryFallbackLifecyclePropertyTest {
         script: RetryFallbackScript,
         label: String,
     ) {
+        assertAttemptInvariants(trace, script, label)
+        assertDispositionInvariants(trace, label)
+        assertBreakerInvariants(trace, script, label)
+    }
+
+    private fun assertAttemptInvariants(
+        trace: ModelTrace,
+        script: RetryFallbackScript,
+        label: String,
+    ) {
         // P4 (per-route, the real contract): every admitted route consumes at
         // most providerRetries + 1 attempts; retries(route) <= providerRetries.
         trace.attemptTrace.map { it.routeIndex }.distinct().forEach { route ->
@@ -830,6 +840,18 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                         "providerRetries+1=${script.providerRetries + 1}",
                 ).isLessThanOrEqualTo(script.providerRetries + 1)
         }
+        // P11: global attempt counter strictly increases across retries and fallbacks.
+        val attempts = trace.attemptTrace.map { it.globalAttempt }
+        assertThat(attempts).withFailMessage("$label P11 strictly increasing").isSorted()
+        assertThat(attempts.zipWithNext().all { (a, b) -> b > a })
+            .withFailMessage("$label P11 strictly increasing")
+            .isTrue()
+    }
+
+    private fun assertDispositionInvariants(
+        trace: ModelTrace,
+        label: String,
+    ) {
         // P12: OUTPUT_VISIBLE is irreversible at disposition time — a VISIBLE
         // attempt never yields retry or fallback.
         trace.dispositions.forEach { d ->
@@ -853,12 +875,13 @@ class ProviderRetryFallbackLifecyclePropertyTest {
                 .withFailMessage("$label P8 cancelled")
                 .isEqualTo(TerminalOutcome.Cancelled)
         }
-        // P11: global attempt counter strictly increases across retries and fallbacks.
-        val attempts = trace.attemptTrace.map { it.globalAttempt }
-        assertThat(attempts).withFailMessage("$label P11 strictly increasing").isSorted()
-        assertThat(attempts.zipWithNext().all { (a, b) -> b > a })
-            .withFailMessage("$label P11 strictly increasing")
-            .isTrue()
+    }
+
+    private fun assertBreakerInvariants(
+        trace: ModelTrace,
+        script: RetryFallbackScript,
+        label: String,
+    ) {
         // P14: every admitted route produces at most ONE semantic breaker
         // disposition; circuit-open routes produce none. The count equals the
         // number of DISTINCT routes that ran at least one attempt.
