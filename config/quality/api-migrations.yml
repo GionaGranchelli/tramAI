@@ -188,7 +188,7 @@ migrations:
 
   - module: ":tramai-security"
     fromSha256: "ce5c4bbb0a1d215e792306f4a60f7715925c87a4e25f06bde97d14567b076b0f"
-    toSha256: "819381316476199c061ac5361e595a17033d355490b8f05e2711e23eb83182dd"
+    toSha256: "613e667332b2e7beb2d661b3573ac9ee2677266328ab867afd86646262d5cbdb"
     targetVersion: "0.7.0"
     rationale: "Epic 0.7.3h explicit routing topology: ProviderRoutingConfiguration gains workloadZones (keyed by the exact WorkloadDeploymentIdentity), providerDeployments (the authoritative ProviderDeployment per registered provider id) and allowedZonePairs (the workload-zone to provider-zone relation that feeds TrustZonePolicy). These are the facts the 0.7.3 authority chain requires and that no existing surface carried: the legacy providerZones map states a zone per provider name but cannot prove deployment identity, so it cannot distinguish two deployments of one brand and is deliberately NOT used to construct a ProviderDeployment. Construction validates that a deployment is registered under its own providerId. Every new field is additive with an empty default, and an absent entry fails closed at execution rather than widening: a workload deployment with no configured zone, or a provider with no configured deployment, has no authority."
     migration: "No consumer action required for existing configuration: all three fields default to empty and no existing member changed. To make the governed provider path usable, supply the workload deployment zones, the provider deployments and the permitted zone pairs; until then execution fails closed rather than falling back to configured routing."
