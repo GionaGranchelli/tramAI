@@ -243,6 +243,7 @@ What was preserved or strengthened.
 ## Verification
 - command — result
 - command — result
+- each claim labelled VERIFIED / OBSERVED / INFERRED / UNRESOLVED
 
 ## Quality impact
 - cancellation findings: before → after
