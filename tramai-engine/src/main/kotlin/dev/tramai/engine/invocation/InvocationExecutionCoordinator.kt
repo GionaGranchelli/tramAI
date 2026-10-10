@@ -52,17 +52,23 @@ import dev.tramai.engine.planning.ServiceDefinition
 import dev.tramai.engine.provider.ProviderAttemptExecutor
 import dev.tramai.engine.provider.ProviderAuthorizationService
 import dev.tramai.engine.provider.ProviderCallResult
+import dev.tramai.engine.provider.ProviderCoordinationDependencies
 import dev.tramai.engine.provider.ProviderExecutionCoordinator
 import dev.tramai.engine.provider.ProviderExecutionRequest
 import dev.tramai.engine.provider.ProviderFallbackGate
 import dev.tramai.engine.provider.ProviderFallbackPolicy
+import dev.tramai.engine.provider.ProviderGovernanceConfiguration
 import dev.tramai.engine.provider.ProviderInvocationGate
 import dev.tramai.engine.provider.ProviderResolutionGate
 import dev.tramai.engine.provider.ProviderResponseSanitizer
 import dev.tramai.engine.provider.ProviderRetryPolicy
 import dev.tramai.engine.streaming.StreamingBeforeResponseReturnGate
+import dev.tramai.engine.streaming.StreamingCallGates
+import dev.tramai.engine.streaming.StreamingCoordinationServices
+import dev.tramai.engine.streaming.StreamingEngineRuntime
 import dev.tramai.engine.streaming.StreamingExecutionCoordinator
 import dev.tramai.engine.streaming.StreamingExecutionRequest
+import dev.tramai.engine.streaming.StreamingFailurePolicy
 import dev.tramai.engine.structured.ResumedStructuredResponseRequest
 import dev.tramai.engine.structured.StructuredAttemptExecutor
 import dev.tramai.engine.structured.StructuredResponseCoordinator
@@ -101,6 +107,15 @@ internal class InvocationExecutionCoordinator(
     private val resumeOperationRegistry: ResumeOperationRegistry,
 ) : ClaimedResumeExecutor {
     private val routingPlan = components.providers.routingPlan
+
+    /**
+     * The governed routing topology for provider execution. Absent when the configured policy engine
+     * carries no topology, in which case execution fails closed rather than falling back to
+     * configured routing.
+     */
+    private val providerGovernance =
+        components.security.routingConfiguration?.let { ProviderGovernanceConfiguration.from(it) }
+
     private val structuredOutputHandler = components.execution.structuredOutputHandler
     private val toolRegistry = components.tools.toolRegistry
     private val operationObserver = components.observation.operationObserver
@@ -162,62 +177,59 @@ internal class InvocationExecutionCoordinator(
             enforceBeforeProviderResolution(operation, correlationId, securityContext)
         }
     private val fallbackGate =
-        ProviderFallbackGate {
-            correlationId,
-            previousProviderId,
-            previousModelName,
-            nextProviderId,
-            reason,
-            securityContext,
-            ->
+        ProviderFallbackGate { transition ->
             enforceFallbackTransition(
-                correlationId,
-                previousProviderId,
-                previousModelName,
-                nextProviderId,
-                reason,
-                securityContext,
+                transition.correlationId,
+                transition.previousProviderId,
+                transition.previousModelName,
+                transition.nextProviderId,
+                transition.reason,
+                transition.securityContext,
             )
         }
     private val providerExecutionCoordinator =
         ProviderExecutionCoordinator(
-            routingPlan = routingPlan,
-            circuitBreaker = circuitBreaker,
-            attemptExecutor =
-                ProviderAttemptExecutor(
-                    serviceInterface =
-                        serviceDefinition.serviceType.qualifiedName
-                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-                    operationObserver = operationObserver,
-                    operationInterceptor = operationInterceptor,
+            dependencies =
+                ProviderCoordinationDependencies(
+                    routingPlan = routingPlan,
                     circuitBreaker = circuitBreaker,
-                    retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
-                    authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
-                    beforeProviderInvocation = beforeProviderInvocationGate,
-                    responseSanitizer =
-                        ProviderResponseSanitizer {
-                            response,
-                            operation,
-                            providerId,
-                            modelName,
-                            correlationId,
-                            securityContext,
-                            observation,
-                            ->
-                            providerResponseDlpSanitizer.sanitizeProviderResponse(
-                                response,
-                                operation,
-                                providerId,
-                                modelName,
-                                correlationId,
-                                securityContext,
-                                observation,
-                            )
-                        },
+                    attemptExecutor =
+                        ProviderAttemptExecutor(
+                            serviceInterface =
+                                serviceDefinition.serviceType.qualifiedName
+                                    ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                            operationObserver = operationObserver,
+                            operationInterceptor = operationInterceptor,
+                            circuitBreaker = circuitBreaker,
+                            retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
+                            authorizationService = ProviderAuthorizationService(modelRegistryEnforcer),
+                            beforeProviderInvocation = beforeProviderInvocationGate,
+                            responseSanitizer =
+                                ProviderResponseSanitizer {
+                                    response,
+                                    operation,
+                                    providerId,
+                                    modelName,
+                                    correlationId,
+                                    securityContext,
+                                    observation,
+                                    ->
+                                    providerResponseDlpSanitizer.sanitizeProviderResponse(
+                                        response,
+                                        operation,
+                                        providerId,
+                                        modelName,
+                                        correlationId,
+                                        securityContext,
+                                        observation,
+                                    )
+                                },
+                        ),
+                    fallbackPolicy = ProviderFallbackPolicy(),
+                    beforeResolution = beforeResolutionGate,
+                    fallbackGate = fallbackGate,
+                    governance = providerGovernance,
                 ),
-            fallbackPolicy = ProviderFallbackPolicy(),
-            beforeResolution = beforeResolutionGate,
-            fallbackGate = fallbackGate,
         )
     private val toolExposureCoordinator = ToolExposureCoordinator(toolRegistry, policyHelper)
     private val conversationMemoryCoordinator =
@@ -238,29 +250,42 @@ internal class InvocationExecutionCoordinator(
     private val tokenBudgetCoordinator = TokenBudgetCoordinator(tokenBudgetSettings)
     private val streamingExecutionCoordinator =
         StreamingExecutionCoordinator(
-            identitySource = components.execution.identitySource,
-            routingPlan = routingPlan,
-            circuitBreaker = circuitBreaker,
-            lifecycleScope = lifecycleScope,
-            isClosed = isClosed,
-            serviceTypeName =
-                serviceDefinition.serviceType.qualifiedName
-                    ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-            qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
-            operationObserver = operationObserver,
-            operationInterceptor = operationInterceptor,
-            toolExposureCoordinator = toolExposureCoordinator,
-            conversationMemoryCoordinator = conversationMemoryCoordinator,
-            tokenBudgetCoordinator = tokenBudgetCoordinator,
-            modelRegistryEnforcer = modelRegistryEnforcer,
-            retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
-            beforeResolution = beforeResolutionGate,
-            beforeInvocation = beforeProviderInvocationGate,
-            fallbackGate = fallbackGate,
-            beforeResponseReturn =
-                StreamingBeforeResponseReturnGate { route, correlationId, securityContext ->
-                    enforceBeforeResponseReturn(route, correlationId, securityContext)
-                },
+            runtime =
+                StreamingEngineRuntime(
+                    identitySource = components.execution.identitySource,
+                    routingPlan = routingPlan,
+                    lifecycleScope = lifecycleScope,
+                    isClosed = isClosed,
+                    serviceTypeName =
+                        serviceDefinition.serviceType.qualifiedName
+                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                    qualifiedServiceName = serviceDefinition.serviceType.qualifiedName,
+                ),
+            services =
+                StreamingCoordinationServices(
+                    operationObserver = operationObserver,
+                    operationInterceptor = operationInterceptor,
+                    toolExposureCoordinator = toolExposureCoordinator,
+                    conversationMemoryCoordinator = conversationMemoryCoordinator,
+                    tokenBudgetCoordinator = tokenBudgetCoordinator,
+                    modelRegistryEnforcer = modelRegistryEnforcer,
+                ),
+            gates =
+                StreamingCallGates(
+                    beforeResolution = beforeResolutionGate,
+                    beforeInvocation = beforeProviderInvocationGate,
+                    fallbackGate = fallbackGate,
+                    beforeResponseReturn =
+                        StreamingBeforeResponseReturnGate { route, correlationId, securityContext ->
+                            enforceBeforeResponseReturn(route, correlationId, securityContext)
+                        },
+                ),
+            failurePolicy =
+                StreamingFailurePolicy(
+                    circuitBreaker = circuitBreaker,
+                    retryPolicy = ProviderRetryPolicy(retryDelayPolicy),
+                ),
+            governance = providerGovernance,
         )
     private val toolResultSanitizer =
         ToolResultSanitizer(
@@ -481,6 +506,7 @@ internal class InvocationExecutionCoordinator(
                         arguments = arguments,
                         tokenBudgetTracker = tokenBudgetTracker,
                         conversationId = conversationId,
+                        governedRun = GovernedRunScope.resolve(currentCoroutineContext()),
                     ),
                 )
             }

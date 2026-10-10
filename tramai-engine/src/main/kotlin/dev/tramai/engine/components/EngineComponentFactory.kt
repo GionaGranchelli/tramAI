@@ -1,47 +1,99 @@
 @file:OptIn(ExperimentalTramaiInternalApi::class)
+
 package dev.tramai.engine.components
 
-
-import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
-import dev.tramai.core.approval.*
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
-import dev.tramai.core.observation.*
-import dev.tramai.core.policy.*
+import dev.tramai.core.observation.FailureIsolatingOperationObserver
+import dev.tramai.core.observation.OperationInterceptor
+import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.ToolFailureDiagnosticObserver
+import dev.tramai.core.observation.secondary.ExperimentalTramaiInternalApi
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.retry.DefaultRetryJitterSource
 import dev.tramai.core.retry.RetryJitterSource
-import dev.tramai.core.security.*
-import dev.tramai.core.structured.*
-import dev.tramai.engine.*
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
+import dev.tramai.core.security.PromptSanitizer
+import dev.tramai.core.structured.NoOpStructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputFailureDiagnosticObserver
+import dev.tramai.core.structured.StructuredOutputHandler
+import dev.tramai.engine.CircuitBreakerSettings
+import dev.tramai.engine.DefaultEngineIdentitySource
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.EngineIdentitySource
+import dev.tramai.engine.FailureIsolatingEngineEventObserver
+import dev.tramai.engine.LegacyPermissivePolicyEngine
+import dev.tramai.engine.OperationResponseCache
+import dev.tramai.engine.RetryPolicySettings
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.TokenBudgetSettings
+import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.engine.provider.ProviderRetryDelayPolicy
+import dev.tramai.security.ProviderRoutingConfigurationSource
 import java.time.Clock
 
 /** One authoritative composition boundary: validates collaborators and creates the immutable snapshot. */
 internal object EngineComponentFactory {
     @Suppress("LongParameterList")
-    fun create(providerRegistry: ProviderRegistry, structuredOutputHandler: StructuredOutputHandler?, toolRegistry: ToolRegistry,
-        operationObserver: OperationObserver, operationInterceptor: OperationInterceptor, responseCache: OperationResponseCache,
-        modelRegistry: ModelRegistry, modelRegistrySettings: ModelRegistrySettings, circuitBreakerSettings: CircuitBreakerSettings,
-        retryPolicySettings: RetryPolicySettings, tokenBudgetSettings: TokenBudgetSettings, promptSanitizer: PromptSanitizer?,
-        chatMemory: ChatMemory?, conversationIdProvider: ConversationIdProvider,
-        policyEngine: PolicyEngine?, dlpInterceptor: DlpInterceptor, dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
-        toolResultFilteringSettings: ToolResultFilteringSettings, engineEventObserver: EngineEventObserver,
-        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver, policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
-        suspendedInvocationStore: SuspendedInvocationStore, approvalContinuationStore: ApprovalContinuationStore?,
-        toolArgumentsDigester: ToolArgumentsDigester?, approvalGateCoordinator: ApprovalGateCoordinator?,
-        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter, clock: Clock,
+    fun create(
+        providerRegistry: ProviderRegistry,
+        structuredOutputHandler: StructuredOutputHandler?,
+        toolRegistry: ToolRegistry,
+        operationObserver: OperationObserver,
+        operationInterceptor: OperationInterceptor,
+        responseCache: OperationResponseCache,
+        modelRegistry: ModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings,
+        circuitBreakerSettings: CircuitBreakerSettings,
+        retryPolicySettings: RetryPolicySettings,
+        tokenBudgetSettings: TokenBudgetSettings,
+        promptSanitizer: PromptSanitizer?,
+        chatMemory: ChatMemory?,
+        conversationIdProvider: ConversationIdProvider,
+        policyEngine: PolicyEngine?,
+        dlpInterceptor: DlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
+        toolResultFilteringSettings: ToolResultFilteringSettings,
+        engineEventObserver: EngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
+        suspendedInvocationStore: SuspendedInvocationStore,
+        approvalContinuationStore: ApprovalContinuationStore?,
+        toolArgumentsDigester: ToolArgumentsDigester?,
+        approvalGateCoordinator: ApprovalGateCoordinator?,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
+        clock: Clock,
         retryJitterSource: RetryJitterSource = DefaultRetryJitterSource,
         identitySource: EngineIdentitySource = DefaultEngineIdentitySource,
-        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver = NoOpStructuredOutputFailureDiagnosticObserver,
+        structuredOutputFailureDiagnosticObserver: StructuredOutputFailureDiagnosticObserver =
+            NoOpStructuredOutputFailureDiagnosticObserver,
     ): EngineComponents {
         val capability = approvalCapability(approvalContinuationStore, toolArgumentsDigester, approvalGateCoordinator)
         val resolvedPolicy = policyEngine ?: LegacyPermissivePolicyEngine
         return EngineComponents(
-            ProviderComponents(providerRegistry.routingPlan), ToolComponents(toolRegistry, toolResultFilteringSettings),
-            SecurityComponents(resolvedPolicy, policyEngine == null, promptSanitizer, modelRegistry, modelRegistrySettings, dlpInterceptor, dlpRedactionAuditEmitter, policyDecisionAuditEmitter),
+            ProviderComponents(providerRegistry.routingPlan),
+            ToolComponents(toolRegistry, toolResultFilteringSettings),
+            SecurityComponents(
+                resolvedPolicy,
+                policyEngine == null,
+                promptSanitizer,
+                modelRegistry,
+                modelRegistrySettings,
+                dlpInterceptor,
+                dlpRedactionAuditEmitter,
+                policyDecisionAuditEmitter,
+                (policyEngine as? ProviderRoutingConfigurationSource)?.providerRoutingConfiguration,
+            ),
             ApprovalComponents(suspendedInvocationStore, approvalLifecycleAuditEmitter, capability),
             PersistenceComponents(responseCache, chatMemory, conversationIdProvider),
             ObservationComponents(
@@ -65,13 +117,21 @@ internal object EngineComponentFactory {
         )
     }
 
-    fun approvalCapability(continuationStore: ApprovalContinuationStore?, digester: ToolArgumentsDigester?, coordinator: ApprovalGateCoordinator?): ApprovalCapability = when {
-        continuationStore != null || digester != null || coordinator != null -> {
-            require(continuationStore != null && digester != null && coordinator != null) {
-                "Approval suspension requires continuation store, arguments digester, and gate coordinator"
+    fun approvalCapability(
+        continuationStore: ApprovalContinuationStore?,
+        digester: ToolArgumentsDigester?,
+        coordinator: ApprovalGateCoordinator?,
+    ): ApprovalCapability =
+        when {
+            continuationStore != null || digester != null || coordinator != null -> {
+                require(continuationStore != null && digester != null && coordinator != null) {
+                    "Approval suspension requires continuation store, arguments digester, and gate coordinator"
+                }
+                ApprovalCapability.Enabled(continuationStore, digester, coordinator)
             }
-            ApprovalCapability.Enabled(continuationStore, digester, coordinator)
+
+            else -> {
+                ApprovalCapability.Disabled
+            }
         }
-        else -> ApprovalCapability.Disabled
-    }
 }

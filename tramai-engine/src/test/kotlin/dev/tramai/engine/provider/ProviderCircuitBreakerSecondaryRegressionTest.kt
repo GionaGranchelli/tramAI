@@ -36,14 +36,14 @@ import kotlin.test.Test
  *   permit's generation is still authoritative.
  */
 class ProviderCircuitBreakerSecondaryRegressionTest {
-
     // ------------------------------------------------------------ Section H-1b
 
     @Test
     fun `H1b stale pre-OPEN success cannot close an in-flight HALF_OPEN probe`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // A and B admitted while CLOSED; A's failure opens the circuit.
             val permitA = admit(breaker, "primary")
@@ -71,7 +71,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H1 HALF_OPEN concurrent success admits exactly one probe and closes the circuit`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // Threshold 1 → one qualifying failure opens the breaker until t=100.
             breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
@@ -80,9 +81,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             // At exact expiry, N concurrent callers: the atomic transition must
             // mint exactly ONE probe permit and reject every other caller.
             now = 100
-            val admissions = supervisorScope {
-                (1..16).map { async { breaker.beforeCall("primary") } }.awaitAll()
-            }
+            val admissions =
+                supervisorScope {
+                    (1..16).map { async { breaker.beforeCall("primary") } }.awaitAll()
+                }
             val allowed = admissions.filterIsInstance<CircuitBreakerAdmission.Allowed>()
             assertThat(allowed).hasSize(1)
             assertThat(admissions.filterIsInstance<CircuitBreakerAdmission.Rejected>()).hasSize(15)
@@ -100,7 +102,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H2 stale success after successful newer recovery cannot disturb the closed state`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 2, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 2) { now }
 
             // Stale CLOSED-epoch permit; two qualifying failures open the breaker.
             val stale = admit(breaker, "primary")
@@ -132,7 +135,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H3 stale failure after successful newer recovery cannot reopen the circuit`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // Stale CLOSED-epoch permit; one qualifying failure opens the breaker.
             val stale = admit(breaker, "primary")
@@ -158,15 +162,20 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             var now = 0L
             var calls = 0
             val observation = RecordingObservation()
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
-            val coordinator = coordinator(
-                plan = plan(FakeProvider {
-                    calls++
-                    throw ProviderException("always down", retryable = true)
-                }),
-                breaker = breaker,
-                observation = observation,
-            )
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
+            val coordinator =
+                coordinator(
+                    plan =
+                        plan(
+                            FakeProvider {
+                                calls++
+                                throw ProviderException("always down", retryable = true)
+                            },
+                        ),
+                    breaker = breaker,
+                    observation = observation,
+                )
 
             // First call fails retryably -> OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
@@ -201,7 +210,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H8 neutral HALF_OPEN failure cannot strand the circuit`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // Threshold 1: one qualifying failure opens the circuit until t=100.
             breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
@@ -228,7 +238,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H9 abandoned HALF_OPEN probe is released and a replacement probe is eventually admitted`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
@@ -253,7 +264,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `H10 abandoned probe is fenced after replacement recovery begins`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
             now = 100
@@ -282,17 +294,23 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         runBlocking {
             var now = 0L
             var calls = 0
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
-            val provider = FakeProvider {
-                calls++
-                if (calls == 1 || calls == 3) throw ProviderException("down", retryable = true) else ModelResponse("ok")
-            }
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
+            val provider =
+                FakeProvider {
+                    calls++
+                    if (calls == 1 || calls == 3) {
+                        throw ProviderException("down", retryable = true)
+                    }
+                    ModelResponse("ok")
+                }
             val dlp = DlpInspectionException("dlp blocked")
-            val coordinator = coordinator(
-                plan = plan(provider),
-                breaker = breaker,
-                sanitizer = ProviderResponseSanitizer { _, _, _, _, _, _, _ -> throw dlp },
-            )
+            val coordinator =
+                coordinator(
+                    plan = plan(provider),
+                    breaker = breaker,
+                    sanitizer = ProviderResponseSanitizer { _, _, _, _, _, _, _ -> throw dlp },
+                )
 
             // First call fails retryably -> OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
@@ -324,14 +342,22 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         runBlocking {
             var now = 0L
             var calls = 0
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
-            val coordinator = coordinator(
-                plan = plan(FakeProvider {
-                    calls++
-                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
-                }),
-                breaker = breaker,
-            )
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
+            val coordinator =
+                coordinator(
+                    plan =
+                        plan(
+                            FakeProvider {
+                                calls++
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
+                            },
+                        ),
+                    breaker = breaker,
+                )
 
             // First call fails retryably -> OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
@@ -344,8 +370,21 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             // probe in HALF_OPEN forever; with it, scope exit abandons the
             // permit -> OPEN(gen+1, fresh deadline).
             now = 100
-            assertThat(runCatching { coordinator.execute(executionRequest(beforeRoute = ProviderRouteGate { throw PolicyViolationException(dev.tramai.core.policy.PolicyDecision.Deny("denied", "TEST")) })) }.exceptionOrNull())
-                .isInstanceOf(PolicyViolationException::class.java)
+            assertThat(
+                runCatching {
+                    coordinator.execute(
+                        executionRequest(
+                            beforeRoute =
+                                ProviderRouteGate {
+                                    throw PolicyViolationException(
+                                        dev.tramai.core.policy.PolicyDecision
+                                            .Deny("denied", "TEST"),
+                                    )
+                                },
+                        ),
+                    )
+                }.exceptionOrNull(),
+            ).isInstanceOf(PolicyViolationException::class.java)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
 
             // At the new expiry a call is again admitted as the next probe and
@@ -361,25 +400,37 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         runBlocking {
             var now = 0L
             var calls = 0
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
             // The interceptor throws DURING startAttempt, BEFORE the executor's
             // own try: operationInterceptor.interceptRequest is the first thing
             // startAttempt does, outside any catch that abandons the permit.
             var interceptCalls = 0
-            val coordinator = coordinator(
-                plan = plan(FakeProvider {
-                    calls++
-                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
-                }),
-                breaker = breaker,
-                interceptor = object : OperationInterceptor {
-                    override fun interceptRequest(context: OperationCallContext, messages: List<Message>): List<Message> {
-                        interceptCalls++
-                        if (interceptCalls == 2) throw CancellationException("pre-try cancel")
-                        return messages
-                    }
-                },
-            )
+            val coordinator =
+                coordinator(
+                    plan =
+                        plan(
+                            FakeProvider {
+                                calls++
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
+                            },
+                        ),
+                    breaker = breaker,
+                    interceptor =
+                        object : OperationInterceptor {
+                            override fun interceptRequest(
+                                context: OperationCallContext,
+                                messages: List<Message>,
+                            ): List<Message> {
+                                interceptCalls++
+                                if (interceptCalls == 2) throw CancellationException("pre-try cancel")
+                                return messages
+                            }
+                        },
+                )
 
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
                 .isInstanceOf(ProviderException::class.java)
@@ -407,18 +458,30 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             var calls = 0
             // Recording breaker: captures every permit the coordinator mints,
             // so the test can replay the abandoned probe's stale completions.
-            val breaker = object : ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now }) {
-                val admitted = mutableListOf<CircuitBreakerPermit>()
-                override fun beforeCall(providerId: String): CircuitBreakerAdmission =
-                    super.beforeCall(providerId).also { if (it is CircuitBreakerAdmission.Allowed) admitted += it.permit }
-            }
-            val coordinator = coordinator(
-                plan = plan(FakeProvider {
-                    calls++
-                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
-                }),
-                breaker = breaker,
-            )
+            val breaker =
+                object : ProviderCircuitBreaker(
+                    CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100),
+                    { now },
+                ) {
+                    val admitted = mutableListOf<CircuitBreakerPermit>()
+
+                    override fun beforeCall(providerId: String): CircuitBreakerAdmission =
+                        super.beforeCall(providerId).also { if (it is CircuitBreakerAdmission.Allowed) admitted += it.permit }
+                }
+            val coordinator =
+                coordinator(
+                    plan =
+                        plan(
+                            FakeProvider {
+                                calls++
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
+                            },
+                        ),
+                    breaker = breaker,
+                )
 
             // Call 1: CLOSED admission fails retryably -> OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
@@ -431,8 +494,21 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             // abandons it -> OPEN(gen+1, fresh deadline). The probe permit is
             // now permanently stale.
             now = 100
-            assertThat(runCatching { coordinator.execute(executionRequest(beforeRoute = ProviderRouteGate { throw PolicyViolationException(dev.tramai.core.policy.PolicyDecision.Deny("denied", "TEST")) })) }.exceptionOrNull())
-                .isInstanceOf(PolicyViolationException::class.java)
+            assertThat(
+                runCatching {
+                    coordinator.execute(
+                        executionRequest(
+                            beforeRoute =
+                                ProviderRouteGate {
+                                    throw PolicyViolationException(
+                                        dev.tramai.core.policy.PolicyDecision
+                                            .Deny("denied", "TEST"),
+                                    )
+                                },
+                        ),
+                    )
+                }.exceptionOrNull(),
+            ).isInstanceOf(PolicyViolationException::class.java)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(200)
             val probe = breaker.admitted.last() // the probe minted inside this run
             assertThat(probe.generation).isEqualTo(preOpenPermit.generation + 1)
@@ -459,14 +535,22 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         runBlocking {
             var now = 0L
             var calls = 0
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
-            val coordinator = coordinator(
-                plan = plan(FakeProvider {
-                    calls++
-                    if (calls == 1) throw ProviderException("down", retryable = true) else ModelResponse("ok")
-                }),
-                breaker = breaker,
-            )
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
+            val coordinator =
+                coordinator(
+                    plan =
+                        plan(
+                            FakeProvider {
+                                calls++
+                                if (calls == 1) {
+                                    throw ProviderException("down", retryable = true)
+                                }
+                                ModelResponse("ok")
+                            },
+                        ),
+                    breaker = breaker,
+                )
 
             // Sync path: first call fails retryably → breaker OPEN until t=100.
             assertThat(runCatching { coordinator.execute(executionRequest()) }.exceptionOrNull())
@@ -481,7 +565,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             // Breaker-level parity: the identical beforeCall/onFailure/onSuccess
             // action sequence (which is what the streaming coordinator routes
             // through the same breaker) yields the identical observable state.
-            val parity = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val parity =
+                circuitBreaker(failureThreshold = 1) { now }
             assertThat(parity.onFailure(admit(parity, "primary"), ProviderException("down", retryable = true))).isTrue()
             val parityOpenUntil = parity.openUntilMillis("primary")
             assertThat(parityOpenUntil).isEqualTo(now + 100)
@@ -502,7 +587,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `C1 atomic expiry admits exactly one HALF_OPEN probe under 16 concurrent callers`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             breaker.onFailure(admit(breaker, "primary"), ProviderException("down", retryable = true))
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(100)
@@ -510,9 +596,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             // All 16 callers hit the exact expiry instant in parallel; the
             // OPEN → HALF_OPEN transition must remain atomic under contention.
             now = 100
-            val admissions = supervisorScope {
-                (1..16).map { async { breaker.beforeCall("primary") } }.awaitAll()
-            }
+            val admissions =
+                supervisorScope {
+                    (1..16).map { async { breaker.beforeCall("primary") } }.awaitAll()
+                }
             assertThat(admissions.filterIsInstance<CircuitBreakerAdmission.Allowed>()).hasSize(1)
             assertThat(admissions.filterIsInstance<CircuitBreakerAdmission.Rejected>()).hasSize(15)
         }
@@ -524,7 +611,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `C2 concurrent stale completions cannot mutate the open deadline or state`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // 8 permits minted while CLOSED, then the breaker opens until t=100.
             val stalePermits = (1..8).map { admit(breaker, "primary") }
@@ -533,9 +621,10 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
 
             // Fire all stale completions concurrently: failures must all be
             // non-authoritative (false) and none may close or reopen.
-            val failureSignals = supervisorScope {
-                stalePermits.map { async { breaker.onFailure(it, ProviderException("stale", retryable = true)) } }.awaitAll()
-            }
+            val failureSignals =
+                supervisorScope {
+                    stalePermits.map { async { breaker.onFailure(it, ProviderException("stale", retryable = true)) } }.awaitAll()
+                }
             assertThat(failureSignals).containsOnly(false)
             supervisorScope {
                 stalePermits.map { async { breaker.onSuccess(it) } }.awaitAll()
@@ -552,7 +641,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `C3 concurrent probe and competing callers reopen exactly once on probe failure`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // Stale CLOSED-epoch permits; open the breaker, then admit the probe.
             val staleA = admit(breaker, "primary")
@@ -562,20 +652,25 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
             val probe = admit(breaker, "primary")
 
             // While the probe is in flight every competing caller is rejected.
-            val competing = supervisorScope {
-                (1..8).map { async { breaker.beforeCall("primary") } }.awaitAll()
-            }
+            val competing =
+                supervisorScope {
+                    (1..8).map { async { breaker.beforeCall("primary") } }.awaitAll()
+                }
             assertThat(competing).allMatch { it is CircuitBreakerAdmission.Rejected }
 
             // Probe failure races stale completions: exactly ONE onFailure is
             // authoritative (the CIRCUIT_OPENED-equivalent signal), the rest no-op.
-            val signals = supervisorScope {
-                listOf(
-                    async { breaker.onFailure(probe, ProviderException("probe failed", retryable = true)) },
-                    async { breaker.onFailure(staleA, ProviderException("stale", retryable = true)) },
-                    async { breaker.onSuccess(staleB); false },
-                ).awaitAll()
-            }
+            val signals =
+                supervisorScope {
+                    listOf(
+                        async { breaker.onFailure(probe, ProviderException("probe failed", retryable = true)) },
+                        async { breaker.onFailure(staleA, ProviderException("stale", retryable = true)) },
+                        async {
+                            breaker.onSuccess(staleB)
+                            false
+                        },
+                    ).awaitAll()
+                }
             assertThat(signals.count { it }).isEqualTo(1)
             assertThat(breaker.openUntilMillis("primary")).isEqualTo(now + 100)
         }
@@ -587,7 +682,8 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     fun `C4 generation strictly increases across rapid cycles and stale permits are ignored`() {
         runBlocking {
             var now = 0L
-            val breaker = ProviderCircuitBreaker(CircuitBreakerSettings(enabled = true, failureThreshold = 1, openDurationMillis = 100), { now })
+            val breaker =
+                circuitBreaker(failureThreshold = 1) { now }
 
             // One stale permit per cycle, collected before that cycle opens.
             val stalePermits = mutableListOf<CircuitBreakerPermit>()
@@ -623,28 +719,35 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
     // ------------------------------------------------------------ adapters
 
     /** Acquires a permit for [providerId] exactly as production does (beforeCall → Allowed). */
-    private fun admit(breaker: ProviderCircuitBreaker, providerId: String): CircuitBreakerPermit =
-        (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit
+    private fun admit(
+        breaker: ProviderCircuitBreaker,
+        providerId: String,
+    ): CircuitBreakerPermit = (breaker.beforeCall(providerId) as CircuitBreakerAdmission.Allowed).permit
 
     /** Returns the blocked-until millis when [providerId] is rejected, else null (admitted). */
-    private fun blockedUntil(breaker: ProviderCircuitBreaker, providerId: String): Long? =
-        (breaker.beforeCall(providerId) as? CircuitBreakerAdmission.Rejected)?.blockedUntilMillis
+    private fun blockedUntil(
+        breaker: ProviderCircuitBreaker,
+        providerId: String,
+    ): Long? = (breaker.beforeCall(providerId) as? CircuitBreakerAdmission.Rejected)?.blockedUntilMillis
 
     // ------------------------------------------------------------ infra copy
 
-    private fun plan(primary: FakeProvider) = ProviderRoutingPlan.builder()
-        .provider("primary", primary)
-        .model("model", "primary")
-        .build()
+    private fun plan(primary: FakeProvider) =
+        ProviderRoutingPlan
+            .builder()
+            .provider("primary", primary)
+            .model("model", "primary")
+            .build()
 
-    private fun executionRequest(beforeRoute: ProviderRouteGate = ProviderRouteGate {}) = ProviderExecutionRequest(
-        operation = componentOperation(),
-        messages = emptyList(),
-        attemptCounter = AttemptCounter(),
-        correlationId = "cid",
-        securityContext = ExecutionSecurityContext(),
-        beforeRoute = beforeRoute,
-    )
+    private fun executionRequest(beforeRoute: ProviderRouteGate = ProviderRouteGate {}) =
+        ProviderExecutionRequest(
+            operation = componentOperation(),
+            messages = emptyList(),
+            attemptCounter = AttemptCounter(),
+            correlationId = "cid",
+            securityContext = ExecutionSecurityContext(),
+            beforeRoute = beforeRoute,
+        )
 
     private fun coordinator(
         plan: ProviderRoutingPlan,
@@ -653,19 +756,20 @@ class ProviderCircuitBreakerSecondaryRegressionTest {
         observation: RecordingObservation = RecordingObservation(),
         interceptor: OperationInterceptor = object : OperationInterceptor {},
     ): ProviderExecutionCoordinator {
-        val attempt = executor(
-            observation = observation,
-            circuitBreaker = breaker,
-            sanitizer = sanitizer,
-            interceptor = interceptor,
-        )
+        val attempt =
+            executor(
+                observation = observation,
+                circuitBreaker = breaker,
+                sanitizer = sanitizer,
+                interceptor = interceptor,
+            )
         return ProviderExecutionCoordinator(
             routingPlan = plan,
             circuitBreaker = breaker,
             attemptExecutor = attempt,
             fallbackPolicy = ProviderFallbackPolicy(),
             beforeResolution = ProviderResolutionGate { _, _, _ -> },
-            fallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+            fallbackGate = ProviderFallbackGate { _ -> },
         )
     }
 }

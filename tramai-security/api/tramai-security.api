@@ -11,9 +11,10 @@ public final class dev/tramai/security/ClassificationRoutingRule {
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class dev/tramai/security/DefaultPolicyEngine : dev/tramai/core/policy/PolicyEngine {
+public final class dev/tramai/security/DefaultPolicyEngine : dev/tramai/core/policy/PolicyEngine, dev/tramai/security/ProviderRoutingConfigurationSource {
 	public fun <init> (Ldev/tramai/security/PolicyConfiguration;)V
 	public fun evaluate (Ldev/tramai/core/policy/PolicyContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getProviderRoutingConfiguration ()Ldev/tramai/security/ProviderRoutingConfiguration;
 }
 
 public final class dev/tramai/security/DlpRule {
@@ -80,21 +81,35 @@ public final class dev/tramai/security/ProviderRoutingConfiguration {
 	public fun <init> ()V
 	public fun <init> (Ljava/util/Map;Ljava/util/Map;Z)V
 	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/util/Map;
 	public final fun component2 ()Ljava/util/Map;
 	public final fun component3 ()Z
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun component6 ()Ljava/util/Set;
 	public final fun copy (Ljava/util/Map;Ljava/util/Map;Z)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public final fun copy (Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;)Ldev/tramai/security/ProviderRoutingConfiguration;
 	public static synthetic fun copy$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ljava/util/Map;Ljava/util/Map;ZILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/security/ProviderRoutingConfiguration;Ljava/util/Map;Ljava/util/Map;ZLjava/util/Map;Ljava/util/Map;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/security/ProviderRoutingConfiguration;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedZonePairs ()Ljava/util/Set;
 	public final fun getEnabled ()Z
+	public final fun getProviderDeployments ()Ljava/util/Map;
 	public final fun getProviderZones ()Ljava/util/Map;
 	public final fun getRules ()Ljava/util/Map;
+	public final fun getWorkloadZones ()Ljava/util/Map;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/security/ProviderRoutingConfiguration$Companion {
 	public final fun sovereignDefaults ()Ljava/util/Map;
+}
+
+public abstract interface class dev/tramai/security/ProviderRoutingConfigurationSource {
+	public abstract fun getProviderRoutingConfiguration ()Ldev/tramai/security/ProviderRoutingConfiguration;
 }
 
 public final class dev/tramai/security/ProviderTrustZone : java/lang/Enum {

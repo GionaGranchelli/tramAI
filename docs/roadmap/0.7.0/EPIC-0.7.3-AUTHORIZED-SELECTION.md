@@ -1,7 +1,7 @@
 # Epic 0.7.3 — Explainable Authorized Provider/Model Selection
 
 **Branch:** `epic/0.7.3-authorized-selection`  
-**Status:** ⚪ Planned  
+**Status:** ✅ Complete — 0.7.3h reconciliation (see “Evidence status” below)  
 **Dependencies:** 0.7.2 HARD
 
 ## Executive decision
@@ -63,6 +63,80 @@ optimization signals can rank but cannot authorize
 - Rejected/non-selected candidates expose structured safe reasons.
 - Historical evidence identifies the relevant workload/config/policy/routing context.
 - Decision identity and structured reasons are not coupled to TramAI owning the workflow runtime or to provider selection as the only future decision family.
+
+### Evidence status (0.7.3h reconciliation)
+
+**Status: 0.7.3 — COMPLETE.** Closed on this Epic's own acceptance contract. This is not a claim that
+every repository quality gate is green; see the closure note at the end of this section.
+
+| Status | Subject |
+| --- | --- |
+| **PASS** | Epic semantic acceptance — every selected candidate viable and authorized; no bypass on either execution surface |
+| **PASS** | 0.7.3h execution integration — both structural boundaries, discriminator proofs on both surfaces |
+| **PASS** | Focused authority mutation — M1–M9 against the actual authority boundary at the exact production shape |
+| **BASE-RED / separate follow-up** | Repository-wide critical mutation baseline — pre-existing, independently reproduced at the pristine base |
+
+
+The hard obligation on 0.7.3h — *the execution path must select only from the viable set* — is now met:
+`ProviderExecutionCoordinator` and `StreamingExecutionCoordinator` each route through a governance
+boundary — the synchronous coordinator through `GovernedCandidateSet`, the streaming coordinator
+through `GovernedProviderEnvelope` — and both rely on the same security-module contracts for
+authorization, viability and selection. The boundary is entered when a governed routing topology exists
+**and** the execution carries an admitted run identity, resolved from the run scope rather than from a
+caller-supplied request field: a topology alone does not make an execution governed. An availability
+exclusion that execution advances past is answered by the continuation policy rather than by walking
+configured order. A governed execution cannot opt out of that boundary: forcing one down the legacy
+branch is killed by *"a configured next route outside the envelope is never invoked"*.
+
+**Owner decision — accepted (2026-10-10).** The boundary condition above — topology *and* an admitted run
+identity — is ratified by the repository owner and retained for 0.7.3h, so that existing non-governed
+consumers keep executing as before. A workload that requires mandatory governance must be admitted
+through the governed run scope; a configured topology alone does not guarantee governed execution.
+
+| Criterion | Evidence |
+| --- | --- |
+| Every selected candidate is viable and authorized | selection reads only `ViableCandidates`, which is derived from the authorized set; mutants M4, M5 and M8 (route substitution, configured-order execution, strategy ignoring the eligible set) are all killed on this boundary |
+| Ineligible candidates cannot be selected via retry/fallback/preference | pre-open and late-open circuit exclusions consult the continuation policy exactly once and narrow with `remaining.without(chosen)`; M6/M7 (re-widening to the envelope snapshot) are killed by non-termination, which is itself the proof that monotonic narrowing is load-bearing |
+| Rejected/non-selected candidates expose structured safe reasons | `SelectionRefusal` / `ProviderFallbackReason.CIRCUIT_BREAKER_OPEN` / `FallbackDenied(CIRCUIT_OPEN_ONLY)`; the three "nothing to execute" reasons (governance refused, all candidates circuit-open, no candidate qualified) stay distinguishable, asserted in the governed execution-path suite |
+| Historical evidence identifies workload/config/policy/routing context | 0.7.3f decision identity: `GovernedRunIdentity` is transported per execution and the config topology is the explicit `ProviderRoutingConfiguration`; absence fails closed rather than being inferred |
+| Decision identity/reasons are not coupled to owning the runtime or to provider selection alone | structural: the envelope is a fact carrier over the shared selection/viability types, and no new reason or policy abstraction was introduced for 0.7.3h |
+
+**Mutation expectation.** Satisfied by the focused M1–M9 campaign run against the *actual authority
+boundary* at the exact final production shape, not by the repository-wide population ratchet:
+set-membership and boundary mutations (M8), configured-route substitution on both surfaces (M4, M5),
+fallback-filter removal via re-widening (M6, M7), capability derivation (M1–M3) and the governed→legacy
+downgrade (M9a, M9b) are all KILLED, with `SURVIVED / NO_COVERAGE / UNDETERMINED = 0` and each verdict
+attributed to a distinct killing test. The kill *mechanisms* differ and are recorded per mutant in the
+task document: M1–M5, M8, M9a and M9b die on an assertion, while M6 and M7 die by **reproducible
+non-termination** of reselection under the mutant (the suite does not finish), which is a detection but
+not an assertion-based kill. Two items on this Epic's mutation list remain **unexercised as
+mutants** — an authorization/viability stage swap and a permissive default in candidate-state mapping.
+They are carried in the follow-up record below rather than claimed as covered; the invariants they
+would attack are held by construction and by the discriminator proofs, not by a kill.
+
+### Closure note — repository-wide critical mutation baseline
+
+**PRE-EXISTING RED / SEPARATE QUALITY-AUTHORITY DEBT.** Not introduced by 0.7.3, and deliberately not
+repaired here. Base-versus-candidate evidence:
+
+- the pristine epic base `f8af2510` fails `verifyCriticalMutationBaseline` at the committed
+  `testQuality.mutation` block, which is a hand-written placeholder (`status: "pending"`, note
+  *"Requires PITest plugin configuration"*); `MutationBaselineVerifier` rejects it before any comparison
+  runs, and the same file is byte-identical at base and at the 0.7.3 head;
+- the committed measurement revision (`measuredCommit 5856530e`) predates the epic base by 175 commits,
+  so the "both must be measured" condition could not hold at the base either;
+- a fresh authoritative measurement at the base produced 2585 rows (2384 committed) with 628
+  unclassified survivors and 186 NO_COVERAGE identities lacking an issue/targetPhase — 814 diagnostics
+  whose enrolments this Epic may not mint, because both authority ledgers require the authorization to
+  exist in the PR's **base** (MINT and CONSUME in separate transitions; *"a candidate may never create
+  the authority it uses"*).
+
+Consequently 0.7.3 does **not** claim every repository quality gate is green, does not weaken
+`verifyCriticalMutationBaseline`, does not mass-classify survivors, and does not merge the experimental
+baseline measurement. The staged MINT→CONSUME campaign is recorded as
+`TASK-MUTATION-AUTHORITY-POPULATION-REFRESH.md`.
+
+
 
 ## Post-Epic release checkpoint
 

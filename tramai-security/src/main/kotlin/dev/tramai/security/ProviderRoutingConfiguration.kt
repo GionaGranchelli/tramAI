@@ -1,6 +1,8 @@
 package dev.tramai.security
 
+import dev.tramai.core.identity.WorkloadDeploymentIdentity
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.security.governance.ProviderDeployment
 
 /**
  * Defines the trust zone of a provider — used by the classification-aware
@@ -10,8 +12,10 @@ import dev.tramai.core.policy.DataClassification
 enum class ProviderTrustZone {
     /** Same-host or isolated network boundary (Ollama, vLLM, llama.cpp). */
     LOCAL,
+
     /** Cloud providers hosted within the EU trust boundary. */
     EU_CLOUD,
+
     /** Global cloud providers outside EU jurisdiction. */
     GLOBAL_CLOUD,
 }
@@ -46,17 +50,27 @@ data class ClassificationRoutingRule(
  * @param enabled when false (default), routing matrix checks are skipped
  *   and the engine falls back to the legacy [PolicyConfiguration.trustedLocalProviders]
  *   and [PolicyConfiguration.allowCloudForClassifications] logic.
+ * @param workloadZones the trust zone each governed workload deployment runs in, keyed by the exact
+ *   [WorkloadDeploymentIdentity]. This is the only workload-zone authority: a zone is never inferred
+ *   from an environment convention, and a workload deployment absent here has no zone.
+ * @param providerDeployments the authoritative deployment of each registered provider id, keyed by
+ *   that id. Two deployments of one provider brand are two entries with distinct deployment ids and
+ *   zones, so they cannot collapse into one another. A provider absent here has no deployment and is
+ *   therefore never eligible, whatever [providerZones] says.
  */
 data class ProviderRoutingConfiguration(
     val providerZones: Map<String, ProviderTrustZone> = emptyMap(),
     val rules: Map<DataClassification, ClassificationRoutingRule> = sovereignDefaults(),
     val enabled: Boolean = false,
+    val workloadZones: Map<WorkloadDeploymentIdentity, ProviderTrustZone> = emptyMap(),
+    val providerDeployments: Map<String, ProviderDeployment> = emptyMap(),
+    val allowedZonePairs: Set<Pair<ProviderTrustZone, ProviderTrustZone>> = emptySet(),
 ) {
     init {
         rules.forEach { (classification, rule) ->
             require(rule.allowedFallbackZones.all { it in rule.allowedZones }) {
                 "allowedFallbackZones ($classification) must be subset of allowedZones: " +
-                "allowedZones=${rule.allowedZones}, allowedFallbackZones=${rule.allowedFallbackZones}"
+                    "allowedZones=${rule.allowedZones}, allowedFallbackZones=${rule.allowedFallbackZones}"
             }
         }
         providerZones.forEach { (key, _) ->
@@ -64,7 +78,39 @@ data class ProviderRoutingConfiguration(
                 "Provider zone key must not be blank"
             }
         }
+        providerDeployments.forEach { (providerId, deployment) ->
+            require(providerId == deployment.providerId) {
+                "providerDeployments key '$providerId' must equal the deployment's own providerId " +
+                    "'${deployment.providerId}': a deployment cannot be registered under another provider"
+            }
+        }
     }
+
+    /**
+     * The 0.7.0 construction shape, kept so an already-compiled consumer keeps binding to
+     * `ProviderRoutingConfiguration(Map, Map, boolean)` and to its default-argument companion. It
+     * delegates, so there is one initialisation path to keep in step. The governed arguments are
+     * passed explicitly rather than omitted: naming them would resolve the delegation back to this
+     * same constructor, and an empty governed state is the 0.7.0 contract, not a copy of defaults.
+     */
+    constructor(
+        providerZones: Map<String, ProviderTrustZone> = emptyMap(),
+        rules: Map<DataClassification, ClassificationRoutingRule> = sovereignDefaults(),
+        enabled: Boolean = false,
+    ) : this(providerZones, rules, enabled, emptyMap(), emptyMap(), emptySet())
+
+    /**
+     * The 0.7.0 copy shape (`copy(Map, Map, boolean)` and its default-argument companion), kept so
+     * an already-compiled copy call site keeps binding. Its parameter names are distinct from the
+     * six-property copy's, so both the delegation below and a named-argument call in source resolve
+     * to the generated copy, whose remaining arguments default to this receiver: a copied
+     * configuration keeps the governed authority it was copied from.
+     */
+    fun copy(
+        zones: Map<String, ProviderTrustZone> = this.providerZones,
+        ruleSet: Map<DataClassification, ClassificationRoutingRule> = this.rules,
+        enabledFlag: Boolean = this.enabled,
+    ): ProviderRoutingConfiguration = copy(providerZones = zones, rules = ruleSet, enabled = enabledFlag)
 
     companion object {
         /**
@@ -80,22 +126,26 @@ data class ProviderRoutingConfiguration(
             val localOnly = setOf(ProviderTrustZone.LOCAL)
             val localAndEu = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD)
             return mapOf(
-                DataClassification.RESTRICTED to ClassificationRoutingRule(
-                    allowedZones = localOnly,
-                    allowedFallbackZones = emptySet(),
-                ),
-                DataClassification.CONFIDENTIAL to ClassificationRoutingRule(
-                    allowedZones = localAndEu,
-                    allowedFallbackZones = localAndEu,
-                ),
-                DataClassification.INTERNAL to ClassificationRoutingRule(
-                    allowedZones = allZones,
-                    allowedFallbackZones = allZones,
-                ),
-                DataClassification.PUBLIC to ClassificationRoutingRule(
-                    allowedZones = allZones,
-                    allowedFallbackZones = allZones,
-                ),
+                DataClassification.RESTRICTED to
+                    ClassificationRoutingRule(
+                        allowedZones = localOnly,
+                        allowedFallbackZones = emptySet(),
+                    ),
+                DataClassification.CONFIDENTIAL to
+                    ClassificationRoutingRule(
+                        allowedZones = localAndEu,
+                        allowedFallbackZones = localAndEu,
+                    ),
+                DataClassification.INTERNAL to
+                    ClassificationRoutingRule(
+                        allowedZones = allZones,
+                        allowedFallbackZones = allZones,
+                    ),
+                DataClassification.PUBLIC to
+                    ClassificationRoutingRule(
+                        allowedZones = allZones,
+                        allowedFallbackZones = allZones,
+                    ),
             )
         }
     }
