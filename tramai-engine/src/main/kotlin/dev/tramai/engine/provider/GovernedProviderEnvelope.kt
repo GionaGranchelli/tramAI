@@ -106,7 +106,13 @@ internal data class GovernedExecutionInput(
 
 /**
  * Derives the authority envelope for one execution request from the configured topology and observed
- * runtime availability. Shared by the synchronous and streaming paths so the two cannot drift.
+ * runtime availability.
+ *
+ * This is the streaming path's derivation. The synchronous path derives the same candidate mapping
+ * and refuses on the same conditions independently, in `ProviderExecutionCoordinator`'s
+ * `governedCandidateSet` and `mapRoutesToCandidates`. The two agree on every decision but not on
+ * their diagnostic wording — the ambiguity and workload-refusal messages differ — so converge them
+ * before changing either.
  *
  * Fails closed on every absent fact: no governed configuration, no governed run, an unconfigured
  * workload zone, a refused workload resolution, or a route whose provider has no configured
