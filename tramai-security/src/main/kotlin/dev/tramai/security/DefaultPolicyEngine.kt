@@ -1,6 +1,13 @@
 package dev.tramai.security
 
-import dev.tramai.core.policy.*
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.ApprovalRequirement
+import dev.tramai.core.policy.CompatibilityMode
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
+import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.PolicyEngine
 
 /**
  * Deny-by-default [PolicyEngine] implementation.
@@ -22,26 +29,56 @@ import dev.tramai.core.policy.*
  */
 class DefaultPolicyEngine(
     private val config: PolicyConfiguration,
-) : PolicyEngine {
+) : PolicyEngine,
+    ProviderRoutingConfigurationSource {
+    /**
+     * The configured routing topology, exposed through [ProviderRoutingConfigurationSource] so the
+     * execution path can authorize from the configured facts instead of re-deriving them. Reading it
+     * grants no authority: an entry the configuration does not carry withholds rather than defaults.
+     */
+    override val providerRoutingConfiguration: ProviderRoutingConfiguration get() = config.providerRouting
 
-    override suspend fun evaluate(context: PolicyContext): PolicyDecision = when (context.enforcementPoint) {
-        EnforcementPoint.BEFORE_PROVIDER_RESOLUTION -> evaluateProviderResolution(context)
-        EnforcementPoint.BEFORE_PROVIDER_INVOCATION -> evaluateProviderInvocation(context)
-        EnforcementPoint.BEFORE_FALLBACK -> evaluateFallback(context)
-        EnforcementPoint.BEFORE_TOOL_EXPOSURE -> evaluateToolExposure(context)
-        EnforcementPoint.BEFORE_TOOL_EXECUTION -> evaluateToolExecution(context)
-        EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION -> PolicyDecision.Allow
-        EnforcementPoint.BEFORE_RESPONSE_RETURN -> evaluateResponseReturn(context)
-        EnforcementPoint.BEFORE_WORKFLOW_RESUME ->
-            if (config.allowWorkflowResume) {
-                PolicyDecision.Allow
-            } else {
-                PolicyDecision.Deny(
-                    "Workflow resume is not enabled",
-                    "workflow-resume-disabled",
-                )
+    override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+        when (context.enforcementPoint) {
+            EnforcementPoint.BEFORE_PROVIDER_RESOLUTION -> {
+                evaluateProviderResolution(context)
             }
-    }
+
+            EnforcementPoint.BEFORE_PROVIDER_INVOCATION -> {
+                evaluateProviderInvocation(context)
+            }
+
+            EnforcementPoint.BEFORE_FALLBACK -> {
+                evaluateFallback(context)
+            }
+
+            EnforcementPoint.BEFORE_TOOL_EXPOSURE -> {
+                evaluateToolExposure(context)
+            }
+
+            EnforcementPoint.BEFORE_TOOL_EXECUTION -> {
+                evaluateToolExecution(context)
+            }
+
+            EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION -> {
+                PolicyDecision.Allow
+            }
+
+            EnforcementPoint.BEFORE_RESPONSE_RETURN -> {
+                evaluateResponseReturn(context)
+            }
+
+            EnforcementPoint.BEFORE_WORKFLOW_RESUME -> {
+                if (config.allowWorkflowResume) {
+                    PolicyDecision.Allow
+                } else {
+                    PolicyDecision.Deny(
+                        "Workflow resume is not enabled",
+                        "workflow-resume-disabled",
+                    )
+                }
+            }
+        }
 
     // ─── Provider resolution ───────────────────────────────────────────────
 
