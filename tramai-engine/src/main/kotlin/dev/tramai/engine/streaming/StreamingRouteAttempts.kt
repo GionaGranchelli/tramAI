@@ -46,10 +46,14 @@ internal class StreamingRouteAttempts(
         ExecutionSecurityContext,
         List<Any?>,
     ) -> StreamingRouteResult,
-    private val recordRetryEvent: (String, String, OperationObservation) -> Unit,
+    private val decideStartupFailure: suspend (
+        StreamingRouteResult.StartupFailure,
+        FallbackHandoff,
+        RouteAttemptBudget,
+        Int,
+    ) -> Boolean,
 ) {
     private val circuitBreaker: ProviderCircuitBreaker = failurePolicy.circuitBreaker
-    private val retryPolicy: ProviderRetryPolicy = failurePolicy.retryPolicy
     private val conversationMemoryCoordinator = services.conversationMemoryCoordinator
 
     /**
@@ -210,7 +214,7 @@ internal class StreamingRouteAttempts(
             }
 
             is StreamingRouteResult.StartupFailure -> {
-                if (handleStreamingStartupFailure(result, handoff, budget, retryIndex)) {
+                if (decideStartupFailure(result, handoff, budget, retryIndex)) {
                     StreamingRouteAttemptOutcome.Stop(result.error)
                 } else {
                     null
@@ -242,61 +246,6 @@ internal class StreamingRouteAttempts(
                 Message(role = MessageRole.ASSISTANT, content = fullText),
             ),
         )
-    }
-
-    /**
-     * Decides what a retryable streaming startup failure means for one route, and returns true when
-     * the route is finished (the caller then exits it and lets the candidate loop advance once).
-     *
-     * STREAMING_STARTUP_RETRY is a recovery-eligible marker (8.2h P0-M, Option 1), emitted at most
-     * once per route and only when a retryable pre-token failure will ACTUALLY be followed by
-     * recovery: a same-route retry or a fallback to a next route. providerRetries=0 with no fallback
-     * route means no recovery and therefore no event, because the name must never announce a retry
-     * that cannot happen. RETRY_SCHEDULED remains the decision event for actual same-route retries.
-     */
-    suspend fun handleStreamingStartupFailure(
-        result: StreamingRouteResult.StartupFailure,
-        handoff: FallbackHandoff,
-        budget: RouteAttemptBudget,
-        retryIndex: Int,
-    ): Boolean {
-        val decision = retryPolicy.decide(result.error, retryIndex, budget.maxAttempts)
-        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || handoff.nextRoute != null)) {
-            recordRetryEvent(
-                handoff.route.providerName,
-                result.error::class.simpleName ?: "unknown",
-                result.observation,
-            )
-        }
-        return when (decision) {
-            is ProviderRetryDecision.Retry -> {
-                result.observation.emitRuntimeEvent(
-                    RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
-                        set(RuntimeAttributes.PROVIDER_ID, handoff.route.providerName)
-                        set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
-                        set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
-                        set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
-                    },
-                )
-                delay(decision.delayMillis)
-                false
-            }
-
-            ProviderRetryDecision.Stop -> {
-                // Stop is authoritative REGARDLESS of why it stopped (exhaustion OR classification):
-                // it permanently relinquishes same-route retry authority (8.2h P0-O), and the
-                // fallback gate has already had its say by the time this returns true.
-                recordCircuitBreakerFailure(budget.permit, result.error, result.observation)
-                enforceStreamingFallbackAfterFailure(
-                    error = result.error,
-                    route = handoff.route,
-                    nextRoute = handoff.nextRoute,
-                    correlationId = handoff.correlationId,
-                    securityContext = handoff.securityContext,
-                )
-                true
-            }
-        }
     }
 
     suspend fun handleCircuitBreakerOpenRoute(
@@ -349,25 +298,6 @@ internal class StreamingRouteAttempts(
         } catch (policyError: PolicyViolationException) {
             policyError.addSuppressed(error)
             throw policyError
-        }
-    }
-
-    fun recordCircuitBreakerFailure(
-        permit: CircuitBreakerPermit,
-        error: Throwable,
-        observation: OperationObservation,
-    ) {
-        val opened = circuitBreaker.onFailure(permit, error)
-        if (opened) {
-            observation.emitRuntimeEvent(
-                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
-                    set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
-                },
-            )
-        } else {
-            // Non-qualifying failure: never a breaker failure, but a HALF_OPEN
-            // probe permit must still be released or recovery strands forever.
-            circuitBreaker.onAbandoned(permit)
         }
     }
 }

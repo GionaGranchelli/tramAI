@@ -30,12 +30,9 @@ import kotlinx.coroutines.TimeoutCancellationException
  */
 internal class StreamingRouteSupport(
     runtime: StreamingEngineRuntime,
-    services: StreamingCoordinationServices,
 ) {
     private val serviceTypeName = runtime.serviceTypeName
     private val qualifiedServiceName = runtime.qualifiedServiceName
-    private val operationObserver = services.operationObserver
-    private val modelRegistryEnforcer = services.modelRegistryEnforcer
 
     /** A provider without streaming support is refused, releasing its permit first. */
     fun failStreamingCapability(
@@ -45,20 +42,6 @@ internal class StreamingRouteSupport(
     ): Nothing {
         circuitBreaker.onAbandoned(request.permit)
         throw ProviderCapabilityException(route.providerName, "streaming")
-    }
-
-    suspend fun authorizeStreamingRoute(
-        route: ResolvedProviderRoute,
-        observation: OperationObservation,
-    ) {
-        try {
-            modelRegistryEnforcer.authorize(route.providerName, route.effectiveModelName)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ModelRegistryException) {
-            observation.onCallCompleted(parseSuccess = null)
-            throw e
-        }
     }
 
     fun streamingCallContext(
@@ -72,32 +55,6 @@ internal class StreamingRouteSupport(
         requestedModel = operation.operation.model,
         attempt = attempt,
     )
-
-    fun startStreamingObservation(
-        route: ResolvedProviderRoute,
-        operation: OperationDefinition,
-        attempt: Int,
-        routeIndex: Int,
-    ): OperationObservation =
-        operationObserver
-            .onCallStarted(
-                OperationCallContext(
-                    serviceInterface = serviceTypeName,
-                    methodName = operation.method.name,
-                    providerId = route.providerName,
-                    requestedModel = operation.operation.model,
-                    attempt = attempt,
-                ),
-            ).also { observation ->
-                observation.emitRuntimeEvent(
-                    RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
-                        set(RuntimeAttributes.PROVIDER_ID, route.providerName)
-                        set(RuntimeAttributes.EFFECTIVE_MODEL, route.effectiveModelName)
-                        set(RuntimeAttributes.ROUTE_INDEX, routeIndex.toLong())
-                        set(RuntimeAttributes.IS_FALLBACK, routeIndex > 0)
-                    },
-                )
-            }
 
     fun normalizeStreamingError(
         error: Throwable,

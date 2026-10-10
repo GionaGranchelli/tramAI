@@ -125,23 +125,29 @@ internal class StreamingExecutionCoordinator(
     private val lifecycleScope = runtime.lifecycleScope
     private val isClosed = runtime.isClosed
     private val qualifiedServiceName = runtime.qualifiedServiceName
+    private val modelRegistryEnforcer = services.modelRegistryEnforcer
+    private val serviceTypeName = runtime.serviceTypeName
     private val operationInterceptor = services.operationInterceptor
+    private val operationObserver = services.operationObserver
     private val toolExposureCoordinator = services.toolExposureCoordinator
     private val conversationMemoryCoordinator = services.conversationMemoryCoordinator
     private val tokenBudgetCoordinator = services.tokenBudgetCoordinator
+    private val retryPolicy = failurePolicy.retryPolicy
     private val beforeResolution = gates.beforeResolution
     private val beforeInvocation = gates.beforeInvocation
     private val fallbackGate = gates.fallbackGate
     private val beforeResponseReturn = gates.beforeResponseReturn
-    private val support = StreamingRouteSupport(runtime, services)
+    private val support = StreamingRouteSupport(runtime)
     private val routeAttempts =
         StreamingRouteAttempts(
             services,
             failurePolicy,
             fallbackGate,
             ::executeStreamingRoute,
-            ::recordStartupRetryEvent,
+            ::handleStreamingStartupFailure,
         )
+    private val governedWalk =
+        StreamingGovernedWalk(runtime, failurePolicy, routeAttempts, governance)
 
     fun execute(request: StreamingExecutionRequest): Flow<StreamChunk> =
         // Structural branch on authoritative configuration state: `governance` is derived from the
@@ -233,228 +239,6 @@ internal class StreamingExecutionCoordinator(
 
             chunks.send(noAvailableStreamingRouteChunk(operation, lastFailure, lastCircuitOpen))
         }
-    }
-
-    /**
-     * Authorizes what the configured routes propose. This path reaches a provider only through a
-     * candidate selected from that envelope, exactly as the synchronous path does, and a streaming
-     * request inherently requires STREAMING.
-     */
-    private fun governedStreamingEnvelope(
-        run: StreamingRun,
-        authority: StreamingAuthority,
-    ): GovernedProviderEnvelope =
-        governProviderExecution(
-            GovernedExecutionInput(
-                routes = authority.candidates,
-                routingPlan = routingPlan,
-                securityContext = authority.securityContext,
-                requiredCapabilities =
-                    deriveRequiredCapabilities(
-                        run.operation,
-                        run.effectiveMessages,
-                        streaming = true,
-                    ),
-            ),
-            configuration = governance,
-            governedRun = authority.request.governedRun,
-            circuitBreaker = circuitBreaker,
-        )
-
-    /** Reports why no route could serve the request: the last failure and the last circuit refusal. */
-    private suspend fun reportStreamingExhaustion(
-        run: StreamingRun,
-        envelope: GovernedProviderEnvelope,
-        lastFailure: Throwable?,
-        lastCircuitOpen: CircuitBreakerOpenException?,
-    ) {
-        run.emitChunk(
-            noAvailableStreamingRouteChunk(
-                run.operation,
-                lastFailure,
-                // A walk that never recorded a refusal still reports the circuit state it ended on.
-                lastCircuitOpen ?: circuitOpenExhaustion(envelope),
-            ),
-        )
-    }
-
-    /**
-     * The next governed streaming route that admission allows.
-     *
-     * A route the circuit breaker refuses is not a failure: the refusal narrows the envelope and the walk
-     * selects again from what remains, exactly as configured order would. Returns null when no candidate
-     * is left to select, carrying the narrowed envelope and the last refusal.
-     */
-    private suspend fun admitNextGovernedStreamingRoute(
-        envelope: GovernedProviderEnvelope,
-        remaining: ViableCandidates,
-        authority: StreamingAuthority,
-        lastCircuitOpen: CircuitBreakerOpenException?,
-    ): GovernedStreamingAdmissionStep? {
-        var viable = remaining
-        var open = lastCircuitOpen
-        while (true) {
-            val step = nextGovernedStreamingRoute(envelope, viable, authority) ?: return null
-            val admission = step.admission
-            if (admission !is CircuitBreakerAdmission.Rejected) {
-                return GovernedStreamingAdmissionStep(step, viable, open)
-            }
-            open =
-                CircuitBreakerOpenException(
-                    step.selection.route.providerName,
-                    admission.blockedUntilMillis,
-                )
-            viable = step.selection.narrowed
-        }
-    }
-
-    /**
-     * Walks the governed envelope: authorize what the configured routes propose, consult the
-     * continuation policy for every pre-open exclusion execution advances past, select each route from
-     * the current remainder, attempt it, and report exhaustion with the last failure and the last
-     * circuit refusal.
-     *
-     * Configured routes propose; the governed envelope authorizes. This path reaches a provider only
-     * through a candidate selected from that envelope, exactly as the synchronous path does, and a
-     * streaming request inherently requires STREAMING.
-     */
-    private suspend fun walkGovernedStreamingRoutes(
-        run: StreamingRun,
-        authority: StreamingAuthority,
-    ) {
-        var lastFailure: Throwable? = null
-        var lastCircuitOpen: CircuitBreakerOpenException? = null
-        val attemptCounter = AttemptCounter()
-
-        val envelope = governedStreamingEnvelope(run, authority)
-        var remaining = envelope.viable
-
-        // Pre-open exclusions are still transitions execution advances past, so the
-        // continuation policy is consulted for each one before another candidate may
-        // execute — the same question the rejection below asks, for the same reason.
-        // Approval permits continuation only: it cannot restore the excluded candidate,
-        // widen the envelope, or reach a route the envelope does not carry. With no
-        // continuation target there is no transition to authorize.
-        // Only an exclusion execution actually advances PAST gates a continuation: an
-        // excluded candidate positioned after the candidate about to run does not gate
-        // it, so no transition exists and the gate is not consulted on its behalf.
-        val continuationCandidate = remaining.orderedBy(envelope.configuredOrder).firstOrNull()
-        if (continuationCandidate != null) {
-            lastCircuitOpen =
-                routeAttempts.gateExcludedStreamingCandidates(
-                    envelope,
-                    remaining,
-                    continuationCandidate,
-                    authority.correlationId,
-                    authority.securityContext,
-                ) ?: lastCircuitOpen
-        }
-
-        while (true) {
-            val admitted =
-                admitNextGovernedStreamingRoute(
-                    envelope,
-                    remaining,
-                    authority,
-                    lastCircuitOpen,
-                ) ?: break
-            remaining = admitted.remaining
-            lastCircuitOpen = admitted.lastCircuitOpen
-            val selection = admitted.step.selection
-            val permit = (admitted.step.admission as CircuitBreakerAdmission.Allowed).permit
-
-            // Provider retry budget (Epic 8.2h P0-A): transient
-            // STREAMING STARTUP failures retry the SAME route
-            // before any token, honoring @Operation.providerRetries
-            // exactly like the sync path — maxAttempts =
-            // providerRetries + 1, same ProviderRetryPolicy, same
-            // retry-after cap / backoff / jitter. Retry never
-            // changes route; fallback only after exhaustion.
-            // Every attempt of a route shares the SAME circuit-
-            // breaker permit (8.2g boundary): intermediate retries
-            // never call onFailure — only the terminal route
-            // outcome completes breaker authority.
-            // After any token, retry/fallback authority is
-            // permanently gone (handleFallbackResult's
-            // emittedAnyTokens gate).
-            when (
-                val outcome =
-                    routeAttempts.attemptStreamingCandidate(
-                        run,
-                        authority,
-                        admitted.step.candidate,
-                        permit,
-                        attemptCounter,
-                    )
-            ) {
-                is StreamingRouteAttemptOutcome.Finished -> {
-                    return
-                }
-
-                is StreamingRouteAttemptOutcome.Stop -> {
-                    lastFailure = outcome.error
-                    // Narrow and reselect rather than advancing to the next configured route. The candidate
-                    // loop advances because Stop ended the route's attempts, not the walk.
-                    remaining = selection.narrowed
-                }
-
-                StreamingRouteAttemptOutcome.Exhausted -> {
-                    Unit
-                }
-            }
-        }
-
-        reportStreamingExhaustion(run, envelope, lastFailure, lastCircuitOpen)
-    }
-
-    /**
-     * Answers the walk's one recurring question: which route runs next, and is it admissible.
-     *
-     * Selection and admission belong together because the fallback handoff must be built from the
-     * route the breaker actually admitted, and because a refusal is the caller's to record - the walk
-     * owns the last circuit refusal and the narrowed remainder. Null means governance selected nothing,
-     * which ends the walk.
-     */
-    private suspend fun nextGovernedStreamingRoute(
-        envelope: GovernedProviderEnvelope,
-        remaining: ViableCandidates,
-        authority: StreamingAuthority,
-    ): GovernedStreamingStep? {
-        val selection = selectGovernedStreamingRoute(envelope, remaining) ?: return null
-        val admission =
-            routeAttempts.handleCircuitBreakerOpenRoute(
-                route = selection.route,
-                nextRoute = selection.nextRoute,
-                correlationId = authority.correlationId,
-                securityContext = authority.securityContext,
-            )
-        return GovernedStreamingStep(selection, admission)
-    }
-
-    /**
-     * Selects the next route from the CURRENT remainder and reports it with its successor.
-     *
-     * Narrow the current remainder, never the envelope's viable snapshot: subtracting from the
-     * snapshot would restore a candidate removed by an earlier iteration and let a route be
-     * revisited. The successor is asked for after narrowing, so the fallback gate is never told about
-     * a route governance has not selected.
-     */
-    private fun selectGovernedStreamingRoute(
-        envelope: GovernedProviderEnvelope,
-        remaining: ViableCandidates,
-    ): GovernedStreamingRouteSelection? {
-        val chosen =
-            when (val decision = envelope.selection.select(remaining, envelope.preferConfiguredOrder)) {
-                is CandidateSelectionDecision.Selected -> decision.candidate
-                is CandidateSelectionDecision.NoSelection -> null
-            } ?: return null
-        val narrowed = remaining.without(chosen)
-        return GovernedStreamingRouteSelection(
-            route = envelope.routeOf(chosen),
-            routeIndex = envelope.routeIndexOf(envelope.routeOf(chosen)),
-            narrowed = narrowed,
-            nextRoute = envelope.nextSelected(narrowed),
-        )
     }
 
     /**
@@ -554,7 +338,7 @@ internal class StreamingExecutionCoordinator(
             require(correlationId.isNotBlank()) { "Engine correlationId must not be blank" }
             beforeResolution.beforeResolution(operation, correlationId, securityContext)
             val candidates = routingPlan.resolveCandidates(operation.operation)
-            walkGovernedStreamingRoutes(
+            governedWalk.walkGovernedStreamingRoutes(
                 StreamingRun(
                     operation = operation,
                     arguments = arguments,
@@ -582,9 +366,9 @@ internal class StreamingExecutionCoordinator(
     ): StreamingRouteResult {
         val route = request.route
         val observation =
-            support.startStreamingObservation(route, request.operation, request.attempt, request.routeIndex)
+            startStreamingObservation(route, request.operation, request.attempt, request.routeIndex)
         try {
-            support.authorizeStreamingRoute(route, observation)
+            authorizeStreamingRoute(route, observation)
             beforeResponseReturn.enforce(route, correlationId, securityContext)
             toolExposureCoordinator.enforce(request.operation, correlationId, securityContext)
             beforeInvocation.invoke(route.providerName, route.effectiveModelName, correlationId, securityContext)
@@ -615,25 +399,6 @@ internal class StreamingExecutionCoordinator(
                 request.permit,
             ),
         )
-    }
-
-    /**
-     * Read-only classification of an exhausted universe. Viability removes circuit-open candidates
-     * before selection, so when every candidate is circuit-open nothing is ever rejected inside the
-     * loop and no circuit fact is observed there. This reports what viability already observed,
-     * consuming no permit and admitting nothing.
-     *
-     * A governance refusal is not an exhausted attempt: when authorization admitted nothing, the
-     * terminal stays the refusal it is rather than being relabelled as circuit state.
-     */
-    private fun circuitOpenExhaustion(envelope: GovernedProviderEnvelope): CircuitBreakerOpenException? {
-        if (envelope.authorizedNothing) return null
-        return envelope.configuredOrder
-            .mapNotNull { candidate ->
-                circuitBreaker.openUntilMillis(candidate.providerId)?.let { until ->
-                    CircuitBreakerOpenException(candidate.providerId, until)
-                }
-            }.firstOrNull()
     }
 
     private suspend fun collectStreamingRoute(call: StreamingRouteCall): StreamingRouteResult {
@@ -836,7 +601,7 @@ internal class StreamingExecutionCoordinator(
             } else {
                 // Terminal: non-retryable, post-token failure, or fallback-disallowed.
                 // This completes breaker authority for the ctx.route.
-                routeAttempts.recordCircuitBreakerFailure(ctx.permit, error, ctx.observation)
+                recordCircuitBreakerFailure(ctx.permit, error, ctx.observation)
                 StreamingRouteResult.TerminalError(terminalChunk)
             }
         ctx.observation.onCallCompleted(parseSuccess = null)
@@ -848,6 +613,120 @@ internal class StreamingExecutionCoordinator(
             onCallCancelled()
         } catch (observerError: Throwable) {
             cancellation.addSuppressed(observerError)
+        }
+    }
+
+    fun startStreamingObservation(
+        route: ResolvedProviderRoute,
+        operation: OperationDefinition,
+        attempt: Int,
+        routeIndex: Int,
+    ): OperationObservation =
+        operationObserver
+            .onCallStarted(
+                OperationCallContext(
+                    serviceInterface = serviceTypeName,
+                    methodName = operation.method.name,
+                    providerId = route.providerName,
+                    requestedModel = operation.operation.model,
+                    attempt = attempt,
+                ),
+            ).also { observation ->
+                observation.emitRuntimeEvent(
+                    RuntimeEvent.of(RuntimeEvents.ROUTE_SELECTED) {
+                        set(RuntimeAttributes.PROVIDER_ID, route.providerName)
+                        set(RuntimeAttributes.EFFECTIVE_MODEL, route.effectiveModelName)
+                        set(RuntimeAttributes.ROUTE_INDEX, routeIndex.toLong())
+                        set(RuntimeAttributes.IS_FALLBACK, routeIndex > 0)
+                    },
+                )
+            }
+
+    suspend fun authorizeStreamingRoute(
+        route: ResolvedProviderRoute,
+        observation: OperationObservation,
+    ) {
+        try {
+            modelRegistryEnforcer.authorize(route.providerName, route.effectiveModelName)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ModelRegistryException) {
+            observation.onCallCompleted(parseSuccess = null)
+            throw e
+        }
+    }
+
+    /**
+     * Decides what a retryable streaming startup failure means for one route, and returns true when
+     * the route is finished (the caller then exits it and lets the candidate loop advance once).
+     *
+     * STREAMING_STARTUP_RETRY is a recovery-eligible marker (8.2h P0-M, Option 1), emitted at most
+     * once per route and only when a retryable pre-token failure will ACTUALLY be followed by
+     * recovery: a same-route retry or a fallback to a next route. providerRetries=0 with no fallback
+     * route means no recovery and therefore no event, because the name must never announce a retry
+     * that cannot happen. RETRY_SCHEDULED remains the decision event for actual same-route retries.
+     */
+    suspend fun handleStreamingStartupFailure(
+        result: StreamingRouteResult.StartupFailure,
+        handoff: FallbackHandoff,
+        budget: RouteAttemptBudget,
+        retryIndex: Int,
+    ): Boolean {
+        val decision = retryPolicy.decide(result.error, retryIndex, budget.maxAttempts)
+        if (retryIndex == 0 && (decision is ProviderRetryDecision.Retry || handoff.nextRoute != null)) {
+            recordStartupRetryEvent(
+                handoff.route.providerName,
+                result.error::class.simpleName ?: "unknown",
+                result.observation,
+            )
+        }
+        return when (decision) {
+            is ProviderRetryDecision.Retry -> {
+                result.observation.emitRuntimeEvent(
+                    RuntimeEvent.of(RuntimeEvents.RETRY_SCHEDULED) {
+                        set(RuntimeAttributes.PROVIDER_ID, handoff.route.providerName)
+                        set(RuntimeAttributes.RETRY_INDEX, retryIndex.toLong())
+                        set(RuntimeAttributes.DELAY_MILLIS, decision.delayMillis)
+                        set(RuntimeAttributes.DELAY_SOURCE, decision.delaySource)
+                    },
+                )
+                delay(decision.delayMillis)
+                false
+            }
+
+            ProviderRetryDecision.Stop -> {
+                // Stop is authoritative REGARDLESS of why it stopped (exhaustion OR classification):
+                // it permanently relinquishes same-route retry authority (8.2h P0-O), and the
+                // fallback gate has already had its say by the time this returns true.
+                recordCircuitBreakerFailure(budget.permit, result.error, result.observation)
+                routeAttempts.enforceStreamingFallbackAfterFailure(
+                    error = result.error,
+                    route = handoff.route,
+                    nextRoute = handoff.nextRoute,
+                    correlationId = handoff.correlationId,
+                    securityContext = handoff.securityContext,
+                )
+                true
+            }
+        }
+    }
+
+    fun recordCircuitBreakerFailure(
+        permit: CircuitBreakerPermit,
+        error: Throwable,
+        observation: OperationObservation,
+    ) {
+        val opened = circuitBreaker.onFailure(permit, error)
+        if (opened) {
+            observation.emitRuntimeEvent(
+                RuntimeEvent.of(RuntimeEvents.CIRCUIT_OPENED) {
+                    set(RuntimeAttributes.PROVIDER_ID, permit.providerId)
+                },
+            )
+        } else {
+            // Non-qualifying failure: never a breaker failure, but a HALF_OPEN
+            // probe permit must still be released or recovery strands forever.
+            circuitBreaker.onAbandoned(permit)
         }
     }
 }
