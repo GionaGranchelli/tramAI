@@ -88,8 +88,10 @@ class RuntimeEvidenceAttributionTest {
     @Test
     fun `attribution composes at the validator and leaves the writer vocabulary untouched`() {
         val families = RuntimeEvidenceBundleWriter.ALLOWED_METADATA_KEYS
+        val expectedFamilies =
+            setOf("policy.decision", "approval.decision", "provider.route", "tool.permission", "governance.decision")
         assertEquals(
-            setOf("policy.decision", "approval.decision", "provider.route", "tool.permission"),
+            expectedFamilies,
             families.keys.toSet(),
         )
         families.forEach { (family, familyKeys) ->

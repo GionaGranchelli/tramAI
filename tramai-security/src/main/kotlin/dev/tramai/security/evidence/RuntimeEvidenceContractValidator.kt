@@ -256,6 +256,18 @@ internal object RuntimeEvidenceContractValidator {
                         reasonCode
                 }
             }
+
+            "governance.decision" -> {
+                val family =
+                    requireNotNull(GOVERNANCE_REASON_CODES[record.decision.kind]) {
+                        "No closed reason family defined for governance decision kind: " +
+                            "${record.decision.kind}"
+                    }
+                require(reasonCode in family) {
+                    "decision.reasonCode '$reasonCode' is not in the closed reason family for " +
+                        "'${record.decision.kind}'. Allowed: ${family.sorted()}"
+                }
+            }
         }
     }
 }
