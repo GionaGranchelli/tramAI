@@ -127,3 +127,12 @@ internal fun noAvailableStreamingRouteChunk(
                 )
         ) as TramaiException,
     )
+
+/**
+ * The terminal for a governed execution whose authorization admitted nothing. Not retryable: an
+ * identity, zone, classification, registration or capability refusal is not a transient condition,
+ * so the same request refuses again. The synchronous path reports this condition with the same
+ * message and retryability, and nothing here reaches a provider, so there is no failure to report.
+ */
+internal fun unauthorizedStreamingRefusal(): ProviderException =
+    ProviderException("No provider candidate is authorized for this execution", retryable = false)

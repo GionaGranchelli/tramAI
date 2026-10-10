@@ -119,6 +119,14 @@ internal class StreamingGovernedWalk(
         lastFailure: Throwable?,
         lastCircuitOpen: CircuitBreakerOpenException?,
     ) {
+        // Authorization admitting nothing is a governance refusal, not an exhausted attempt: no
+        // candidate was admitted, so no provider was reached, nothing failed, and retrying cannot
+        // change the identity, zone, classification, registration or capability that refused it. The
+        // no-route fallback would report it as retryable runtime unavailability, which it is not.
+        if (envelope.authorizedNothing) {
+            run.emitChunk(StreamChunk.Error(unauthorizedStreamingRefusal()))
+            return
+        }
         run.emitChunk(
             noAvailableStreamingRouteChunk(
                 run.operation,

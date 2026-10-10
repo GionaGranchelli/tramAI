@@ -1765,6 +1765,40 @@ class StreamingExecutionCoordinatorTest {
         }
     }
 
+    @Test fun `empty authorized set is a non-retryable governance refusal with zero invocations`() {
+        runBlocking {
+            val incapable = RecordingProvider("p") { flow { emit(StreamChunk.Complete("bad")) } }
+            incapable.capabilities = emptySet()
+            val c = coordinator(plan("p" to incapable), RecordingOperationObserver(OrderedSink()))
+            val error = c.execute(request()).toList().single() as StreamChunk.Error
+            // Not the retryable no-route fallback: no candidate was admitted, so nothing was reached
+            // and retrying cannot change the capability refusal that emptied the authorized set.
+            assertThat(error.cause).isInstanceOf(ProviderException::class.java)
+            assertThat((error.cause as ProviderException).retryable).isFalse()
+            assertThat(error.cause.message)
+                .isEqualTo("No provider candidate is authorized for this execution")
+            assertThat(incapable.streamRequests).isEmpty()
+        }
+    }
+
+    @Test fun `authorized but unviable retains the runtime availability result`() {
+        runBlocking {
+            val provider = RecordingProvider("p") { flow { emit(StreamChunk.Complete("bad")) } }
+            val c =
+                coordinator(
+                    plan("p" to provider),
+                    RecordingOperationObserver(OrderedSink()),
+                    StreamingCoordinatorTestOptions(circuitBreaker = openedCircuitFor("p")),
+                )
+            val error = c.execute(request()).toList().single() as StreamChunk.Error
+            // Authorization admitted the candidate and viability removed it for a runtime reason, so
+            // the terminal stays that runtime fact instead of becoming a governance refusal.
+            assertThat(error.cause).isInstanceOf(CircuitBreakerOpenException::class.java)
+            assertThat(error.cause).isNotInstanceOf(ProviderException::class.java)
+            assertThat(provider.streamRequests).isEmpty()
+        }
+    }
+
     @Test fun `non streaming provider is refused at authorization not at invocation`() {
         runBlocking {
             val provider = NonStreamingProvider("p")
