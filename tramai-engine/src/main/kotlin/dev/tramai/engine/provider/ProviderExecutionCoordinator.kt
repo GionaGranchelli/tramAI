@@ -464,16 +464,23 @@ private class GovernedCandidateWalk(
         resolvedRoutes: List<ResolvedProviderRoute>,
         configuration: ProviderGovernanceConfiguration,
     ): List<Pair<ResolvedProviderRoute, ProviderCandidate>> {
-        val mappings = ArrayList<Pair<ResolvedProviderRoute, ProviderCandidate>>(resolvedRoutes.size)
-        val seen = HashMap<ProviderCandidate, ResolvedProviderRoute>()
-        resolvedRoutes.forEach { route ->
-            val deployment = configuration.deploymentOf(route.providerName) ?: return@forEach
-            val candidate = ProviderCandidate(route.providerName, route.effectiveModelName, deployment)
-            val previous = seen.put(candidate, route)
-            if (previous != null && previous != route) {
-                throw ProviderException("Provider candidate has more than one resolved route", retryable = false)
+        val mappings =
+            resolvedRoutes.mapNotNull { route ->
+                val deployment = configuration.deploymentOf(route.providerName) ?: return@mapNotNull null
+                route to ProviderCandidate(route.providerName, route.effectiveModelName, deployment)
             }
-            mappings += route to candidate
+        val collision =
+            mappings
+                .withIndex()
+                .groupBy { it.value.second }
+                .values
+                .mapNotNull { group ->
+                    group.zipWithNext().firstOrNull { (previous, current) ->
+                        previous.value.first != current.value.first
+                    }
+                }.minByOrNull { it.second.index }
+        if (collision != null) {
+            throw ProviderException("Provider candidate has more than one resolved route", retryable = false)
         }
         return mappings
     }

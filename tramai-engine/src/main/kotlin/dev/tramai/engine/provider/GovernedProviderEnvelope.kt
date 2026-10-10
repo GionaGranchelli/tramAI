@@ -185,22 +185,30 @@ private fun routeCandidates(
     routes: List<ResolvedProviderRoute>,
     configuration: ProviderGovernanceConfiguration,
 ): List<Pair<ResolvedProviderRoute, ProviderCandidate>> {
-    val mappings = ArrayList<Pair<ResolvedProviderRoute, ProviderCandidate>>(routes.size)
-    val seen = LinkedHashMap<ProviderCandidate, ResolvedProviderRoute>()
-    routes.forEach { route ->
-        val deployment = configuration.deploymentOf(route.providerName) ?: return@forEach
-        val candidate = ProviderCandidate(route.providerName, route.effectiveModelName, deployment)
-        val existing = seen.put(candidate, route)
-        if (existing != null && existing != route) {
-            throw ProviderException(
-                "Configured routes ${existing.providerName}/${existing.effectiveModelName} and " +
-                    "${route.providerName}/${route.effectiveModelName} map to one candidate: " +
-                    "ambiguous candidate identity",
-                retryable = false,
-            )
+    val mappings =
+        routes.mapNotNull { route ->
+            val deployment = configuration.deploymentOf(route.providerName) ?: return@mapNotNull null
+            route to ProviderCandidate(route.providerName, route.effectiveModelName, deployment)
         }
-        mappings += route to candidate
-    }
+    val collision =
+        mappings
+            .withIndex()
+            .groupBy { it.value.second }
+            .values
+            .mapNotNull { group ->
+                group.zipWithNext().firstOrNull { (previous, current) ->
+                    previous.value.first != current.value.first
+                }
+            }.minByOrNull { it.second.index }
+    val (previous, current) = collision ?: return mappings
+    val existing = previous.value.first
+    val route = current.value.first
+    throw ProviderException(
+        "Configured routes ${existing.providerName}/${existing.effectiveModelName} and " +
+            "${route.providerName}/${route.effectiveModelName} map to one candidate: " +
+            "ambiguous candidate identity",
+        retryable = false,
+    )
     return mappings
 }
 
