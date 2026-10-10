@@ -1,7 +1,7 @@
 # Epic 0.7.3 — Explainable Authorized Provider/Model Selection
 
 **Branch:** `epic/0.7.3-authorized-selection`  
-**Status:** ⚪ Planned  
+**Status:** ✅ Complete — 0.7.3h reconciliation (see “Evidence status” below)  
 **Dependencies:** 0.7.2 HARD
 
 ## Executive decision
@@ -78,11 +78,20 @@ every repository quality gate is green; see the closure note at the end of this 
 
 
 The hard obligation on 0.7.3h — *the execution path must select only from the viable set* — is now met:
-`ProviderExecutionCoordinator` and `StreamingExecutionCoordinator` both route through the
-`GovernedProviderEnvelope` boundary, which is entered whenever a governed routing topology exists, and
-an availability exclusion that execution advances past is answered by the continuation policy rather
-than by walking configured order. A governed execution cannot opt out of that boundary: forcing one
-down the legacy branch is killed by *"a configured next route outside the envelope is never invoked"*.
+`ProviderExecutionCoordinator` and `StreamingExecutionCoordinator` each route through a governance
+boundary — the synchronous coordinator through `GovernedCandidateSet`, the streaming coordinator
+through `GovernedProviderEnvelope` — and both rely on the same security-module contracts for
+authorization, viability and selection. The boundary is entered when a governed routing topology exists
+**and** the execution carries an admitted run identity, resolved from the run scope rather than from a
+caller-supplied request field: a topology alone does not make an execution governed. An availability
+exclusion that execution advances past is answered by the continuation policy rather than by walking
+configured order. A governed execution cannot opt out of that boundary: forcing one down the legacy
+branch is killed by *"a configured next route outside the envelope is never invoked"*.
+
+**Owner decision — accepted (2026-10-10).** The boundary condition above — topology *and* an admitted run
+identity — is ratified by the repository owner and retained for 0.7.3h, so that existing non-governed
+consumers keep executing as before. A workload that requires mandatory governance must be admitted
+through the governed run scope; a configured topology alone does not guarantee governed execution.
 
 | Criterion | Evidence |
 | --- | --- |

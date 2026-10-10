@@ -502,7 +502,9 @@ Two causes, both at a single choke point:
    a caller-supplied request field, so a governed execution cannot opt out of governance by omitting
    one. Missing facts inside the governed branch still fail closed.
 
-**Decision requiring owner ratification.** The second point makes "a governed topology exists for the
+**Decision ratified by the owner — accepted, 2026-10-10.** Retained for 0.7.3h so that existing
+non-governed consumers keep executing: a workload that requires mandatory governance must be admitted
+through the governed run scope. The second point makes "a governed topology exists for the
 execution" mean "a topology exists *and* is addressable for this execution's admitted identity". The
 alternative reading — any configured topology governs every execution, identity or not — fails the four
 example modules closed, and satisfying it would require registering workload identities for them, which
