@@ -220,6 +220,44 @@ When a pipeline fails:
 7. Do not modify a deviation until the current and canonical populations have been measured.
 8. After two unsuccessful fixes, stop and provide a root-cause report rather than applying another speculative patch.
 
+## Engineering Evidence Protocol
+
+The CI Failure Protocol above says how to diagnose a failure. These rules say what counts as
+evidence at all, and they bind every conclusion in a completion report, a PR description or an
+answer to the owner. The procedures behind them live in the agent-side `engineering-evidence`
+skill; this list is the short, authoritative form for this repository.
+
+1. **No conclusion from truncated or incomplete output.** Capture a command's full, structured
+   output and read that. A truncated tail, a scrollback, a summary line, or an artifact a previous
+   run left behind is not the result of this run.
+2. **No base-red claim without an equivalent base/head comparison.** Same task, same properties,
+   at the pristine base and at the head; compare *diagnostic identities*, not just counts, and not
+   the failing family alone. "It also fails at the base" needs both runs recorded — apparent
+   unrelatedness or file ownership is not evidence.
+3. **No certification from a noncanonical command.** Reproduce the invocation the CI job uses,
+   including its `-P` properties. A gate run without its base-ref or base-policy property measures
+   something else, and its verdict does not transfer. When local and CI disagree, the CI invocation
+   decides, and the local result is reported as an invocation artifact.
+4. **Critical behavioural tests must discriminate.** A test guarding an invariant must fail when
+   that invariant is violated and pass when it holds; record both transcripts. A test whose fixture
+   silently selects a different branch, class or default than the one it names proves nothing.
+5. **Mutation verdicts need verified application and valid detection evidence.** Record the exact
+   mutation identity, prove the patch applied to the tree it is claimed against, run a matched
+   control, and state the verdict *and* its mechanism: assertion, crash, reproducible
+   non-termination, survivor, invalid or undetermined. A timeout is not a kill, and a
+   certification does not survive a head it was not run against.
+6. **Public Kotlin/JVM changes need binary-compatibility checks.** Constructors (including the
+   synthetic default-argument ones), `copy`/`copy$default`, `componentN`, getters and static
+   members are part of the contract. Where compatibility matters, exercise an already-compiled
+   consumer of the previous artifact against the new one, with a control run.
+7. **Label every claim.** In a completion report each claim is VERIFIED (reproduced, command and
+   output recorded), OBSERVED (seen once, or not at the canonical invocation), INFERRED (follows
+   from verified facts) or UNRESOLVED (not established). Never present an unresolved failure as
+   green, and state a withdrawn claim as withdrawn instead of dropping it.
+8. **Repeated failure of a hypothesis triggers diagnosis, not more patching.** After two attempts,
+   stop and produce a root-cause report. That is a diagnosis step, not permission to abandon the
+   goal: say what is ruled out, what remains, and what the next discriminating experiment is.
+
 ## Completion Report Format
 
 Finish every implementation task with a structured report:
@@ -234,6 +272,7 @@ What was preserved or strengthened.
 ## Verification
 - command — result
 - command — result
+- each claim labelled VERIFIED / OBSERVED / INFERRED / UNRESOLVED
 
 ## Quality impact
 - cancellation findings: before → after
