@@ -86,6 +86,32 @@ data class ProviderRoutingConfiguration(
         }
     }
 
+    /**
+     * The 0.7.0 construction shape, kept so an already-compiled consumer keeps binding to
+     * `ProviderRoutingConfiguration(Map, Map, boolean)` and to its default-argument companion. It
+     * delegates, so there is one initialisation path to keep in step. The governed arguments are
+     * passed explicitly rather than omitted: naming them would resolve the delegation back to this
+     * same constructor, and an empty governed state is the 0.7.0 contract, not a copy of defaults.
+     */
+    constructor(
+        providerZones: Map<String, ProviderTrustZone> = emptyMap(),
+        rules: Map<DataClassification, ClassificationRoutingRule> = sovereignDefaults(),
+        enabled: Boolean = false,
+    ) : this(providerZones, rules, enabled, emptyMap(), emptyMap(), emptySet())
+
+    /**
+     * The 0.7.0 copy shape (`copy(Map, Map, boolean)` and its default-argument companion), kept so
+     * an already-compiled copy call site keeps binding. Its parameter names are distinct from the
+     * six-property copy's, so both the delegation below and a named-argument call in source resolve
+     * to the generated copy, whose remaining arguments default to this receiver: a copied
+     * configuration keeps the governed authority it was copied from.
+     */
+    fun copy(
+        zones: Map<String, ProviderTrustZone> = this.providerZones,
+        ruleSet: Map<DataClassification, ClassificationRoutingRule> = this.rules,
+        enabledFlag: Boolean = this.enabled,
+    ): ProviderRoutingConfiguration = copy(providerZones = zones, rules = ruleSet, enabled = enabledFlag)
+
     companion object {
         /**
          * Sovereign defaults for classification-aware routing.
