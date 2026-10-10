@@ -291,7 +291,7 @@ class ProviderCircuitBreakerLifecycleDiscriminatorTest {
             attemptExecutor = attempt,
             fallbackPolicy = ProviderFallbackPolicy(),
             beforeResolution = ProviderResolutionGate { _, _, _ -> },
-            fallbackGate = ProviderFallbackGate { _, _, _, _, _, _ -> },
+            fallbackGate = ProviderFallbackGate { _ -> },
         )
     }
 }
