@@ -500,7 +500,12 @@ class StreamingExecutionCoordinatorTest {
         val closed = options.closed
         val qualifiedServiceName = options.qualifiedServiceName
         val retryPolicy = options.retryPolicy
-        val governance = options.governance ?: governanceFor(routingPlan)
+        val governance =
+            if (options.useLegacyPath) {
+                null
+            } else {
+                options.governance ?: governanceFor(routingPlan)
+            }
         val denyFallback = options.denyFallback
         val denyBeforeResponseReturn = options.denyBeforeResponseReturn
         val recordingSink = sink ?: OrderedSink()
@@ -2039,6 +2044,8 @@ class StreamingExecutionCoordinatorTest {
             // No governed routing topology is configured, so this execution is not a governed one and
             // keeps its pre-0.7.3h streaming semantics: after a retryable failure it walks to the next
             // configured route. Asserted by invocation counts, not by the terminal chunk alone.
+            // `useLegacyPath` is what actually supplies the absent topology — the run identity is
+            // present in the request, so the fixture's default topology would have made this governed.
             val a = RecordingProvider("a") { flow { throw ProviderException("down", retryable = true) } }
             val b = RecordingProvider("b") { flow { emit(StreamChunk.Complete("b")) } }
             val c =
@@ -2046,7 +2053,7 @@ class StreamingExecutionCoordinatorTest {
                     plan("a" to a, "b" to b),
                     RecordingOperationObserver(OrderedSink()),
                     StreamingCoordinatorTestOptions(
-                        governance = null,
+                        useLegacyPath = true,
                     ),
                 )
 
@@ -2102,7 +2109,7 @@ class StreamingExecutionCoordinatorTest {
                     routingPlan,
                     RecordingOperationObserver(OrderedSink()),
                     StreamingCoordinatorTestOptions(
-                        governance = null,
+                        useLegacyPath = true,
                     ),
                 )
             assertThat(legacy.execute(requestWithZeroRetries()).toList()).contains(StreamChunk.Complete("a"))
@@ -2126,6 +2133,41 @@ class StreamingExecutionCoordinatorTest {
 
             assertThat(a.streamRequests).isEmpty()
             assertThat(chunks.filterIsInstance<StreamChunk.Error>()).isNotEmpty()
+        }
+    }
+
+    @Test fun `a topology with no admitted run identity still executes the legacy path`() {
+        runBlocking {
+            // The backward-compatibility boundary, pinned by a direct test: a configured topology
+            // governs only an execution it can address, and it is addressable only for an admitted run
+            // identity (resolved from the run scope, never from a caller-supplied request field). This
+            // request carries no identity, so neither coordinator takes the governed path and the
+            // topology is not consulted. The topology here deliberately excludes 'a' — under governance
+            // that refuses it, so 'a' running is what proves the branch. Owner ratification of this
+            // reading is recorded in the task document; this test preserves the behaviour until then.
+            val a = RecordingProvider("a") { flow { emit(StreamChunk.Complete("a")) } }
+            val c =
+                coordinator(
+                    plan("a" to a),
+                    RecordingOperationObserver(OrderedSink()),
+                    StreamingCoordinatorTestOptions(
+                        governance = governanceFor(plan()),
+                    ),
+                )
+            val unadmitted =
+                StreamingExecutionRequest(
+                    operationWithZeroRetries(),
+                    listOf(classifiedInput),
+                    TokenBudgetCoordinator(defaultBudget).createTracker(),
+                    null,
+                    null,
+                )
+
+            val chunks = c.execute(unadmitted).toList()
+
+            assertThat(a.streamRequests.size).isEqualTo(1)
+            assertThat(chunks).contains(StreamChunk.Complete("a"))
+            assertThat(chunks.filterIsInstance<StreamChunk.Error>()).isEmpty()
         }
     }
 
@@ -2660,5 +2702,12 @@ class StreamingExecutionCoordinatorTest {
         val retryPolicy: ProviderRetryPolicy =
             ProviderRetryPolicy(ProviderRetryDelayPolicy(RetryPolicySettings(jitterRatio = 0.0)) { 0.0 }),
         val governance: ProviderGovernanceConfiguration? = null,
+        /**
+         * Supplies no governed topology at all. Passing `governance = null` cannot express that: the
+         * fixture reads a null override as "derive the topology from the routing plan", so a test that
+         * means "this execution is not governed" has to say it here. Without this the legacy side of a
+         * boundary test silently receives a governed topology and a governed run identity.
+         */
+        val useLegacyPath: Boolean = false,
     )
 }

@@ -97,7 +97,10 @@ boundary* at the exact final production shape, not by the repository-wide popula
 set-membership and boundary mutations (M8), configured-route substitution on both surfaces (M4, M5),
 fallback-filter removal via re-widening (M6, M7), capability derivation (M1–M3) and the governed→legacy
 downgrade (M9a, M9b) are all KILLED, with `SURVIVED / NO_COVERAGE / UNDETERMINED = 0` and each verdict
-attributed to a distinct killing test. Two items on this Epic's mutation list remain **unexercised as
+attributed to a distinct killing test. The kill *mechanisms* differ and are recorded per mutant in the
+task document: M1–M5, M8, M9a and M9b die on an assertion, while M6 and M7 die by **reproducible
+non-termination** of reselection under the mutant (the suite does not finish), which is a detection but
+not an assertion-based kill. Two items on this Epic's mutation list remain **unexercised as
 mutants** — an authorization/viability stage swap and a permissive default in candidate-state mapping.
 They are carried in the follow-up record below rather than claimed as covered; the invariants they
 would attack are held by construction and by the discriminator proofs, not by a kill.
