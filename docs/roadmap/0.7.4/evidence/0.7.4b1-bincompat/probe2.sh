@@ -20,8 +20,8 @@ WT="$OUT/worktree"
 REPORT="$OUT/report.txt"
 GRADLE_CACHE=${GRADLE_CACHE:-$HOME/.gradle/caches/modules-2/files-2.1}
 
-if [ -z "$REPO" ] || [ ! -d "$REPO/.git" ]; then
-    echo "TRAMAI_REPO must point at a git clone of this repository (got: '$REPO')" >&2
+if [ -z "$REPO" ] || ! git -C "$REPO" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "TRAMAI_REPO must point at a git clone or worktree of this repository (got: '$REPO')" >&2
     exit 9
 fi
 : > "$REPORT"
@@ -51,11 +51,20 @@ echo "EXIT[base jar]=$?" >> "$REPORT"
 BASE_JAR=$(ls "$WT"/tramai-core/build/libs/*.jar 2>/dev/null | grep -vE "sources|javadoc" | head -1)
 ( cd "$WT" && ./gradlew :tramai-core:compileTestKotlin --console=plain ) >> "$REPORT" 2>&1
 echo "EXIT[base kotlin consumer compile]=$?" >> "$REPORT"
-mkdir -p "$OUT/classes/kotlin" "$OUT/classes/java"
+mkdir -p "$OUT/classes/kotlin" "$OUT/classes/java" "$OUT/javasrc"
 cp -r "$WT/tramai-core/build/classes/kotlin/test/bincompat" "$OUT/classes/kotlin/" 2>>"$REPORT"
-"$JAVA_HOME/bin/javac" -cp "$BASE_JAR:$STDLIB" -d "$OUT/classes/java" "$SCRIPT_DIR/JavaConsumer.java.txt" >> "$REPORT" 2>&1
+# javac requires a .java basename; the committed evidence file carries a .txt suffix so the
+# repository's file-scoped static gates do not treat it as module source.
+cp "$SCRIPT_DIR/JavaConsumer.java.txt" "$OUT/javasrc/JavaConsumer.java"
+"$JAVA_HOME/bin/javac" -cp "$BASE_JAR:$STDLIB" -d "$OUT/classes/java" "$OUT/javasrc/JavaConsumer.java" >> "$REPORT" 2>&1
 echo "EXIT[javac against base jar]=$?" >> "$REPORT"
 echo "kotlin classes=$(find "$OUT/classes/kotlin" -name '*.class' | wc -l) java classes=$(find "$OUT/classes/java" -name '*.class' | wc -l)" >> "$REPORT"
+# Fail closed on a vacuous run: a missing consumer class would make every Java category look like a
+# compatibility failure when it is an absent artifact. This must stop the run, not decorate it.
+if [ ! -f "$OUT/classes/java/bincompat/JavaConsumer.class" ] || [ ! -f "$OUT/classes/kotlin/bincompat/Consumer.class" ]; then
+    echo "HARNESS_FAIL: consumer classes missing (see $REPORT) - this run proves nothing" >&2
+    exit 9
+fi
 mkdir -p "$OUT/jars"; cp "$BASE_JAR" "$OUT/jars/"
 
 run_pair() {
