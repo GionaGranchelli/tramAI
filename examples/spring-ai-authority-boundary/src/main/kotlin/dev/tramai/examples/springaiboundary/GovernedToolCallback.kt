@@ -33,7 +33,7 @@ class GovernedToolCallback(
 
     override fun call(
         toolInput: String,
-        toolContext: ToolContext,
+        toolContext: ToolContext?,
     ): String = govern(toolInput) { delegate.call(it, toolContext) }
 
     private fun govern(

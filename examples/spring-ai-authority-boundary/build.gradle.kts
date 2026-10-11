@@ -30,8 +30,6 @@ dependencies {
     implementation(platform("org.springframework.ai:spring-ai-bom:$springAiVersion"))
     // ToolCallback (the interception point) and the tool-calling dispatch live here.
     implementation("org.springframework.ai:spring-ai-model")
-    // ChatClient: the application-side invocation path the boundary is declared on.
-    implementation("org.springframework.ai:spring-ai-client-chat")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 
