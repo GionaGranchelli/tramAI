@@ -87,7 +87,7 @@ data class BoundaryRefusal(
     val runId: String,
     val enforcementStrength: EnforcementStrength = EnforcementStrength.AUTHORITATIVE,
 ) {
-    /** Stable, machine-readable shape. Escapes only what JSON requires here; no free-form values. */
+    /** Stable, machine-readable shape; every JSON-required escape is applied to free-form values. */
     fun toJson(): String =
         buildString {
             append("{\"governanceOutcome\":\"").append(outcome.name).append('"')
@@ -100,5 +100,34 @@ data class BoundaryRefusal(
             append(",\"executed\":false}")
         }
 
-    private fun escape(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+    /**
+     * Escapes every character JSON requires in a string, including the full control-character range, so a
+     * reason or identifier carrying one cannot produce a malformed refusal.
+     */
+    private fun escape(value: String): String =
+        buildString {
+            value.forEach { char ->
+                when {
+                    char == '\\' -> append("\\\\")
+                    char == '"' -> append("\\\"")
+                    char == '\n' -> append("\\n")
+                    char == '\r' -> append("\\r")
+                    char == '\t' -> append("\\t")
+                    char == '\b' -> append("\\b")
+                    char == '\u000C' -> append("\\f")
+                    char < ' ' -> append(unicodeEscape(char))
+                    else -> append(char)
+                }
+            }
+        }
+
+    private fun unicodeEscape(char: Char): String = "\\u" + char.code.toString(HEX_RADIX).padStart(ESCAPE_WIDTH, ZERO)
+
+    private companion object {
+        const val HEX_RADIX = 16
+
+        const val ESCAPE_WIDTH = 4
+
+        const val ZERO = '0'
+    }
 }

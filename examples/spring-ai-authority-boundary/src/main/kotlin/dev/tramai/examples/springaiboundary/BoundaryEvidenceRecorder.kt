@@ -15,13 +15,15 @@ internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
  * Records what this boundary decided and whether the operation ran, through the repository's existing
  * audit chain and its existing `tool.permission` evidence exporter.
  *
+ * The recorded identity is taken from the same [BoundaryContext] the engine is evaluated with, not
+ * supplied separately. Evidence therefore cannot be attributed to a different run, actor, policy version
+ * or correlation than the one that was actually decided — the divergence is structurally impossible rather
+ * than checked for.
+ *
  * What this evidence does *and does not* mean:
  * - it identifies the enforcement point, the tool, the decision and its reason code;
  * - it attests that **this declared boundary** enforced that decision;
  * - it says nothing about any other execution path in the host application.
- *
- * The distinction between "observed" and "prevented" is carried by the recorded decision together with
- * the side-effect ledger the tool itself owns. Evidence never claims enforcement that did not happen.
  *
  * A governance *availability* failure is recorded as a `DENY` whose reason code is
  * `governance-unavailable`: the operation was refused, and the reason code carries why. That keeps the
@@ -29,10 +31,7 @@ internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
  */
 class BoundaryEvidenceRecorder(
     private val auditEngine: AuditEngine,
-    private val runId: String,
-    private val correlationId: String,
-    private val actor: String,
-    private val policyVersion: String,
+    private val context: BoundaryContext,
 ) {
     // Governed invocations can be concurrent; the ledger is shared state.
     private val events = CopyOnWriteArrayList<AuditEvent>()
@@ -67,13 +66,13 @@ class BoundaryEvidenceRecorder(
             runBlocking {
                 auditEngine.emit(
                     AuditEmission(
-                        auditStreamId = runId,
-                        workflowRunId = runId,
-                        correlationId = correlationId,
-                        actor = actor,
+                        auditStreamId = context.runId,
+                        workflowRunId = context.runId,
+                        correlationId = context.correlationId,
+                        actor = context.actorId,
                         enforcementPoint = BOUNDARY_ENFORCEMENT_POINT,
                         decision = decision,
-                        policyVersion = policyVersion,
+                        policyVersion = context.policyVersion,
                         workflowDigest = null,
                         reasonCode = reasonCode,
                         // Only allowlisted metadata keys: the exporter fails closed on anything else.

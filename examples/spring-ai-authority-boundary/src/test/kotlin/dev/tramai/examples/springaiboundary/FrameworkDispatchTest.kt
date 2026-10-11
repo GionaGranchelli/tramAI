@@ -122,13 +122,43 @@ class FrameworkDispatchTest {
 
     // ── fixtures ────────────────────────────────────────────────────────────
 
-    private fun recorder(): BoundaryEvidenceRecorder =
-        BoundaryEvidenceRecorder(
-            auditEngine = AuditEngine(InMemoryAuditStore()),
-            runId = runId,
-            correlationId = correlationId,
-            actor = "spring-ai-workload",
+    private fun recorder(): BoundaryEvidenceRecorder {
+        // Block body on purpose: a single-expression body is collapsed back onto one line by
+        // spotlessApply, and the collapsed line exceeds the static-analysis ceiling.
+        return BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), boundaryContext())
+    }
+
+    /** One source of governance identity for the evaluation and for the evidence recorded about it. */
+    private fun boundaryContext(): BoundaryContext =
+        BoundaryContext(
+            identity =
+                GovernedRunIdentity(
+                    deployment =
+                        WorkloadDeploymentIdentity(
+                            workloadId = WorkloadId("workload-xr1"),
+                            configuration =
+                                WorkloadConfigurationIdentity(
+                                    id = ConfigurationId("configuration-xr1"),
+                                    version = ConfigurationVersion("v1"),
+                                ),
+                            environmentId = EnvironmentId("environment-local"),
+                            deploymentId = DeploymentId("deployment-xr1-1"),
+                        ),
+                    runId = RunId(runId),
+                ),
+            security = toolSecurity(),
             policyVersion = "policy-xr1-v1",
+            actorId = "spring-ai-workload",
+            correlationId = correlationId,
+        )
+
+    private fun toolSecurity(): ToolSecurityMetadata =
+        ToolSecurityMetadata(
+            permission = "ledger.append",
+            risk = RiskLevel.LOW,
+            approval = ApprovalMode.AUTO,
+            managedNetworkEgress = ManagedNetworkEgress.ALLOW,
+            audit = AuditDetail.DECISION_ONLY,
         )
 
     private fun allowedEngine(): PolicyEngine =
@@ -145,34 +175,6 @@ class FrameworkDispatchTest {
             delegate = tool,
             engine = engine,
             recorder = recorder,
-            context =
-                BoundaryContext(
-                    identity =
-                        GovernedRunIdentity(
-                            deployment =
-                                WorkloadDeploymentIdentity(
-                                    workloadId = WorkloadId("workload-xr1"),
-                                    configuration =
-                                        WorkloadConfigurationIdentity(
-                                            id = ConfigurationId("configuration-xr1"),
-                                            version = ConfigurationVersion("v1"),
-                                        ),
-                                    environmentId = EnvironmentId("environment-local"),
-                                    deploymentId = DeploymentId("deployment-xr1-1"),
-                                ),
-                            runId = RunId(runId),
-                        ),
-                    security =
-                        ToolSecurityMetadata(
-                            permission = "ledger.append",
-                            risk = RiskLevel.LOW,
-                            approval = ApprovalMode.AUTO,
-                            managedNetworkEgress = ManagedNetworkEgress.ALLOW,
-                            audit = AuditDetail.DECISION_ONLY,
-                        ),
-                    policyVersion = "policy-xr1-v1",
-                    actorId = "spring-ai-workload",
-                    correlationId = correlationId,
-                ),
+            context = boundaryContext(),
         )
 }

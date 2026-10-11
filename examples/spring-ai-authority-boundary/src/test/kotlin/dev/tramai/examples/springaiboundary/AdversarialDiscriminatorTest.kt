@@ -159,14 +159,11 @@ class AdversarialDiscriminatorTest {
             Attempt(threw = true, refusal = null)
         }
 
-    private fun recorder(): BoundaryEvidenceRecorder =
-        BoundaryEvidenceRecorder(
-            auditEngine = AuditEngine(InMemoryAuditStore()),
-            runId = runId,
-            correlationId = correlationId,
-            actor = ACTOR,
-            policyVersion = POLICY_VERSION,
-        )
+    private fun recorder(): BoundaryEvidenceRecorder {
+        // Block body on purpose: a single-expression body is collapsed back onto one line by
+        // spotlessApply, and the collapsed line exceeds the static-analysis ceiling.
+        return BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), context())
+    }
 
     private fun context(): BoundaryContext =
         BoundaryContext(

@@ -61,9 +61,11 @@ class GovernedToolCallback(
 
         return when (decision) {
             PolicyDecision.Allow -> {
-                val result = execute(toolInput)
+                // Record the authorization BEFORE the effect. If the audit store cannot accept the
+                // decision, the action must not run at all — an action that ran with no evidence it was
+                // authorized is exactly the gap this boundary exists to close.
                 recorder.recordAllow(toolName)
-                result
+                execute(toolInput)
             }
 
             is PolicyDecision.Deny -> {

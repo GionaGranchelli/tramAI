@@ -119,6 +119,10 @@ is **wrong for this boundary** and is recorded as withdrawn rather than quietly 
 
 ## Checkpoint proofs → evidence
 
+Twenty proofs across four suites: seven boundary proofs, two on Spring AI's dispatch path, seven
+adversarial-suite cases (one positive control plus six weakened implementations), and four
+evidence-integrity cases added after review of head `d7d10d05`.
+
 | # | Proof | Evidence |
 | --- | --- | --- |
 | 1 | ALLOW executes and correlates | `an allowed action executes exactly once and correlates to the authoritative decision`; on the framework path `an allowed tool executes exactly once on the framework dispatch path` |
@@ -129,6 +133,22 @@ is **wrong for this boundary** and is recorded as withdrawn rather than quietly 
 | 6 | No second policy model | Structural: the adapter holds no policy rules and calls `PolicyEngine.evaluate` for every decision (VERIFIED by inspection of `GovernedToolCallback`) |
 | 7 | Evidence provenance | `evidence identifies this boundary and is exported through the repository schema` — partial, see gaps |
 | 8 | No projection bypass | Structural: authorization happens only through `PolicyEngine.evaluate`; the adapter writes no read model, control plane or UI state (VERIFIED by inspection) |
+
+## Review of head `d7d10d05` — findings and fixes
+
+The owner requested changes and confirmed two Copilot findings. All five were corrected at the source, not
+argued away:
+
+| Finding | Correction |
+| --- | --- |
+| `build.gradle.kts` declared an application entrypoint with no such class, so `:run` would fail while tests passed | `SpringAiBoundaryMain` added: `:run` now executes a real ALLOW and DENY demonstration through the framework's dispatch |
+| `GovernanceBoundaryTest` asserted `metadata["enforcementPoint"] ?: BOUNDARY_ENFORCEMENT_POINT`, which passed when the metadata was absent | the fallback is gone; the assertion fails if the metadata is missing or wrong |
+| Recorder and evaluator identities were supplied independently, so evidence could be attributed to a run that was not evaluated | the recorder is constructed from the same `BoundaryContext` the engine is evaluated with, so divergence is structurally impossible; negative tests assert attribution follows the context in both directions |
+| ALLOW evidence was recorded after the tool ran, so a failed audit write could leave a completed side effect with no decision evidence | the authorization is recorded **before** the effect; a failing audit store now prevents execution entirely |
+| Manual JSON serialization did not escape the full control-character range, so a reason could produce a malformed refusal | every JSON-required escape is applied, control characters included |
+
+The review's test-count correction is adopted: the adversarial suite is one positive control plus six
+weakenings, not seven separate weakenings.
 
 ## Gaps recorded, not papered over
 

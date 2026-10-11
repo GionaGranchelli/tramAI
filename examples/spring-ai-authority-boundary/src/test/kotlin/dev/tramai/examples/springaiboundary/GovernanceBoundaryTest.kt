@@ -137,7 +137,11 @@ class GovernanceBoundaryTest {
         val record = recorder.evidence().single()
         assertEquals(runId, record.workflowRunId, "evidence is attributed to the governed run")
         assertEquals(correlationId, record.correlationId, "evidence carries the caller's correlation id")
-        assertEquals(BOUNDARY_ENFORCEMENT_POINT, record.metadata["enforcementPoint"] ?: BOUNDARY_ENFORCEMENT_POINT)
+        assertEquals(
+            BOUNDARY_ENFORCEMENT_POINT,
+            record.metadata["enforcementPoint"],
+            "the evidence records the enforcement point; this fails if that metadata is absent or wrong",
+        )
         assertFalse(record.eventId.isBlank(), "the decision has a stable identity")
     }
 
@@ -189,13 +193,38 @@ class GovernanceBoundaryTest {
 
     // ── fixtures ────────────────────────────────────────────────────────────
 
-    private fun recorder(): BoundaryEvidenceRecorder =
-        BoundaryEvidenceRecorder(
-            auditEngine = AuditEngine(InMemoryAuditStore()),
-            runId = runId,
-            correlationId = correlationId,
-            actor = "spring-ai-workload",
+    private fun recorder(): BoundaryEvidenceRecorder {
+        // Block body on purpose: a single-expression body is collapsed back onto one line by
+        // spotlessApply, and the collapsed line exceeds the static-analysis ceiling.
+        return BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), boundaryContext())
+    }
+
+    /**
+     * One source of governance identity for both the evaluation and the evidence: the recorder is built
+     * from the same context the engine is evaluated with, so evidence cannot be attributed to a different
+     * run, actor, policy version or correlation than the one that was actually decided.
+     */
+    private fun boundaryContext(): BoundaryContext =
+        BoundaryContext(
+            identity =
+                GovernedRunIdentity(
+                    deployment =
+                        WorkloadDeploymentIdentity(
+                            workloadId = WorkloadId("workload-xr1"),
+                            configuration =
+                                WorkloadConfigurationIdentity(
+                                    id = ConfigurationId("configuration-xr1"),
+                                    version = ConfigurationVersion("v1"),
+                                ),
+                            environmentId = EnvironmentId("environment-local"),
+                            deploymentId = DeploymentId("deployment-xr1-1"),
+                        ),
+                    runId = RunId(runId),
+                ),
+            security = toolSecurity(),
             policyVersion = policyVersion,
+            actorId = "spring-ai-workload",
+            correlationId = correlationId,
         )
 
     /** A real engine whose configuration admits exactly the governed tool. */
@@ -217,28 +246,7 @@ class GovernanceBoundaryTest {
             delegate = tool,
             engine = engine,
             recorder = recorder,
-            context =
-                BoundaryContext(
-                    identity =
-                        GovernedRunIdentity(
-                            deployment =
-                                WorkloadDeploymentIdentity(
-                                    workloadId = WorkloadId("workload-xr1"),
-                                    configuration =
-                                        WorkloadConfigurationIdentity(
-                                            id = ConfigurationId("configuration-xr1"),
-                                            version = ConfigurationVersion("v1"),
-                                        ),
-                                    environmentId = EnvironmentId("environment-local"),
-                                    deploymentId = DeploymentId("deployment-xr1-1"),
-                                ),
-                            runId = RunId(runId),
-                        ),
-                    security = toolSecurity(),
-                    policyVersion = policyVersion,
-                    actorId = "spring-ai-workload",
-                    correlationId = correlationId,
-                ),
+            context = boundaryContext(),
         )
 
     private fun toolSecurity(): ToolSecurityMetadata =
