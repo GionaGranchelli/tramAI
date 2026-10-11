@@ -62,6 +62,7 @@ include(
     "examples:governed-workflow",
     "examples:approval-resume",
     "examples:tool-governance",
+    "examples:spring-ai-authority-boundary",
     "examples:java-consumer-smoke",
     "examples:kotlin-consumer-smoke",
 )
