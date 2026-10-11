@@ -139,6 +139,19 @@ UNKNOWN
 
 ---
 
+### 2.10 GAP-100 traceability and CFG-0001 configuration authoring (strategic alignment)
+
+Governance assurance is the primary cross-release strategic priority ([GAP-000](strategy/governance-assurance/GAP-000.md)). Candidate 0.8 scope now also includes:
+
+- versioned *applicability and control-to-evidence references* for selected EU AI Act / ISO/IEC 42001 obligations; evidence coverage must distinguish verified technical behavior, organizational responsibility and unknown/absent proof;
+- typed managed-setting descriptors, validated candidate revisions, policy/control impact preview, and configuration-contract tests designed alongside existing governance facts and simulation;
+- one canonical evaluation meaning across runtime, Kotlin/YAML authoring, tests, evidence projection and eventual managed configuration UI;
+- explicit mutability/activation class, provenance and actor ownership for configuration, without asserting every Spring property can be hot reloaded.
+
+No new generic regulation engine, full ISO clause catalogue, managed production mutation service or dashboard editor is required to complete this architecture/DX slice. Preserve 0.7 authoritative control and historical revision identities. Refer to [CFG-0001](strategy/governance-assurance/CONFIGURATION-AUTHORITY.md) and [regulatory baseline](strategy/governance-assurance/REGULATORY-BASELINE.md).
+
+---
+
 ## 3. Dependencies on 0.7
 
 0.8 assumes 0.7 has established stable enough contracts for:
