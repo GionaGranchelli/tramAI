@@ -51,7 +51,9 @@ class GovernedIdentityCarriageTest {
      * Wraps the real engine, so the captured context is exactly the one the authoritative evaluator
      * received and validated. Nothing is stubbed out of the decision path.
      */
-    private class CapturingPolicyEngine(private val delegate: PolicyEngine) : PolicyEngine {
+    private class CapturingPolicyEngine(
+        private val delegate: PolicyEngine,
+    ) : PolicyEngine {
         var captured: PolicyContext? = null
 
         override suspend fun evaluate(context: PolicyContext): PolicyDecision {
