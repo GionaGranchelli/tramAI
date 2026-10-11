@@ -18,6 +18,7 @@ import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
+import org.springframework.ai.chat.messages.ToolResponseMessage
 import org.springframework.ai.chat.messages.UserMessage
 import org.springframework.ai.chat.prompt.Prompt
 import org.springframework.ai.model.tool.ToolCallingChatOptions
@@ -35,6 +36,7 @@ object SpringAiBoundaryMain {
     private const val RUN_ID = "run-xr1-demo"
     private const val CORRELATION_ID = "corr-xr1-demo"
     private const val POLICY_VERSION = "policy-xr1-v1"
+    private const val TOOL_PERMISSION = "ledger.append"
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -42,18 +44,22 @@ object SpringAiBoundaryMain {
         println("Enforcement point: $BOUNDARY_ENFORCEMENT_POINT")
 
         demonstrate(
-            label = "ALLOW (the tool is admissible for this policy)",
-            allowedTools = setOf(SideEffectfulToolCallback.TOOL_NAME),
+            label = "ALLOW (the tool and its permission are admissible for this policy)",
+            policy =
+                PolicyConfiguration(
+                    allowedTools = setOf(SideEffectfulToolCallback.TOOL_NAME),
+                    allowedPermissions = setOf(TOOL_PERMISSION),
+                ),
         )
         demonstrate(
-            label = "DENY (deny-by-default: the tool is not admissible)",
-            allowedTools = emptySet(),
+            label = "DENY (deny-by-default: neither the tool nor its permission is admissible)",
+            policy = PolicyConfiguration(),
         )
     }
 
     private fun demonstrate(
         label: String,
-        allowedTools: Set<String>,
+        policy: PolicyConfiguration,
     ) {
         val tool = SideEffectfulToolCallback()
         val context = context()
@@ -61,7 +67,7 @@ object SpringAiBoundaryMain {
         val boundary =
             GovernedToolCallback(
                 delegate = tool,
-                engine = DefaultPolicyEngine(PolicyConfiguration(allowedTools = allowedTools)),
+                engine = DefaultPolicyEngine(policy),
                 recorder = recorder,
                 context = context,
             )
@@ -82,7 +88,11 @@ object SpringAiBoundaryMain {
         println("   model proposed: ${SideEffectfulToolCallback.TOOL_NAME}")
         println("   TramAI decided: ${recorded.decision} (${recorded.reasonCode ?: "no reason code"})")
         println("   action ledger:  ${tool.invocations().size} invocation(s) — the observable side effect")
-        execution.conversationHistory().forEach { message -> println("   framework recorded: ${message.text}") }
+        execution
+            .conversationHistory()
+            .filterIsInstance<ToolResponseMessage>()
+            .flatMap { it.responses }
+            .forEach { response -> println("   framework recorded as the tool result: ${response.responseData()}") }
         println("   evidence: ${recorder.evidence().size} record(s) through the tool.permission exporter")
     }
 
