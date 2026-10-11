@@ -1,9 +1,12 @@
 # TASK 0.7-XR1-0001 — Spring AI authority boundary (Phase 1: boundary map)
 
 **Checkpoint:** `0.7-XR1` — External Runtime Authority Proof
-**Slice scope:** ALLOW, DENY and governance-unavailable at one declared external boundary.
-REQUIRE_APPROVAL and durable continuation are **not** in this slice.
+**Slice scope:** ALLOW, DENY, REQUIRE_APPROVAL *without continuation*, and governance-unavailable at one
+declared external boundary. Durable approval continuation is **not** in this slice.
 **Base:** `release/0.7.0` at `a6a43ae7` (epic 0.7.3 integrated).
+**Status:** **complete** — Phases 2–5 implemented and verified (evidence in the Phase 2 section below).
+Approval continuation is deferred by owner decision. The XR1 **checkpoint** is *not* complete (see the
+checkpoint's own exit criteria), and nothing in this document claims otherwise.
 
 ## Purpose of this document
 
