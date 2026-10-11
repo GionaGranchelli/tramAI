@@ -1,0 +1,83 @@
+package dev.tramai.examples.springaiboundary
+
+/**
+ * The declared external boundary of XR1-0001.
+ *
+ * ## What is governed
+ *
+ * A Spring AI tool invocation, intercepted at the framework's own callback dispatch
+ * (`org.springframework.ai.tool.ToolCallback`), which is the point where the operation can actually be
+ * prevented. The application stays Spring AI-owned: it decides which tools exist and asks the model,
+ * and TramAI decides only whether a proposed invocation is permitted.
+ *
+ * ## Why the adapter decides nothing
+ *
+ * Every decision comes from [dev.tramai.core.policy.PolicyEngine.evaluate] at
+ * [dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXECUTION]. There is no Spring-specific policy
+ * here — only translation of a framework intent into a
+ * [dev.tramai.core.policy.PolicyContext] and enforcement of the result. A denial
+ * ([dev.tramai.core.policy.PolicyDecision.Deny]) is not a provider failure: it is a governance refusal
+ * with a stable reason code, and it is never retryable.
+ *
+ * ## Enforcement strength
+ *
+ * This boundary is [EnforcementStrength.AUTHORITATIVE] *for the declared callback path only*. It says
+ * nothing about any other way the host application might reach the same side effect — which is exactly
+ * why the boundary is declared rather than assumed.
+ */
+enum class EnforcementStrength {
+    /** The boundary can prevent the operation, and does. */
+    AUTHORITATIVE,
+
+    /** The boundary observes but cannot prevent. */
+    OBSERVED,
+}
+
+/** Outcome of one governed external invocation, as observable by the caller. */
+enum class BoundaryOutcome {
+    /** Authorization allowed the operation and the delegate ran exactly once. */
+    EXECUTED,
+
+    /** Authorization refused. The delegate was never invoked. */
+    REFUSED_DENY,
+
+    /** Authorization requires human approval; this slice performs no continuation. Delegate not invoked. */
+    REFUSED_REQUIRE_APPROVAL,
+
+    /**
+     * Governance could not be consulted, or failed. The delegate was never invoked and the failure was
+     * not interpreted as permission.
+     */
+    REFUSED_GOVERNANCE_UNAVAILABLE,
+}
+
+/**
+ * Structured refusal returned in place of a tool result when the operation is not permitted.
+ *
+ * Deliberately *not* an exception and deliberately not shaped like a provider error: a refusal must not
+ * be retried as if the provider had failed, and no caller may read it as permission.
+ */
+data class BoundaryRefusal(
+    val outcome: BoundaryOutcome,
+    val toolName: String,
+    val reasonCode: String,
+    val reason: String,
+    val correlationId: String,
+    val runId: String,
+    val enforcementStrength: EnforcementStrength = EnforcementStrength.AUTHORITATIVE,
+) {
+    /** Stable, machine-readable shape. Escapes only what JSON requires here; no free-form values. */
+    fun toJson(): String =
+        buildString {
+            append("{\"governanceOutcome\":\"").append(outcome.name).append('"')
+            append(",\"toolName\":\"").append(escape(toolName)).append('"')
+            append(",\"reasonCode\":\"").append(escape(reasonCode)).append('"')
+            append(",\"reason\":\"").append(escape(reason)).append('"')
+            append(",\"correlationId\":\"").append(escape(correlationId)).append('"')
+            append(",\"runId\":\"").append(escape(runId)).append('"')
+            append(",\"enforcementStrength\":\"").append(enforcementStrength.name).append('"')
+            append(",\"executed\":false}")
+        }
+
+    private fun escape(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+}

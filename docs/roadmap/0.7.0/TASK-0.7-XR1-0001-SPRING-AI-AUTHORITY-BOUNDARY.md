@@ -66,3 +66,101 @@ mock or a parallel policy model.
 
 No production Spring Boot starter, no generic cross-framework adapter SPI, no new policy language, no
 alternative approval engine, no dashboard, no Spring AI feature matrix, no public API stabilisation.
+
+---
+
+# Phase 2 — one real external execution path
+
+**Branch:** `task/0.7-xr1-0001-spring-ai-boundary` (base `a6a43ae7`).
+**Slice scope unchanged:** ALLOW, DENY, REQUIRE_APPROVAL-without-continuation, governance-unavailable.
+Durable approval continuation is **not** implemented here and remains a separate qualification step.
+
+## Phase 1 items, now resolved
+
+| Was UNRESOLVED | Resolution |
+| --- | --- |
+| Spring AI version and callback API shape | **VERIFIED — Spring AI `1.0.9`.** `org.springframework.ai.tool.ToolCallback` declares `getToolDefinition()`, `getToolMetadata()`, `call(String)` and `call(String, ToolContext)`. Established with `javap` against the resolved jar, not from documentation. |
+| Whether interception precedes the effect on every invocation route | **PARTIAL, and the boundary is declared accordingly.** Spring AI dispatches instrumented tools through the registered `ToolCallback`, so wrapping it prevents the effect on that path. Any route that does not go through the registered callback is *not* governed by this boundary, and nothing here claims otherwise. |
+| `PolicyEngine` behaviour when configuration is unavailable | **VERIFIED by test:** the engine throws; the adapter catches it, records it, refuses with `governance-unavailable`, and never delegates. |
+
+## Correction to a Phase 1 assumption
+
+Phase 1 stated evidence would be projected by `GovernanceDecisionEnvelope.toRuntimeEvidenceRecord`. That
+is **wrong for this boundary** and is recorded as withdrawn rather than quietly changed:
+`GovernanceDecisionOutcome.of(decision: Any)` maps only the candidate families
+(`CandidateAuthorizationDecision`, `CandidateViabilityDecision`, `CandidateSelectionDecision`), and
+`GovernanceDecisionEvidence.kt` contains zero references to the core `PolicyDecision` used at
+`BEFORE_TOOL_EXECUTION`. Evidence therefore goes through the existing **`tool.permission`** family and
+`ToolPermissionRuntimeEvidenceExporter` — the repository's own vocabulary for this enforcement point.
+
+## What this slice adds
+
+1. `examples/spring-ai-authority-boundary/` — one example module, registered in `settings.gradle.kts`.
+   Spring AI is an example-only dependency; no shipped module depends on it.
+2. `GovernedToolCallback` — the declared boundary. Every decision comes from `PolicyEngine.evaluate` at
+   `EnforcementPoint.BEFORE_TOOL_EXECUTION`. Both `call` overloads are overridden, because governing only
+   the single-argument overload would leave the context-carrying path a bypass. ALLOW delegates exactly
+   once; DENY and REQUIRE_APPROVAL return a structured refusal; an evaluation failure refuses without
+   delegating. The adapter contains no policy logic.
+3. `BoundaryEvidenceRecorder` — evidence through the existing hash-chained `AuditEngine` and the existing
+   `tool.permission` exporter. A governance *availability* failure is recorded as `DENY` with reason code
+   `governance-unavailable` so the operation counts as refused while the reason stays distinguishable,
+   inside the existing vocabulary rather than a second one.
+4. `SideEffectfulToolCallback` — the governed tool. Its observable effect is its invocation ledger, so
+   "prevented" is distinguishable from "observed".
+5. `StubToolRequestingChatModel` + `FrameworkDispatchTest` — a deterministic local test provider (the
+   substitute the checkpoint permits), driven through Spring AI's own tool-calling machinery
+   (`ToolCallingManager`, whose production implementation is `DefaultToolCallingManager` — the class
+   `ChatClient` delegates to). The enforcement boundary is *not* substituted. See the measured
+   limitations below for why the manager is driven directly rather than through `ChatClient`.
+
+## Checkpoint proofs → evidence
+
+| # | Proof | Evidence |
+| --- | --- | --- |
+| 1 | ALLOW executes and correlates | `an allowed action executes exactly once and correlates to the authoritative decision`; on the framework path `an allowed tool executes exactly once on the framework dispatch path` |
+| 2 | DENY does not execute | `a denied action is never invoked and returns a structured refusal`; `a denied tool is prevented on the framework dispatch path` |
+| 3 | No execution before approval | `an action requiring approval cannot execute without one`. Continuation after approval: **not implemented in this slice** (owner-deferred) |
+| 4 | Identity continuity | `the governed run identity and the caller correlation survive the boundary` |
+| 5 | Failure semantics | `an unavailable authority prevents execution and is never read as permission` |
+| 6 | No second policy model | Structural: the adapter holds no policy rules and calls `PolicyEngine.evaluate` for every decision (VERIFIED by inspection of `GovernedToolCallback`) |
+| 7 | Evidence provenance | `evidence identifies this boundary and is exported through the repository schema` — partial, see gaps |
+| 8 | No projection bypass | Structural: authorization happens only through `PolicyEngine.evaluate`; the adapter writes no read model, control plane or UI state (VERIFIED by inspection) |
+
+## Gaps recorded, not papered over
+
+- **Workload and configuration identity are not transported through the evaluator.** `PolicyContext`
+  carries `workflowId`, `workflowRunId`, `correlationId`, `actorId` and `policyVersion`; it does not carry
+  the deployment's `WorkloadId` or `WorkloadConfigurationIdentity`. The adapter holds that identity but
+  cannot hand it to the evaluator. Passing the external workload id as `workflowId` would imply TramAI
+  owns the host application's workflow, which the checkpoint forbids — so it was not done. **UNRESOLVED**;
+  material for 0.7.4 identity work.
+- **Evidence cannot self-identify the external runtime.** The `tool.permission` exporter admits a fixed
+  metadata allowlist (`toolName`, `enforcementPoint`, `riskLevel`, `classification`,
+  `classificationSource`); an integration identity cannot be added through it, and the exporter fails
+  closed on unrecognised keys. The evidence therefore identifies the enforcement point and the governed
+  operation but not "this was a Spring AI runtime". **UNRESOLVED**; a 0.7.4 evidence-provenance finding.
+- **Approval continuation** is out of scope by owner decision, not by omission.
+
+## Measured limitations of the dispatch path
+
+- **`ChatClient.create(model)` dispatches no tools without a Spring application context.** Measured
+  before the correction: the `ChatClient` path made exactly one model call and recorded zero decisions,
+  even though the request carried `DefaultToolCallingChatOptions`, `internalToolExecutionEnabled=true`
+  and the governed callback. Its tool-calling manager comes from the context, which this slice
+  deliberately does not build (a starter is a checkpoint non-goal). The dispatch proofs therefore drive
+  `ToolCallingManager` directly: the same machinery, the same `Prompt`/`ChatResponse`/`ToolCallback`
+  types, no framework behaviour substituted. The invocation is still the framework's — the test does not
+  call the boundary itself.
+- **A first correction attempt is recorded as ruled out, not deleted.** It set the *model's* default
+  options to tool-capable options. That is a genuine requirement for a tool-capable provider, but it was
+  not the cause: the framework's gate reads the *prompt's* options, and those already satisfied it.
+
+## Deliberate simplifications
+
+- The Spring AI callback contract is synchronous, so the coroutine-based engine is bridged with
+  `runBlocking`: one blocking hop per governed invocation. Marked in code with its ceiling and upgrade
+  path (a suspend-aware framework callback contract).
+- The example is not a starter and has no Spring `ApplicationContext`; it wires the engine directly, which
+  is what makes the enforcement boundary inspectable.
+
