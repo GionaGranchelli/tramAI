@@ -6,6 +6,18 @@
 
 ---
 
+## Cross-release strategic priority: Governance Assurance (GAP-000)
+
+**Approved direction (2026-10-11):** TramAI remains the Kotlin-first, JVM-native governed-AI runtime, with governance assurance as the primary product-ordering principle: define explicit controls, enforce them at authoritative runtime boundaries, test them, preserve version-linked evidence, and map technical evidence to *applicable* requirements and organizational ownership.
+
+The cross-release Governance Assurance Program establishes: **GAP-100** regulatory applicability/control-to-evidence mapping; **CFG-0001/GAP-200** typed, authorized and immutable configuration revisions; **GAP-300** adversarial assurance and evidence integrity; **GAP-400** risk/evaluation/monitoring linkage; and **GAP-500** enterprise operations/integrations. See [GAP-000](strategy/governance-assurance/GAP-000.md) and the [rebaseline](strategy/governance-assurance/ROADMAP-REBASELINE.md).
+
+**Scope and claims:** The EU AI Act applies by operator/system/use case; ISO/IEC 42001 concerns organizational AI management systems. TramAI does not automatically confer conformity or certification. Control coverage must preserve applicability, ownership, exact evidence and explicit gaps. Compliance mappings, dashboards, declarative config, simulations and GitOps cannot become alternative policy authorities. Embedded/headless operation remains supported.
+
+**Release discipline:** 0.7.0's authoritative must-ship contract is **unchanged** by this strategic decision. The later release sections below describe proposed aligned scope, not retroactive implementation claims or unreviewed feature-completion assertions. Avoid stopping in-flight 0.7 correctness/security work.
+
+---
+
 ## 1. Product progression
 
 TramAI should progress through four distinct product questions rather than attempt to answer all of them in one release.
