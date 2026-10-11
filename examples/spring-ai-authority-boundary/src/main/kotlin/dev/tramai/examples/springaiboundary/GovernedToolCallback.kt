@@ -1,11 +1,9 @@
 package dev.tramai.examples.springaiboundary
 
-import dev.tramai.core.identity.GovernedRunIdentity
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.core.policy.ToolSecurityMetadata
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.springframework.ai.chat.model.ToolContext
@@ -27,11 +25,7 @@ class GovernedToolCallback(
     private val delegate: ToolCallback,
     private val engine: PolicyEngine,
     private val recorder: BoundaryEvidenceRecorder,
-    private val identity: GovernedRunIdentity,
-    private val security: ToolSecurityMetadata,
-    private val policyVersion: String,
-    private val actorId: String,
-    private val correlationId: String,
+    private val context: BoundaryContext,
 ) : ToolCallback {
     override fun getToolDefinition(): ToolDefinition = delegate.toolDefinition
 
@@ -50,21 +44,20 @@ class GovernedToolCallback(
         // ponytail: the Spring AI callback API is synchronous, so the coroutine-based engine is bridged
         // with runBlocking here. Ceiling: one blocking hop per governed invocation. Upgrade when Spring
         // AI exposes a suspend/asynchronous callback contract.
+        // Fail closed: an authority that cannot be consulted is not an authority that said yes. Cancellation
+        // is not a governance outcome, and an Error is rethrown rather than being read as permission.
         val decision =
-            try {
-                runBlocking { engine.evaluate(contextFor(toolName)) }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                // Fail closed. An authority that cannot be consulted is not an authority that said yes.
-                recorder.recordRefusal(toolName, UNAVAILABLE_REASON_CODE)
-                return refusal(
-                    toolName = toolName,
-                    reasonCode = UNAVAILABLE_REASON_CODE,
-                    reason = "governance evaluation unavailable: ${failure::class.simpleName}",
-                    outcome = BoundaryOutcome.REFUSED_GOVERNANCE_UNAVAILABLE,
-                )
-            }
+            runCatching { runBlocking { engine.evaluate(contextFor(toolName)) } }
+                .getOrElse { failure ->
+                    if (failure is CancellationException || failure is Error) throw failure
+                    recorder.recordRefusal(toolName, UNAVAILABLE_REASON_CODE)
+                    return refusal(
+                        toolName = toolName,
+                        reasonCode = UNAVAILABLE_REASON_CODE,
+                        reason = "governance evaluation unavailable: ${failure::class.simpleName}",
+                        outcome = BoundaryOutcome.REFUSED_GOVERNANCE_UNAVAILABLE,
+                    )
+                }
 
         return when (decision) {
             PolicyDecision.Allow -> {
@@ -97,12 +90,12 @@ class GovernedToolCallback(
     private fun contextFor(toolName: String): PolicyContext =
         PolicyContext(
             enforcementPoint = EnforcementPoint.BEFORE_TOOL_EXECUTION,
-            workflowRunId = identity.runId.value,
-            correlationId = correlationId,
-            actorId = actorId,
+            workflowRunId = context.runId,
+            correlationId = context.correlationId,
+            actorId = context.actorId,
             toolName = toolName,
-            toolSecurity = security,
-            policyVersion = policyVersion,
+            toolSecurity = context.security,
+            policyVersion = context.policyVersion,
         )
 
     private fun refusal(
@@ -116,8 +109,8 @@ class GovernedToolCallback(
             toolName = toolName,
             reasonCode = reasonCode,
             reason = reason,
-            correlationId = correlationId,
-            runId = identity.runId.value,
+            correlationId = context.correlationId,
+            runId = context.runId,
         ).toJson()
 
     internal companion object {

@@ -69,6 +69,13 @@ modules:
     publishability: excluded
     apiStability: excluded
 
+  - path: ":examples:spring-ai-authority-boundary"
+    <<: *example
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+    rationale: "Executable authority-boundary proof for checkpoint 0.7-XR1 (task 0.7-XR1-0001)."
+
   - path: ":examples:java-consumer-smoke"
     <<: *example
     layer: applications-examples

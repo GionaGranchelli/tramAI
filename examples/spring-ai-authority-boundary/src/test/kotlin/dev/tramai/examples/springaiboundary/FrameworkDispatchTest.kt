@@ -145,31 +145,34 @@ class FrameworkDispatchTest {
             delegate = tool,
             engine = engine,
             recorder = recorder,
-            identity =
-                GovernedRunIdentity(
-                    deployment =
-                        WorkloadDeploymentIdentity(
-                            workloadId = WorkloadId("workload-xr1"),
-                            configuration =
-                                WorkloadConfigurationIdentity(
-                                    id = ConfigurationId("configuration-xr1"),
-                                    version = ConfigurationVersion("v1"),
+            context =
+                BoundaryContext(
+                    identity =
+                        GovernedRunIdentity(
+                            deployment =
+                                WorkloadDeploymentIdentity(
+                                    workloadId = WorkloadId("workload-xr1"),
+                                    configuration =
+                                        WorkloadConfigurationIdentity(
+                                            id = ConfigurationId("configuration-xr1"),
+                                            version = ConfigurationVersion("v1"),
+                                        ),
+                                    environmentId = EnvironmentId("environment-local"),
+                                    deploymentId = DeploymentId("deployment-xr1-1"),
                                 ),
-                            environmentId = EnvironmentId("environment-local"),
-                            deploymentId = DeploymentId("deployment-xr1-1"),
+                            runId = RunId(runId),
                         ),
-                    runId = RunId(runId),
+                    security =
+                        ToolSecurityMetadata(
+                            permission = "ledger.append",
+                            risk = RiskLevel.LOW,
+                            approval = ApprovalMode.AUTO,
+                            managedNetworkEgress = ManagedNetworkEgress.ALLOW,
+                            audit = AuditDetail.DECISION_ONLY,
+                        ),
+                    policyVersion = "policy-xr1-v1",
+                    actorId = "spring-ai-workload",
+                    correlationId = correlationId,
                 ),
-            security =
-                ToolSecurityMetadata(
-                    permission = "ledger.append",
-                    risk = RiskLevel.LOW,
-                    approval = ApprovalMode.AUTO,
-                    managedNetworkEgress = ManagedNetworkEgress.ALLOW,
-                    audit = AuditDetail.DECISION_ONLY,
-                ),
-            policyVersion = "policy-xr1-v1",
-            actorId = "spring-ai-workload",
-            correlationId = correlationId,
         )
 }

@@ -54,7 +54,11 @@ class StubToolRequestingChatModel(
      * execution enabled, and a model that returns ordinary options is a model whose tools are never
      * dispatched. Measured here: without this override both dispatch proofs recorded zero decisions.
      */
-    override fun getDefaultOptions(): ChatOptions = ToolCallingChatOptions.builder().internalToolExecutionEnabled(true).build()
+    override fun getDefaultOptions(): ChatOptions =
+        ToolCallingChatOptions
+            .builder()
+            .internalToolExecutionEnabled(true)
+            .build()
 
     private companion object {
         const val CALL_ID = "call-xr1-1"

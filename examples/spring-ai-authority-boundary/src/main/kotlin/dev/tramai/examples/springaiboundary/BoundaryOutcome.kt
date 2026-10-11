@@ -1,5 +1,26 @@
 package dev.tramai.examples.springaiboundary
 
+import dev.tramai.core.identity.GovernedRunIdentity
+import dev.tramai.core.policy.ToolSecurityMetadata
+
+/**
+ * The governance inputs this boundary carries into every evaluation.
+ *
+ * Grouped rather than passed as five loose parameters: a caller cannot then supply the run identity
+ * without the policy version it is being decided under, and the adapter cannot drift from the identity
+ * the evidence is recorded against.
+ */
+data class BoundaryContext(
+    val identity: GovernedRunIdentity,
+    val security: ToolSecurityMetadata,
+    val policyVersion: String,
+    val actorId: String,
+    val correlationId: String,
+) {
+    /** The governed run id, never re-minted at the boundary. */
+    val runId: String get() = identity.runId.value
+}
+
 /**
  * The declared external boundary of XR1-0001.
  *

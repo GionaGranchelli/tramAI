@@ -32,9 +32,9 @@ import kotlin.test.assertTrue
 /**
  * Phase 5 — adversarial discriminators.
  *
- * A passing ALLOW/DENY pair demonstrates behaviour; it does not prove the invariants have teeth. Each
- * test here weakens the boundary in one specific, plausible way and asserts that the invariant the proofs
- * rely on **fails**. If a weakened boundary still satisfied the invariant, the corresponding proof in
+ * A passing ALLOW/DENY pair demonstrates behaviour; it does not prove the invariants have teeth. Each test
+ * here weakens the boundary in one specific, plausible way and asserts that the invariant the proofs rely
+ * on **fails**. If a weakened boundary still satisfied the invariant, the corresponding proof in
  * `GovernanceBoundaryTest` would be decorative.
  *
  * The weakened variants are test-only. No defective behaviour exists in production code, and the defect
@@ -112,66 +112,22 @@ class AdversarialDiscriminatorTest {
         engineThrows: Boolean = false,
     ): Outcome {
         val tool = SideEffectfulToolCallback()
-        val recorder =
-            BoundaryEvidenceRecorder(
-                auditEngine = AuditEngine(InMemoryAuditStore()),
-                runId = runId,
-                correlationId = correlationId,
-                actor = "spring-ai-workload",
-                policyVersion = "policy-xr1-v1",
-            )
-        val identity =
-            GovernedRunIdentity(
-                deployment =
-                    WorkloadDeploymentIdentity(
-                        workloadId = WorkloadId("workload-xr1"),
-                        configuration =
-                            WorkloadConfigurationIdentity(
-                                id = ConfigurationId("configuration-xr1"),
-                                version = ConfigurationVersion("v1"),
-                            ),
-                        environmentId = EnvironmentId("environment-local"),
-                        deploymentId = DeploymentId("deployment-xr1-1"),
-                    ),
-                runId = RunId(runId),
-            )
-        val security =
-            ToolSecurityMetadata(
-                permission = "ledger.append",
-                risk = RiskLevel.LOW,
-                approval = ApprovalMode.AUTO,
-                managedNetworkEgress = ManagedNetworkEgress.ALLOW,
-                audit = AuditDetail.DECISION_ONLY,
-            )
-        val engine: PolicyEngine = if (engineThrows) UnavailablePolicyEngine() else DefaultPolicyEngine(PolicyConfiguration())
-
+        val recorder = recorder()
+        val context = context()
+        val engine: PolicyEngine =
+            if (engineThrows) UnavailablePolicyEngine() else DefaultPolicyEngine(PolicyConfiguration())
         val boundary: ToolCallback =
             if (defect == null) {
-                GovernedToolCallback(
-                    delegate = tool,
-                    engine = engine,
-                    recorder = recorder,
-                    identity = identity,
-                    security = security,
-                    policyVersion = "policy-xr1-v1",
-                    actorId = "spring-ai-workload",
-                    correlationId = correlationId,
-                )
+                GovernedToolCallback(tool, engine, recorder, context)
             } else {
-                WeakenedBoundary(tool, engine, recorder, identity, security, correlationId, defect)
+                WeakenedBoundary(tool, engine, recorder, context, defect)
             }
 
-        var threw = false
-        var refusal: String? = null
-        try {
-            refusal = boundary.call("""{"value":"attempted"}""")
-        } catch (expected: Exception) {
-            threw = true
-        }
-
+        val attempt = attempt(boundary)
         val events = recorder.events()
+        val refusal = attempt.refusal
         val invariantsHold =
-            !threw &&
+            !attempt.threw &&
                 tool.invocations().isEmpty() &&
                 events.size == 1 &&
                 events.single().decision == "DENY" &&
@@ -180,7 +136,7 @@ class AdversarialDiscriminatorTest {
                 refusal.contains("\"runId\":\"$runId\"") &&
                 refusal.contains("\"correlationId\":\"$correlationId\"")
         val detail =
-            "ledger=${tool.invocations().size} events=${events.size} threw=$threw " +
+            "ledger=${tool.invocations().size} events=${events.size} threw=${attempt.threw} " +
                 "refusal=${refusal?.take(90)}"
         return Outcome(invariantsHold, tool.invocations().size, detail)
     }
@@ -191,9 +147,59 @@ class AdversarialDiscriminatorTest {
         val detail: String,
     )
 
+    private data class Attempt(
+        val threw: Boolean,
+        val refusal: String?,
+    )
+
+    private fun attempt(boundary: ToolCallback): Attempt =
+        try {
+            Attempt(threw = false, refusal = boundary.call("""{"value":"attempted"}"""))
+        } catch (expected: Exception) {
+            Attempt(threw = true, refusal = null)
+        }
+
+    private fun recorder(): BoundaryEvidenceRecorder =
+        BoundaryEvidenceRecorder(
+            auditEngine = AuditEngine(InMemoryAuditStore()),
+            runId = runId,
+            correlationId = correlationId,
+            actor = ACTOR,
+            policyVersion = POLICY_VERSION,
+        )
+
+    private fun context(): BoundaryContext =
+        BoundaryContext(
+            identity =
+                GovernedRunIdentity(
+                    deployment =
+                        WorkloadDeploymentIdentity(
+                            workloadId = WorkloadId("workload-xr1"),
+                            configuration =
+                                WorkloadConfigurationIdentity(
+                                    id = ConfigurationId("configuration-xr1"),
+                                    version = ConfigurationVersion("v1"),
+                                ),
+                            environmentId = EnvironmentId("environment-local"),
+                            deploymentId = DeploymentId("deployment-xr1-1"),
+                        ),
+                    runId = RunId(runId),
+                ),
+            security =
+                ToolSecurityMetadata(
+                    permission = "ledger.append",
+                    risk = RiskLevel.LOW,
+                    approval = ApprovalMode.AUTO,
+                    managedNetworkEgress = ManagedNetworkEgress.ALLOW,
+                    audit = AuditDetail.DECISION_ONLY,
+                ),
+            policyVersion = POLICY_VERSION,
+            actorId = ACTOR,
+            correlationId = correlationId,
+        )
+
     private class UnavailablePolicyEngine : PolicyEngine {
-        override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-            throw IllegalStateException("governance authority unavailable")
+        override suspend fun evaluate(context: PolicyContext): PolicyDecision = error("governance unavailable")
     }
 
     /** The plausible weakenings under test. */
@@ -206,16 +212,12 @@ class AdversarialDiscriminatorTest {
         RECORD_WITHOUT_ENFORCING,
     }
 
-    /**
-     * Test-only: the real boundary with exactly one defect injected.
-     */
+    /** Test-only: the real boundary with exactly one defect injected. */
     private class WeakenedBoundary(
         private val delegate: SideEffectfulToolCallback,
         private val engine: PolicyEngine,
         private val recorder: BoundaryEvidenceRecorder,
-        private val identity: GovernedRunIdentity,
-        private val security: ToolSecurityMetadata,
-        private val correlationId: String,
+        private val context: BoundaryContext,
         private val defect: Defect,
     ) : ToolCallback {
         override fun getToolDefinition(): ToolDefinition = delegate.toolDefinition
@@ -230,20 +232,16 @@ class AdversarialDiscriminatorTest {
                 }
 
                 Defect.FAIL_OPEN_ON_UNAVAILABLE -> {
-                    try {
-                        runBlocking { engine.evaluate(contextFor(toolName)) }
-                        delegate.call(toolInput)
-                    } catch (unavailable: Exception) {
-                        // The defect: an unreachable authority is read as permission.
-                        delegate.call(toolInput)
-                    }
+                    // The defect: the authority's failure is discarded and the action proceeds anyway.
+                    runCatching { runBlocking { engine.evaluate(contextFor(toolName)) } }
+                    delegate.call(toolInput)
                 }
 
                 Defect.THROW_RETRYABLE_REFUSAL -> {
                     runBlocking { engine.evaluate(contextFor(toolName)) }
                     recorder.recordRefusal(toolName, "unknown-tool")
                     // The defect: the refusal looks like a transient provider failure.
-                    throw IllegalStateException("tool execution failed, retry")
+                    error("tool execution failed, retry")
                 }
 
                 Defect.SECOND_POLICY_MODEL -> {
@@ -259,7 +257,7 @@ class AdversarialDiscriminatorTest {
                         toolName = toolName,
                         reasonCode = "unknown-tool",
                         reason = "denied",
-                        correlationId = correlationId,
+                        correlationId = context.correlationId,
                         runId = "run-generated-at-the-boundary",
                     ).toJson()
                 }
@@ -275,12 +273,18 @@ class AdversarialDiscriminatorTest {
         private fun contextFor(toolName: String): PolicyContext =
             PolicyContext(
                 enforcementPoint = EnforcementPoint.BEFORE_TOOL_EXECUTION,
-                workflowRunId = identity.runId.value,
-                correlationId = correlationId,
-                actorId = "spring-ai-workload",
+                workflowRunId = context.runId,
+                correlationId = context.correlationId,
+                actorId = context.actorId,
                 toolName = toolName,
-                toolSecurity = security,
-                policyVersion = "policy-xr1-v1",
+                toolSecurity = context.security,
+                policyVersion = context.policyVersion,
             )
+    }
+
+    private companion object {
+        const val ACTOR = "spring-ai-workload"
+
+        const val POLICY_VERSION = "policy-xr1-v1"
     }
 }
