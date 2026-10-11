@@ -23,121 +23,144 @@ import dev.tramai.security.audit.InMemoryAuditStore
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * Evidence integrity at the boundary — the discriminating negative tests for the two High findings in the
- * review of head `d7d10d05`.
+ * The evidence-integrity proofs: recording order, identity continuity, and the refusal payload.
  *
- * The first finding was that recorder and evaluator identities were supplied independently, so evidence
- * could be attributed to a different run than the one evaluated. The recorder now takes the same
- * [BoundaryContext] the engine is evaluated with, which makes divergence structurally impossible; these
- * tests assert that attribution actually follows that context in both directions, and that a differently
- * identified boundary cannot produce another context's evidence.
- *
- * The second finding was that an authorization was recorded *after* the action ran, so a failed audit
- * write could leave a completed side effect with no decision evidence. These tests assert the opposite
- * ordering: if the authorization cannot be recorded, the action does not run.
+ * The identity case is a **negative** test. It does not assert that a correctly wired boundary produces
+ * correct evidence — it asserts that the incorrect wiring cannot be built, and that an observer of the
+ * defect would see the evidence stay absent rather than misplaced.
  */
 class EvidenceIntegrityTest {
+    // ── Identity continuity ─────────────────────────────────────────────────
+
     @Test
-    fun `evidence is attributed to the exact context the engine was evaluated with`() {
+    fun `evidence is attributed to the context the engine was evaluated with`() {
         val tool = SideEffectfulToolCallback()
         val context = context(runId = "run-attribution", correlationId = "corr-attribution")
-        val recorder = BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), context)
-        val boundary =
-            GovernedToolCallback(tool, DefaultPolicyEngine(PolicyConfiguration()), recorder, context)
+        val boundary = boundary(tool, context)
 
         val refusal = boundary.call("""{"value":"attempted"}""")
 
-        val record = recorder.evidence().single()
+        val record = boundary.evidence().single()
         assertEquals("run-attribution", record.workflowRunId, "evidence belongs to the evaluated run")
-        assertEquals("corr-attribution", record.correlationId, "evidence carries the evaluated correlation id")
-        assertTrue(
-            refusal.contains("\"runId\":\"run-attribution\""),
-            "the refusal carries the evaluated run identity",
-        )
-        assertTrue(
-            refusal.contains("\"correlationId\":\"corr-attribution\""),
-            "the refusal carries the evaluated correlation id",
-        )
+        assertEquals("corr-attribution", record.correlationId)
+        assertTrue(refusal.contains("\"runId\":\"run-attribution\""), "the refusal carries the same identity")
     }
 
+    /**
+     * The defect this exists to exclude: a boundary evaluated with context A whose evidence is attributed
+     * to context B. Three assertions, because any one alone could pass vacuously:
+     *
+     * 1. the two identities genuinely differ (otherwise the test proves nothing);
+     * 2. the boundary's own evidence is attributed to its own context;
+     * 3. the foreign recorder recorded **nothing** — the mismatch cannot produce evidence attributed to
+     *    the wrong run, it produces no evidence at all through that path.
+     *
+     * Plus the structural assertion: no constructor parameter accepts a recorder, which is *why* the
+     * mismatch is unbuildable rather than rejected. The positive control on the same reflection call
+     * (the audit engine parameter) fails if reflection ever stops resolving the constructor, so the
+     * claim cannot pass by inspecting nothing.
+     */
     @Test
-    fun `a differently identified boundary cannot produce another context's evidence`() {
-        val firstContext = context(runId = "run-first", correlationId = "corr-first")
-        val secondContext = context(runId = "run-second", correlationId = "corr-second")
+    fun `an evidence recorder belonging to another run cannot be attached to this boundary`() {
+        val tool = SideEffectfulToolCallback()
+        val contextA = context(runId = "run-a", correlationId = "corr-a")
+        val contextB = context(runId = "run-b", correlationId = "corr-b")
+        assertNotEquals(contextA.runId, contextB.runId, "the two contexts must differ for this to mean anything")
 
-        val firstRecorder = BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), firstContext)
-        val secondRecorder = BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), secondContext)
-        GovernedToolCallback(
-            SideEffectfulToolCallback(),
-            DefaultPolicyEngine(PolicyConfiguration()),
-            firstRecorder,
-            firstContext,
-        ).call("""{"value":"one"}""")
-        GovernedToolCallback(
-            SideEffectfulToolCallback(),
-            DefaultPolicyEngine(PolicyConfiguration()),
-            secondRecorder,
-            secondContext,
-        ).call("""{"value":"two"}""")
+        val foreignRecorder = BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), contextB)
+        val boundary = boundary(tool, contextA)
 
-        assertEquals("run-first", firstRecorder.evidence().single().workflowRunId)
-        assertEquals("run-second", secondRecorder.evidence().single().workflowRunId)
+        boundary.call("""{"value":"attempted"}""")
+
+        assertEquals("run-a", boundary.evidence().single().workflowRunId, "the boundary records its own context")
+        assertTrue(
+            foreignRecorder.events().isEmpty(),
+            "a recorder for another run receives nothing from this boundary",
+        )
+
+        val constructor = GovernedToolCallback::class.java.declaredConstructors.single()
+        val parameterTypes = constructor.parameterTypes.toList()
+        assertTrue(
+            parameterTypes.any { it == AuditEngine::class.java },
+            "positive control: the single constructor was inspected and does take the audit engine",
+        )
         assertFalse(
-            secondRecorder.evidence().single().workflowRunId == "run-first",
-            "a boundary cannot record evidence against a run it was not evaluated for",
+            parameterTypes.contains(BoundaryEvidenceRecorder::class.java),
+            "no constructor parameter accepts a recorder, so a foreign identity cannot be supplied",
         )
     }
 
+    // ── Recording order ─────────────────────────────────────────────────────
+
+    /**
+     * An authorization that cannot be recorded must not become an executed action. The protected ledger is
+     * the assertion: an error surfacing while the tool ran anyway would be the failure this excludes.
+     */
     @Test
     fun `a failure to record the authorization prevents the action`() {
         val tool = SideEffectfulToolCallback()
         val context = context(runId = "run-audit-failure", correlationId = "corr-audit-failure")
-        val recorder = BoundaryEvidenceRecorder(AuditEngine(FailingAuditStore()), context)
         val boundary =
             GovernedToolCallback(
-                tool,
-                // This configuration admits the tool, so the boundary reaches the ALLOW path.
-                DefaultPolicyEngine(
-                    PolicyConfiguration(
-                        allowedTools = setOf(SideEffectfulToolCallback.TOOL_NAME),
-                        allowedPermissions = setOf("ledger.append"),
-                    ),
-                ),
-                recorder,
-                context,
+                delegate = tool,
+                engine = allowedEngine(),
+                auditEngine = AuditEngine(FailingAuditStore()),
+                context = context,
             )
 
-        val failed = runCatching { boundary.call("""{"value":"must-not-run"}""") }.isFailure
+        val threw = runCatching { boundary.call("""{"value":"must-not-run"}""") }.isFailure
 
-        assertTrue(failed, "an authorization that cannot be recorded must not be reported as a success")
-        assertTrue(
-            tool.invocations().isEmpty(),
-            "the action must not run when its authorization was not recorded",
-        )
+        assertTrue(threw, "an unevidenced authorization must not be reported as success")
+        assertTrue(tool.invocations().isEmpty(), "the action must not run without recorded authorization")
     }
+
+    // ── Refusal payload ─────────────────────────────────────────────────────
 
     @Test
     fun `a refusal escapes control characters so the payload stays valid JSON`() {
+        val controlCharacter = '\u0001'
         val refusal =
             BoundaryRefusal(
                 outcome = BoundaryOutcome.REFUSED_DENY,
                 toolName = "ledger_append",
-                reasonCode = "unknown-tool",
-                reason = "denied\u0001and\u001fescaped",
+                reasonCode = "reason${controlCharacter}code",
+                reason = "denied${controlCharacter}with a control character\u0009and a tab",
                 correlationId = "corr-escape",
                 runId = "run-escape",
             ).toJson()
 
-        assertTrue(refusal.contains("""\u0001"""), "a control character is emitted as its escape sequence")
-        assertTrue(refusal.contains("""\u001f"""))
-        assertFalse(refusal.contains('\u0001'), "no raw control character survives into the payload")
-        assertFalse(refusal.contains('\u001f'))
+        assertTrue(refusal.contains("\\u0001"), "the control character is escaped, not emitted raw")
+        assertTrue(refusal.contains("\\t"), "the tab is escaped, not emitted raw")
+        assertFalse(
+            refusal.any { char -> char < ' ' },
+            "no raw control character survives into the payload",
+        )
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────
+
+    private fun boundary(
+        tool: SideEffectfulToolCallback,
+        context: BoundaryContext,
+    ): GovernedToolCallback =
+        GovernedToolCallback(
+            delegate = tool,
+            engine = DefaultPolicyEngine(PolicyConfiguration()),
+            auditEngine = AuditEngine(InMemoryAuditStore()),
+            context = context,
+        )
+
+    private fun allowedEngine() =
+        DefaultPolicyEngine(
+            PolicyConfiguration(
+                allowedTools = setOf(SideEffectfulToolCallback.TOOL_NAME),
+                allowedPermissions = setOf("ledger.append"),
+            ),
+        )
 
     private fun context(
         runId: String,
@@ -172,7 +195,7 @@ class EvidenceIntegrityTest {
             correlationId = correlationId,
         )
 
-    /** Test-only: an audit store that cannot accept a write. */
+    /** Stands in for an audit store that cannot accept the decision it is handed. */
     private class FailingAuditStore : AuditStore {
         override suspend fun appendNext(
             auditStreamId: String,

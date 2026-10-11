@@ -33,6 +33,10 @@ import kotlin.test.assertTrue
  * These are the discriminators for ALLOW, DENY and governance-unavailable. Each one fails if the
  * boundary stops preventing the operation: the side-effect ledger is inspected in every case, so an
  * implementation that merely observed the call would not fill it and a test cannot pass by accident.
+ *
+ * Evidence is read from the boundary under test, never from a recorder the test built for itself. A
+ * separately built recorder would let this suite pass while the production wiring attributed evidence to
+ * a different context — which is precisely the defect these proofs have to be able to detect.
  */
 class GovernanceBoundaryTest {
     private val runId = "run-xr1-0001"
@@ -44,14 +48,13 @@ class GovernanceBoundaryTest {
     @Test
     fun `an allowed action executes exactly once and correlates to the authoritative decision`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
-        val boundary = boundary(tool, allowedEngine(), recorder)
+        val boundary = boundary(tool, allowedEngine())
 
         val result = boundary.call("""{"value":"first"}""")
 
         assertEquals(listOf("""{"value":"first"}"""), tool.invocations(), "the action ran exactly once")
         assertTrue(result.contains("\"applied\":true"), "the tool's own result is returned")
-        val evidence = recorder.evidence()
+        val evidence = boundary.evidence()
         assertEquals(1, evidence.size, "one decision was recorded")
         assertEquals("ALLOW", evidence.single().decision.kind, "the recorded decision is the authoritative one")
     }
@@ -61,9 +64,8 @@ class GovernanceBoundaryTest {
     @Test
     fun `a denied action is never invoked and returns a structured refusal`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
         // Deny-by-default: the tool is simply not in the allowed set.
-        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()), recorder)
+        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()))
 
         val result = boundary.call("""{"value":"forbidden"}""")
 
@@ -71,7 +73,7 @@ class GovernanceBoundaryTest {
         assertTrue(result.contains("\"governanceOutcome\":\"REFUSED_DENY\""), "a structured refusal is returned")
         assertTrue(result.contains("\"executed\":false"), "the refusal does not claim execution")
         assertTrue(result.contains("\"reasonCode\":\"unknown-tool\""), "the engine's own reason code is carried")
-        val evidence = recorder.evidence()
+        val evidence = boundary.evidence()
         assertEquals("DENY", evidence.single().decision.kind, "the refusal is recorded as a denial")
         assertEquals("unknown-tool", evidence.single().decision.reasonCode)
     }
@@ -81,8 +83,7 @@ class GovernanceBoundaryTest {
     @Test
     fun `an unavailable authority prevents execution and is never read as permission`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
-        val boundary = boundary(tool, UnavailablePolicyEngine(), recorder)
+        val boundary = boundary(tool, UnavailablePolicyEngine())
 
         val result = boundary.call("""{"value":"unreachable"}""")
 
@@ -93,7 +94,7 @@ class GovernanceBoundaryTest {
         )
         assertEquals(
             "governance-unavailable",
-            recorder
+            boundary
                 .evidence()
                 .single()
                 .decision.reasonCode,
@@ -105,7 +106,7 @@ class GovernanceBoundaryTest {
 
     @Test
     fun `both tool callback overloads are governed so neither is a bypass`() {
-        val boundary = boundary(SideEffectfulToolCallback(), allowedEngine(), recorder())
+        val boundary = boundary(SideEffectfulToolCallback(), allowedEngine())
 
         val single = GovernedToolCallback::class.java.getMethod("call", String::class.java)
         val withContext =
@@ -124,8 +125,7 @@ class GovernanceBoundaryTest {
     @Test
     fun `the governed run identity and the caller correlation survive the boundary`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
-        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()), recorder)
+        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()))
 
         val result = boundary.call("""{"value":"denied"}""")
 
@@ -134,7 +134,7 @@ class GovernanceBoundaryTest {
             result.contains("\"correlationId\":\"$correlationId\""),
             "the refusal carries the caller's correlation id, not a generated one",
         )
-        val record = recorder.evidence().single()
+        val record = boundary.evidence().single()
         assertEquals(runId, record.workflowRunId, "evidence is attributed to the governed run")
         assertEquals(correlationId, record.correlationId, "evidence carries the caller's correlation id")
         assertEquals(
@@ -147,10 +147,10 @@ class GovernanceBoundaryTest {
 
     @Test
     fun `evidence identifies this boundary and is exported through the repository schema`() {
-        val recorder = recorder()
-        boundary(SideEffectfulToolCallback(), allowedEngine(), recorder).call("""{"value":"ok"}""")
+        val boundary = boundary(SideEffectfulToolCallback(), allowedEngine())
+        boundary.call("""{"value":"ok"}""")
 
-        val record = recorder.evidence().single()
+        val record = boundary.evidence().single()
 
         assertEquals("ledger_append", record.metadata["toolName"], "the governed operation is named")
         assertTrue(record.source.component.isNotBlank(), "provenance names the emitting component")
@@ -165,7 +165,6 @@ class GovernanceBoundaryTest {
     @Test
     fun `an action requiring approval cannot execute without one`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
         // This configuration requires human approval at the tool's risk level, and no approval exists.
         val engine =
             DefaultPolicyEngine(
@@ -175,7 +174,7 @@ class GovernanceBoundaryTest {
                     requireApprovalForRiskLevel = setOf(RiskLevel.LOW),
                 ),
             )
-        val boundary = boundary(tool, engine, recorder)
+        val boundary = boundary(tool, engine)
 
         val result = boundary.call("""{"value":"needs-approval"}""")
 
@@ -186,24 +185,30 @@ class GovernanceBoundaryTest {
         )
         assertEquals(
             "REQUIRE_APPROVAL",
-            recorder.events().single().decision,
+            boundary.events().single().decision,
             "the suspension requirement is on the evidence",
         )
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────
 
-    private fun recorder(): BoundaryEvidenceRecorder {
-        // Block body on purpose: a single-expression body is collapsed back onto one line by
-        // spotlessApply, and the collapsed line exceeds the static-analysis ceiling.
-        return BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), boundaryContext())
-    }
-
     /**
-     * One source of governance identity for both the evaluation and the evidence: the recorder is built
-     * from the same context the engine is evaluated with, so evidence cannot be attributed to a different
-     * run, actor, policy version or correlation than the one that was actually decided.
+     * The production wiring shape: the boundary is handed its audit engine and *one* context, and builds
+     * its own recorder from that context. The test cannot give it a recorder, so the test cannot mask a
+     * divergence between the identity evaluated and the identity recorded.
      */
+    private fun boundary(
+        tool: SideEffectfulToolCallback,
+        engine: PolicyEngine,
+    ): GovernedToolCallback =
+        GovernedToolCallback(
+            delegate = tool,
+            engine = engine,
+            auditEngine = AuditEngine(InMemoryAuditStore()),
+            context = boundaryContext(),
+        )
+
+    /** The single governance identity used by this wiring. */
     private fun boundaryContext(): BoundaryContext =
         BoundaryContext(
             identity =
@@ -235,18 +240,6 @@ class GovernanceBoundaryTest {
                 allowedPermissions = setOf(TOOL_PERMISSION),
                 requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
             ),
-        )
-
-    private fun boundary(
-        tool: SideEffectfulToolCallback,
-        engine: PolicyEngine,
-        recorder: BoundaryEvidenceRecorder,
-    ): GovernedToolCallback =
-        GovernedToolCallback(
-            delegate = tool,
-            engine = engine,
-            recorder = recorder,
-            context = boundaryContext(),
         )
 
     private fun toolSecurity(): ToolSecurityMetadata =

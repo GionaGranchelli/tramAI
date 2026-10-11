@@ -15,10 +15,10 @@ internal const val BOUNDARY_ENFORCEMENT_POINT = "BEFORE_TOOL_EXECUTION"
  * Records what this boundary decided and whether the operation ran, through the repository's existing
  * audit chain and its existing `tool.permission` evidence exporter.
  *
- * The recorded identity is taken from the same [BoundaryContext] the engine is evaluated with, not
- * supplied separately. Evidence therefore cannot be attributed to a different run, actor, policy version
- * or correlation than the one that was actually decided — the divergence is structurally impossible rather
- * than checked for.
+ * The recorded identity comes from one [BoundaryContext] per wiring. This class alone cannot prevent a
+ * caller from building it around a second context; the guarantee is a property of the wiring, and it is
+ * held by [GovernedToolCallback], which constructs its recorder from its own context so that no parameter
+ * exists through which a foreign identity could arrive.
  *
  * What this evidence does *and does not* mean:
  * - it identifies the enforcement point, the tool, the decision and its reason code;

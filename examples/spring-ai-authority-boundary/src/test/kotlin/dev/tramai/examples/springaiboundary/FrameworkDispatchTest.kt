@@ -20,6 +20,7 @@ import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.InMemoryAuditStore
 import org.junit.jupiter.api.Test
+import org.springframework.ai.chat.messages.Message
 import org.springframework.ai.chat.messages.ToolResponseMessage
 import org.springframework.ai.chat.messages.UserMessage
 import org.springframework.ai.chat.prompt.Prompt
@@ -56,17 +57,16 @@ class FrameworkDispatchTest {
     @Test
     fun `a denied tool is prevented on the framework dispatch path`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
-        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()), recorder)
+        val boundary = boundary(tool, DefaultPolicyEngine(PolicyConfiguration()))
 
         val history = dispatch(boundary)
 
         assertTrue(tool.invocations().isEmpty(), "the framework's dispatch was prevented, not merely observed")
-        assertEquals(1, recorder.events().size, "exactly one authoritative decision was made")
-        assertEquals("DENY", recorder.events().single().decision, "the framework path consulted the engine")
+        assertEquals(1, boundary.events().size, "exactly one authoritative decision was made")
+        assertEquals("DENY", boundary.events().single().decision, "the framework path consulted the engine")
         assertEquals(
             "unknown-tool",
-            recorder.events().single().reasonCode,
+            boundary.events().single().reasonCode,
             "the engine's own reason code reached the evidence",
         )
         val toolResults = history.filterIsInstance<ToolResponseMessage>().flatMap { it.responses }
@@ -80,13 +80,12 @@ class FrameworkDispatchTest {
     @Test
     fun `an allowed tool executes exactly once on the framework dispatch path`() {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
-        val boundary = boundary(tool, allowedEngine(), recorder)
+        val boundary = boundary(tool, allowedEngine())
 
         val history = dispatch(boundary)
 
         assertEquals(1, tool.invocations().size, "the permitted action ran exactly once")
-        assertEquals("ALLOW", recorder.events().single().decision, "the authorization is on the evidence")
+        assertEquals("ALLOW", boundary.events().single().decision, "the authorization is on the evidence")
         val toolResults = history.filterIsInstance<ToolResponseMessage>().flatMap { it.responses }
         assertTrue(
             toolResults.any { it.responseData().contains("\"applied\":true") },
@@ -98,7 +97,7 @@ class FrameworkDispatchTest {
      * The full framework path: the model proposes an action, Spring AI resolves and dispatches it, and the
      * conversation history is what the framework produced.
      */
-    private fun dispatch(boundary: GovernedToolCallback): List<org.springframework.ai.chat.messages.Message> {
+    private fun dispatch(boundary: GovernedToolCallback): List<Message> {
         val options =
             ToolCallingChatOptions
                 .builder()
@@ -122,13 +121,22 @@ class FrameworkDispatchTest {
 
     // ── fixtures ────────────────────────────────────────────────────────────
 
-    private fun recorder(): BoundaryEvidenceRecorder {
-        // Block body on purpose: a single-expression body is collapsed back onto one line by
-        // spotlessApply, and the collapsed line exceeds the static-analysis ceiling.
-        return BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), boundaryContext())
-    }
+    /**
+     * The production wiring shape: audit engine plus one context, with the recorder built inside the
+     * boundary. This suite cannot supply a recorder, so it cannot mask an identity divergence.
+     */
+    private fun boundary(
+        tool: SideEffectfulToolCallback,
+        engine: PolicyEngine,
+    ): GovernedToolCallback =
+        GovernedToolCallback(
+            delegate = tool,
+            engine = engine,
+            auditEngine = AuditEngine(InMemoryAuditStore()),
+            context = boundaryContext(),
+        )
 
-    /** One source of governance identity for the evaluation and for the evidence recorded about it. */
+    /** The single governance identity used by this wiring. */
     private fun boundaryContext(): BoundaryContext =
         BoundaryContext(
             identity =
@@ -164,17 +172,5 @@ class FrameworkDispatchTest {
     private fun allowedEngine(): PolicyEngine =
         DefaultPolicyEngine(
             PolicyConfiguration(allowedTools = setOf(toolName), allowedPermissions = setOf("ledger.append")),
-        )
-
-    private fun boundary(
-        tool: SideEffectfulToolCallback,
-        engine: PolicyEngine,
-        recorder: BoundaryEvidenceRecorder,
-    ): GovernedToolCallback =
-        GovernedToolCallback(
-            delegate = tool,
-            engine = engine,
-            recorder = recorder,
-            context = boundaryContext(),
         )
 }

@@ -4,6 +4,9 @@ import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.AuditEvent
+import dev.tramai.security.evidence.RuntimeEvidenceRecord
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.springframework.ai.chat.model.ToolContext
@@ -24,9 +27,22 @@ import org.springframework.ai.tool.definition.ToolDefinition
 class GovernedToolCallback(
     private val delegate: ToolCallback,
     private val engine: PolicyEngine,
-    private val recorder: BoundaryEvidenceRecorder,
+    auditEngine: AuditEngine,
     private val context: BoundaryContext,
 ) : ToolCallback {
+    /**
+     * Built here, from this boundary's own context, so the wiring holds exactly one context. Evaluation,
+     * refusal and evidence therefore all carry the same identity — not because a mismatch is checked for,
+     * but because there is no parameter through which a different one could arrive.
+     */
+    private val recorder = BoundaryEvidenceRecorder(auditEngine, context)
+
+    /** The evidence this boundary recorded. The recorder is deliberately not injectable. */
+    fun evidence(): List<RuntimeEvidenceRecord> = recorder.evidence()
+
+    /** The events this boundary recorded, for assertions about count and order. */
+    fun events(): List<AuditEvent> = recorder.events()
+
     override fun getToolDefinition(): ToolDefinition = delegate.toolDefinition
 
     override fun call(toolInput: String): String = govern(toolInput) { delegate.call(it) }

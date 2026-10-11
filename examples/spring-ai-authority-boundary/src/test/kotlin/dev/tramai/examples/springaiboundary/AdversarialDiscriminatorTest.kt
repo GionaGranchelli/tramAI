@@ -21,6 +21,7 @@ import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.InMemoryAuditStore
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -112,19 +113,26 @@ class AdversarialDiscriminatorTest {
         engineThrows: Boolean = false,
     ): Outcome {
         val tool = SideEffectfulToolCallback()
-        val recorder = recorder()
         val context = context()
+        // The real boundary builds its own recorder from this context; a weakened variant borrows one built
+        // from the same context, because each variant simulates a specific defect, not an identity split.
+        val auditEngine = AuditEngine(InMemoryAuditStore())
+        val recorder = recorder()
         val engine: PolicyEngine =
             if (engineThrows) UnavailablePolicyEngine() else DefaultPolicyEngine(PolicyConfiguration())
-        val boundary: ToolCallback =
-            if (defect == null) {
-                GovernedToolCallback(tool, engine, recorder, context)
-            } else {
-                WeakenedBoundary(tool, engine, recorder, context, defect)
-            }
+        val boundary: ToolCallback
+        val recordedEvents: () -> List<AuditEvent>
+        if (defect == null) {
+            val governed = GovernedToolCallback(tool, engine, auditEngine, context)
+            boundary = governed
+            recordedEvents = { governed.events() }
+        } else {
+            boundary = WeakenedBoundary(tool, engine, recorder, context, defect)
+            recordedEvents = { recorder.events() }
+        }
 
         val attempt = attempt(boundary)
-        val events = recorder.events()
+        val events = recordedEvents()
         val refusal = attempt.refusal
         val invariantsHold =
             !attempt.threw &&

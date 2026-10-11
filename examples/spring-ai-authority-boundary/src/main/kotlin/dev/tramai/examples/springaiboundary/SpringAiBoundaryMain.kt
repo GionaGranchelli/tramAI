@@ -63,12 +63,12 @@ object SpringAiBoundaryMain {
     ) {
         val tool = SideEffectfulToolCallback()
         val context = context()
-        val recorder = BoundaryEvidenceRecorder(AuditEngine(InMemoryAuditStore()), context)
+        val auditEngine = AuditEngine(InMemoryAuditStore())
         val boundary =
             GovernedToolCallback(
                 delegate = tool,
                 engine = DefaultPolicyEngine(policy),
-                recorder = recorder,
+                auditEngine = auditEngine,
                 context = context,
             )
         val model = StubToolRequestingChatModel(SideEffectfulToolCallback.TOOL_NAME, """{"value":"from-the-model"}""")
@@ -83,7 +83,7 @@ object SpringAiBoundaryMain {
         println()
         println("── $label")
         val execution = ToolCallingManager.builder().build().executeToolCalls(prompt, model.call(prompt))
-        val recorded = recorder.events().single()
+        val recorded = boundary.events().single()
 
         println("   model proposed: ${SideEffectfulToolCallback.TOOL_NAME}")
         println("   TramAI decided: ${recorded.decision} (${recorded.reasonCode ?: "no reason code"})")
@@ -93,7 +93,7 @@ object SpringAiBoundaryMain {
             .filterIsInstance<ToolResponseMessage>()
             .flatMap { it.responses }
             .forEach { response -> println("   framework recorded as the tool result: ${response.responseData()}") }
-        println("   evidence: ${recorder.evidence().size} record(s) through the tool.permission exporter")
+        println("   evidence: ${boundary.evidence().size} record(s) through the tool.permission exporter")
     }
 
     private fun context(): BoundaryContext =
