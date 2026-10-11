@@ -1,0 +1,179 @@
+stdlib=/home/gionag/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.3.21/a2ee2c4e220fee522f0451b723bab2a43f3481a7/kotlin-stdlib-2.3.21.jar
+coroutines=/home/gionag/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm/1.9.0/9beade4c1c1569e4f36cbd2c37e02e3e41502601/kotlinx-coroutines-core-jvm-1.9.0.jar
+Preparing worktree (detached HEAD 6e1d4a1e)
+HEAD is now at 6e1d4a1e Merge pull request #516 from GionaGranchelli/task/0.7.4a-governance-evidence-audit
+base worktree HEAD=6e1d4a1e8cbab8f5561f1cd372be9d4efb995938
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin FROM-CACHE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors
+> Task :build-logic:processResources
+> Task :build-logic:classes
+> Task :build-logic:jar
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:compileKotlin FROM-CACHE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar
+
+BUILD SUCCESSFUL in 2s
+6 actionable tasks: 4 executed, 2 from cache
+EXIT[base :tramai-core:jar]=0
+base jar: /home/gionag/tmp/bincompat2/base/tramai-core/build/libs/tramai-core-0.7.0-SNAPSHOT.jar
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:compileKotlin UP-TO-DATE
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:processResources NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar UP-TO-DATE
+
+> Task :tramai-core:compileTestKotlin
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:126:24 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:132:27 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:132:36 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:141:24 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:147:13 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserverTest.kt:147:22 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:67:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:83:9 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:90:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:100:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:112:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:125:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:138:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderHttpResponseTest.kt:148:21 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:15:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:16:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:17:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:22:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:27:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:32:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:40:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:45:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:46:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:47:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:48:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:49:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:54:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:59:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderRetryAfterTest.kt:60:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:28:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:34:13 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:40:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:41:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:46:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:47:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:53:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:54:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:55:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:60:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:61:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:62:20 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:68:17 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tmp/bincompat2/base/tramai-core/src/test/kotlin/dev/tramai/core/provider/transport/ProviderSseTest.kt:78:38 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+
+BUILD SUCCESSFUL in 6s
+7 actionable tasks: 1 executed, 6 up-to-date
+EXIT[base kotlin consumer compile]=0
+kotlin consumer classes: 1
+EXIT[javac against base jar]=0
+java consumer classes: 1
+--- CONTROL tramai-core-0.7.0-SNAPSHOT.jar
+OK    constructor/named-args
+OK    constructor/positional-16
+OK    copy/all-args
+OK    copy/named-args(copy$default)
+OK    destructuring/componentN
+OK    getters/sample
+OK    data-class/equals-hashCode-toString
+INFO  jvm-constructor-arity=[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18]
+OK    reflection/copy-16arg-descriptor
+OK    reflection/component16-descriptor
+KOTLIN_EXIT=0
+OK    java/constructor-4-args
+OK    java/constructor-16-args
+OK    java/getters
+OK    java/data-class-methods
+JAVA_EXIT=0
+
+> Configure project :build-logic
+WARNING: Unsupported Kotlin plugin version.
+The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin `2.2.0` that might work differently than in the requested version `2.3.0`.
+
+> Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :build-logic:compileKotlin UP-TO-DATE
+> Task :build-logic:compileJava NO-SOURCE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+compiler-warnings: no delta property at configuration time — wiring all compile tasks (fail-closed)
+compiler-warnings: collected 110 compile units, 242/244 compile tasks wired for verify
+dependency-hygiene: collected 58 module units
+> Task :tramai-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tramai-core:processResources NO-SOURCE
+
+> Task :tramai-core:compileKotlin
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:67:27 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:78:13 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:78:40 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:83:29 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:83:54 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:83:72 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:122:13 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:122:40 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:127:29 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:127:54 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/observation/FailureIsolatingOperationObserver.kt:127:72 Tramai secondary-failure machinery is internal implementation API for cross-module composition, not application-facing API. It may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderFailures.kt:102:28 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+w: file:///home/gionag/tramai-audit-074/tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderFailures.kt:197:28 Tramai provider-transport utilities are internal implementation API for the built-in provider adapters, not application-facing API. They may change or move in any release.
+
+> Task :tramai-core:compileJava NO-SOURCE
+> Task :tramai-core:classes UP-TO-DATE
+> Task :tramai-core:jar
+
+BUILD SUCCESSFUL in 5s
+6 actionable tasks: 2 executed, 4 up-to-date
+EXIT[candidate :tramai-core:jar]=0
+candidate jar: /home/gionag/tramai-audit-074/tramai-core/build/libs/tramai-core-0.7.0-SNAPSHOT.jar
+--- TEST tramai-core-0.7.0-SNAPSHOT.jar
+FAIL  constructor/named-args -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+OK    constructor/positional-16
+FAIL  copy/all-args -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  copy/named-args(copy$default) -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  destructuring/componentN -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  getters/sample -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+FAIL  data-class/equals-hashCode-toString -> java.lang.NoSuchMethodError: 'void dev.tramai.core.policy.PolicyContext.<init>(dev.tramai.core.policy.EnforcementPoint, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, dev.tramai.core.policy.DataClassification, dev.tramai.core.policy.ClassificationSource, java.lang.String, dev.tramai.core.policy.ToolSecurityMetadata, java.lang.String, java.lang.String, java.lang.String, java.util.Map, int, kotlin.jvm.internal.DefaultConstructorMarker)'
+INFO  jvm-constructor-arity=[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19]
+FAIL  reflection/copy-16arg-descriptor -> java.lang.NoSuchMethodException: dev.tramai.core.policy.PolicyContext.copy(dev.tramai.core.policy.EnforcementPoint,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,dev.tramai.core.policy.DataClassification,dev.tramai.core.policy.ClassificationSource,java.lang.String,dev.tramai.core.policy.ToolSecurityMetadata,java.lang.String,java.lang.String,java.lang.String,java.util.Map)
+OK    reflection/component16-descriptor
+KOTLIN_EXIT=0
+OK    java/constructor-4-args
+OK    java/constructor-16-args
+OK    java/getters
+OK    java/data-class-methods
+JAVA_EXIT=0
