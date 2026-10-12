@@ -108,8 +108,13 @@ jobs:
           # epic-targeted slice (where this policy actually drifts) they never ran. They are pure
           # dump/policy logic, so they belong in this JDK 25 matrix like the other partitions.
           - name: ci-wiring
-            test-filter: "--tests 'dev.tramai.build.quality.TestsWatchdogWiringTest'"
-            expected: 6
+            # 0.7.4b-CI-0001: MergeGateVerifierTest joins this lane instead of taking a new matrix
+            # entry. ci-wiring is already a required check identity in MergeGateVerifier, so reusing it
+            # enforces the regression suite without changing the required-check contract or the
+            # verifier implementation. Measured locally under the same JDK 25 the lane uses, with both
+            # classes selected: 6 + 38 = 44, all zero failures/errors/skipped.
+            test-filter: "--tests 'dev.tramai.build.quality.TestsWatchdogWiringTest' --tests 'dev.tramai.build.quality.MergeGateVerifierTest'"
+            expected: 44
           - name: api-compatibility
             test-filter: "--tests 'dev.tramai.build.quality.ApiCompatibilityMutationTest' --tests 'dev.tramai.build.quality.ApiBaselineVerifierTest' --tests 'dev.tramai.build.quality.ApiStabilityPolicyTest'"
             expected: 67
@@ -133,6 +138,44 @@ jobs:
         timeout-minutes: 30
         run: |
           ./gradlew :build-logic:test ${{ matrix.test-filter }} --no-daemon
+          # Class-specific enrollment check, deliberately BEFORE the aggregate below. If the class is
+          # dropped from the filter both assertions are false, and a step cannot report past its first
+          # failure -- so the class check must fire first for that negative test to fail for its
+          # intended reason rather than being masked by the count.
+          if [ "${{ matrix.name }}" = "ci-wiring" ]; then
+          python3 - <<'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+          # Non-vacuity: an aggregate count cannot tell "the 38 enrolled tests passed" from "38 other
+          # tests passed". Read this class's own report and hold it to the exact contract, so a
+          # selection that runs zero of them can never produce a successful enrollment verdict.
+          #
+          # Indentation note: this block stays at the run-block's base indent so the heredoc body and
+          # its terminator land at column 0 after YAML strips the block indent. Indenting it further
+          # (e.g. to nest it under the if) breaks the terminator and python's indentation together.
+          CLS = 'dev.tramai.build.quality.MergeGateVerifierTest'
+          EXPECTED = 38
+          paths = glob.glob(f'build-logic/build/test-results/test/TEST-{CLS}.xml')
+          if len(paths) != 1:
+              sys.exit(f'enrollment: expected exactly 1 report for {CLS}, found {len(paths)}; '
+                       f'the class was not selected or did not execute')
+          try:
+              suite = ET.parse(paths[0]).getroot()
+          except ET.ParseError as exc:
+              sys.exit(f'enrollment: malformed report for {CLS}: {exc}')
+          if suite.get('name') != CLS:
+              sys.exit(f'enrollment: report names {suite.get("name")!r}, not {CLS}')
+          got = {k: int(suite.get(k, -1)) for k in ('tests', 'failures', 'errors', 'skipped')}
+          bad = []
+          if got['tests'] != EXPECTED:
+              bad.append(f"ran {got['tests']} tests, expected exactly {EXPECTED}")
+          for key in ('failures', 'errors', 'skipped'):
+              if got[key] != 0:
+                  bad.append(f"{got[key]} {key}")
+          if bad:
+              sys.exit('enrollment failed for ' + CLS + ': ' + '; '.join(bad))
+          print(f'{CLS} enrolled and non-vacuous: {got["tests"]} tests, 0 failures, 0 errors, 0 skipped')
+          EOF
+          fi
           python3 - <<'EOF'
           import glob, re
           total = 0
@@ -141,6 +184,16 @@ jobs:
               total += int(m.group(1)) if m else 0
           assert total == ${{ matrix.expected }}, f'expected exactly ${{ matrix.expected }} ${{ matrix.name }} contract tests, discovered {total}'
           EOF
+
+      - name: Upload ${{ matrix.name }} contract test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-tests-${{ matrix.name }}-reports
+          path: |
+            build-logic/build/test-results/test/
+            build-logic/build/reports/tests/test/
+          if-no-files-found: warn
 
   tests:
     runs-on: ubuntu-latest
