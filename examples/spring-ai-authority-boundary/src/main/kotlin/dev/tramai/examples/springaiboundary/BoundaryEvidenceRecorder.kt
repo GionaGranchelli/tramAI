@@ -75,7 +75,10 @@ class BoundaryEvidenceRecorder(
                         policyVersion = context.policyVersion,
                         workflowDigest = null,
                         reasonCode = reasonCode,
-                        // Only allowlisted metadata keys: the exporter fails closed on anything else.
+                        // Only allowlisted metadata keys. The exporter FILTERS unrecognised keys out and
+                        // fails closed only for a missing required toolName
+                        // (ToolPermissionRuntimeEvidenceExporter: :62 filters, :53-56 requires). Nothing
+                        // may rely on an unrecognised key being rejected.
                         metadata = mapOf("toolName" to toolName, "enforcementPoint" to BOUNDARY_ENFORCEMENT_POINT),
                     ),
                 )
